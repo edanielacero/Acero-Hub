@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "starting|compiling",
+          "endsPattern": "Ready in|compiled"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Abrir Acero Hub",
+      "dependsOn": "dev",
+      "command": "${input:openBrowser}",
+      "type": "shell"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "openBrowser",
+      "type": "command",
+      "command": "simpleBrowser.show",
+      "args": "http://localhost:3000"
+    }
+  ]
+}
