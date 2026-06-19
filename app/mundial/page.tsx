@@ -60,9 +60,9 @@ function formatDate(d: string) {
 
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
-function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, onBetPlaced }: {
+function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, isNext, onBetPlaced }: {
   match: Match; myBet?: Bet; allBets: Bet[]; profiles: Profile[]
-  token: string; qrUrl: string | null; betAmount: number; pot: number; carryoverPart?: number; onBetPlaced: () => void
+  token: string; qrUrl: string | null; betAmount: number; pot: number; carryoverPart?: number; isNext?: boolean; onBetPlaced: () => void
 }) {
   const [home, setHome] = useState<string | number>(myBet?.home_score_bet ?? '')
   const [away, setAway] = useState<string | number>(myBet?.away_score_bet ?? '')
@@ -90,7 +90,40 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
   }
 
   return (
-    <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+    <div className={`rounded-2xl overflow-hidden ${
+      isNext
+        ? 'border-2 border-emerald-500/40 bg-[#0a110d] shadow-[0_0_32px_rgba(16,185,129,0.09)]'
+        : 'bg-[#111] border border-[#1e1e1e]'
+    }`}>
+
+      {/* ── Bote banner (upcoming/live only) ── */}
+      {pot > 0 && !finished && (
+        <div className={`px-5 py-3 flex items-center justify-between gap-3 ${
+          isNext ? 'bg-emerald-500/10' : 'bg-amber-500/7'
+        }`}>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              {isNext && (
+                <span className="text-[9px] font-black bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full uppercase tracking-[0.15em] border border-emerald-500/25">
+                  Próximo
+                </span>
+              )}
+              <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${isNext ? 'text-emerald-500' : 'text-amber-600'}`}>
+                Bote en juego
+              </span>
+            </div>
+            {(carryoverPart ?? 0) > 0 && (
+              <span className="text-[9px] text-amber-700 font-[family-name:var(--font-body)]">
+                incl. Bs {carryoverPart} acumulado de anteriores
+              </span>
+            )}
+          </div>
+          <span className={`text-2xl font-black tabular-nums shrink-0 ${isNext ? 'text-emerald-400' : 'text-amber-400'}`}>
+            Bs {pot}
+          </span>
+        </div>
+      )}
+
       <div className="px-5 pt-4 pb-4">
 
         {/* Stage + status */}
@@ -107,10 +140,11 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
               EN VIVO
             </span>
           ) : (
-            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full tracking-[0.05em] ${
-              finished ? 'bg-[#1a1a1a] text-[#555]' :
-              closed   ? 'bg-amber-500/8 text-amber-600 border border-amber-500/15' :
-              'bg-[#1a1a1a] text-[#444]'
+            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full tracking-[0.05em] border ${
+              finished ? 'bg-[#1a1a1a] text-[#555] border-transparent' :
+              closed   ? 'bg-amber-500/8 text-amber-600 border-amber-500/15' :
+              isNext   ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+              'bg-[#1a1a1a] text-[#bbb] border-[#2a2a2a]'
             }`}>
               {finished ? 'FINALIZADO' : closed ? 'CERRADO' : formatDate(match.match_date)}
             </span>
@@ -145,19 +179,6 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
             </span>
           </div>
         </div>
-
-        {/* Pot */}
-        {pot > 0 && !finished && (
-          <div className="mt-4 bg-amber-500/8 border border-amber-500/20 rounded-2xl px-5 py-3 flex items-center justify-between gap-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-medium text-amber-600">Bote en juego</span>
-              {(carryoverPart ?? 0) > 0 && (
-                <span className="text-[11px] text-amber-700">+Bs {carryoverPart} acumulado de partidos anteriores</span>
-              )}
-            </div>
-            <span className="text-2xl font-bold tabular-nums text-amber-400 shrink-0">Bs {pot}</span>
-          </div>
-        )}
 
         {/* Finished: winner or carryover */}
         {finished && pot > 0 && (() => {
@@ -362,6 +383,7 @@ export default function MundialPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [activeTab, setActiveTab] = useState<'upcoming' | 'finished'>('upcoming')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => { init() }, [])
 
@@ -549,7 +571,7 @@ export default function MundialPage() {
   // The carryover goes to the very next match to be played (first live, otherwise first upcoming)
   const nextMatchId = (liveMatches[0] ?? upcomingAll[0])?.id ?? null
   for (const m of [...liveMatches, ...upcomingAll]) {
-    const base = allBets.filter(b => b.match_id === m.id && b.payment_confirmed).length * effectiveAmount(m)
+    const base = allBets.filter(b => b.match_id === m.id).length * effectiveAmount(m)
     potMap[m.id] = m.id === nextMatchId ? base + carryover : base
   }
 
@@ -574,6 +596,22 @@ export default function MundialPage() {
 
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
   const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets }
+
+  // Search filter
+  const q = searchQuery.trim().toLowerCase()
+  const searchActive = q.length > 0
+  function matchesQuery(m: Match) {
+    return (
+      m.home_team.toLowerCase().includes(q) ||
+      m.away_team.toLowerCase().includes(q) ||
+      m.home_tla.toLowerCase().includes(q) ||
+      m.away_tla.toLowerCase().includes(q)
+    )
+  }
+  const searchLive     = searchActive ? liveMatches.filter(matchesQuery)  : []
+  const searchUpcoming = searchActive ? upcomingAll.filter(matchesQuery)  : []
+  const searchFinished = searchActive ? finishedAll.filter(matchesQuery)  : []
+  const searchAny      = searchLive.length + searchUpcoming.length + searchFinished.length > 0
 
   return (
     <div className="min-h-screen bg-[#080808] px-4 py-10">
@@ -602,8 +640,76 @@ export default function MundialPage() {
           </div>
         </div>
 
+        {/* Search */}
+        <div className="relative">
+          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#444] pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Buscar equipo..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full bg-[#111] border border-[#1e1e1e] rounded-xl pl-9 pr-9 py-2.5 text-sm text-[#f5f5f5] placeholder-[#3a3a3a] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]"
+          />
+          {searchActive && (
+            <button onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-[#888] cursor-pointer transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Search results */}
+        {searchActive && (
+          <div className="flex flex-col gap-4">
+            {!searchAny && (
+              <p className="text-center py-10 text-sm text-[#555] font-[family-name:var(--font-body)]">
+                Sin resultados para &ldquo;{searchQuery.trim()}&rdquo;
+              </p>
+            )}
+            {searchLive.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
+                  <span className="text-[11px] font-black text-red-500 uppercase tracking-[0.15em] font-[family-name:var(--font-body)]">En vivo</span>
+                </div>
+                {searchLive.map(m => (
+                  <MatchCard key={m.id} match={m}
+                    myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
+                    allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
+                    carryoverPart={m.id === nextMatchId ? carryover : 0} isNext={m.id === nextMatchId} {...cardProps} />
+                ))}
+              </div>
+            )}
+            {searchUpcoming.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] font-[family-name:var(--font-body)]">Próximos</p>
+                {searchUpcoming.map(m => (
+                  <MatchCard key={m.id} match={m}
+                    myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
+                    allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
+                    carryoverPart={m.id === nextMatchId ? carryover : 0} isNext={m.id === nextMatchId} {...cardProps} />
+                ))}
+              </div>
+            )}
+            {searchFinished.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] font-[family-name:var(--font-body)]">Finalizados</p>
+                {searchFinished.map(m => (
+                  <MatchCard key={m.id} match={m}
+                    myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
+                    allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0} {...cardProps} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Live — always above tabs */}
-        {liveMatches.length > 0 && (
+        {!searchActive && liveMatches.length > 0 && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
@@ -616,13 +722,14 @@ export default function MundialPage() {
               <MatchCard key={m.id} match={m}
                 myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
                 allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
-                carryoverPart={m.id === nextMatchId ? carryover : 0} {...cardProps} />
+                carryoverPart={m.id === nextMatchId ? carryover : 0}
+                isNext={m.id === nextMatchId} {...cardProps} />
             ))}
           </div>
         )}
 
         {/* ── Tabs ── */}
-        <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-xl p-1">
+        {!searchActive && <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-xl p-1">
           {(['upcoming', 'finished'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2 text-[11px] font-black uppercase tracking-[0.1em] rounded-lg transition-all duration-200 cursor-pointer ${
@@ -633,10 +740,10 @@ export default function MundialPage() {
               {tab === 'upcoming' ? 'Próximos' : `Jugados${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`}
             </button>
           ))}
-        </div>
+        </div>}
 
         {/* ── Upcoming tab ── */}
-        {activeTab === 'upcoming' && (
+        {!searchActive && activeTab === 'upcoming' && (
           <div className="flex flex-col gap-5">
 
             {/* Date pills */}
@@ -672,7 +779,8 @@ export default function MundialPage() {
                     <MatchCard match={m}
                       myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
                       allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
-                      carryoverPart={m.id === nextMatchId ? carryover : 0} {...cardProps} />
+                      carryoverPart={m.id === nextMatchId ? carryover : 0}
+                      isNext={m.id === nextMatchId} {...cardProps} />
                   </div>
                 ))}
               </div>
@@ -687,7 +795,7 @@ export default function MundialPage() {
         )}
 
         {/* ── Finished tab ── */}
-        {activeTab === 'finished' && (
+        {!searchActive && activeTab === 'finished' && (
           <div className="flex flex-col gap-3">
             {finishedAll.length === 0 ? (
               <div className="text-center py-12">

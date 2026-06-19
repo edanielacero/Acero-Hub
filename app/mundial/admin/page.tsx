@@ -42,6 +42,12 @@ export default function AdminMundial() {
   const [editAmountValue, setEditAmountValue] = useState('')
   const [savingAmount, setSavingAmount] = useState(false)
 
+  // Match section tab
+  const [matchTab, setMatchTab] = useState<'today' | 'upcoming' | 'past'>('today')
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('')
+
   const router = useRouter()
 
   useEffect(() => { loadData() }, [])
@@ -174,8 +180,51 @@ export default function AdminMundial() {
   if (loading) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><span className="text-[#444] text-sm">Cargando...</span></div>
   if (!isAdmin) return null
 
-  const finishedMatches = matches.filter(m => m.status === 'FINISHED').slice().reverse()
-  const otherMatches    = matches.filter(m => m.status !== 'FINISHED')
+  const toDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/La_Paz' })
+  const todayDate  = toDate(new Date().toISOString())
+  const tomorrowDate = toDate(new Date(Date.now() + 86_400_000).toISOString())
+
+  const todayMatches    = matches.filter(m => toDate(m.match_date) === todayDate && m.status !== 'FINISHED')
+  const upcomingMatches = matches.filter(m => (m.status === 'SCHEDULED' || m.status === 'TIMED') && toDate(m.match_date) > todayDate)
+  const pastMatches     = matches.filter(m => m.status === 'FINISHED').slice().reverse()
+
+  const dateLabel = (d: string) => {
+    if (d === todayDate) return 'Hoy'
+    if (d === tomorrowDate) return 'Mañana'
+    const [y, mo, day] = d.split('-').map(Number)
+    return new Date(y, mo - 1, day).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+
+  // Reusable inline amount editor widget
+  function AmountEditor({ match }: { match: Match }) {
+    const hasCustom = match.bet_amount !== null
+    if (editingMatchAmount === match.id) {
+      return (
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-xs text-[#555]">Bs</span>
+          <input type="number" min="1" value={editAmountValue} autoFocus
+            onChange={e => setEditAmountValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveMatchAmount(match.id); if (e.key === 'Escape') setEditingMatchAmount(null) }}
+            className="w-16 bg-[#1a1a1a] border border-[#444] rounded-lg px-2 py-1 text-sm text-center text-[#f5f5f5] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+          <button onClick={() => saveMatchAmount(match.id)} disabled={savingAmount}
+            className="text-[10px] font-semibold text-green-400 hover:text-green-300 transition-colors cursor-pointer disabled:opacity-40">
+            {savingAmount ? '...' : '✓'}
+          </button>
+          <button onClick={() => setEditingMatchAmount(null)} className="text-[10px] text-[#555] hover:text-[#888] cursor-pointer">✕</button>
+        </div>
+      )
+    }
+    return (
+      <button onClick={() => { setEditingMatchAmount(match.id); setEditAmountValue(String(match.bet_amount ?? globalBetAmount)) }}
+        className="shrink-0 flex items-center gap-1.5 group cursor-pointer">
+        <span className={`text-xs tabular-nums font-bold ${hasCustom ? 'text-amber-400' : 'text-[#555]'}`}>
+          Bs {match.bet_amount ?? globalBetAmount}
+        </span>
+        {hasCustom && <span className="text-[9px] text-amber-600">★</span>}
+        <span className="text-[10px] text-[#2a2a2a] group-hover:text-[#666] transition-colors font-[family-name:var(--font-body)]">Editar</span>
+      </button>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] px-6 py-12">
@@ -315,185 +364,330 @@ export default function AdminMundial() {
           </div>
         </section>
 
-        {/* ── Apuestas en partidos jugados (editable) ── */}
-        {finishedMatches.length > 0 && (
+        {/* ── Partidos · Tabs ── */}
+        {matches.length > 0 && (
           <section className="flex flex-col gap-4">
-            <div>
-              <h2 className="text-sm font-semibold text-[#f5f5f5]">Apuestas — Partidos Jugados</h2>
-              <p className="text-xs text-[#666] mt-1 font-[family-name:var(--font-body)]">Puedes editar o añadir apuestas retroactivamente</p>
-            </div>
 
-            {finishedMatches.map(match => {
-              const matchBets = bets.filter(b => b.match_id === match.id)
-              return (
-                <div key={match.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
-                  {/* Match header */}
-                  <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-semibold text-[#f5f5f5]">{match.home_team} vs {match.away_team}</span>
-                      <span className="ml-3 text-xs text-[#666] font-[family-name:var(--font-body)]">
+            {/* Search */}
+            {(() => {
+              const sq = searchQuery.trim().toLowerCase()
+              const searchActive = sq.length > 0
+              function matchesQ(m: Match) {
+                return (
+                  m.home_team.toLowerCase().includes(sq) ||
+                  m.away_team.toLowerCase().includes(sq) ||
+                  m.home_tla.toLowerCase().includes(sq) ||
+                  m.away_tla.toLowerCase().includes(sq)
+                )
+              }
+              const sToday    = searchActive ? todayMatches.filter(matchesQ)    : []
+              const sUpcoming = searchActive ? upcomingMatches.filter(matchesQ) : []
+              const sPast     = searchActive ? pastMatches.filter(matchesQ)     : []
+              const sAny      = sToday.length + sUpcoming.length + sPast.length > 0
+
+              // helper: compact match row for search results
+              function SearchMatchRow({ match }: { match: Match }) {
+                const matchBets = bets.filter(b => b.match_id === match.id)
+                const isFinished = match.status === 'FINISHED'
+                return (
+                  <div className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
+                    <div className="px-5 py-3 flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {match.home_crest ? <img src={match.home_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                        <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.home_tla || match.home_team}</span>
+                        {isFinished
+                          ? <span className="text-xs font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}</span>
+                          : <span className="text-[#333] font-bold shrink-0">vs</span>}
+                        <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.away_tla || match.away_team}</span>
+                        {match.away_crest ? <img src={match.away_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                      </div>
+                      <span className="text-[11px] text-[#444] shrink-0 font-[family-name:var(--font-body)]">
                         {new Date(match.match_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'America/La_Paz' })}
                       </span>
+                      <AmountEditor match={match} />
                     </div>
-                    {/* Per-match bet amount */}
-                    {editingMatchAmount === match.id ? (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-xs text-[#555]">Bs</span>
-                        <input type="number" min="1" value={editAmountValue} autoFocus
-                          onChange={e => setEditAmountValue(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') saveMatchAmount(match.id); if (e.key === 'Escape') setEditingMatchAmount(null) }}
-                          className="w-16 bg-[#1a1a1a] border border-[#444] rounded-lg px-2 py-1 text-sm text-center text-[#f5f5f5] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                        <button onClick={() => saveMatchAmount(match.id)} disabled={savingAmount}
-                          className="text-[10px] font-semibold text-green-400 hover:text-green-300 transition-colors cursor-pointer disabled:opacity-40">
-                          {savingAmount ? '...' : '✓'}
-                        </button>
-                        <button onClick={() => setEditingMatchAmount(null)}
-                          className="text-[10px] text-[#555] hover:text-[#888] cursor-pointer">✕</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setEditingMatchAmount(match.id); setEditAmountValue(String(match.bet_amount ?? globalBetAmount)) }}
-                        className="shrink-0 flex items-center gap-1.5 group cursor-pointer">
-                        <span className={`text-xs tabular-nums font-medium ${match.bet_amount !== null ? 'text-amber-400' : 'text-[#555]'}`}>
-                          Bs {match.bet_amount ?? globalBetAmount}
-                        </span>
-                        {match.bet_amount !== null && <span className="text-[9px] text-amber-600 font-medium">★</span>}
-                        <span className="text-[10px] text-[#3a3a3a] group-hover:text-[#666] transition-colors font-[family-name:var(--font-body)]">Editar</span>
-                      </button>
-                    )}
-                    <span className="text-sm font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}</span>
-                  </div>
-
-                  {/* One row per profile */}
-                  <div className="divide-y divide-[#1a1a1a]">
-                    {profiles.map(prof => {
-                      const bet = matchBets.find(b => b.profile_id === prof.id)
-                      const key = `${match.id}-${prof.id}`
-                      const isEditing = editKey === key
-                      const isWinner = bet && match.home_score === bet.home_score_bet && match.away_score === bet.away_score_bet
-
-                      return (
-                        <div key={prof.id} className="px-5 py-3 flex items-center gap-3">
-                          {/* Avatar */}
-                          <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-                            style={{ backgroundColor: prof.color }}>
-                            {prof.name.charAt(0)}
-                          </div>
-
-                          {/* Name */}
-                          <span className="text-xs font-medium text-[#aaa] w-20 shrink-0 font-[family-name:var(--font-body)]">{prof.name}</span>
-
-                          {/* Bet score or "sin apuesta" */}
-                          {isEditing ? (
-                            <div className="flex items-center gap-2 flex-1">
-                              {match.home_crest && <img src={match.home_crest} alt={match.home_tla} className="w-5 h-5 object-contain shrink-0" />}
-                              <input type="number" min="0" max="20" value={editHome} onChange={e => setEditHome(e.target.value)} className={numInput} autoFocus />
-                              <span className="text-[#555] font-bold">–</span>
-                              <input type="number" min="0" max="20" value={editAway} onChange={e => setEditAway(e.target.value)} className={numInput} />
-                              {match.away_crest && <img src={match.away_crest} alt={match.away_tla} className="w-5 h-5 object-contain shrink-0" />}
-                              <button onClick={() => saveBetEdit(match.id, prof.id)} disabled={savingEdit || editHome === '' || editAway === ''}
-                                className="text-[10px] font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-1.5 rounded-lg hover:bg-white transition-colors disabled:opacity-40 cursor-pointer">
-                                {savingEdit ? '...' : 'Guardar'}
-                              </button>
-                              <button onClick={() => setEditKey(null)}
-                                className="text-[10px] text-[#555] hover:text-[#888] cursor-pointer font-[family-name:var(--font-body)]">
-                                Cancelar
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 flex-1">
-                              {bet ? (
-                                <span className={`text-xs font-bold tabular-nums ${isWinner ? 'text-green-400' : 'text-[#777]'}`}>
-                                  {bet.home_score_bet} – {bet.away_score_bet}
-                                  {isWinner && <span className="ml-1.5 text-[10px] font-normal text-green-500">✓</span>}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-[#444] italic font-[family-name:var(--font-body)]">Sin apuesta</span>
-                              )}
-                              <button onClick={() => startEdit(match.id, prof.id, bet)}
-                                className="text-[10px] text-[#444] hover:text-[#888] transition-colors cursor-pointer font-[family-name:var(--font-body)] ml-1">
-                                {bet ? 'Editar' : '+ Añadir'}
-                              </button>
-                            </div>
-                          )}
-
-                          {/* Payment + prize toggles (only if bet exists) */}
-                          {bet && !isEditing && (
-                            <div className="flex items-center gap-2 ml-auto">
+                    {matchBets.length > 0 && (
+                      <div className="border-t border-[#1a1a1a] divide-y divide-[#1a1a1a]">
+                        {matchBets.map(bet => {
+                          const isWinner = isFinished && match.home_score === bet.home_score_bet && match.away_score === bet.away_score_bet
+                          return (
+                            <div key={bet.id} className="px-5 py-2.5 flex items-center gap-3">
+                              <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: bet.mundial_profiles?.color ?? '#666' }}>
+                                {bet.mundial_profiles?.name?.charAt(0)}
+                              </div>
+                              <span className="text-xs font-medium text-[#aaa] flex-1 font-[family-name:var(--font-body)]">{bet.mundial_profiles?.name}</span>
+                              <span className={`text-xs font-bold tabular-nums ${isWinner ? 'text-green-400' : 'text-[#f5f5f5]'}`}>{bet.home_score_bet} – {bet.away_score_bet}{isWinner && ' ✓'}</span>
                               <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
                                 className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
                                 {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
                               </button>
-                              <button onClick={() => togglePrizePaid(bet.id, bet.prize_paid)}
-                                className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.prize_paid ? 'bg-blue-500/12 text-blue-400 border-blue-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                {bet.prize_paid ? '✓ Premio' : 'Premio'}
-                              </button>
                             </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </section>
-        )}
-
-        {/* Apuestas en partidos futuros (solo pagos) */}
-        {otherMatches.some(m => bets.some(b => b.match_id === m.id)) && (
-          <section className="flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-[#f5f5f5]">Apuestas — Partidos Futuros</h2>
-            {otherMatches.map(match => {
-              const matchBets = bets.filter(b => b.match_id === match.id)
-              if (!matchBets.length) return null
-              return (
-                <div key={match.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
-                  <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
-                    <span className="text-sm font-semibold text-[#f5f5f5] flex-1">{match.home_team} vs {match.away_team}</span>
-                    {editingMatchAmount === match.id ? (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-xs text-[#555]">Bs</span>
-                        <input type="number" min="1" value={editAmountValue} autoFocus
-                          onChange={e => setEditAmountValue(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') saveMatchAmount(match.id); if (e.key === 'Escape') setEditingMatchAmount(null) }}
-                          className="w-16 bg-[#1a1a1a] border border-[#444] rounded-lg px-2 py-1 text-sm text-center text-[#f5f5f5] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                        <button onClick={() => saveMatchAmount(match.id)} disabled={savingAmount}
-                          className="text-[10px] font-semibold text-green-400 hover:text-green-300 transition-colors cursor-pointer disabled:opacity-40">
-                          {savingAmount ? '...' : '✓'}
-                        </button>
-                        <button onClick={() => setEditingMatchAmount(null)}
-                          className="text-[10px] text-[#555] hover:text-[#888] cursor-pointer">✕</button>
+                          )
+                        })}
                       </div>
-                    ) : (
-                      <button onClick={() => { setEditingMatchAmount(match.id); setEditAmountValue(String(match.bet_amount ?? globalBetAmount)) }}
-                        className="shrink-0 flex items-center gap-1.5 group cursor-pointer">
-                        <span className={`text-xs tabular-nums font-medium ${match.bet_amount !== null ? 'text-amber-400' : 'text-[#555]'}`}>
-                          Bs {match.bet_amount ?? globalBetAmount}
-                        </span>
-                        {match.bet_amount !== null && <span className="text-[9px] text-amber-600 font-medium">★</span>}
-                        <span className="text-[10px] text-[#3a3a3a] group-hover:text-[#666] transition-colors font-[family-name:var(--font-body)]">Editar</span>
+                    )}
+                  </div>
+                )
+              }
+
+              return (
+                <>
+                  {/* Input */}
+                  <div className="relative">
+                    <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#444] pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                    </svg>
+                    <input type="text" placeholder="Buscar equipo..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full bg-[#111] border border-[#1e1e1e] rounded-xl pl-9 pr-9 py-2.5 text-sm text-[#f5f5f5] placeholder-[#3a3a3a] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]" />
+                    {searchActive && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#444] hover:text-[#888] cursor-pointer transition-colors">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                       </button>
                     )}
                   </div>
-                  <div className="divide-y divide-[#1a1a1a]">
-                    {matchBets.map(bet => (
-                      <div key={bet.id} className="px-5 py-3 flex items-center gap-3">
-                        <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                          style={{ backgroundColor: bet.mundial_profiles?.color ?? '#666' }}>
-                          {bet.mundial_profiles?.name?.charAt(0)}
+
+                  {/* Search results */}
+                  {searchActive && (
+                    <div className="flex flex-col gap-4">
+                      {!sAny && (
+                        <p className="text-center py-10 text-sm text-[#555] font-[family-name:var(--font-body)]">Sin resultados para &ldquo;{searchQuery.trim()}&rdquo;</p>
+                      )}
+                      {sToday.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] px-1 font-[family-name:var(--font-body)]">Hoy</p>
+                          {sToday.map(m => <SearchMatchRow key={m.id} match={m} />)}
                         </div>
-                        <span className="text-xs font-medium text-[#aaa] flex-1 font-[family-name:var(--font-body)]">{bet.mundial_profiles?.name}</span>
-                        <span className="text-xs font-bold text-[#f5f5f5] tabular-nums">{bet.home_score_bet} – {bet.away_score_bet}</span>
-                        <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
-                          className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                          {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
-                        </button>
+                      )}
+                      {sUpcoming.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] px-1 font-[family-name:var(--font-body)]">Próximos</p>
+                          {sUpcoming.map(m => <SearchMatchRow key={m.id} match={m} />)}
+                        </div>
+                      )}
+                      {sPast.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] px-1 font-[family-name:var(--font-body)]">Anteriores</p>
+                          {sPast.map(m => <SearchMatchRow key={m.id} match={m} />)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
+
+            {/* Tab bar */}
+            {!searchQuery.trim() && <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-xl p-1">
+              {([
+                ['today',    `Hoy${todayMatches.length > 0 ? ` (${todayMatches.length})` : ''}`],
+                ['upcoming', `Próximos${upcomingMatches.length > 0 ? ` (${upcomingMatches.length})` : ''}`],
+                ['past',     `Anteriores${pastMatches.length > 0 ? ` (${pastMatches.length})` : ''}`],
+              ] as const).map(([tab, label]) => (
+                <button key={tab} onClick={() => setMatchTab(tab)}
+                  className={`flex-1 py-2 text-[11px] font-black uppercase tracking-[0.08em] rounded-lg transition-all duration-200 cursor-pointer ${
+                    matchTab === tab ? 'bg-[#f5f5f5] text-[#0a0a0a] shadow-sm' : 'text-[#555] hover:text-[#888]'
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>}
+
+            {/* ── Hoy ── */}
+            {!searchQuery.trim() && matchTab === 'today' && (
+              todayMatches.length === 0 ? (
+                <p className="text-center py-10 text-sm text-[#555] font-[family-name:var(--font-body)]">No hay partidos hoy</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {todayMatches.map(match => {
+                    const matchBets = bets.filter(b => b.match_id === match.id)
+                    const isLiveMatch = match.status === 'IN_PLAY' || match.status === 'PAUSED'
+                    return (
+                      <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
+                        <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {match.home_crest ? <img src={match.home_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                            <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.home_tla || match.home_team}</span>
+                            <span className="text-[#333] font-bold shrink-0">vs</span>
+                            <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.away_tla || match.away_team}</span>
+                            {match.away_crest ? <img src={match.away_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                          </div>
+                          {isLiveMatch ? (
+                            <span className="flex items-center gap-1.5 bg-red-500/12 border border-red-500/25 text-red-400 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
+                              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" /></span>
+                              EN VIVO · {match.home_score ?? 0}–{match.away_score ?? 0}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-[#555] shrink-0 font-[family-name:var(--font-body)]">
+                              {new Date(match.match_date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'America/La_Paz' })}
+                            </span>
+                          )}
+                          <AmountEditor match={match} />
+                        </div>
+                        {matchBets.length > 0 && (
+                          <div className="divide-y divide-[#1a1a1a]">
+                            {matchBets.map(bet => (
+                              <div key={bet.id} className="px-5 py-2.5 flex items-center gap-3">
+                                <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: bet.mundial_profiles?.color ?? '#666' }}>
+                                  {bet.mundial_profiles?.name?.charAt(0)}
+                                </div>
+                                <span className="text-xs font-medium text-[#aaa] flex-1 font-[family-name:var(--font-body)]">{bet.mundial_profiles?.name}</span>
+                                <span className="text-xs font-bold text-[#f5f5f5] tabular-nums">{bet.home_score_bet} – {bet.away_score_bet}</span>
+                                <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
+                                  className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
+                                  {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {matchBets.length === 0 && (
+                          <p className="px-5 py-3 text-xs text-[#3a3a3a] italic font-[family-name:var(--font-body)]">Sin apuestas aún</p>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
               )
-            })}
+            )}
+
+            {/* ── Próximos ── */}
+            {!searchQuery.trim() && matchTab === 'upcoming' && (
+              upcomingMatches.length === 0 ? (
+                <p className="text-center py-10 text-sm text-[#555] font-[family-name:var(--font-body)]">No hay partidos próximos</p>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {[...new Set(upcomingMatches.map(m => toDate(m.match_date)))].sort().map(date => (
+                    <div key={date} className="flex flex-col gap-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#3a3a3a] px-1 font-[family-name:var(--font-body)]">
+                        {dateLabel(date)}
+                      </p>
+                      {upcomingMatches.filter(m => toDate(m.match_date) === date).map(match => {
+                        const matchBets = bets.filter(b => b.match_id === match.id)
+                        return (
+                          <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
+                            <div className="px-5 py-3 flex items-center gap-3">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                {match.home_crest ? <img src={match.home_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                                <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.home_tla || match.home_team}</span>
+                                <span className="text-[#333] font-bold shrink-0">vs</span>
+                                <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.away_tla || match.away_team}</span>
+                                {match.away_crest ? <img src={match.away_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
+                              </div>
+                              <span className="text-[11px] text-[#444] shrink-0 font-[family-name:var(--font-body)]">
+                                {new Date(match.match_date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'America/La_Paz' })}
+                              </span>
+                              <AmountEditor match={match} />
+                            </div>
+                            {matchBets.length > 0 && (
+                              <div className="border-t border-[#1a1a1a] divide-y divide-[#1a1a1a]">
+                                {matchBets.map(bet => (
+                                  <div key={bet.id} className="px-5 py-2.5 flex items-center gap-3">
+                                    <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: bet.mundial_profiles?.color ?? '#666' }}>
+                                      {bet.mundial_profiles?.name?.charAt(0)}
+                                    </div>
+                                    <span className="text-xs font-medium text-[#aaa] flex-1 font-[family-name:var(--font-body)]">{bet.mundial_profiles?.name}</span>
+                                    <span className="text-xs font-bold text-[#f5f5f5] tabular-nums">{bet.home_score_bet} – {bet.away_score_bet}</span>
+                                    <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
+                                      className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
+                                      {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {/* ── Anteriores ── */}
+            {!searchQuery.trim() && matchTab === 'past' && (
+              pastMatches.length === 0 ? (
+                <p className="text-center py-10 text-sm text-[#555] font-[family-name:var(--font-body)]">Aún no se han jugado partidos</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs text-[#666] font-[family-name:var(--font-body)]">Puedes editar o añadir apuestas retroactivamente</p>
+                  {pastMatches.map(match => {
+                    const matchBets = bets.filter(b => b.match_id === match.id)
+                    return (
+                      <div key={match.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+                        <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-semibold text-[#f5f5f5]">{match.home_team} vs {match.away_team}</span>
+                            <span className="ml-3 text-xs text-[#555] font-[family-name:var(--font-body)]">
+                              {new Date(match.match_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'America/La_Paz' })}
+                            </span>
+                          </div>
+                          <AmountEditor match={match} />
+                          <span className="text-sm font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}</span>
+                        </div>
+                        <div className="divide-y divide-[#1a1a1a]">
+                          {profiles.map(prof => {
+                            const bet = matchBets.find(b => b.profile_id === prof.id)
+                            const key = `${match.id}-${prof.id}`
+                            const isEditing = editKey === key
+                            const isWinner = bet && match.home_score === bet.home_score_bet && match.away_score === bet.away_score_bet
+                            return (
+                              <div key={prof.id} className="px-5 py-3 flex items-center gap-3">
+                                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ backgroundColor: prof.color }}>
+                                  {prof.name.charAt(0)}
+                                </div>
+                                <span className="text-xs font-medium text-[#aaa] w-20 shrink-0 font-[family-name:var(--font-body)]">{prof.name}</span>
+                                {isEditing ? (
+                                  <div className="flex items-center gap-2 flex-1">
+                                    {match.home_crest && <img src={match.home_crest} alt={match.home_tla} className="w-5 h-5 object-contain shrink-0" />}
+                                    <input type="number" min="0" max="20" value={editHome} onChange={e => setEditHome(e.target.value)} className={numInput} autoFocus />
+                                    <span className="text-[#555] font-bold">–</span>
+                                    <input type="number" min="0" max="20" value={editAway} onChange={e => setEditAway(e.target.value)} className={numInput} />
+                                    {match.away_crest && <img src={match.away_crest} alt={match.away_tla} className="w-5 h-5 object-contain shrink-0" />}
+                                    <button onClick={() => saveBetEdit(match.id, prof.id)} disabled={savingEdit || editHome === '' || editAway === ''}
+                                      className="text-[10px] font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-1.5 rounded-lg hover:bg-white transition-colors disabled:opacity-40 cursor-pointer">
+                                      {savingEdit ? '...' : 'Guardar'}
+                                    </button>
+                                    <button onClick={() => setEditKey(null)} className="text-[10px] text-[#555] hover:text-[#888] cursor-pointer font-[family-name:var(--font-body)]">Cancelar</button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 flex-1">
+                                    {bet ? (
+                                      <span className={`text-xs font-bold tabular-nums ${isWinner ? 'text-green-400' : 'text-[#777]'}`}>
+                                        {bet.home_score_bet} – {bet.away_score_bet}
+                                        {isWinner && <span className="ml-1.5 text-[10px] font-normal text-green-500">✓</span>}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-[#444] italic font-[family-name:var(--font-body)]">Sin apuesta</span>
+                                    )}
+                                    <button onClick={() => startEdit(match.id, prof.id, bet)} className="text-[10px] text-[#444] hover:text-[#888] transition-colors cursor-pointer font-[family-name:var(--font-body)] ml-1">
+                                      {bet ? 'Editar' : '+ Añadir'}
+                                    </button>
+                                  </div>
+                                )}
+                                {bet && !isEditing && (
+                                  <div className="flex items-center gap-2 ml-auto">
+                                    <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
+                                      className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
+                                      {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                    </button>
+                                    <button onClick={() => togglePrizePaid(bet.id, bet.prize_paid)}
+                                      className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.prize_paid ? 'bg-blue-500/12 text-blue-400 border-blue-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
+                                      {bet.prize_paid ? '✓ Premio' : 'Premio'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            )}
+
           </section>
         )}
 
