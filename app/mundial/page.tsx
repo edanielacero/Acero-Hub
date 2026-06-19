@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { isClosed, isLive, stageLabel } from '@/lib/football-api'
+import { teamSearchTokens } from '@/lib/team-names-es'
 
 const STORAGE_KEY = 'mundial_profile_token'
 
@@ -597,15 +598,13 @@ export default function MundialPage() {
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
   const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets }
 
-  // Search filter
+  // Search filter (supports Spanish and English team names)
   const q = searchQuery.trim().toLowerCase()
   const searchActive = q.length > 0
   function matchesQuery(m: Match) {
     return (
-      m.home_team.toLowerCase().includes(q) ||
-      m.away_team.toLowerCase().includes(q) ||
-      m.home_tla.toLowerCase().includes(q) ||
-      m.away_tla.toLowerCase().includes(q)
+      teamSearchTokens(m.home_team, m.home_tla).includes(q) ||
+      teamSearchTokens(m.away_team, m.away_tla).includes(q)
     )
   }
   const searchLive     = searchActive ? liveMatches.filter(matchesQuery)  : []
