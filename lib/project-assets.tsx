@@ -60,9 +60,54 @@ const CandlestickIcon = () => (
   </svg>
 )
 
+const MundialBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-mw" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#0a1a0a" />
+        <stop offset="100%" stopColor="#080808" />
+      </linearGradient>
+      <radialGradient id="glow-mw" cx="50%" cy="60%" r="50%">
+        <stop offset="0%" stopColor="#22c55e" stopOpacity="0.12" />
+        <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-mw)" />
+    <rect width="400" height="120" fill="url(#glow-mw)" />
+    {/* Field lines */}
+    <ellipse cx="200" cy="120" rx="70" ry="24" fill="none" stroke="#22c55e" strokeWidth="0.8" strokeOpacity="0.2" />
+    <line x1="200" y1="0" x2="200" y2="120" stroke="#22c55e" strokeWidth="0.5" strokeOpacity="0.1" />
+    {/* Ball */}
+    <circle cx="200" cy="62" r="22" fill="none" stroke="#f5f5f5" strokeWidth="1.2" strokeOpacity="0.15" />
+    <circle cx="200" cy="62" r="22" fill="#1a1a1a" fillOpacity="0.6" />
+    {/* Pentagon patches */}
+    <polygon points="200,46 210,53 207,64 193,64 190,53" fill="#f5f5f5" fillOpacity="0.08" stroke="#f5f5f5" strokeWidth="0.6" strokeOpacity="0.2" />
+    <polygon points="200,46 210,53 216,44 207,38 193,38 184,44 190,53" fill="none" stroke="#f5f5f5" strokeWidth="0.5" strokeOpacity="0.12" />
+    {/* Trophy silhouette */}
+    <path d="M174,30 L174,22 Q174,16 180,16 L220,16 Q226,16 226,22 L226,30 Q226,44 214,50 L214,54 L218,58 L182,58 L186,54 L186,50 Q174,44 174,30 Z" fill="none" stroke="#f59e0b" strokeWidth="0.8" strokeOpacity="0.25" />
+    {/* Stars above trophy */}
+    <text x="194" y="14" fill="#f59e0b" fontSize="6" opacity="0.35">★ ★ ★</text>
+    {/* Year label */}
+    <rect x="148" y="88" width="104" height="18" rx="4" fill="#22c55e" fillOpacity="0.08" />
+    <text x="200" y="100" textAnchor="middle" fill="#22c55e" fontSize="10" fontFamily="system-ui" fontWeight="700" opacity="0.6" letterSpacing="3">2026</text>
+  </svg>
+)
+
+const BallIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    <path d="M2 12h20" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
     banner: <TradingBanner />,
+  },
+  'mundial': {
+    icon: <BallIcon />,
+    banner: <MundialBanner />,
   },
 }
