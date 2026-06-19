@@ -1,5 +1,5 @@
 import { createClient, createAdminClient } from '@/lib/supabase-server'
-import { resend } from '@/lib/resend'
+import { getResend } from '@/lib/resend'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
   const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${token}`
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from: process.env.RESEND_FROM!,
     to: email,
     subject: 'Te invitaron a Acero Hub',
