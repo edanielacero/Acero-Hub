@@ -310,7 +310,12 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                     })}
                   </div>
                 </div>
-                <span className="text-2xl font-bold tabular-nums text-green-400 shrink-0">Bs {pot}</span>
+                <div className="flex flex-col items-end shrink-0">
+                  <span className="text-2xl font-bold tabular-nums text-green-400">Bs {prize}</span>
+                  {winners.length > 1 && (
+                    <span className="text-[10px] text-green-700 tabular-nums">Bs {pot} total</span>
+                  )}
+                </div>
               </div>
             )
           }
