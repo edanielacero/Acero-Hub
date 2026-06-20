@@ -112,6 +112,8 @@ create index if not exists tj_trades_date_entry       on tj_trades(date_entry);
 create index if not exists tj_vardefs_session_id      on tj_variable_definitions(session_id);
 create index if not exists tj_notifications_user_id   on tj_notifications(user_id, read);
 create index if not exists tj_trades_custom_fields    on tj_trades using gin(custom_fields);
+create index if not exists tj_connections_bt_id       on tj_session_connections(backtesting_id);
+create index if not exists tj_connections_journal_id  on tj_session_connections(journal_id);
 
 -- ============================================
 -- RLS

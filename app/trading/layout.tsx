@@ -13,31 +13,20 @@ export default async function TradingLayout({ children }: { children: React.Reac
 
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+  const [{ data: profile }, { data: project }] = await Promise.all([
+    supabase.from('profiles').select('role').eq('id', user.id).single(),
+    supabase.from('projects').select('id').eq('slug', 'trading-journal').single(),
+  ])
 
   if (profile?.role !== 'admin') {
-    const { data: project } = await supabase
-      .from('projects')
+    if (!project) redirect('/')
+    const { data: access } = await supabase
+      .from('project_access')
       .select('id')
-      .eq('slug', 'trading-journal')
-      .single()
-
-    if (project) {
-      const { data: access } = await supabase
-        .from('project_access')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('project_id', project.id)
-        .maybeSingle()
-
-      if (!access) redirect('/')
-    } else {
-      redirect('/')
-    }
+      .eq('user_id', user.id)
+      .eq('project_id', project.id)
+      .maybeSingle()
+    if (!access) redirect('/')
   }
 
   return <>{children}</>
