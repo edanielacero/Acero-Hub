@@ -17,7 +17,23 @@ export interface FootballMatch {
   group: string | null
   homeTeam: { name: string | null; shortName: string | null; tla: string | null; crest: string | null } | null
   awayTeam: { name: string | null; shortName: string | null; tla: string | null; crest: string | null } | null
-  score: { fullTime: { home: number | null; away: number | null } }
+  score: {
+    fullTime: { home: number | null; away: number | null }
+    halfTime: { home: number | null; away: number | null }
+  }
+}
+
+/**
+ * Returns the best available live score for a match.
+ * During IN_PLAY/PAUSED, football-data.org v4 uses fullTime for the running score.
+ * Falls back to halfTime if fullTime is null (first few seconds of match).
+ */
+export function liveScore(match: FootballMatch): { home: number | null; away: number | null } {
+  const ft = match.score.fullTime
+  const ht = match.score.halfTime
+  if (ft.home !== null || ft.away !== null) return ft
+  if (ht.home !== null || ht.away !== null) return ht
+  return { home: 0, away: 0 }
 }
 
 export async function getWorldCupMatches(): Promise<FootballMatch[]> {

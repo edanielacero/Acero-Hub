@@ -459,13 +459,26 @@ export default function MundialPage() {
   const matchesRef = useRef(matches)
   useEffect(() => { matchesRef.current = matches }, [matches])
 
-  // Poll LIVE matches every 10s — update Supabase, Realtime pushes to all clients
+  // Poll LIVE matches every 10s.
+  // Applies the score update directly to local state (no Realtime round-trip needed).
+  // Supabase write still happens so OTHER clients get the update via Realtime.
   useEffect(() => {
     if (phase !== 'betting') return
     const pollLive = async () => {
       const live = matchesRef.current.filter(m => isLive(m.status))
       if (!live.length) return
-      await Promise.allSettled(live.map(m => fetch(`/api/mundial/live?id=${m.id}`)))
+      const settled = await Promise.allSettled(
+        live.map(m => fetch(`/api/mundial/live?id=${m.id}`).then(r => r.json()))
+      )
+      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null }> = []
+      settled.forEach(r => { if (r.status === 'fulfilled' && r.value?.id) updates.push(r.value) })
+      if (updates.length > 0) {
+        setMatches(prev => prev.map(m => {
+          const u = updates.find(u => u.id === m.id)
+          if (!u) return m
+          return { ...m, status: u.status, home_score: u.homeScore, away_score: u.awayScore }
+        }))
+      }
     }
     pollLive()
     const id = setInterval(pollLive, 10_000)
