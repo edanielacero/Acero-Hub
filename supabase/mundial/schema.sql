@@ -25,6 +25,8 @@ create table if not exists mundial_matches (
   away_score int,
   stage text,
   group_name text,
+  bet_amount numeric,
+  kickoff_at timestamptz,
   synced_at timestamptz default now()
 );
 

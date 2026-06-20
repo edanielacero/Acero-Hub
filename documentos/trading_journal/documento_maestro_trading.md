@@ -33,7 +33,7 @@ Todo lo demás (lógica, librerías, schema de BD, documentación) vive en carpe
 ## Estructura de archivos
 
 ```
-app/trading/
+app/trading-journal/
 ├── layout.tsx
 ├── page.tsx                    — lista de sesiones (home del proyecto)
 ├── [sessionId]/
@@ -45,7 +45,7 @@ app/trading/
 │   └── ai/page.tsx             — análisis con IA
 └── notifications/page.tsx      — panel de notificaciones
 
-app/api/trading/
+app/api/trading-journal/
 ├── sessions/route.ts           — CRUD sesiones
 ├── sessions/[id]/route.ts
 ├── sessions/[id]/duplicate/route.ts
@@ -424,8 +424,8 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 - [ ] Agregar permisos de Trading Journal en el hub (`project_access` o campo en `profiles`)
 - [ ] Crear todas las tablas en Supabase (`supabase/trading/schema.sql`)
 - [ ] Configurar RLS: cada usuario solo ve sus propias sesiones y trades
-- [ ] Crear estructura de carpetas en Next.js (`app/trading/`, `app/api/trading/`, `lib/trading/`)
-- [ ] Layout base de Trading Journal (`app/trading/layout.tsx`) con metadata
+- [ ] Crear estructura de carpetas en Next.js (`app/trading-journal/`, `app/api/trading-journal/`, `lib/trading/`)
+- [ ] Layout base de Trading Journal (`app/trading-journal/layout.tsx`) con metadata
 
 **Dependencias:** ninguna. Es el punto de partida.
 
@@ -435,7 +435,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** El usuario puede crear, ver, editar y organizar sus sesiones.
 
-- [ ] Lista de sesiones en `app/trading/page.tsx` separada en tabs: Activas / Favoritas / Archivadas
+- [ ] Lista de sesiones en `app/trading-journal/page.tsx` separada en tabs: Activas / Favoritas / Archivadas
 - [ ] Tarjeta de sesión: nombre, tipo (B/J), instrumento, fecha, N trades, indicador conectada
 - [ ] Crear sesión: modal con nombre, tipo, instrumento (opcional), % riesgo, capital inicial (solo journal)
 - [ ] Elegir variables predefinidas opcionales al crear (selector con checkboxes, descripciones)
@@ -512,7 +512,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** El usuario ve un resumen visual del rendimiento de su sesión.
 
-- [ ] Dashboard principal de la sesión (`app/trading/[sessionId]/page.tsx`)
+- [ ] Dashboard principal de la sesión (`app/trading-journal/[sessionId]/page.tsx`)
 - [ ] Tarjetas de métricas básicas:
   - Total trades / Ganadores / Perdedores / BE
   - Winrate %
@@ -536,7 +536,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** Análisis estadístico profundo y optimización de salidas.
 
-**Métricas avanzadas** (`app/trading/[sessionId]/stats/page.tsx`):
+**Métricas avanzadas** (`app/trading-journal/[sessionId]/stats/page.tsx`):
 - [ ] Expectativa matemática detallada (con breakdown de RR ganador vs perdedor)
 - [ ] Varianza y desviación estándar del RR
 - [ ] Z-Score con interpretación visual (zona de aleatoriedad vs dependencia)
@@ -547,7 +547,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 - [ ] Cada métrica avanzada muestra su nivel de confianza si hay pocos trades
 - [ ] `lib/trading/metrics.ts` extendido con fórmulas estadísticas
 
-**Sweet Spot** (`app/trading/[sessionId]/sweetspot/page.tsx`):
+**Sweet Spot** (`app/trading-journal/[sessionId]/sweetspot/page.tsx`):
 - [ ] Gráfica de RR acumulado simulado vs nivel de salida (0.25R en 0.25R)
 - [ ] Punto resaltado en el máximo (sweet spot)
 - [ ] Tabla comparativa: para cada nivel → total RR, winrate simulado, profit factor simulado
@@ -562,7 +562,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** Proyecciones probabilísticas del rendimiento futuro.
 
-- [ ] Pantalla de configuración (`app/trading/[sessionId]/montecarlo/page.tsx`):
+- [ ] Pantalla de configuración (`app/trading-journal/[sessionId]/montecarlo/page.tsx`):
   - Capital hipotético inicial
   - % de riesgo por trade
   - Número de simulaciones (slider 1000–10000)
@@ -587,7 +587,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** El usuario puede consultar a Claude Haiku sobre su estrategia.
 
-- [ ] Sección "Análisis con IA" (`app/trading/[sessionId]/ai/page.tsx`)
+- [ ] Sección "Análisis con IA" (`app/trading-journal/[sessionId]/ai/page.tsx`)
 - [ ] Grid de preguntas sugeridas (8 tarjetas, ver lista arriba)
 - [ ] Campo de prompt abierto (textarea)
 - [ ] Botón "Analizar" (manual, nunca automático)
@@ -611,7 +611,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 - [ ] Botón "Compartir sesión" en el menú de cada sesión
 - [ ] Modal: ingresar email del receptor (validar que sea usuario del mismo hub)
 - [ ] Crear `tj_share_invitations` + `tj_notifications` para el receptor
-- [ ] Panel de notificaciones (`app/trading/notifications/page.tsx`):
+- [ ] Panel de notificaciones (`app/trading-journal/notifications/page.tsx`):
   - Lista de notificaciones no leídas (badge con contador en nav)
   - Tarjeta: "{Nombre} te compartió la sesión '{Nombre Sesión}'" + botones Aceptar / Rechazar
   - Al Aceptar: se crea una copia completa de la sesión (sesión + variable definitions + trades) en la cuenta del receptor — completamente independiente

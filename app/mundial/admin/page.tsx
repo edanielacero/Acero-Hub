@@ -312,7 +312,7 @@ export default function AdminMundial() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[#f5f5f5]">Partidos ({matches.length})</h2>
-              <p className="text-xs text-[#666] mt-0.5 font-[family-name:var(--font-body)]">Se sincroniza automáticamente cada hora</p>
+              <p className="text-xs text-[#666] mt-0.5 font-[family-name:var(--font-body)]">Se sincroniza automáticamente una vez al día</p>
             </div>
             <button onClick={syncMatches} disabled={syncing}
               className="text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] px-4 py-1.5 rounded-xl hover:bg-[#222] transition-colors disabled:opacity-40 cursor-pointer">
