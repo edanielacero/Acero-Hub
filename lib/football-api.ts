@@ -41,6 +41,11 @@ export async function getWorldCupMatches(): Promise<FootballMatch[]> {
   return data.matches ?? []
 }
 
+export async function getWCLiveMatches(): Promise<FootballMatch[]> {
+  const data = await fetchFootball('/competitions/WC/matches?season=2026&status=IN_PLAY')
+  return data.matches ?? []
+}
+
 export async function getMatch(id: number): Promise<FootballMatch> {
   return fetchFootball(`/matches/${id}`)
 }

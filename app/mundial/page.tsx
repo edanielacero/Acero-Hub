@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { isClosed, isLive, stageLabel } from '@/lib/football-api'
-import { teamSearchTokens } from '@/lib/team-names-es'
+import { teamSearchTokens, teamNameEs } from '@/lib/team-names-es'
 
 const STORAGE_KEY = 'mundial_profile_token'
 
@@ -12,6 +12,7 @@ interface Match {
   away_team: string; away_tla: string; away_crest: string
   match_date: string; status: string; home_score: number | null; away_score: number | null
   stage: string; group_name: string | null; bet_amount: number | null
+  kickoff_at: string | null
 }
 interface Bet {
   id: string; profile_id: string; match_id: number
@@ -21,6 +22,12 @@ interface Bet {
 }
 interface Profile { id: string; name: string; color: string; token: string }
 interface Settings { qr_image_url: string | null; bet_amount: number }
+interface TeamStanding {
+  team: string; tla: string; crest: string
+  played: number; won: number; drawn: number; lost: number
+  goalsFor: number; goalsAgainst: number; goalDiff: number; points: number
+}
+interface GroupStanding { group: string; table: TeamStanding[] }
 
 // ─── Sub-components ────────────────────────────────────────────────────
 
@@ -42,49 +49,51 @@ function Countdown({ matchDate }: { matchDate: string }) {
   return <span>{text}</span>
 }
 
-// Estimates the live match clock from the scheduled kick-off time.
-// Accounts for first half, halftime break, second half and stoppage time.
-// Approximation: assumes ~17 min halftime break.
-function LiveClock({ matchDate, status }: { matchDate: string; status: string }) {
+// Tracks actual kick-off times detected at runtime (scheduled time ≠ actual start).
+// Keyed by match ID. Persisted to localStorage so it survives page refreshes.
+const KICKOFF_KEY = (id: number) => `wc26_kickoff_${id}`
+
+// Records the actual kick-off moment for a match.
+// Called when a status transition to IN_PLAY is detected.
+// Subtracts 60s to compensate for football-data.org free-tier live delay.
+function recordKickoff(matchId: number) {
+  const key = KICKOFF_KEY(matchId)
+  if (typeof window === 'undefined' || localStorage.getItem(key)) return
+  localStorage.setItem(key, new Date(Date.now() - 60_000).toISOString())
+}
+
+// Calculates display string from elapsed minutes since kick-off.
+function elapsedToDisplay(elapsedMin: number): string {
+  if (elapsedMin < 0) return "0'"
+  if (elapsedMin <= 45) return `${Math.floor(elapsedMin)}'`
+  if (elapsedMin <= 62) return `45+${Math.floor(elapsedMin - 45)}'`
+  const matchMin = Math.floor(elapsedMin - 62) + 46
+  if (matchMin <= 90) return `${matchMin}'`
+  if (matchMin <= 107) return `90+${matchMin - 90}'`
+  const etMin = Math.floor(elapsedMin - 107) + 91
+  if (etMin <= 105) return `${etMin}'`
+  return `105+${etMin - 105}'`
+}
+
+// Live match clock. Priority for reference time: DB kickoff_at → localStorage → scheduled match_date.
+// DB value is set server-side when IN_PLAY is first detected (most accurate).
+// localStorage is a client-side fallback captured at the same transition moment.
+// match_date (scheduled) is the last resort and may be off if the match started late.
+function LiveClock({ matchId, matchDate, status, kickoffAt }: { matchId: number; matchDate: string; status: string; kickoffAt?: string | null }) {
   const [display, setDisplay] = useState('·')
 
   useEffect(() => {
     const update = () => {
-      const elapsedMin = (Date.now() - new Date(matchDate).getTime()) / 60000
-
       if (status === 'PAUSED') { setDisplay('HT'); return }
       if (status === 'PENALTY_SHOOTOUT') { setDisplay('PSO'); return }
-      if (elapsedMin < 0) { setDisplay("0'"); return }
-
-      if (elapsedMin <= 45) {
-        // First half
-        setDisplay(`${Math.floor(elapsedMin)}'`)
-      } else if (elapsedMin <= 62) {
-        // First half stoppage time or early halftime break
-        const added = Math.floor(elapsedMin - 45)
-        setDisplay(`45+${added}'`)
-      } else if (elapsedMin <= 107) {
-        // Second half: subtract ~62 min (45 first half + 17 min break)
-        const matchMin = Math.floor(elapsedMin - 62) + 46
-        if (matchMin <= 90) {
-          setDisplay(`${matchMin}'`)
-        } else {
-          setDisplay(`90+${matchMin - 90}'`)
-        }
-      } else {
-        // Extra time (120 min matches)
-        const etMin = Math.floor(elapsedMin - 107) + 91
-        if (etMin <= 105) {
-          setDisplay(`${etMin}'`)
-        } else {
-          setDisplay(`105+${etMin - 105}'`)
-        }
-      }
+      const local = typeof window !== 'undefined' ? localStorage.getItem(KICKOFF_KEY(matchId)) : null
+      const ref = new Date(kickoffAt ?? local ?? matchDate).getTime()
+      setDisplay(elapsedToDisplay((Date.now() - ref) / 60000))
     }
     update()
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
-  }, [matchDate, status])
+  }, [matchId, matchDate, status, kickoffAt])
 
   return <>{display}</>
 }
@@ -100,6 +109,37 @@ function getBetStatus(bet: Bet, match: Match): BetStatus {
   if (match.home_score === bet.home_score_bet && match.away_score === bet.away_score_bet) return 'winning'
   if ((match.home_score ?? 0) > bet.home_score_bet || (match.away_score ?? 0) > bet.away_score_bet) return 'eliminated'
   return 'possible'
+}
+
+function computeStandings(allMatches: Match[]): GroupStanding[] {
+  const groupMap = new Map<string, Map<string, TeamStanding>>()
+  for (const m of allMatches) {
+    if (!m.group_name) continue
+    if (!groupMap.has(m.group_name)) groupMap.set(m.group_name, new Map())
+    const group = groupMap.get(m.group_name)!
+    if (!group.has(m.home_team)) group.set(m.home_team, { team: m.home_team, tla: m.home_tla, crest: m.home_crest, played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDiff: 0, points: 0 })
+    if (!group.has(m.away_team)) group.set(m.away_team, { team: m.away_team, tla: m.away_tla, crest: m.away_crest, played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDiff: 0, points: 0 })
+    if (m.status !== 'FINISHED' || m.home_score === null || m.away_score === null) continue
+    const home = { ...group.get(m.home_team)! }
+    const away = { ...group.get(m.away_team)! }
+    home.played++; away.played++
+    home.goalsFor += m.home_score; home.goalsAgainst += m.away_score
+    away.goalsFor += m.away_score; away.goalsAgainst += m.home_score
+    if (m.home_score > m.away_score) { home.won++; home.points += 3; away.lost++ }
+    else if (m.home_score < m.away_score) { away.won++; away.points += 3; home.lost++ }
+    else { home.drawn++; home.points++; away.drawn++; away.points++ }
+    home.goalDiff = home.goalsFor - home.goalsAgainst
+    away.goalDiff = away.goalsFor - away.goalsAgainst
+    group.set(m.home_team, home); group.set(m.away_team, away)
+  }
+  return Array.from(groupMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, teamsMap]) => ({
+      group: name.replace(/^GROUP_/, ''),
+      table: Array.from(teamsMap.values()).sort((a, b) =>
+        b.points - a.points || b.goalDiff - a.goalDiff || b.goalsFor - a.goalsFor || a.team.localeCompare(b.team)
+      )
+    }))
 }
 
 function formatDate(d: string) {
@@ -198,7 +238,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
                 </span>
-                EN VIVO · <LiveClock matchDate={match.match_date} status={match.status} />
+                EN VIVO · <LiveClock matchId={match.id} matchDate={match.match_date} status={match.status} kickoffAt={match.kickoff_at} />
               </span>
             )
           ) : (
@@ -445,7 +485,7 @@ export default function MundialPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [allBets, setAllBets] = useState<Bet[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'finished'>('upcoming')
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'finished' | 'groups'>('upcoming')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -509,7 +549,17 @@ export default function MundialPage() {
     const channel = supabase
       .channel('mundial-realtime')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'mundial_matches' }, payload => {
-        setMatches(prev => prev.map(m => m.id === (payload.new as Match).id ? (payload.new as Match) : m))
+        const updated = payload.new as Match
+        setMatches(prev => prev.map(m => {
+          if (m.id !== updated.id) return m
+          if (!isLive(m.status) && isLive(updated.status)) recordKickoff(m.id)
+          // Never decrease score — Realtime can deliver stale data from a brief API race
+          return {
+            ...updated,
+            home_score: updated.home_score !== null && (m.home_score === null || updated.home_score >= m.home_score) ? updated.home_score : m.home_score,
+            away_score: updated.away_score !== null && (m.away_score === null || updated.away_score >= m.away_score) ? updated.away_score : m.away_score,
+          }
+        }))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mundial_bets' }, () => {
         refreshBets()
@@ -522,24 +572,28 @@ export default function MundialPage() {
   const matchesRef = useRef(matches)
   useEffect(() => { matchesRef.current = matches }, [matches])
 
-  // Poll LIVE matches every 10s.
-  // Applies the score update directly to local state (no Realtime round-trip needed).
-  // Supabase write still happens so OTHER clients get the update via Realtime.
+  // Poll ALL live matches every 10s with a single API call.
+  // One batch request regardless of how many matches are live simultaneously,
+  // preventing rate limit issues (free tier: 10 req/min) during simultaneous group-stage matches.
   useEffect(() => {
     if (phase !== 'betting') return
     const pollLive = async () => {
-      const live = matchesRef.current.filter(m => isLive(m.status))
-      if (!live.length) return
-      const settled = await Promise.allSettled(
-        live.map(m => fetch(`/api/mundial/live?id=${m.id}`).then(r => r.json()))
-      )
-      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null }> = []
-      settled.forEach(r => { if (r.status === 'fulfilled' && r.value?.id) updates.push(r.value) })
+      const hasLive = matchesRef.current.some(m => isLive(m.status))
+      if (!hasLive) return
+      const res = await fetch('/api/mundial/live-all').then(r => r.json()).catch(() => null)
+      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null; kickoffAt: string | null }> = res?.matches ?? []
       if (updates.length > 0) {
         setMatches(prev => prev.map(m => {
           const u = updates.find(u => u.id === m.id)
           if (!u) return m
-          return { ...m, status: u.status, home_score: u.homeScore, away_score: u.awayScore }
+          if (!isLive(m.status) && isLive(u.status)) recordKickoff(m.id)
+          return {
+            ...m,
+            status: u.status,
+            home_score: u.homeScore !== null && (m.home_score === null || u.homeScore >= m.home_score) ? u.homeScore : m.home_score,
+            away_score: u.awayScore !== null && (m.away_score === null || u.awayScore >= m.away_score) ? u.awayScore : m.away_score,
+            kickoff_at: u.kickoffAt ?? m.kickoff_at,
+          }
         }))
       }
     }
@@ -548,7 +602,7 @@ export default function MundialPage() {
     return () => clearInterval(id)
   }, [phase])
 
-  // Poll upcoming-within-2h every 60s (to catch kick-off status changes)
+  // Poll upcoming-within-2h every 20s (to catch kick-off status changes quickly)
   useEffect(() => {
     if (phase !== 'betting') return
     const pollUpcoming = async () => {
@@ -558,10 +612,22 @@ export default function MundialPage() {
         new Date(m.match_date).getTime() - now < 2 * 60 * 60 * 1000
       )
       if (!soon.length) return
-      await Promise.allSettled(soon.map(m => fetch(`/api/mundial/live?id=${m.id}`)))
+      const settled = await Promise.allSettled(
+        soon.map(m => fetch(`/api/mundial/live?id=${m.id}`).then(r => r.json()))
+      )
+      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null; kickoffAt: string | null }> = []
+      settled.forEach(r => { if (r.status === 'fulfilled' && r.value?.id) updates.push(r.value) })
+      if (updates.length > 0) {
+        setMatches(prev => prev.map(m => {
+          const u = updates.find(u => u.id === m.id)
+          if (!u) return m
+          if (!isLive(m.status) && isLive(u.status)) recordKickoff(m.id)
+          return { ...m, status: u.status, home_score: u.homeScore, away_score: u.awayScore, kickoff_at: u.kickoffAt ?? m.kickoff_at }
+        }))
+      }
     }
     pollUpcoming()
-    const id = setInterval(pollUpcoming, 60_000)
+    const id = setInterval(pollUpcoming, 20_000)
     return () => clearInterval(id)
   }, [phase])
 
@@ -689,6 +755,24 @@ export default function MundialPage() {
 
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
   const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets }
+
+  const groupStandings = computeStandings(matches)
+
+  // WC 2026: best 8 third-place teams (of 12) also qualify to Round of 32.
+  // Ranked by: points → goal diff → goals scored → team name (FIFA tiebreaker rules).
+  const best8Thirds = new Set(
+    groupStandings
+      .filter(gs => gs.table.length >= 3)
+      .map(gs => gs.table[2])
+      .sort((a, b) =>
+        b.points - a.points ||
+        b.goalDiff - a.goalDiff ||
+        b.goalsFor - a.goalsFor ||
+        a.team.localeCompare(b.team)
+      )
+      .slice(0, 8)
+      .map(t => t.team)
+  )
 
   // Search filter (supports Spanish and English team names)
   const q = searchQuery.trim().toLowerCase()
@@ -821,14 +905,16 @@ export default function MundialPage() {
 
         {/* ── Tabs ── */}
         {!searchActive && <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-xl p-1">
-          {(['upcoming', 'finished'] as const).map(tab => (
+          {(['upcoming', 'finished', 'groups'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2 text-[11px] font-black uppercase tracking-[0.1em] rounded-lg transition-all duration-200 cursor-pointer ${
                 activeTab === tab
                   ? 'bg-[#f5f5f5] text-[#0a0a0a] shadow-sm'
                   : 'text-[#555] hover:text-[#888]'
               }`}>
-              {tab === 'upcoming' ? 'Próximos' : `Anteriores${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`}
+              {tab === 'upcoming' ? 'Próximos'
+                : tab === 'finished' ? `Anteriores${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`
+                : 'Grupos'}
             </button>
           ))}
         </div>}
@@ -903,6 +989,78 @@ export default function MundialPage() {
                   myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
                   allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0} {...cardProps} />
               ))
+            )}
+          </div>
+        )}
+
+        {/* ── Groups / Standings tab ── */}
+        {!searchActive && activeTab === 'groups' && (
+          <div className="flex flex-col gap-3">
+            {groupStandings.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">No hay datos de grupos disponibles</p>
+              </div>
+            ) : (
+              <>
+                {groupStandings.map(gs => (
+                  <div key={gs.group} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+                    {/* Group header */}
+                    <div className="px-4 py-2.5 border-b border-[#181818]">
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#555] font-[family-name:var(--font-body)]">Grupo {gs.group}</span>
+                    </div>
+                    {/* Column headers */}
+                    <div className="grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-1.5 border-b border-[#161616]">
+                      <span />
+                      <span className="text-[9px] font-bold text-[#2a2a2a] uppercase tracking-[0.1em]">Equipo</span>
+                      {['J', 'G', 'E', 'P', 'DG', 'Pts'].map(h => (
+                        <span key={h} className={`text-[9px] font-bold text-center uppercase tracking-[0.1em] ${h === 'Pts' ? 'text-[#3a3a3a]' : 'text-[#2a2a2a]'}`}>{h}</span>
+                      ))}
+                    </div>
+                    {/* Team rows */}
+                    {gs.table.map((row, i) => {
+                      // WC 2026: top 2 always qualify; best 8 of 12 third-place teams also qualify
+                      const qualified = i < 2 || (i === 2 && best8Thirds.has(row.team))
+                      const outsideThird = i === 2 && !best8Thirds.has(row.team)
+                      return (
+                        <div key={row.team} className={`grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-2 ${
+                          i < gs.table.length - 1 ? 'border-b border-[#141414]' : ''
+                        } ${qualified ? 'bg-green-500/4' : outsideThird ? 'bg-amber-500/4' : ''}`}>
+                          <span className={`text-[10px] font-bold text-center tabular-nums leading-none ${
+                            qualified ? 'text-green-600' : outsideThird ? 'text-amber-600' : 'text-[#333]'
+                          }`}>{i + 1}</span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {row.crest
+                              ? <img src={row.crest} alt={row.tla} className="h-3.5 w-3.5 object-contain shrink-0" />
+                              : <div className="h-3.5 w-3.5 shrink-0 rounded-sm bg-[#1a1a1a]" />
+                            }
+                            <span className="text-[11px] font-medium text-[#ccc] truncate leading-none">{teamNameEs(row.team)}</span>
+                          </div>
+                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.played}</span>
+                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.won}</span>
+                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.drawn}</span>
+                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.lost}</span>
+                          <span className={`text-[10px] text-center tabular-nums font-medium ${
+                            row.goalDiff > 0 ? 'text-[#666]' : row.goalDiff < 0 ? 'text-[#3a3a3a]' : 'text-[#444]'
+                          }`}>{row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}</span>
+                          <span className={`text-[11px] font-black text-center tabular-nums ${
+                            qualified ? 'text-green-400' : outsideThird ? 'text-amber-400' : 'text-[#bbb]'
+                          }`}>{row.points}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+                <div className="flex flex-col gap-1.5 px-1 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-sm bg-green-500/15 border border-green-500/25" />
+                    <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Clasificados a Dieciseisavos</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-sm bg-amber-500/15 border border-amber-500/25" />
+                    <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Tercer lugar fuera del top 8</span>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
