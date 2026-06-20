@@ -913,7 +913,7 @@ export default function MundialPage() {
                   : 'text-[#555] hover:text-[#888]'
               }`}>
               {tab === 'upcoming' ? 'Próximos'
-                : tab === 'finished' ? `Anteriores${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`
+                : tab === 'finished' ? 'Anteriores'
                 : 'Grupos'}
             </button>
           ))}
@@ -977,21 +977,38 @@ export default function MundialPage() {
         )}
 
         {/* ── Finished tab ── */}
-        {!searchActive && activeTab === 'finished' && (
-          <div className="flex flex-col gap-3">
-            {finishedAll.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">Aún no se han jugado partidos</p>
-              </div>
-            ) : (
-              finishedAll.map(m => (
-                <MatchCard key={m.id} match={m}
-                  myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
-                  allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0} {...cardProps} />
-              ))
-            )}
-          </div>
-        )}
+        {!searchActive && activeTab === 'finished' && (() => {
+          const finishedByDate = finishedAll.reduce<{ date: string; matches: Match[] }[]>((acc, m) => {
+            const d = toLocalDate(m.match_date)
+            const group = acc.find(g => g.date === d)
+            if (group) group.matches.push(m)
+            else acc.push({ date: d, matches: [m] })
+            return acc
+          }, [])
+          return (
+            <div className="flex flex-col gap-6">
+              {finishedAll.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">Aún no se han jugado partidos</p>
+                </div>
+              ) : finishedByDate.map(({ date, matches: dayMatches }) => (
+                <div key={date} className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] font-black uppercase tracking-[0.12em] text-[#555]">
+                      {dateLabel(date)}
+                    </span>
+                    <div className="flex-1 h-px bg-[#1e1e1e]" />
+                  </div>
+                  {dayMatches.map(m => (
+                    <MatchCard key={m.id} match={m}
+                      myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
+                      allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0} {...cardProps} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
 
         {/* ── Groups / Standings tab ── */}
         {!searchActive && activeTab === 'groups' && (
