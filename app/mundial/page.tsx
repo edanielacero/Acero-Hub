@@ -92,24 +92,30 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
 
   return (
     <div className={`rounded-2xl overflow-hidden ${
-      isNext
-        ? 'border-2 border-emerald-500/40 bg-[#0a110d] shadow-[0_0_32px_rgba(16,185,129,0.09)]'
+      live
+        ? 'border-2 border-green-500/40 bg-[#0b110a] shadow-[0_0_28px_rgba(34,197,94,0.08)]'
+        : isNext
+        ? 'border-2 border-blue-500/40 bg-[#090d14] shadow-[0_0_28px_rgba(59,130,246,0.08)]'
         : 'bg-[#111] border border-[#1e1e1e]'
     }`}>
 
       {/* ── Bote banner (upcoming/live only) ── */}
       {pot > 0 && !finished && (
         <div className={`px-5 py-3 flex items-center justify-between gap-3 ${
-          isNext ? 'bg-emerald-500/10' : 'bg-amber-500/7'
+          live   ? 'bg-green-500/10' :
+          isNext ? 'bg-blue-500/8' :
+          'bg-amber-500/7'
         }`}>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
-              {isNext && (
-                <span className="text-[9px] font-black bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full uppercase tracking-[0.15em] border border-emerald-500/25">
+              {isNext && !live && (
+                <span className="text-[9px] font-black bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full uppercase tracking-[0.15em] border border-blue-500/25">
                   Próximo
                 </span>
               )}
-              <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${isNext ? 'text-emerald-500' : 'text-amber-600'}`}>
+              <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${
+                live ? 'text-green-500' : isNext ? 'text-blue-500' : 'text-amber-600'
+              }`}>
                 Bote en juego
               </span>
             </div>
@@ -119,7 +125,9 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
               </span>
             )}
           </div>
-          <span className={`text-2xl font-black tabular-nums shrink-0 ${isNext ? 'text-emerald-400' : 'text-amber-400'}`}>
+          <span className={`text-2xl font-black tabular-nums shrink-0 ${
+            live ? 'text-green-400' : isNext ? 'text-blue-400' : 'text-amber-400'
+          }`}>
             Bs {pot}
           </span>
         </div>
@@ -144,7 +152,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
             <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full tracking-[0.05em] border ${
               finished ? 'bg-[#1a1a1a] text-[#555] border-transparent' :
               closed   ? 'bg-amber-500/8 text-amber-600 border-amber-500/15' :
-              isNext   ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+              isNext   ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
               'bg-[#1a1a1a] text-[#bbb] border-[#2a2a2a]'
             }`}>
               {finished ? 'FINALIZADO' : closed ? 'CERRADO' : formatDate(match.match_date)}
@@ -335,8 +343,9 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
               const status = getBetStatus(bet, match)
               return (
                 <div key={bet.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${
-                  status === 'winning'    ? 'bg-green-500/8 border-green-500/15' :
-                  status === 'eliminated' ? 'bg-red-500/6 border-red-500/10' :
+                  status === 'winning'                      ? 'bg-green-500/8 border-green-500/15' :
+                  status === 'eliminated'                   ? 'bg-red-500/6 border-red-500/10' :
+                  (live && status === 'possible')           ? 'bg-amber-500/7 border-amber-500/12' :
                   'bg-[#0f0f0f] border-[#1a1a1a]'
                 }`}>
                   <div className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
@@ -345,8 +354,9 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   </div>
                   <span className="text-[11px] text-[#888] font-[family-name:var(--font-body)] truncate flex-1">{prof.name}</span>
                   <span className={`text-[11px] font-bold tabular-nums shrink-0 ${
-                    status === 'winning'    ? 'text-green-400' :
-                    status === 'eliminated' ? 'text-red-400' :
+                    status === 'winning'             ? 'text-green-400' :
+                    status === 'eliminated'          ? 'text-red-400' :
+                    (live && status === 'possible')  ? 'text-amber-400' :
                     'text-[#ccc]'
                   }`}>
                     {bet.home_score_bet}–{bet.away_score_bet}
@@ -800,8 +810,13 @@ export default function MundialPage() {
                 {matchesForDate.map((m, i) => (
                   <div key={m.id}>
                     {i === 0 && !isClosed(m.match_date) && (
-                      <div className="px-1 mb-1.5 text-[11px] text-[#666] font-[family-name:var(--font-body)]">
-                        Cierra en <span className="text-[#888] font-medium"><Countdown matchDate={m.match_date} /></span>
+                      <div className="px-1 mb-2 flex items-center gap-1.5">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span className="text-[11px] text-blue-500 font-semibold font-[family-name:var(--font-body)]">
+                          Las apuestas se cierran en <span className="text-blue-400 font-black"><Countdown matchDate={m.match_date} /></span>
+                        </span>
                       </div>
                     )}
                     <MatchCard match={m}
