@@ -42,6 +42,53 @@ function Countdown({ matchDate }: { matchDate: string }) {
   return <span>{text}</span>
 }
 
+// Estimates the live match clock from the scheduled kick-off time.
+// Accounts for first half, halftime break, second half and stoppage time.
+// Approximation: assumes ~17 min halftime break.
+function LiveClock({ matchDate, status }: { matchDate: string; status: string }) {
+  const [display, setDisplay] = useState('·')
+
+  useEffect(() => {
+    const update = () => {
+      const elapsedMin = (Date.now() - new Date(matchDate).getTime()) / 60000
+
+      if (status === 'PAUSED') { setDisplay('HT'); return }
+      if (status === 'PENALTY_SHOOTOUT') { setDisplay('PSO'); return }
+      if (elapsedMin < 0) { setDisplay("0'"); return }
+
+      if (elapsedMin <= 45) {
+        // First half
+        setDisplay(`${Math.floor(elapsedMin)}'`)
+      } else if (elapsedMin <= 62) {
+        // First half stoppage time or early halftime break
+        const added = Math.floor(elapsedMin - 45)
+        setDisplay(`45+${added}'`)
+      } else if (elapsedMin <= 107) {
+        // Second half: subtract ~62 min (45 first half + 17 min break)
+        const matchMin = Math.floor(elapsedMin - 62) + 46
+        if (matchMin <= 90) {
+          setDisplay(`${matchMin}'`)
+        } else {
+          setDisplay(`90+${matchMin - 90}'`)
+        }
+      } else {
+        // Extra time (120 min matches)
+        const etMin = Math.floor(elapsedMin - 107) + 91
+        if (etMin <= 105) {
+          setDisplay(`${etMin}'`)
+        } else {
+          setDisplay(`105+${etMin - 105}'`)
+        }
+      }
+    }
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [matchDate, status])
+
+  return <>{display}</>
+}
+
 type BetStatus = 'winning' | 'possible' | 'eliminated'
 
 function getBetStatus(bet: Bet, match: Match): BetStatus {
@@ -141,13 +188,19 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
             {stageLabel(match.stage)}{match.group_name ? ` · ${match.group_name.replace('GROUP_', 'Grupo ')}` : ''}
           </span>
           {live ? (
-            <span className="flex items-center gap-1.5 bg-red-500/12 border border-red-500/25 text-red-400 text-[10px] font-black px-2.5 py-1 rounded-full tracking-[0.1em]">
-              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+            match.status === 'PAUSED' ? (
+              <span className="flex items-center gap-1.5 bg-amber-500/12 border border-amber-500/25 text-amber-400 text-[10px] font-black px-2.5 py-1 rounded-full tracking-[0.1em]">
+                DESCANSO · HT
               </span>
-              EN VIVO
-            </span>
+            ) : (
+              <span className="flex items-center gap-1.5 bg-red-500/12 border border-red-500/25 text-red-400 text-[10px] font-black px-2.5 py-1 rounded-full tracking-[0.1em]">
+                <span className="relative flex h-1.5 w-1.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+                </span>
+                EN VIVO · <LiveClock matchDate={match.match_date} status={match.status} />
+              </span>
+            )
           ) : (
             <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full tracking-[0.05em] border ${
               finished ? 'bg-[#1a1a1a] text-[#555] border-transparent' :
