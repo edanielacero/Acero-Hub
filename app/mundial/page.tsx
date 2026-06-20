@@ -775,7 +775,7 @@ export default function MundialPage() {
                   ? 'bg-[#f5f5f5] text-[#0a0a0a] shadow-sm'
                   : 'text-[#555] hover:text-[#888]'
               }`}>
-              {tab === 'upcoming' ? 'Próximos' : `Jugados${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`}
+              {tab === 'upcoming' ? 'Próximos' : `Anteriores${finishedAll.length > 0 ? ` (${finishedAll.length})` : ''}`}
             </button>
           ))}
         </div>}
