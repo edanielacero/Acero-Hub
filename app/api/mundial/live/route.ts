@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getMatch, isLive, liveScore } from '@/lib/football-api'
+import { getMatch, isLive, liveScore } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {

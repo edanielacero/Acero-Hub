@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { isClosed } from '@/lib/football-api'
+import { isClosed } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {

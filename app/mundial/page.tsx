@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
-import { isClosed, isLive, stageLabel } from '@/lib/football-api'
-import { teamSearchTokens, teamNameEs, tlaEs } from '@/lib/team-names-es'
+import { isClosed, isLive, stageLabel } from '@/lib/mundial/football-api'
+import { teamSearchTokens, teamNameEs, tlaEs } from '@/lib/mundial/team-names-es'
 
 const STORAGE_KEY = 'mundial_profile_token'
 

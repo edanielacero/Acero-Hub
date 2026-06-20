@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getWorldCupMatches } from '@/lib/football-api'
+import { getWorldCupMatches } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 async function runSync() {

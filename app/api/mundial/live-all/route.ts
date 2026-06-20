@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getWCLiveMatches, isLive, liveScore } from '@/lib/football-api'
+import { getWCLiveMatches, isLive, liveScore } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 // Scores only move forward — API can briefly return null/0 during backend data races.
