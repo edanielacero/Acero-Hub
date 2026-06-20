@@ -6,6 +6,19 @@ Plataforma personal de análisis de trading integrada en Acero Hub. Cada usuario
 
 ---
 
+## Proyecto individual dentro del hub
+
+Trading Journal es un proyecto independiente que vive dentro de Acero Hub. Sigue el mismo principio de aislamiento que Mundial 2026: **todo lo que pertenece a Trading Journal vive en sus propias carpetas y no toca archivos de otros proyectos**.
+
+Los únicos archivos compartidos del hub que puede usar son:
+- `lib/supabase.ts` — cliente Supabase del navegador
+- `lib/supabase-server.ts` — cliente Supabase del servidor
+- `lib/resend.ts` — email (para notificaciones de invitaciones)
+
+Todo lo demás (lógica, librerías, schema de BD, documentación) vive en carpetas con prefijo `trading/` o `tj_`.
+
+---
+
 ## Decisiones de arquitectura
 
 - **Stack:** Next.js App Router, Tailwind CSS, Supabase (auth + DB + Storage), Claude Haiku 4.5 (IA)
