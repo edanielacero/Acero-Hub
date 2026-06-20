@@ -160,6 +160,20 @@ const NAME_MAP: Record<string, string> = {
   'Solomon Islands': 'Islas Salomón',
 }
 
+const TLA_MAP: Record<string, string> = {
+  'ENG': 'ING', // Inglaterra
+  'GER': 'ALE', // Alemania
+  'NED': 'HOL', // Holanda
+  'USA': 'EUA', // Estados Unidos
+  'JPN': 'JAP', // Japón
+  'KOR': 'COR', // Corea del Sur
+  'IRN': 'IRA', // Irán
+  'KSA': 'ARS', // Arabia Saudita
+  'SCO': 'ESC', // Escocia
+  'SWE': 'SUE', // Suecia
+  'CIV': 'CDM', // Costa de Marfil
+}
+
 // Also index by reversed (Spanish → English) for partial matching
 const ES_NAMES = Object.values(NAME_MAP)
 
@@ -168,6 +182,10 @@ const ES_NAMES = Object.values(NAME_MAP)
  */
 export function teamNameEs(englishName: string): string {
   return NAME_MAP[englishName] ?? englishName
+}
+
+export function tlaEs(tla: string): string {
+  return TLA_MAP[tla] ?? tla
 }
 
 /**

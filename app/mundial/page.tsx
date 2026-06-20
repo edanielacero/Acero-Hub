@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { isClosed, isLive, stageLabel } from '@/lib/football-api'
-import { teamSearchTokens, teamNameEs } from '@/lib/team-names-es'
+import { teamSearchTokens, teamNameEs, tlaEs } from '@/lib/team-names-es'
 
 const STORAGE_KEY = 'mundial_profile_token'
 
@@ -263,7 +263,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
               ? <img src={match.home_crest} alt="" className="w-10 h-10 object-contain" />
               : <div className="w-10 h-10 rounded-full bg-[#1a1a1a]" />}
             <span className="text-[11px] font-bold text-[#bbb] text-center leading-tight">
-              {match.home_tla || match.home_team}
+              {tlaEs(match.home_tla) || match.home_team}
             </span>
           </div>
           <div className="text-center shrink-0 px-2">
@@ -280,7 +280,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
               ? <img src={match.away_crest} alt="" className="w-10 h-10 object-contain" />
               : <div className="w-10 h-10 rounded-full bg-[#1a1a1a]" />}
             <span className="text-[11px] font-bold text-[#bbb] text-center leading-tight">
-              {match.away_tla || match.away_team}
+              {tlaEs(match.away_tla) || match.away_team}
             </span>
           </div>
         </div>
