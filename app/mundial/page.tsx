@@ -233,12 +233,15 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                 DESCANSO · HT
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 bg-red-500/12 border border-red-500/25 text-red-400 text-[10px] font-black px-2.5 py-1 rounded-full tracking-[0.1em]">
-                <span className="relative flex h-1.5 w-1.5 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+              <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5 bg-red-500/12 border border-red-500/25 text-red-400 text-[10px] font-black px-2.5 py-1 rounded-full tracking-[0.1em]">
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+                  </span>
+                  EN VIVO
                 </span>
-                EN VIVO · <LiveClock matchId={match.id} matchDate={match.match_date} status={match.status} kickoffAt={match.kickoff_at} />
+                <span className="text-[9px] font-medium text-[#555] tracking-wide">~1min delay</span>
               </span>
             )
           ) : (
