@@ -159,8 +159,8 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
   const [paymentMode, setPaymentMode] = useState<null | 'qr' | 'cash'>(null)
 
   const closed = isClosed(match.match_date)
-  const live = isLive(match.status)
   const finished = match.status === 'FINISHED'
+  const live = !finished && Date.now() >= new Date(match.match_date).getTime()
   const betsForMatch = allBets.filter(b => b.match_id === match.id)
   const scoresReady = home !== '' && away !== ''
 
@@ -241,7 +241,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   </span>
                   EN VIVO
                 </span>
-                <span className="text-[9px] font-medium text-[#555] tracking-wide">~1min delay</span>
+                <span className="text-[9px] font-medium text-[#444] tracking-wide">con delay</span>
               </span>
             )
           ) : (
