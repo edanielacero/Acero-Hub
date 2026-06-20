@@ -194,7 +194,9 @@ export function tlaEs(tla: string): string {
  */
 export function teamSearchTokens(name: string, tla: string): string {
   const es = NAME_MAP[name]
+  const tlaSpanish = TLA_MAP[tla]
   const parts = [name.toLowerCase(), tla.toLowerCase()]
   if (es) parts.push(es.toLowerCase())
+  if (tlaSpanish) parts.push(tlaSpanish.toLowerCase())
   return parts.join(' ')
 }
