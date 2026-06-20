@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { isClosed, isLive, stageLabel } from '@/lib/football-api'
 import { teamSearchTokens } from '@/lib/team-names-es'
@@ -455,23 +455,39 @@ export default function MundialPage() {
     return () => { supabase.removeChannel(channel) }
   }, [phase, refreshBets])
 
-  // Poll live/upcoming matches every 30s
+  // Keep a stable ref to matches so polling intervals never go stale
+  const matchesRef = useRef(matches)
+  useEffect(() => { matchesRef.current = matches }, [matches])
+
+  // Poll LIVE matches every 10s — update Supabase, Realtime pushes to all clients
   useEffect(() => {
     if (phase !== 'betting') return
-    const poll = async () => {
-      const now = Date.now()
-      const toCheck = matches.filter(m =>
-        isLive(m.status) ||
-        ((m.status === 'SCHEDULED' || m.status === 'TIMED') &&
-          new Date(m.match_date).getTime() - now < 2 * 60 * 60 * 1000)
-      )
-      if (!toCheck.length) return
-      await Promise.allSettled(toCheck.map(m => fetch(`/api/mundial/live?id=${m.id}`)))
+    const pollLive = async () => {
+      const live = matchesRef.current.filter(m => isLive(m.status))
+      if (!live.length) return
+      await Promise.allSettled(live.map(m => fetch(`/api/mundial/live?id=${m.id}`)))
     }
-    poll()
-    const id = setInterval(poll, 30_000)
+    pollLive()
+    const id = setInterval(pollLive, 10_000)
     return () => clearInterval(id)
-  }, [matches, phase])
+  }, [phase])
+
+  // Poll upcoming-within-2h every 60s (to catch kick-off status changes)
+  useEffect(() => {
+    if (phase !== 'betting') return
+    const pollUpcoming = async () => {
+      const now = Date.now()
+      const soon = matchesRef.current.filter(m =>
+        (m.status === 'SCHEDULED' || m.status === 'TIMED') &&
+        new Date(m.match_date).getTime() - now < 2 * 60 * 60 * 1000
+      )
+      if (!soon.length) return
+      await Promise.allSettled(soon.map(m => fetch(`/api/mundial/live?id=${m.id}`)))
+    }
+    pollUpcoming()
+    const id = setInterval(pollUpcoming, 60_000)
+    return () => clearInterval(id)
+  }, [phase])
 
   // ── Loading ──
   if (phase === 'loading') {
