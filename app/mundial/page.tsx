@@ -160,7 +160,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
 
   const closed = isClosed(match.match_date)
   const finished = match.status === 'FINISHED'
-  const live = !finished && Date.now() >= new Date(match.match_date).getTime()
+  const live = !finished && isLive(match.status)
   const betsForMatch = allBets.filter(b => b.match_id === match.id)
   const scoresReady = home !== '' && away !== ''
 

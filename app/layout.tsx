@@ -1,17 +1,11 @@
 import type { Metadata } from 'next'
-import { Space_Grotesk, Inter } from 'next/font/google'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 
-const spaceGrotesk = Space_Grotesk({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '700'],
-  variable: '--font-heading',
-})
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['300', '400'],
-  variable: '--font-body',
+  weight: ['300', '400', '500', '600', '700', '800'],
+  variable: '--font-jakarta',
 })
 
 export const metadata: Metadata = {
@@ -22,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body className={`${spaceGrotesk.variable} ${inter.variable} font-heading bg-[#0a0a0a] text-[#f5f5f5] antialiased`}>
+      <body className={`${jakarta.variable} font-[family-name:var(--font-jakarta)] antialiased`}>
         {children}
       </body>
     </html>

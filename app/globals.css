@@ -1,6 +1,85 @@
 @import "tailwindcss";
 
 @theme {
-  --font-heading: var(--font-heading), 'Space Grotesk', system-ui, sans-serif;
-  --font-body: var(--font-body), 'Inter', system-ui, sans-serif;
+  --font-jakarta: var(--font-jakarta), 'Plus Jakarta Sans', system-ui, sans-serif;
 }
+
+/* Hub global defaults — always dark */
+html, body {
+  background-color: #0a0a0a;
+  color: #f5f5f5;
+}
+
+/* ─── Dark variant: matches elements inside any [data-mode="dark"] ancestor ──── */
+/* Used exclusively within #tj-root in the Trading Journal */
+@custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"]));
+
+/* ─── Accent color palettes (RGB channel triplets for opacity composition) ───── */
+:root,
+[data-accent="blue"]    { --a3: 147 197 253; --a4: 96 165 250;  --a5: 59 130 246;  --a6: 37 99 235;  }
+[data-accent="violet"]  { --a3: 196 181 253; --a4: 167 139 250; --a5: 139 92 246;  --a6: 124 58 237; }
+[data-accent="emerald"] { --a3: 110 231 183; --a4: 52 211 153;  --a5: 16 185 129;  --a6: 5 150 105;  }
+[data-accent="amber"]   { --a3: 252 211 77;  --a4: 251 191 36;  --a5: 245 158 11;  --a6: 217 119 6;  }
+[data-accent="rose"]    { --a3: 253 164 175; --a4: 251 113 133; --a5: 244 63 94;   --a6: 225 29 72;  }
+[data-accent="red"]     { --a3: 252 165 165; --a4: 248 113 113; --a5: 239 68 68;   --a6: 220 38 38;  }
+
+/* ─── Accent utility classes ─────────────────────────────────────────────────── */
+@layer utilities {
+  /* Buttons */
+  .accent-btn               { background-color: rgb(var(--a6)); color: white; }
+  .accent-btn:hover         { background-color: rgb(var(--a5)); }
+  .accent-btn-shadow        { box-shadow: 0 4px 16px rgb(var(--a6) / 0.28); }
+
+  /* Text — uses --a4 directly (lighter shade, readable on dark backgrounds)   */
+  /* Light mode override below via [data-mode="light"] ancestor selector        */
+  .accent-txt               { color: rgb(var(--a4)); }
+  .accent-txt-bright        { color: rgb(var(--a3)); }
+
+  /* Backgrounds */
+  .accent-tint              { background-color: rgb(var(--a5) / 0.08); }
+  .accent-tint-md           { background-color: rgb(var(--a5) / 0.15); }
+  .accent-subtle            { background-color: rgb(var(--a5) / 0.05); }
+
+  /* Borders */
+  .accent-border-lo         { border-color: rgb(var(--a5) / 0.20); }
+  .accent-border-mid        { border-color: rgb(var(--a5) / 0.40); }
+  .accent-bar               { background-color: rgb(var(--a5) / 0.50); }
+
+  /* Badge/pill */
+  .accent-badge {
+    background-color: rgb(var(--a5) / 0.10);
+    color: rgb(var(--a4));
+    border-color: rgb(var(--a5) / 0.20);
+  }
+
+  /* Selected state (e.g. preset pills) */
+  .accent-selected {
+    background-color: rgb(var(--a5) / 0.15);
+    border-color: rgb(var(--a5) / 0.40);
+    color: rgb(var(--a3));
+  }
+
+  /* Active tab */
+  .accent-tab               { background-color: rgb(var(--a6)); color: white; }
+  .accent-tab-off           { color: rgb(var(--a4) / 0.50); }
+  .accent-tab-off:hover     { color: rgb(var(--a4)); }
+
+  /* Hover row */
+  .accent-row:hover {
+    background-color: rgb(var(--a5) / 0.05);
+    border-color: rgb(var(--a5) / 0.40);
+  }
+
+  /* Form inputs */
+  .accent-input:focus       { border-color: rgb(var(--a5) / 0.65); outline: none; }
+
+  /* Spinner */
+  .accent-spin              { border-top-color: rgb(var(--a5)); }
+
+  /* Toggle checked */
+  .accent-toggle-on         { background-color: rgb(var(--a6)) !important; border-color: rgb(var(--a5)) !important; }
+}
+
+/* Light mode: swap to darker accent shades for readability on light backgrounds */
+[data-mode="light"] .accent-txt   { color: rgb(var(--a6)); }
+[data-mode="light"] .accent-badge { color: rgb(var(--a6)); }

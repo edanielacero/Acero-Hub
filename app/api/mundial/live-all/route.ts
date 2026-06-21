@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getWCLiveMatches, isLive, liveScore } from '@/lib/mundial/football-api'
+import { getWCLiveMatches, getMatch, isLive, liveScore } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 // Scores only move forward — API can briefly return null/0 during backend data races.
@@ -19,7 +19,35 @@ export async function GET() {
       Promise.resolve(createAdminClient()),
     ])
 
-    if (!apiMatches.length) return NextResponse.json({ matches: [] })
+    if (!apiMatches.length) {
+      // No matches are live according to the API. Check the DB for rows still marked
+      // IN_PLAY/PAUSED — they may have just finished and dropped off the live feed.
+      const { data: staleRows } = await admin
+        .from('mundial_matches')
+        .select('id')
+        .in('status', ['IN_PLAY', 'PAUSED'])
+
+      if (!staleRows?.length) return NextResponse.json({ matches: [] })
+
+      const now = new Date().toISOString()
+      const settled = await Promise.allSettled(staleRows.map(r => getMatch(r.id)))
+      const finalUpdates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null; kickoffAt: string | null }> = []
+
+      for (const result of settled) {
+        if (result.status !== 'fulfilled') continue
+        const match = result.value
+        const score = liveScore(match)
+        await admin.from('mundial_matches').update({
+          status: match.status,
+          home_score: score.home,
+          away_score: score.away,
+          synced_at: now,
+        }).eq('id', match.id)
+        finalUpdates.push({ id: match.id, status: match.status, homeScore: score.home, awayScore: score.away, kickoffAt: null })
+      }
+
+      return NextResponse.json({ matches: finalUpdates })
+    }
 
     const ids = apiMatches.map(m => m.id)
 

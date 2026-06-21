@@ -80,9 +80,8 @@ user_id       uuid FK → profiles(id)
 type          text  -- 'backtesting' | 'journal'
 name          text
 description   text
-instrument    text  -- par/instrumento principal (opcional, puede ser por trade)
-risk_percent  numeric  -- % de riesgo por defecto para helpers
-capital_initial numeric  -- solo journal: capital inicial de la cuenta
+instrument      text    -- par/instrumento principal (opcional, puede ser por trade)
+capital_initial numeric -- solo journal: capital inicial de la cuenta
 is_archived   boolean default false
 is_favorite   boolean default false
 sync_paused   boolean default false  -- pausa recepción desde backtesting conectado
@@ -121,20 +120,23 @@ id              uuid PK
 session_id      uuid FK → tj_sessions(id)
 linked_trade_id uuid FK → tj_trades(id)  -- si viene de un backtesting conectado
 
--- Campos fijos siempre presentes
+-- Campos fijos (ambos tipos)
 date_entry      timestamptz not null
 date_exit       timestamptz
 instrument      text
 direction       text   -- 'long' | 'short'
 result          text   -- 'tp' | 'sl' | 'be'
+notes           text
+
+-- Solo backtesting (análisis en R/RR)
 rr_target       numeric  -- RR objetivo original
 rr_max          numeric  -- RR máximo que alcanzó el precio
 rr_exit         numeric  -- RR donde realmente cerró
 be_moved        boolean default false  -- ¿movió SL a BE en algún momento?
-notes           text
 
--- Solo journal
-pnl_usd         numeric
+-- Solo journal (análisis en % y USD)
+risk_percent    numeric  -- % de riesgo en este trade concreto
+pnl_usd         numeric  -- ganancia/pérdida en USD
 capital_start   numeric  -- capital total de la cuenta al iniciar el trade
 capital_end     numeric  -- capital total de la cuenta al cerrar el trade
 
@@ -392,12 +394,17 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
    - Crea nueva sesión `type='journal'`
    - Copia todas las `tj_variable_definitions` de la sesión backtesting
    - Pregunta: *"¿Conectar este Journal a la estrategia?"* → si acepta, crea registro en `tj_session_connections`
-3. Al ingresar un trade en backtesting, si hay journals conectados con sync activo → aparece inline: *"¿Registrar PnL en [Nombre Journal]?"*
-4. El usuario puede ingresar `capital_start`, `capital_end`, `pnl_usd` para cada journal conectado
-5. Se crea un trade en el journal con `linked_trade_id` apuntando al trade de backtesting
-6. El trade en el journal NO muestra datos de RR del backtesting (son sesiones separadas en visualización)
+3. Al ingresar un trade en el **backtesting**, se **copia automáticamente** a todos los journals conectados con sync activo:
+   - Se crea una fila nueva en `tj_trades` por cada journal, con `linked_trade_id` apuntando al trade original (solo referencia histórica)
+   - La copia lleva **todos los campos** del trade de backtesting (dirección, resultado, RR, notas, variables, etc.)
+   - El usuario luego va al journal y completa los campos de dinero real: `risk_percent`, `pnl_usd`, `capital_start`, `capital_end`
+4. **Las copias son totalmente independientes tras la creación:**
+   - Editar un trade en el journal → solo modifica la fila del journal, nunca la del backtesting
+   - Editar un trade en el backtesting → solo modifica la fila del backtesting, nunca las copias en journals
+   - `linked_trade_id` es solo trazabilidad (saber de qué trade de backtesting provino), no un canal de sync
+5. El trade del journal muestra tanto los datos de contexto del backtesting (RR, dirección) como los datos reales de dinero (% y USD), todos editables de forma independiente
 
-**Pausar sincronización:** toggle en la conexión (`tj_session_connections.sync_paused`). También hay toggle global en la sesión journal (`tj_sessions.sync_paused`).
+**Pausar sincronización:** toggle en `tj_session_connections.sync_paused`. Mientras está pausada, los trades nuevos en backtesting **no** se copian al journal. Al reanudar, los trades creados durante la pausa no se recuperan retroactivamente — la pausa solo afecta trades futuros.
 
 ---
 
@@ -435,7 +442,7 @@ Historial de análisis guardado en `tj_ai_analyses` (no se recalcula, el usuario
 
 **Objetivo:** El usuario puede crear, ver, editar y organizar sus sesiones.
 
-- [ ] Lista de sesiones en `app/trading-journal/page.tsx` separada en tabs: Activas / Favoritas / Archivadas
+- [ ] Lista de sesiones en `app/trading-journal/page.tsx` separada en 2 tabs por tipo: **Backtesting** / **Journal**. Dentro de cada tab: sesiones activas primero, archivadas al final con separador. Favorito es un atributo de la tarjeta (estrella), no un tab.
 - [ ] Tarjeta de sesión: nombre, tipo (B/J), instrumento, fecha, N trades, indicador conectada
 - [ ] Crear sesión: modal con nombre, tipo, instrumento (opcional), % riesgo, capital inicial (solo journal)
 - [ ] Elegir variables predefinidas opcionales al crear (selector con checkboxes, descripciones)

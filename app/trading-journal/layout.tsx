@@ -14,7 +14,7 @@ export default async function TradingLayout({ children }: { children: React.Reac
   if (!user) redirect('/login')
 
   const [{ data: profile }, { data: project }] = await Promise.all([
-    supabase.from('profiles').select('role').eq('id', user.id).single(),
+    supabase.from('profiles').select('role, accent_color, color_mode').eq('id', user.id).single(),
     supabase.from('projects').select('id').eq('slug', 'trading-journal').single(),
   ])
 
@@ -29,5 +29,12 @@ export default async function TradingLayout({ children }: { children: React.Reac
     if (!access) redirect('/')
   }
 
-  return <>{children}</>
+  const accent = profile?.accent_color ?? 'blue'
+  const mode   = profile?.color_mode   ?? 'dark'
+
+  return (
+    <div id="tj-root" data-accent={accent} data-mode={mode} className="min-h-screen">
+      {children}
+    </div>
+  )
 }

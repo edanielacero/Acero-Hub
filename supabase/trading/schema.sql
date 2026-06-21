@@ -10,7 +10,6 @@ create table if not exists tj_sessions (
   name            text not null,
   description     text,
   instrument      text,
-  risk_percent    numeric default 1,
   capital_initial numeric,
   is_archived     boolean default false,
   is_favorite     boolean default false,
@@ -62,7 +61,8 @@ create table if not exists tj_trades (
   be_moved        boolean default false,
   notes           text,
 
-  -- Solo journal
+  -- Solo journal (% y monto en USD)
+  risk_percent    numeric,
   pnl_usd         numeric,
   capital_start   numeric,
   capital_end     numeric,
