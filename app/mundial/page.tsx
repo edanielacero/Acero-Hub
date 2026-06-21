@@ -585,12 +585,7 @@ export default function MundialPage() {
         setMatches(prev => prev.map(m => {
           if (m.id !== updated.id) return m
           if (!isLive(m.status) && isLive(updated.status)) recordKickoff(m.id)
-          // Never decrease score — Realtime can deliver stale data from a brief API race
-          return {
-            ...updated,
-            home_score: updated.home_score !== null && (m.home_score === null || updated.home_score >= m.home_score) ? updated.home_score : m.home_score,
-            away_score: updated.away_score !== null && (m.away_score === null || updated.away_score >= m.away_score) ? updated.away_score : m.away_score,
-          }
+          return { ...updated }
         }))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mundial_bets' }, () => {
@@ -622,8 +617,8 @@ export default function MundialPage() {
           return {
             ...m,
             status: u.status,
-            home_score: u.homeScore !== null && (m.home_score === null || u.homeScore >= m.home_score) ? u.homeScore : m.home_score,
-            away_score: u.awayScore !== null && (m.away_score === null || u.awayScore >= m.away_score) ? u.awayScore : m.away_score,
+            home_score: u.homeScore,
+            away_score: u.awayScore,
             kickoff_at: u.kickoffAt ?? m.kickoff_at,
           }
         }))
@@ -634,32 +629,25 @@ export default function MundialPage() {
     return () => clearInterval(id)
   }, [phase])
 
-  // Poll upcoming-within-2h every 20s (to catch kick-off status changes quickly)
+  // Poll today's matches every 60s via a single date-range API call.
+  // Catches: VAR score corrections on finished matches, upcoming → IN_PLAY transitions.
+  // Complements pollLive (which handles real-time scores during the match).
   useEffect(() => {
     if (phase !== 'betting') return
-    const pollUpcoming = async () => {
-      const now = Date.now()
-      const soon = matchesRef.current.filter(m =>
-        (m.status === 'SCHEDULED' || m.status === 'TIMED') &&
-        new Date(m.match_date).getTime() - now < 2 * 60 * 60 * 1000
-      )
-      if (!soon.length) return
-      const settled = await Promise.allSettled(
-        soon.map(m => fetch(`/api/mundial/live?id=${m.id}`).then(r => r.json()))
-      )
-      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null; kickoffAt: string | null }> = []
-      settled.forEach(r => { if (r.status === 'fulfilled' && r.value?.id) updates.push(r.value) })
+    const pollToday = async () => {
+      const res = await fetch('/api/mundial/sync-today').then(r => r.json()).catch(() => null)
+      const updates: Array<{ id: number; status: string; homeScore: number | null; awayScore: number | null }> = res?.matches ?? []
       if (updates.length > 0) {
         setMatches(prev => prev.map(m => {
           const u = updates.find(u => u.id === m.id)
           if (!u) return m
           if (!isLive(m.status) && isLive(u.status)) recordKickoff(m.id)
-          return { ...m, status: u.status, home_score: u.homeScore, away_score: u.awayScore, kickoff_at: u.kickoffAt ?? m.kickoff_at }
+          return { ...m, status: u.status, home_score: u.homeScore, away_score: u.awayScore }
         }))
       }
     }
-    pollUpcoming()
-    const id = setInterval(pollUpcoming, 20_000)
+    pollToday()
+    const id = setInterval(pollToday, 60_000)
     return () => clearInterval(id)
   }, [phase])
 

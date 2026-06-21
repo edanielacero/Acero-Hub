@@ -46,8 +46,25 @@ export async function getWCLiveMatches(): Promise<FootballMatch[]> {
   return data.matches ?? []
 }
 
+export async function getWCMatchesByDateRange(dateFrom: string, dateTo: string): Promise<FootballMatch[]> {
+  const data = await fetchFootball(`/competitions/WC/matches?season=2026&dateFrom=${dateFrom}&dateTo=${dateTo}`)
+  return data.matches ?? []
+}
+
+// Returns today's matches across ALL competitions — no caching, real-time scores.
+// This is the same endpoint shown on football-data.org's homepage demo.
+export async function getTodayMatches(): Promise<FootballMatch[]> {
+  const data = await fetchFootball('/matches')
+  return data.matches ?? []
+}
+
 export async function getMatch(id: number): Promise<FootballMatch> {
   return fetchFootball(`/matches/${id}`)
+}
+
+export async function getMatchesByIds(ids: number[]): Promise<FootballMatch[]> {
+  const data = await fetchFootball(`/matches?ids=${ids.join(',')}`)
+  return data.matches ?? []
 }
 
 export function isLive(status: string) {

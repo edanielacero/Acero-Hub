@@ -37,13 +37,15 @@ app/trading-journal/
 ├── layout.tsx
 ├── page.tsx                    — lista de sesiones (home del proyecto)
 ├── [sessionId]/
-│   ├── page.tsx                — dashboard de la sesión
-│   ├── trades/page.tsx         — tabla + calendario de trades
-│   ├── stats/page.tsx          — métricas avanzadas
-│   ├── montecarlo/page.tsx     — simulador
-│   ├── sweetspot/page.tsx      — análisis de sweet spot
-│   └── ai/page.tsx             — análisis con IA
-└── notifications/page.tsx      — panel de notificaciones
+│   ├── layout.tsx              — header de sesión con back nav y acceso a variables
+│   ├── page.tsx                — dashboard de la sesión (Sprint 5)
+│   ├── variables/page.tsx      — gestión de variables de la sesión (Sprint 2)
+│   ├── trades/page.tsx         — tabla + calendario de trades (Sprint 4)
+│   ├── stats/page.tsx          — métricas avanzadas (Sprint 6)
+│   ├── montecarlo/page.tsx     — simulador (Sprint 7)
+│   ├── sweetspot/page.tsx      — análisis de sweet spot (Sprint 6)
+│   └── ai/page.tsx             — análisis con IA (Sprint 8)
+└── notifications/page.tsx      — panel de notificaciones (Sprint 9)
 
 app/api/trading-journal/
 ├── sessions/route.ts           — CRUD sesiones
@@ -111,6 +113,7 @@ type        text        -- 'text' | 'number' | 'select_single' | 'select_multipl
 options     jsonb       -- solo para select: ["London", "New York", "Asia"]
 is_preset   boolean     -- true = viene de la lista predefinida, false = creada por usuario
 is_required boolean default false
+is_active   boolean default true  -- false = desactivada (oculta en trades, datos preservados)
 sort_order  int
 ```
 
@@ -181,33 +184,23 @@ created_at  timestamptz
 
 ## Variables predefinidas opcionales
 
-El usuario elige cuáles activar al crear una sesión. No son obligatorias.
+El usuario elige cuáles activar al crear una sesión. No son obligatorias. Se seleccionan en el formulario de creación; también pueden agregarse variables completamente personalizadas desde el mismo formulario o desde la página de variables de la sesión.
+
+Lista reducida a las 9 más esenciales (implementadas en `lib/trading/presets.ts`):
 
 | key | label | tipo |
 |---|---|---|
 | `session_time` | Sesión horaria | select_single: Asiática / Londres / Nueva York / Overlap L-NY / Overlap A-L |
 | `timeframe_entry` | Timeframe de entrada | select_single: M1 / M5 / M15 / M30 / H1 / H4 / D1 |
-| `timeframe_analysis` | Timeframe de análisis | select_single: mismo set |
 | `setup_type` | Tipo de setup | text |
-| `confluences` | Confluencias | select_multiple: Soporte / Resistencia / Tendencia / BOS / CHoCH / FVG / OB / Liquidez / Otro |
-| `asset_type` | Tipo de activo | select_single: Forex / Crypto / Índices / Acciones / Materias primas |
-| `order_type` | Tipo de orden | select_single: Market / Limit / Stop |
+| `confluences` | Confluencias | select_multiple: BOS / CHoCH / FVG / OB / Liquidez / Soporte / Resistencia / Tendencia / EMA / Fibonacci / Otro |
 | `exit_reason` | Razón de salida | select_single: TP / SL / Manual / Trailing / BE |
-| `trade_managed` | ¿Gestión activa? | boolean (vs set & forget) |
 | `followed_plan` | ¿Seguí el plan? | boolean |
-| `partial_close` | ¿Cierre parcial? | boolean |
-| `emotion_pre` | Emoción pre-trade | select_single: Neutral / Confiado / Ansioso / Dudoso / FOMO |
-| `emotion_post` | Emoción post-trade | select_single: mismo set |
+| `emotion_pre` | Emoción pre-trade | select_single: Neutral / Confiado / Ansioso / Dudoso / FOMO / Impaciente |
 | `setup_quality` | Calidad del setup | number (1–5) |
-| `subjective_rating` | Calificación subjetiva | number (1–10) |
-| `price_entry` | Precio de entrada | number |
-| `price_exit` | Precio de salida | number |
-| `sl_pips` | SL en pips/puntos | number |
-| `tp_pips` | TP en pips/puntos | number |
-| `commission` | Comisión / Swap | number |
-| `tags` | Tags | select_multiple (opciones libres que el usuario crea) |
+| `tags` | Tags | select_multiple: Buena ejecución / Error de entrada / FOMO / Gestión correcta / Revenge trade (editables) |
 
-El usuario también puede crear variables completamente personalizadas de cualquier tipo.
+El usuario puede crear variables completamente personalizadas de cualquier tipo (text, number, select_single, select_multiple, boolean).
 
 ---
 

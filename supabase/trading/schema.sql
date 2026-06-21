@@ -38,6 +38,7 @@ create table if not exists tj_variable_definitions (
   options     jsonb,
   is_preset   boolean default false,
   is_required boolean default false,
+  is_active   boolean not null default true,
   sort_order  int default 0,
   created_at  timestamptz default now(),
   unique(session_id, key)

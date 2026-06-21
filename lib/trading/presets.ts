@@ -74,9 +74,9 @@ export const PRESET_VARIABLES: PresetVariable[] = [
   {
     key: 'tags',
     label: 'Tags',
-    description: 'Etiquetas libres para clasificar el trade',
+    description: 'Etiquetas para clasificar el trade (editables)',
     type: 'select_multiple',
-    options: [],
+    options: ['Buena ejecución', 'Error de entrada', 'FOMO', 'Gestión correcta', 'Revenge trade'],
     defaultSortOrder: 9,
   },
 ]

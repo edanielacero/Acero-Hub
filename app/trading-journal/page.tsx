@@ -1,9 +1,20 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type VarType = 'text' | 'number' | 'select_single' | 'select_multiple' | 'boolean'
+
+interface CustomVarDraft {
+  id: string
+  label: string
+  type: VarType
+  options: string[]
+  is_required: boolean
+}
 
 interface Connection {
   id: string
@@ -155,8 +166,11 @@ function IconTrash({ size = 14 }: { size?: number }) {
 function IconSettings({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c1.1 0 2-.9 2-2v-.5c0-.55.45-1 1-1h1.5c3.03 0 5.5-2.47 5.5-5.5C21.5 6.36 17.23 2 12 2z"/>
+      <circle cx="6.5" cy="11.5" r="1.5" fill="currentColor" stroke="none"/>
+      <circle cx="9.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/>
+      <circle cx="14.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/>
+      <circle cx="17.5" cy="11.5" r="1.5" fill="currentColor" stroke="none"/>
     </svg>
   )
 }
@@ -247,8 +261,9 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
 
 // ─── Session Card ──────────────────────────────────────────────────────────────
 
-function SessionCard({ session, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal }: {
+function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal }: {
   session: Session
+  onClick: () => void
   onToggleFavorite: () => void
   onEdit: () => void
   onDuplicate: () => void
@@ -260,7 +275,7 @@ function SessionCard({ session, onToggleFavorite, onEdit, onDuplicate, onArchive
   const isBt = session.type === 'backtesting'
 
   return (
-    <div className={`relative flex rounded-2xl transition-all duration-150 ${
+    <div onClick={onClick} className={`relative flex rounded-2xl transition-all duration-150 ${
       session.is_archived ? 'opacity-40' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'
     } bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 hover:border-slate-200 dark:hover:border-zinc-700/60 shadow-sm dark:shadow-none cursor-pointer`}>
 
@@ -407,6 +422,105 @@ const inp = [
 
 const fieldLabel = 'block text-[11px] font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-[0.1em] mb-2'
 
+// ─── Custom Var Mini-Form ──────────────────────────────────────────────────────
+
+const VAR_TYPE_LABELS: Record<VarType, string> = {
+  text:            'Texto',
+  number:          'Número',
+  select_single:   'Selección única',
+  select_multiple: 'Selección múltiple',
+  boolean:         'Sí / No',
+}
+
+function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
+  const [label, setLabel] = useState('')
+  const [type, setType] = useState<VarType>('text')
+  const [options, setOptions] = useState<string[]>([])
+  const [optionDraft, setOptionDraft] = useState('')
+
+  const needsOptions = type === 'select_single' || type === 'select_multiple'
+
+  const addOption = () => {
+    const v = optionDraft.trim()
+    if (!v || options.includes(v)) return
+    setOptions(p => [...p, v])
+    setOptionDraft('')
+  }
+
+  const handleAdd = () => {
+    if (!label.trim()) return
+    if (needsOptions && options.length === 0) return
+    onAdd({ id: crypto.randomUUID(), label: label.trim(), type, options, is_required: false })
+    setLabel('')
+    setType('text')
+    setOptions([])
+    setOptionDraft('')
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-slate-50 dark:bg-zinc-900/80 rounded-xl border border-slate-200 dark:border-zinc-800">
+      {/* Label row */}
+      <input
+        className={inp}
+        placeholder="Nombre de la variable..."
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!needsOptions) handleAdd() } }}
+      />
+
+      {/* Type — native select avoids overflow clipping inside BottomSheet */}
+      <select
+        value={type}
+        onChange={e => { setType(e.target.value as VarType); setOptions([]) }}
+        className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 rounded-xl px-4 py-3 text-[13px] font-semibold text-slate-700 dark:text-zinc-300 outline-none accent-input transition-colors duration-150 min-h-[48px] cursor-pointer appearance-none">
+        {(Object.keys(VAR_TYPE_LABELS) as VarType[]).map(t => (
+          <option key={t} value={t}>{VAR_TYPE_LABELS[t]}</option>
+        ))}
+      </select>
+
+      {/* Options field */}
+      {needsOptions && (
+        <div className="flex flex-col gap-2">
+          {options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-950 rounded-lg border border-slate-200 dark:border-zinc-800">
+              <span className="flex-1 text-[12px] text-slate-700 dark:text-zinc-300">{opt}</span>
+              <button type="button" onClick={() => setOptions(o => o.filter((_, j) => j !== i))}
+                className="text-slate-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer w-6 h-6 flex items-center justify-center rounded">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              className={inp + ' flex-1 text-[13px]'}
+              placeholder="Agregar opción..."
+              value={optionDraft}
+              onChange={e => setOptionDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOption() } }}
+            />
+            <button type="button" onClick={addOption} disabled={!optionDraft.trim()}
+              className="shrink-0 min-w-[44px] min-h-[48px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleAdd}
+        disabled={!label.trim() || (needsOptions && options.length === 0)}
+        className="w-full min-h-[40px] rounded-xl text-[12px] font-bold border-2 border-dashed border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:border-slate-400 dark:hover:border-zinc-500 hover:text-slate-700 dark:hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer">
+        + Agregar variable
+      </button>
+    </div>
+  )
+}
+
 // ─── Session Form ─────────────────────────────────────────────────────────────
 
 function SessionForm({ initial, onSave, onClose, loading }: {
@@ -423,6 +537,8 @@ function SessionForm({ initial, onSave, onClose, loading }: {
   const [description, setDescription] = useState(initial?.description ?? '')
   const [selectedPresets, setSelectedPresets] = useState<string[]>([])
   const [showPresets, setShowPresets] = useState(false)
+  const [customVars, setCustomVars] = useState<CustomVarDraft[]>([])
+  const [showCustomVars, setShowCustomVars] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -433,7 +549,10 @@ function SessionForm({ initial, onSave, onClose, loading }: {
       instrument: instrument.trim() || null,
       capital_initial: type === 'journal' && capitalInitial ? Number(capitalInitial) : null,
       description: description.trim() || null,
-      ...(!isEdit && { preset_keys: selectedPresets }),
+      ...(!isEdit && {
+        preset_keys: selectedPresets,
+        custom_variables: customVars.map(({ label, type, options, is_required }) => ({ label, type, options, is_required })),
+      }),
     })
   }
 
@@ -490,47 +609,92 @@ function SessionForm({ initial, onSave, onClose, loading }: {
       </div>
 
       {!isEdit && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowPresets(v => !v)}
-            className="w-full flex items-center justify-between mb-3 cursor-pointer group">
-            <span className={fieldLabel + ' mb-0'}>
-              Variables predefinidas
-              {selectedPresets.length > 0 && (
-                <span className="ml-2 accent-txt normal-case tracking-normal font-black">
-                  {selectedPresets.length} selec.
-                </span>
-              )}
-            </span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round"
-              className={`transition-transform duration-200 ${showPresets ? 'rotate-180' : ''} stroke-slate-400 dark:stroke-zinc-400 group-hover:stroke-slate-600 dark:group-hover:stroke-zinc-200`}>
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
+        <>
+          {/* Presets */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowPresets(v => !v)}
+              className="w-full flex items-center justify-between mb-3 cursor-pointer group">
+              <span className={fieldLabel + ' mb-0'}>
+                Variables predefinidas
+                {selectedPresets.length > 0 && (
+                  <span className="ml-2 accent-txt normal-case tracking-normal font-black">
+                    {selectedPresets.length} selec.
+                  </span>
+                )}
+              </span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round"
+                className={`transition-transform duration-200 ${showPresets ? 'rotate-180' : ''} stroke-slate-400 dark:stroke-zinc-400 group-hover:stroke-slate-600 dark:group-hover:stroke-zinc-200`}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            {showPresets && (
+              <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 max-h-52 overflow-y-auto">
+                {PRESET_VARIABLES.map(p => {
+                  const active = selectedPresets.includes(p.key)
+                  return (
+                    <button
+                      key={p.key}
+                      type="button"
+                      title={p.description}
+                      onClick={() => togglePreset(p.key)}
+                      className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all duration-150 cursor-pointer whitespace-nowrap ${
+                        active
+                          ? 'accent-selected'
+                          : 'bg-transparent border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-500 hover:text-slate-700 dark:hover:text-zinc-200'
+                      }`}>
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
-          {showPresets && (
-            <div className="flex flex-wrap gap-2 p-4 bg-slate-50 dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800 max-h-52 overflow-y-auto">
-              {PRESET_VARIABLES.map(p => {
-                const active = selectedPresets.includes(p.key)
-                return (
-                  <button
-                    key={p.key}
-                    type="button"
-                    title={p.description}
-                    onClick={() => togglePreset(p.key)}
-                    className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all duration-150 cursor-pointer whitespace-nowrap ${
-                      active
-                        ? 'accent-selected'
-                        : 'bg-transparent border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-500 hover:text-slate-700 dark:hover:text-zinc-200'
-                    }`}>
-                    {p.label}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+          {/* Custom variables */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowCustomVars(v => !v)}
+              className="w-full flex items-center justify-between mb-3 cursor-pointer group">
+              <span className={fieldLabel + ' mb-0'}>
+                Variables personalizadas
+                {customVars.length > 0 && (
+                  <span className="ml-2 accent-txt normal-case tracking-normal font-black">
+                    {customVars.length} creada{customVars.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" strokeWidth="2.5" strokeLinecap="round"
+                className={`transition-transform duration-200 ${showCustomVars ? 'rotate-180' : ''} stroke-slate-400 dark:stroke-zinc-400 group-hover:stroke-slate-600 dark:group-hover:stroke-zinc-200`}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            {showCustomVars && (
+              <div className="flex flex-col gap-2">
+                {/* List of added custom vars */}
+                {customVars.map(cv => (
+                  <div key={cv.id} className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200">{cv.label}</span>
+                      <span className="ml-2 text-[11px] text-slate-400 dark:text-zinc-500">{VAR_TYPE_LABELS[cv.type]}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCustomVars(p => p.filter(v => v.id !== cv.id))}
+                      className="min-w-[32px] min-h-[32px] flex items-center justify-center text-slate-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors duration-150 cursor-pointer rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <CustomVarMiniForm onAdd={cv => setCustomVars(p => [...p, cv])} />
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       <div className="flex gap-3 pt-1">
@@ -957,6 +1121,7 @@ function TabBar({ tab, onTabChange, btCount, jnCount }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TradingJournalPage() {
+  const router = useRouter()
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('backtesting')
@@ -964,7 +1129,7 @@ export default function TradingJournalPage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
+  const [showArchived, setShowArchived] = useState<Record<Tab, boolean>>({ backtesting: false, journal: false })
   const [editSession, setEditSession] = useState<Session | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
   const [connectTarget, setConnectTarget] = useState<Session | null>(null)
@@ -988,18 +1153,16 @@ export default function TradingJournalPage() {
 
   const createSession = async (data: Record<string, unknown>) => {
     setSaving(true)
-    await api('/sessions', { method: 'POST', body: JSON.stringify(data) })
+    const res = await api('/sessions', { method: 'POST', body: JSON.stringify(data) })
     setSaving(false)
-    setShowCreate(false)
-    load()
+    if (res.ok) { setShowCreate(false); load() }
   }
 
   const updateSession = async (id: string, data: Record<string, unknown>) => {
     setSaving(true)
-    await api(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+    const res = await api(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
     setSaving(false)
-    setEditSession(null)
-    load()
+    if (res.ok) { setEditSession(null); load() }
   }
 
   const deleteSession = async (id: string) => {
@@ -1064,6 +1227,7 @@ export default function TradingJournalPage() {
           <div className="flex flex-col gap-2.5">
             {activeOf(tab).map(s => (
               <SessionCard key={s.id} session={s}
+                onClick={() => router.push(`/trading-journal/${s.id}`)}
                 onToggleFavorite={() => toggleFavorite(s)}
                 onEdit={() => setEditSession(s)}
                 onDuplicate={() => duplicate(s.id)}
@@ -1077,23 +1241,24 @@ export default function TradingJournalPage() {
             {archivedOf(tab).length > 0 && (
               <div className="mt-5">
                 <button
-                  onClick={() => setShowArchived(v => !v)}
+                  onClick={() => setShowArchived(v => ({ ...v, [tab]: !v[tab] }))}
                   className="w-full flex items-center gap-3 mb-2 cursor-pointer group">
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800/60" />
                   <span className="flex items-center gap-1.5 text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors duration-150 select-none">
                     Archivadas · {archivedOf(tab).length}
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-                      className={`transition-transform duration-200 ${showArchived ? 'rotate-180' : ''}`}>
+                      className={`transition-transform duration-200 ${showArchived[tab] ? 'rotate-180' : ''}`}>
                       <polyline points="6 9 12 15 18 9"/>
                     </svg>
                   </span>
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800/60" />
                 </button>
 
-                {showArchived && (
+                {showArchived[tab] && (
                   <div className="flex flex-col gap-2.5">
                     {archivedOf(tab).map(s => (
                       <SessionCard key={s.id} session={s}
+                        onClick={() => router.push(`/trading-journal/${s.id}`)}
                         onToggleFavorite={() => toggleFavorite(s)}
                         onEdit={() => setEditSession(s)}
                         onDuplicate={() => duplicate(s.id)}
