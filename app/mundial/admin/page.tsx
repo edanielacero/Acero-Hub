@@ -243,6 +243,49 @@ export default function AdminMundial() {
           </div>
         </div>
 
+        {/* Debts */}
+        {(() => {
+          const debts = profiles
+            .map(profile => {
+              const unpaid = bets.filter(b => b.profile_id === profile.id && !b.payment_confirmed)
+              const total = unpaid.reduce((sum, bet) => {
+                const match = matches.find(m => m.id === bet.match_id)
+                return sum + (match?.bet_amount ?? Number(globalBetAmount))
+              }, 0)
+              return { profile, count: unpaid.length, total }
+            })
+            .filter(d => d.count > 0)
+
+          if (!debts.length) return null
+          const grandTotal = debts.reduce((s, d) => s + d.total, 0)
+
+          return (
+            <section className="bg-amber-500/6 border border-amber-500/20 rounded-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-amber-500/15 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-amber-400">Deudas pendientes</h2>
+                <span className="text-sm font-black text-amber-400 tabular-nums">Bs {grandTotal}</span>
+              </div>
+              <div className="divide-y divide-amber-500/10">
+                {debts.map(({ profile, count, total }) => (
+                  <div key={profile.id} className="px-6 py-3 flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
+                      style={{ backgroundColor: profile.color }}>
+                      {profile.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#f5f5f5]">{profile.name}</p>
+                      <p className="text-[11px] text-amber-700 font-[family-name:var(--font-body)]">
+                        {count} apuesta{count !== 1 ? 's' : ''} por pagar
+                      </p>
+                    </div>
+                    <span className="text-base font-black text-amber-400 tabular-nums shrink-0">Bs {total}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )
+        })()}
+
         {/* Settings */}
         <section className="bg-[#111] border border-[#1e1e1e] rounded-2xl p-6 flex flex-col gap-5">
           <h2 className="text-sm font-semibold text-[#f5f5f5]">Configuración</h2>

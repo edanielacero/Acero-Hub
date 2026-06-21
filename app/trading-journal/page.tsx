@@ -222,7 +222,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
         <IconDots />
       </button>
       {open && (
-        <div className="absolute right-0 top-12 z-50 w-52 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-xl shadow-slate-200/60 dark:shadow-black/60 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 z-[60] w-52 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-xl shadow-slate-200/60 dark:shadow-black/60 overflow-hidden">
           {items.map((item, i) => (
             <button
               key={item.label}
@@ -260,12 +260,12 @@ function SessionCard({ session, onToggleFavorite, onEdit, onDuplicate, onArchive
   const isBt = session.type === 'backtesting'
 
   return (
-    <div className={`relative flex rounded-2xl overflow-hidden transition-all duration-150 ${
+    <div className={`relative flex rounded-2xl transition-all duration-150 ${
       session.is_archived ? 'opacity-40' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'
     } bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 hover:border-slate-200 dark:hover:border-zinc-700/60 shadow-sm dark:shadow-none cursor-pointer`}>
 
       {/* Left accent line */}
-      <div className="w-[3px] shrink-0 accent-bar" />
+      <div className="w-[3px] shrink-0 self-stretch rounded-l-2xl accent-bar" />
 
       <div className="flex-1 px-4 py-4">
         {/* Top row */}
@@ -964,6 +964,7 @@ export default function TradingJournalPage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [editSession, setEditSession] = useState<Session | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
   const [connectTarget, setConnectTarget] = useState<Session | null>(null)
@@ -1074,26 +1075,37 @@ export default function TradingJournalPage() {
             ))}
 
             {archivedOf(tab).length > 0 && (
-              <>
-                <div className="flex items-center gap-3 mt-5 mb-2">
+              <div className="mt-5">
+                <button
+                  onClick={() => setShowArchived(v => !v)}
+                  className="w-full flex items-center gap-3 mb-2 cursor-pointer group">
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800/60" />
-                  <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500">
+                  <span className="flex items-center gap-1.5 text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors duration-150 select-none">
                     Archivadas · {archivedOf(tab).length}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+                      className={`transition-transform duration-200 ${showArchived ? 'rotate-180' : ''}`}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
                   </span>
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800/60" />
-                </div>
-                {archivedOf(tab).map(s => (
-                  <SessionCard key={s.id} session={s}
-                    onToggleFavorite={() => toggleFavorite(s)}
-                    onEdit={() => setEditSession(s)}
-                    onDuplicate={() => duplicate(s.id)}
-                    onArchive={() => toggleArchive(s)}
-                    onDelete={() => setDeleteTarget(s)}
-                    onManageConnections={() => setConnectTarget(s)}
-                    onCreateJournal={() => setCreateJournalFrom(s)}
-                  />
-                ))}
-              </>
+                </button>
+
+                {showArchived && (
+                  <div className="flex flex-col gap-2.5">
+                    {archivedOf(tab).map(s => (
+                      <SessionCard key={s.id} session={s}
+                        onToggleFavorite={() => toggleFavorite(s)}
+                        onEdit={() => setEditSession(s)}
+                        onDuplicate={() => duplicate(s.id)}
+                        onArchive={() => toggleArchive(s)}
+                        onDelete={() => setDeleteTarget(s)}
+                        onManageConnections={() => setConnectTarget(s)}
+                        onCreateJournal={() => setCreateJournalFrom(s)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

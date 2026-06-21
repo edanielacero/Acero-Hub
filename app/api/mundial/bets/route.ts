@@ -3,7 +3,7 @@ import { isClosed } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  const { token, matchId, homeScore, awayScore } = await request.json()
+  const { token, matchId, homeScore, awayScore, paymentConfirmed } = await request.json()
 
   if (!token || matchId == null || homeScore == null || awayScore == null)
     return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 })
@@ -21,13 +21,16 @@ export async function POST(request: Request) {
   if (isClosed(match.match_date))
     return NextResponse.json({ error: 'Las apuestas están cerradas' }, { status: 400 })
 
-  const { error } = await admin.from('mundial_bets').upsert({
+  const upsertData: Record<string, unknown> = {
     profile_id: profile.id,
     match_id: matchId,
     home_score_bet: homeScore,
     away_score_bet: awayScore,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'profile_id,match_id' })
+  }
+  if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
+
+  const { error } = await admin.from('mundial_bets').upsert(upsertData, { onConflict: 'profile_id,match_id' })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
