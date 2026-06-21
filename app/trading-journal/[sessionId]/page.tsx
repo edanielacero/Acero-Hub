@@ -1070,6 +1070,115 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
   )
 }
 
+// ─── Empty Dashboard Skeleton ──────────────────────────────────────────────────
+
+const SKELETON_TRADES = [
+  { result: 'tp' as Result, direction: 'long'  as Direction, instrument: 'EURUSD', date: '15 ene', rr: '+2.0R', pnl: '+$200' },
+  { result: 'sl' as Result, direction: 'short' as Direction, instrument: 'GBPUSD', date: '14 ene', rr: '-1.0R', pnl: '-$100' },
+  { result: 'tp' as Result, direction: 'long'  as Direction, instrument: 'USDJPY', date: '13 ene', rr: '+1.5R', pnl: '+$150' },
+  { result: 'be' as Result, direction: 'short' as Direction, instrument: 'EURUSD', date: '12 ene', rr: '0R',    pnl: '$0'    },
+]
+
+function EmptyDashboard({ sessionType, onNewTrade, onImport }: {
+  sessionType: SessionType; onNewTrade: () => void; onImport: () => void
+}) {
+  const c = 'flex flex-col items-center gap-0.5'
+  const v = 'text-[15px] font-bold text-slate-900 dark:text-zinc-100 tabular-nums'
+  const l = 'text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider'
+  const sep = <div className="w-px self-stretch bg-slate-100 dark:bg-zinc-800" />
+
+  return (
+    <div className="relative">
+      {/* ── Ghost stats bar ── */}
+      <div className="mx-4 mb-3 px-4 py-3 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl opacity-30 select-none pointer-events-none">
+        <div className="flex justify-between items-stretch gap-2">
+          <div className={c}><span className={v}>—</span><span className={l}>Total</span></div>
+          {sep}
+          <div className={c}><span className={`${v} text-emerald-600 dark:text-emerald-400`}>—</span><span className={l}>Ganados</span></div>
+          <div className={c}><span className={`${v} text-rose-500 dark:text-rose-400`}>—</span><span className={l}>Perdidos</span></div>
+          {sep}
+          <div className={c}><span className={`${v} text-slate-400 dark:text-zinc-500`}>—%</span><span className={l}>Winrate</span></div>
+          {sep}
+          <div className={c}>
+            <span className={`${v} font-mono text-slate-400 dark:text-zinc-500`}>—{sessionType === 'backtesting' ? 'R' : ''}</span>
+            <span className={l}>{sessionType === 'backtesting' ? 'Expect.' : 'PnL total'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Ghost trade cards ── */}
+      <div className="px-4 flex flex-col gap-2 opacity-25 select-none pointer-events-none">
+        {SKELETON_TRADES.map((s, i) => {
+          const cfg = RESULT_CONFIG[s.result]
+          return (
+            <div key={i} className="flex gap-3 px-4 py-3.5 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl">
+              <div className={`w-1 rounded-full shrink-0 ${cfg.bar}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[12px] text-slate-400 dark:text-zinc-500 font-mono tabular-nums">{s.date}</span>
+                  <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200">{s.instrument}</span>
+                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${
+                    s.direction === 'long'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400'
+                  }`}>
+                    {s.direction === 'long' ? '▲ L' : '▼ S'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${cfg.badge}`}>{cfg.label}</span>
+                  <span className={`text-[13px] font-mono font-semibold ${
+                    s.result === 'tp' ? 'text-emerald-600 dark:text-emerald-400' :
+                    s.result === 'sl' ? 'text-rose-600 dark:text-rose-400' :
+                    'text-zinc-500 dark:text-zinc-400'
+                  }`}>
+                    {sessionType === 'backtesting' ? s.rr : s.pnl}
+                  </span>
+                </div>
+              </div>
+              {/* Ghost menu dot */}
+              <div className="flex items-center">
+                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-zinc-700" />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── CTA overlay ── */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
+        <div className="w-full max-w-xs bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl shadow-slate-200/60 dark:shadow-black/60 p-6 text-center pointer-events-auto">
+          <div className="w-12 h-12 rounded-2xl bg-[color:var(--accent)]/10 flex items-center justify-center mx-auto mb-3">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"/>
+              <line x1="12" y1="20" x2="12" y2="4"/>
+              <line x1="6" y1="20" x2="6" y2="14"/>
+            </svg>
+          </div>
+          <p className="text-[15px] font-bold text-slate-900 dark:text-zinc-100 mb-1.5">
+            Tu dashboard está listo
+          </p>
+          <p className="text-[12px] text-slate-400 dark:text-zinc-500 leading-relaxed mb-5">
+            Registra trades para ver tus estadísticas, winrate y evolución del capital en tiempo real.
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={onNewTrade}
+              className="w-full min-h-[44px] rounded-xl bg-[color:var(--accent)] text-white font-semibold text-[13px] cursor-pointer transition-opacity active:opacity-80">
+              + Registrar primer trade
+            </button>
+            <button
+              onClick={onImport}
+              className="w-full min-h-[40px] rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 text-[12px] font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+              Importar desde CSV
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SessionDashboardPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -1171,22 +1280,13 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         </div>
       )}
 
-      {/* Trade list */}
+      {/* Trade list / Empty skeleton */}
       {trades.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[color:var(--accent)]/10 flex items-center justify-center mb-4">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-          </div>
-          <h3 className="text-[16px] font-semibold text-slate-800 dark:text-zinc-200 mb-1">Sin trades aún</h3>
-          <p className="text-[13px] text-slate-400 dark:text-zinc-500 max-w-xs">
-            Registra tu primer trade o importa desde un archivo CSV.
-          </p>
-        </div>
+        <EmptyDashboard
+          sessionType={session.type}
+          onNewTrade={() => { setEditTrade(null); setShowForm(true) }}
+          onImport={() => setShowImport(true)}
+        />
       ) : (
         <div className="px-4 flex flex-col gap-2">
           {trades.map(trade => (

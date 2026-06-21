@@ -26,7 +26,6 @@ export async function GET() {
       const kickoff = new Date(m.utcDate).getTime()
       return (
         isLive(m.status) ||
-        m.status === 'PAUSED' ||
         (m.status === 'FINISHED' && now - kickoff < 3 * 60 * 60 * 1000) ||
         ((m.status === 'SCHEDULED' || m.status === 'TIMED') && kickoff - now < 2 * 60 * 60 * 1000)
       )
