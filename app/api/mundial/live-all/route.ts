@@ -1,34 +1,32 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getTodayMatches, isLive, liveScore } from '@/lib/mundial/football-api'
+import { getWCLiveMatches, getMatchesByIds, isLive, liveScore } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
-// Uses GET /v4/matches — the real-time, uncached endpoint, same as football-data.org's homepage.
-// One call returns all of today's matches across all competitions; we filter to WC live matches.
-// Also catches matches that just finished (dropped off the live feed) in the same request.
+// Polls live WC matches via the competition endpoint every 10s.
+// Falls back to getMatchesByIds for any DB rows still marked IN_PLAY that the
+// live feed dropped (i.e. the match just finished).
 export async function GET() {
   try {
     const admin = createAdminClient()
 
     const [apiMatches, { data: dbRows }] = await Promise.all([
-      getTodayMatches(),
+      getWCLiveMatches(),
       admin.from('mundial_matches').select('id, status, kickoff_at'),
     ])
 
-    if (!apiMatches.length || !dbRows?.length) return NextResponse.json({ matches: [] })
+    if (!dbRows?.length) return NextResponse.json({ matches: [] })
 
-    const wcIds = new Set(dbRows.map(r => r.id))
     const dbMap = new Map(dbRows.map(r => [r.id, r]))
 
-    // WC matches from the API that are currently live
-    const liveApiMatches = apiMatches.filter(m => wcIds.has(m.id) && isLive(m.status))
+    // Matches the API currently reports as live
+    const liveApiMatches = apiMatches.filter(m => dbMap.has(m.id))
 
-    // DB rows still marked as live but absent from the API live list → just finished
+    // DB rows still marked IN_PLAY/PAUSED but absent from the live feed → just finished
     const staleIds = dbRows
       .filter(r => isLive(r.status) && !liveApiMatches.some(m => m.id === r.id))
       .map(r => r.id)
 
-    // Resolve stale matches from today's API data (already fetched, no extra call)
-    const staleApiMatches = apiMatches.filter(m => staleIds.includes(m.id))
+    const staleApiMatches = staleIds.length > 0 ? await getMatchesByIds(staleIds) : []
 
     const toProcess = [...liveApiMatches, ...staleApiMatches]
     if (!toProcess.length) return NextResponse.json({ matches: [] })
@@ -64,7 +62,6 @@ export async function GET() {
     }
 
     await admin.from('mundial_matches').upsert(upsertRows, { onConflict: 'id' })
-
     return NextResponse.json({ matches: results })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 })

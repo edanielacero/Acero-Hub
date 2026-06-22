@@ -148,9 +148,10 @@ function formatDate(d: string) {
 
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
-function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, isNext, onBetPlaced }: {
+function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, isNext, onBetPlaced, debtMap }: {
   match: Match; myBet?: Bet; allBets: Bet[]; profiles: Profile[]
   token: string; qrUrl: string | null; betAmount: number; pot: number; carryoverPart?: number; isNext?: boolean; onBetPlaced: () => void
+  debtMap: Record<string, number>
 }) {
   const [home, setHome] = useState<string | number>(myBet?.home_score_bet ?? '')
   const [away, setAway] = useState<string | number>(myBet?.away_score_bet ?? '')
@@ -160,7 +161,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
 
   const closed = isClosed(match.match_date)
   const finished = match.status === 'FINISHED'
-  const live = !finished && (isLive(match.status) || Date.now() >= new Date(match.match_date).getTime())
+  const live = !finished && isLive(match.status)
   const betsForMatch = allBets.filter(b => b.match_id === match.id)
   const scoresReady = home !== '' && away !== ''
 
@@ -294,32 +295,75 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
           )
           if (winners.length > 0) {
             const prize = winners.length > 1 ? Math.floor(pot / winners.length) : pot
+            const hasAnyDebt = winners.some(w => (debtMap[w.profile_id] ?? 0) > 0)
+            if (!hasAnyDebt) {
+              return (
+                <div className="mt-4 bg-green-500/8 border border-green-500/15 rounded-2xl px-5 py-3 flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <span className="text-[11px] font-medium text-green-600">
+                      {winners.length > 1 ? `${winners.length} ganadores · Bs ${prize} c/u` : 'Ganador'}
+                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {winners.map(w => {
+                        const prof = profiles.find(p => p.id === w.profile_id)
+                        return prof ? (
+                          <div key={w.id} className="flex items-center gap-1">
+                            <div className="w-4 h-4 rounded-sm flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                              style={{ backgroundColor: prof.color }}>
+                              {prof.name.charAt(0)}
+                            </div>
+                            <span className="text-xs font-semibold text-green-400">{prof.name}</span>
+                          </div>
+                        ) : null
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="text-2xl font-bold tabular-nums text-green-400">Bs {prize}</span>
+                    {winners.length > 1 && (
+                      <span className="text-[10px] text-green-700 tabular-nums">Bs {pot} total</span>
+                    )}
+                  </div>
+                </div>
+              )
+            }
             return (
-              <div className="mt-4 bg-green-500/8 border border-green-500/15 rounded-2xl px-5 py-3 flex items-center justify-between gap-3">
-                <div className="flex flex-col gap-1 min-w-0">
-                  <span className="text-[11px] font-medium text-green-600">
-                    {winners.length > 1 ? `${winners.length} ganadores · Bs ${prize} c/u` : 'Ganador'}
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {winners.map(w => {
-                      const prof = profiles.find(p => p.id === w.profile_id)
-                      return prof ? (
-                        <div key={w.id} className="flex items-center gap-1">
-                          <div className="w-4 h-4 rounded-sm flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+              <div className="mt-4 bg-green-500/8 border border-green-500/15 rounded-2xl overflow-hidden">
+                {winners.length > 1 && (
+                  <div className="px-5 pt-3 pb-2 border-b border-green-500/10">
+                    <span className="text-[11px] font-medium text-green-600">
+                      {winners.length} ganadores · Bs {prize} c/u
+                    </span>
+                  </div>
+                )}
+                <div className="divide-y divide-green-500/10">
+                  {winners.map(w => {
+                    const prof = profiles.find(p => p.id === w.profile_id)
+                    if (!prof) return null
+                    const debt = debtMap[w.profile_id] ?? 0
+                    const net = Math.max(0, prize - debt)
+                    return (
+                      <div key={w.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                             style={{ backgroundColor: prof.color }}>
                             {prof.name.charAt(0)}
                           </div>
-                          <span className="text-xs font-semibold text-green-400">{prof.name}</span>
+                          <span className="text-sm font-semibold text-green-400">{prof.name}</span>
                         </div>
-                      ) : null
-                    })}
-                  </div>
-                </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className="text-2xl font-bold tabular-nums text-green-400">Bs {prize}</span>
-                  {winners.length > 1 && (
-                    <span className="text-[10px] text-green-700 tabular-nums">Bs {pot} total</span>
-                  )}
+                        {debt > 0 ? (
+                          <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-amber-600 tabular-nums font-[family-name:var(--font-body)]">
+                              Bs {prize} − Bs {debt} deuda
+                            </span>
+                            <span className="text-xl font-black tabular-nums text-green-400">Bs {net}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xl font-black tabular-nums text-green-400">Bs {prize}</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -339,16 +383,33 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
         {!closed && !finished && (
           <>
             {myBet ? (
-              /* Existing bet — simple update */
-              <div className="mt-4 flex items-center gap-2">
-                <span className="text-xs text-[#777] font-[family-name:var(--font-body)]">Tu apuesta:</span>
-                <input type="number" min="0" max="20" value={home} onChange={e => setHome(e.target.value)} className={numInput} />
-                <span className="text-[#555] font-bold text-sm">–</span>
-                <input type="number" min="0" max="20" value={away} onChange={e => setAway(e.target.value)} className={numInput} />
-                <button onClick={() => handleBet()} disabled={loading || !scoresReady}
-                  className="ml-auto text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-4 py-1.5 rounded-lg transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
-                  {loading ? '...' : 'Actualizar'}
-                </button>
+              /* Existing bet — update or remove */
+              <div className="mt-4 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#777] font-[family-name:var(--font-body)]">Tu apuesta:</span>
+                  <input type="number" min="0" max="20" value={home} onChange={e => setHome(e.target.value)} className={numInput} />
+                  <span className="text-[#555] font-bold text-sm">–</span>
+                  <input type="number" min="0" max="20" value={away} onChange={e => setAway(e.target.value)} className={numInput} />
+                  <button onClick={() => handleBet()} disabled={loading || !scoresReady}
+                    className="ml-auto text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-4 py-1.5 rounded-lg transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
+                    {loading ? '...' : 'Actualizar'}
+                  </button>
+                </div>
+                {!myBet.payment_confirmed && (
+                  <button onClick={async () => {
+                    setLoading(true)
+                    await fetch('/api/mundial/bets', {
+                      method: 'DELETE',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ token, matchId: match.id }),
+                    })
+                    setLoading(false)
+                    onBetPlaced()
+                  }} disabled={loading}
+                    className="self-start text-[11px] text-red-500/60 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-40 font-[family-name:var(--font-body)]">
+                    Quitar apuesta
+                  </button>
+                )}
               </div>
             ) : paymentMode === null ? (
               /* New bet — score entry + payment timing choice */
@@ -773,8 +834,18 @@ export default function MundialPage() {
   const currentDate    = selectedDate ?? defaultDate
   const matchesForDate = upcomingAll.filter(m => toLocalDate(m.match_date) === currentDate)
 
+  // Pre-compute total pending debt per profile across all matches
+  const debtMap = profiles.reduce<Record<string, number>>((acc, prof) => {
+    const unpaidBets = allBets.filter(b => b.profile_id === prof.id && !b.payment_confirmed)
+    acc[prof.id] = unpaidBets.reduce((sum, ub) => {
+      const found = matches.find(mx => mx.id === ub.match_id)
+      return sum + (found?.bet_amount ?? betAmount)
+    }, 0)
+    return acc
+  }, {})
+
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
-  const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets }
+  const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets, debtMap }
 
   const groupStandings = computeStandings(matches)
 

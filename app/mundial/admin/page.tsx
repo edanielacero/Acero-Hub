@@ -252,7 +252,7 @@ export default function AdminMundial() {
                 const match = matches.find(m => m.id === bet.match_id)
                 return sum + (match?.bet_amount ?? Number(globalBetAmount))
               }, 0)
-              return { profile, count: unpaid.length, total }
+              return { profile, count: unpaid.length, total, unpaid }
             })
             .filter(d => d.count > 0)
 
@@ -266,19 +266,39 @@ export default function AdminMundial() {
                 <span className="text-sm font-black text-amber-400 tabular-nums">Bs {grandTotal}</span>
               </div>
               <div className="divide-y divide-amber-500/10">
-                {debts.map(({ profile, count, total }) => (
-                  <div key={profile.id} className="px-6 py-3 flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
-                      style={{ backgroundColor: profile.color }}>
-                      {profile.name.charAt(0)}
+                {debts.map(({ profile, count, total, unpaid }) => (
+                  <div key={profile.id} className="flex flex-col">
+                    <div className="px-6 py-3 flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
+                        style={{ backgroundColor: profile.color }}>
+                        {profile.name.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[#f5f5f5]">{profile.name}</p>
+                        <p className="text-[11px] text-amber-700 font-[family-name:var(--font-body)]">
+                          {count} apuesta{count !== 1 ? 's' : ''} por pagar
+                        </p>
+                      </div>
+                      <span className="text-base font-black text-amber-400 tabular-nums shrink-0">Bs {total}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[#f5f5f5]">{profile.name}</p>
-                      <p className="text-[11px] text-amber-700 font-[family-name:var(--font-body)]">
-                        {count} apuesta{count !== 1 ? 's' : ''} por pagar
-                      </p>
+                    <div className="px-6 pb-3 flex flex-col gap-1.5">
+                      {unpaid.map(bet => {
+                        const match = matches.find(m => m.id === bet.match_id)
+                        if (!match) return null
+                        const amount = match.bet_amount ?? Number(globalBetAmount)
+                        return (
+                          <div key={bet.id} className="flex items-center justify-between pl-10">
+                            <span className="text-[11px] text-[#555] font-[family-name:var(--font-body)]">
+                              {match.home_tla || match.home_team} vs {match.away_tla || match.away_team}
+                              <span className="text-[#3a3a3a] ml-2">
+                                {new Date(match.match_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'America/La_Paz' })}
+                              </span>
+                            </span>
+                            <span className="text-[11px] text-amber-600/80 tabular-nums font-medium font-[family-name:var(--font-body)]">Bs {amount}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-                    <span className="text-base font-black text-amber-400 tabular-nums shrink-0">Bs {total}</span>
                   </div>
                 ))}
               </div>

@@ -51,12 +51,6 @@ export async function getWCMatchesByDateRange(dateFrom: string, dateTo: string):
   return data.matches ?? []
 }
 
-// Returns today's matches across ALL competitions — no caching, real-time scores.
-// This is the same endpoint shown on football-data.org's homepage demo.
-export async function getTodayMatches(): Promise<FootballMatch[]> {
-  const data = await fetchFootball('/matches')
-  return data.matches ?? []
-}
 
 export async function getMatch(id: number): Promise<FootballMatch> {
   return fetchFootball(`/matches/${id}`)

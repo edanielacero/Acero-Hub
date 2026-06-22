@@ -486,58 +486,50 @@ function TradeCard({ trade, sessionType, onEdit, onDelete }: {
 // ─── Stats Bar ─────────────────────────────────────────────────────────────────
 
 function StatsBar({ trades, sessionType }: { trades: Trade[]; sessionType: SessionType }) {
-  if (trades.length === 0) return null
-
-  const total   = trades.length
-  const winners = trades.filter(t => t.result === 'tp').length
-  const losers  = trades.filter(t => t.result === 'sl').length
-  const be      = trades.filter(t => t.result === 'be').length
-  const winrate = Math.round(winners / total * 100)
+  const empty = trades.length === 0
+  const N     = trades.length
+  const W     = trades.filter(t => t.result === 'tp').length
+  const L     = trades.filter(t => t.result === 'sl').length
+  const be    = trades.filter(t => t.result === 'be').length
+  const wr    = !empty ? Math.round(W / N * 100) : null
 
   const totalRR = trades.reduce((acc, t) => {
     if (t.result === 'tp' && t.rr_exit) return acc + t.rr_exit
     if (t.result === 'sl' && t.rr_exit) return acc - t.rr_exit
     return acc
   }, 0)
-
   const totalPnL = trades.reduce((acc, t) => acc + (t.pnl_usd ?? 0), 0)
 
-  const c = 'flex flex-col items-center gap-0.5'
-  const v = 'text-[15px] font-bold text-slate-900 dark:text-zinc-100 tabular-nums'
-  const l = 'text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider'
-  const sep = <div className="w-px self-stretch bg-slate-100 dark:bg-zinc-800" />
+  const dim = 'text-slate-300 dark:text-zinc-700'
+  const pos = 'text-emerald-600 dark:text-emerald-400'
+  const neg = 'text-rose-500 dark:text-rose-400'
+  const neu = 'text-slate-800 dark:text-zinc-100'
+
+  const mainStat = sessionType === 'backtesting'
+    ? { label: 'R acum.', value: empty ? '—' : `${totalRR >= 0 ? '+' : ''}${totalRR.toFixed(1)}R`, color: empty ? dim : totalRR >= 0 ? pos : neg }
+    : { label: 'PnL',     value: empty ? '—' : (fmtPnL(totalPnL) ?? '—'),                          color: empty ? dim : totalPnL >= 0 ? pos : neg }
+
+  function Cell({ label, value, color }: { label: string; value: string; color: string }) {
+    return (
+      <div className="flex flex-col items-center gap-1.5 py-3 px-2">
+        <span className={`text-[18px] font-bold font-mono leading-none tabular-nums ${color}`}>{value}</span>
+        <span className="text-[9px] text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]">{label}</span>
+      </div>
+    )
+  }
 
   return (
-    <div className="mx-4 mb-3 px-4 py-3 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl">
-      <div className="flex justify-between items-stretch gap-2">
-        <div className={c}><span className={v}>{total}</span><span className={l}>Total</span></div>
-        {sep}
-        <div className={c}><span className={`${v} text-emerald-600 dark:text-emerald-400`}>{winners}</span><span className={l}>Ganados</span></div>
-        <div className={c}><span className={`${v} text-rose-500 dark:text-rose-400`}>{losers}</span><span className={l}>Perdidos</span></div>
-        {be > 0 && <div className={c}><span className={`${v} text-zinc-500`}>{be}</span><span className={l}>BE</span></div>}
-        {sep}
-        <div className={c}>
-          <span className={`${v} ${winrate >= 50 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {winrate}%
-          </span>
-          <span className={l}>Winrate</span>
-        </div>
-        {sep}
-        {sessionType === 'backtesting' ? (
-          <div className={c}>
-            <span className={`${v} font-mono ${totalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-              {totalRR >= 0 ? '+' : ''}{totalRR.toFixed(1)}R
-            </span>
-            <span className={l}>Expect.</span>
-          </div>
-        ) : (
-          <div className={c}>
-            <span className={`${v} font-mono ${totalPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-              {fmtPnL(totalPnL)}
-            </span>
-            <span className={l}>PnL total</span>
-          </div>
-        )}
+    <div className="mx-4 mb-3 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl overflow-hidden">
+      <div className="grid grid-cols-3 divide-x divide-slate-100 dark:divide-zinc-800">
+        <Cell label="Total"          value={empty ? '—' : `${N}`}    color={empty ? dim : neu} />
+        <Cell label="Winrate"        value={empty ? '—%' : `${wr}%`} color={empty ? dim : wr! >= 50 ? pos : neg} />
+        <Cell label={mainStat.label} value={mainStat.value}           color={mainStat.color} />
+      </div>
+      <div className="h-px bg-slate-100 dark:bg-zinc-800" />
+      <div className="grid grid-cols-3 divide-x divide-slate-100 dark:divide-zinc-800">
+        <Cell label="Ganados"  value={empty ? '—' : `${W}`}  color={empty ? dim : W  > 0 ? pos : neu} />
+        <Cell label="Perdidos" value={empty ? '—' : `${L}`}  color={empty ? dim : L  > 0 ? neg : neu} />
+        <Cell label="BE"       value={empty ? '—' : `${be}`} color={empty ? dim : neu} />
       </div>
     </div>
   )
@@ -1070,111 +1062,296 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
   )
 }
 
-// ─── Empty Dashboard Skeleton ──────────────────────────────────────────────────
+// ─── Advanced Analytics ────────────────────────────────────────────────────────
 
-const SKELETON_TRADES = [
-  { result: 'tp' as Result, direction: 'long'  as Direction, instrument: 'EURUSD', date: '15 ene', rr: '+2.0R', pnl: '+$200' },
-  { result: 'sl' as Result, direction: 'short' as Direction, instrument: 'GBPUSD', date: '14 ene', rr: '-1.0R', pnl: '-$100' },
-  { result: 'tp' as Result, direction: 'long'  as Direction, instrument: 'USDJPY', date: '13 ene', rr: '+1.5R', pnl: '+$150' },
-  { result: 'be' as Result, direction: 'short' as Direction, instrument: 'EURUSD', date: '12 ene', rr: '0R',    pnl: '$0'    },
-]
+function calcAdvanced(trades: Trade[], sessionType: SessionType, capitalInitial: number | null) {
+  const sorted = [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry))
+  const winners = sorted.filter(t => t.result === 'tp')
+  const losers  = sorted.filter(t => t.result === 'sl')
 
-function EmptyDashboard({ sessionType, onNewTrade, onImport }: {
-  sessionType: SessionType; onNewTrade: () => void; onImport: () => void
+  // Profit factor
+  let profitFactor: number | null = null
+  if (sessionType === 'backtesting') {
+    const win  = winners.reduce((s, t) => s + (t.rr_exit ?? 0), 0)
+    const loss = losers.reduce((s, t) => s + (t.rr_exit ?? 0), 0)
+    profitFactor = loss > 0 ? win / loss : win > 0 ? Infinity : null
+  } else {
+    const win  = winners.reduce((s, t) => s + (t.pnl_usd ?? 0), 0)
+    const loss = Math.abs(losers.reduce((s, t) => s + (t.pnl_usd ?? 0), 0))
+    profitFactor = loss > 0 ? win / loss : win > 0 ? Infinity : null
+  }
+
+  // Win / loss streaks
+  let maxWinStreak = 0, curWin = 0
+  let maxLossStreak = 0, curLoss = 0
+  for (const t of sorted) {
+    if (t.result === 'tp') { curWin++; maxWinStreak = Math.max(maxWinStreak, curWin); curLoss = 0 }
+    else if (t.result === 'sl') { curLoss++; maxLossStreak = Math.max(maxLossStreak, curLoss); curWin = 0 }
+    else { curWin = 0; curLoss = 0 }
+  }
+
+  // Best / worst trade value
+  let bestTradeVal: number | null = null
+  let worstTradeVal: number | null = null
+  if (sessionType === 'backtesting') {
+    const tpR = winners.map(t => t.rr_exit).filter(Boolean) as number[]
+    const slR = losers.map(t => t.rr_exit).filter(Boolean) as number[]
+    if (tpR.length) bestTradeVal  = Math.max(...tpR)
+    if (slR.length) worstTradeVal = Math.max(...slR)
+  } else {
+    const pnls = sorted.map(t => t.pnl_usd).filter(v => v != null) as number[]
+    if (pnls.length) { bestTradeVal = Math.max(...pnls); worstTradeVal = Math.min(...pnls) }
+  }
+
+  // Max drawdown
+  let maxDD = 0
+  if (sessionType === 'backtesting') {
+    let peak = 0, cum = 0
+    for (const t of sorted) {
+      if (t.result === 'tp' && t.rr_exit) cum += t.rr_exit
+      else if (t.result === 'sl' && t.rr_exit) cum -= t.rr_exit
+      peak = Math.max(peak, cum)
+      maxDD = Math.max(maxDD, peak - cum)
+    }
+  } else {
+    const withCap = sorted.filter(t => t.capital_end != null)
+    if (withCap.length) {
+      let peak = capitalInitial ?? withCap[0].capital_end!
+      for (const t of withCap) {
+        peak = Math.max(peak, t.capital_end!)
+        if (peak > 0) maxDD = Math.max(maxDD, ((peak - t.capital_end!) / peak) * 100)
+      }
+    }
+  }
+
+  // Return % (journal)
+  let returnPct: number | null = null
+  if (sessionType === 'journal' && capitalInitial) {
+    const last = [...sorted].reverse().find(t => t.capital_end != null)
+    if (last?.capital_end != null) returnPct = ((last.capital_end - capitalInitial) / capitalInitial) * 100
+  }
+
+  return { profitFactor, maxWinStreak, maxLossStreak, bestTradeVal, worstTradeVal, maxDD, returnPct }
+}
+
+// ─── Equity Chart ──────────────────────────────────────────────────────────────
+
+function EquityChart({ trades, sessionType, capitalInitial }: {
+  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null
 }) {
-  const c = 'flex flex-col items-center gap-0.5'
-  const v = 'text-[15px] font-bold text-slate-900 dark:text-zinc-100 tabular-nums'
-  const l = 'text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider'
-  const sep = <div className="w-px self-stretch bg-slate-100 dark:bg-zinc-800" />
+  const sorted = [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry))
+  const W = 320, H = 150
+  const PAD = { top: 14, right: 10, bottom: 28, left: 44 }
+  const iW = W - PAD.left - PAD.right
+  const iH = H - PAD.top - PAD.bottom
+
+  // Build value + label series
+  const pts: number[] = []
+  const lbls: string[] = []
+
+  if (sessionType === 'backtesting') {
+    let cum = 0
+    pts.push(0); lbls.push('')
+    for (const t of sorted) {
+      if (t.result === 'tp' && t.rr_exit) cum += t.rr_exit
+      else if (t.result === 'sl' && t.rr_exit) cum -= t.rr_exit
+      pts.push(cum); lbls.push(fmtDate(t.date_entry))
+    }
+  } else {
+    const withCap = sorted.filter(t => t.capital_end != null)
+    const start = capitalInitial ?? withCap[0]?.capital_start ?? withCap[0]?.capital_end
+    if (start != null) { pts.push(start); lbls.push('') }
+    for (const t of withCap) { pts.push(t.capital_end!); lbls.push(fmtDate(t.date_entry)) }
+  }
+
+  // Empty / insufficient data
+  if (pts.length < 2) {
+    return (
+      <div className="text-slate-300 dark:text-zinc-700">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+          <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={H - PAD.bottom} stroke="currentColor" strokeWidth="1" />
+          <line x1={PAD.left} y1={H - PAD.bottom} x2={W - PAD.right} y2={H - PAD.bottom} stroke="currentColor" strokeWidth="1" />
+          <line x1={PAD.left} y1={(H - PAD.bottom + PAD.top) / 2} x2={W - PAD.right} y2={(H - PAD.bottom + PAD.top) / 2}
+            stroke="currentColor" strokeWidth="1" strokeDasharray="4 3" />
+          <text x={W / 2} y={(H + PAD.top) / 2 + 4} textAnchor="middle" fill="currentColor" fontSize="10">
+            Sin datos aún
+          </text>
+        </svg>
+      </div>
+    )
+  }
+
+  const minV = Math.min(...pts)
+  const maxV = Math.max(...pts)
+  const range = maxV - minV || 1
+  const xs = (i: number) => PAD.left + (i / (pts.length - 1)) * iW
+  const ys = (v: number) => PAD.top + (1 - (v - minV) / range) * iH
+
+  const pathD = pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xs(i).toFixed(1)} ${ys(v).toFixed(1)}`).join(' ')
+  const areaD = `${pathD} L ${xs(pts.length - 1).toFixed(1)} ${(H - PAD.bottom).toFixed(1)} L ${xs(0).toFixed(1)} ${(H - PAD.bottom).toFixed(1)} Z`
+
+  const isUp = pts[pts.length - 1] >= pts[0]
+  const col = isUp ? '#10b981' : '#f43f5e'
+
+  function fmtY(v: number) {
+    if (sessionType === 'backtesting') return `${v >= 0 ? '+' : ''}${v.toFixed(1)}R`
+    return Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`
+  }
+
+  const yTicks = [minV, (minV + maxV) / 2, maxV]
+  const xTicks = pts.length <= 4
+    ? pts.map((_, i) => i).filter(i => i > 0)
+    : [Math.floor(pts.length * 0.33), Math.floor(pts.length * 0.66), pts.length - 1]
 
   return (
-    <div className="relative">
-      {/* ── Ghost stats bar ── */}
-      <div className="mx-4 mb-3 px-4 py-3 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl opacity-30 select-none pointer-events-none">
-        <div className="flex justify-between items-stretch gap-2">
-          <div className={c}><span className={v}>—</span><span className={l}>Total</span></div>
-          {sep}
-          <div className={c}><span className={`${v} text-emerald-600 dark:text-emerald-400`}>—</span><span className={l}>Ganados</span></div>
-          <div className={c}><span className={`${v} text-rose-500 dark:text-rose-400`}>—</span><span className={l}>Perdidos</span></div>
-          {sep}
-          <div className={c}><span className={`${v} text-slate-400 dark:text-zinc-500`}>—%</span><span className={l}>Winrate</span></div>
-          {sep}
-          <div className={c}>
-            <span className={`${v} font-mono text-slate-400 dark:text-zinc-500`}>—{sessionType === 'backtesting' ? 'R' : ''}</span>
-            <span className={l}>{sessionType === 'backtesting' ? 'Expect.' : 'PnL total'}</span>
-          </div>
-        </div>
-      </div>
+    <div className="text-slate-400 dark:text-zinc-600">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        <defs>
+          <linearGradient id="eq-g" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={col} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={col} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
 
-      {/* ── Ghost trade cards ── */}
-      <div className="px-4 flex flex-col gap-2 opacity-25 select-none pointer-events-none">
-        {SKELETON_TRADES.map((s, i) => {
-          const cfg = RESULT_CONFIG[s.result]
-          return (
-            <div key={i} className="flex gap-3 px-4 py-3.5 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl">
-              <div className={`w-1 rounded-full shrink-0 ${cfg.bar}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[12px] text-slate-400 dark:text-zinc-500 font-mono tabular-nums">{s.date}</span>
-                  <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200">{s.instrument}</span>
-                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${
-                    s.direction === 'long'
-                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
-                      : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400'
-                  }`}>
-                    {s.direction === 'long' ? '▲ L' : '▼ S'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${cfg.badge}`}>{cfg.label}</span>
-                  <span className={`text-[13px] font-mono font-semibold ${
-                    s.result === 'tp' ? 'text-emerald-600 dark:text-emerald-400' :
-                    s.result === 'sl' ? 'text-rose-600 dark:text-rose-400' :
-                    'text-zinc-500 dark:text-zinc-400'
-                  }`}>
-                    {sessionType === 'backtesting' ? s.rr : s.pnl}
-                  </span>
-                </div>
-              </div>
-              {/* Ghost menu dot */}
-              <div className="flex items-center">
-                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-zinc-700" />
-              </div>
+        {/* Grid + Y labels */}
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={PAD.left} y1={ys(v).toFixed(1)} x2={W - PAD.right} y2={ys(v).toFixed(1)}
+              stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
+            <text x={PAD.left - 4} y={parseFloat(ys(v).toFixed(1)) + 3.5}
+              textAnchor="end" fill="currentColor" fontSize="8.5" fontFamily="monospace">
+              {fmtY(v)}
+            </text>
+          </g>
+        ))}
+
+        {/* Zero line for BT crossing */}
+        {sessionType === 'backtesting' && minV < 0 && maxV > 0 && (
+          <line x1={PAD.left} y1={ys(0).toFixed(1)} x2={W - PAD.right} y2={ys(0).toFixed(1)}
+            stroke="currentColor" strokeOpacity="0.3" strokeWidth="1" strokeDasharray="4 2" />
+        )}
+
+        {/* Area + line */}
+        <path d={areaD} fill="url(#eq-g)" />
+        <path d={pathD} fill="none" stroke={col} strokeWidth="1.8"
+          strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Data points */}
+        {pts.map((v, i) => (
+          <circle key={i} cx={xs(i).toFixed(1)} cy={ys(v).toFixed(1)} r="2"
+            fill={col} fillOpacity={i === pts.length - 1 ? 1 : 0.35} />
+        ))}
+
+        {/* X axis date labels */}
+        {xTicks.map(i => (
+          <text key={i} x={xs(i).toFixed(1)} y={H - 6}
+            textAnchor="middle" fill="currentColor" fontSize="8">
+            {lbls[i]}
+          </text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+// ─── Advanced Section (collapsible) ───────────────────────────────────────────
+
+function AdvancedSection({ trades, sessionType, capitalInitial }: {
+  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null
+}) {
+  const [open, setOpen] = useState(false)
+
+  const empty = trades.length === 0
+  const m = calcAdvanced(trades, sessionType, capitalInitial)
+
+  function fmtPF(v: number | null) {
+    if (v == null) return '—'
+    if (v === Infinity) return '∞'
+    return v.toFixed(2)
+  }
+  function fmtDD(v: number) {
+    return empty ? '—' : sessionType === 'backtesting' ? `${v.toFixed(1)}R` : `${v.toFixed(1)}%`
+  }
+  function fmtBest(v: number | null) {
+    if (v == null) return '—'
+    if (sessionType === 'backtesting') return `+${v.toFixed(1)}R`
+    return `+${fmtPnL(v) ?? '—'}`
+  }
+  function fmtWorst(v: number | null) {
+    if (v == null) return '—'
+    if (sessionType === 'backtesting') return `-${v.toFixed(1)}R`
+    return fmtPnL(v) ?? '—'
+  }
+
+  function Metric({ label, value, pos }: { label: string; value: string; pos?: boolean | null }) {
+    return (
+      <div className="flex flex-col gap-1 px-3 py-2.5 bg-slate-50 dark:bg-zinc-900/80 rounded-xl">
+        <span className="text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider leading-none">{label}</span>
+        <span className={`text-[14px] font-bold font-mono leading-none ${
+          pos === true  ? 'text-emerald-600 dark:text-emerald-400' :
+          pos === false ? 'text-rose-500 dark:text-rose-400' :
+          'text-slate-700 dark:text-zinc-300'
+        }`}>
+          {value}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-4 mb-3">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl text-[12px] font-semibold text-slate-500 dark:text-zinc-400 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/60 transition-colors">
+        <span>Análisis avanzado</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="mt-1.5 px-4 py-4 bg-white dark:bg-zinc-900/60 border border-slate-100 dark:border-zinc-800 rounded-2xl flex flex-col gap-5">
+
+          {/* Equity chart */}
+          <div>
+            <p className="text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2.5">
+              {sessionType === 'backtesting' ? 'Curva de capital (R acumulado)' : 'Evolución del capital'}
+            </p>
+            <EquityChart trades={trades} sessionType={sessionType} capitalInitial={capitalInitial} />
+          </div>
+
+          {/* Metrics grid */}
+          <div>
+            <p className="text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2.5">Métricas</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Profit Factor"
+                value={empty ? '—' : fmtPF(m.profitFactor)}
+                pos={empty ? null : m.profitFactor != null && m.profitFactor > 1} />
+              <Metric label="Max. Drawdown"
+                value={fmtDD(m.maxDD)}
+                pos={null} />
+              <Metric label="Racha ganadora"
+                value={empty ? '—' : `${m.maxWinStreak}`}
+                pos={null} />
+              <Metric label="Racha perdedora"
+                value={empty ? '—' : `${m.maxLossStreak}`}
+                pos={null} />
+              <Metric label="Mejor trade"
+                value={fmtBest(m.bestTradeVal)}
+                pos={m.bestTradeVal != null ? true : null} />
+              <Metric label="Peor trade"
+                value={fmtWorst(m.worstTradeVal)}
+                pos={m.worstTradeVal != null ? false : null} />
+              {sessionType === 'journal' && (
+                <Metric label="Retorno total"
+                  value={empty || m.returnPct == null ? '—' : `${m.returnPct >= 0 ? '+' : ''}${m.returnPct.toFixed(1)}%`}
+                  pos={m.returnPct != null ? m.returnPct >= 0 : null} />
+              )}
             </div>
-          )
-        })}
-      </div>
-
-      {/* ── CTA overlay ── */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
-        <div className="w-full max-w-xs bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl shadow-slate-200/60 dark:shadow-black/60 p-6 text-center pointer-events-auto">
-          <div className="w-12 h-12 rounded-2xl bg-[color:var(--accent)]/10 flex items-center justify-center mx-auto mb-3">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="20" x2="18" y2="10"/>
-              <line x1="12" y1="20" x2="12" y2="4"/>
-              <line x1="6" y1="20" x2="6" y2="14"/>
-            </svg>
-          </div>
-          <p className="text-[15px] font-bold text-slate-900 dark:text-zinc-100 mb-1.5">
-            Tu dashboard está listo
-          </p>
-          <p className="text-[12px] text-slate-400 dark:text-zinc-500 leading-relaxed mb-5">
-            Registra trades para ver tus estadísticas, winrate y evolución del capital en tiempo real.
-          </p>
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={onNewTrade}
-              className="w-full min-h-[44px] rounded-xl bg-[color:var(--accent)] text-white font-semibold text-[13px] cursor-pointer transition-opacity active:opacity-80">
-              + Registrar primer trade
-            </button>
-            <button
-              onClick={onImport}
-              className="w-full min-h-[40px] rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 text-[12px] font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
-              Importar desde CSV
-            </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -1255,6 +1432,12 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         <StatsBar trades={trades} sessionType={session.type} />
       </div>
 
+      <AdvancedSection
+        trades={trades}
+        sessionType={session.type}
+        capitalInitial={session.capital_initial}
+      />
+
       {/* Actions */}
       <div className="flex gap-2 px-4 mb-4">
         <button
@@ -1280,13 +1463,13 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         </div>
       )}
 
-      {/* Trade list / Empty skeleton */}
+      {/* Trade list */}
       {trades.length === 0 ? (
-        <EmptyDashboard
-          sessionType={session.type}
-          onNewTrade={() => { setEditTrade(null); setShowForm(true) }}
-          onImport={() => setShowImport(true)}
-        />
+        <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+          <p className="text-[13px] text-slate-400 dark:text-zinc-500">
+            Registra tu primer trade para comenzar.
+          </p>
+        </div>
       ) : (
         <div className="px-4 flex flex-col gap-2">
           {trades.map(trade => (
