@@ -295,14 +295,24 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
           )
           if (winners.length > 0) {
             const prize = winners.length > 1 ? Math.floor(pot / winners.length) : pot
-            const hasAnyDebt = winners.some(w => (debtMap[w.profile_id] ?? 0) > 0)
-            if (!hasAnyDebt) {
+            const allPrizePaid = winners.every(w => w.prize_paid)
+            // Only show debt deduction for winners whose prize hasn't been paid yet
+            const hasDebtToShow = winners.some(w => !w.prize_paid && (debtMap[w.profile_id] ?? 0) > 0)
+
+            if (!hasDebtToShow) {
               return (
                 <div className="mt-4 bg-green-500/8 border border-green-500/15 rounded-2xl px-5 py-3 flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-1 min-w-0">
-                    <span className="text-[11px] font-medium text-green-600">
-                      {winners.length > 1 ? `${winners.length} ganadores · Bs ${prize} c/u` : 'Ganador'}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-medium text-green-600">
+                        {winners.length > 1 ? `${winners.length} ganadores · Bs ${prize} c/u` : 'Ganador'}
+                      </span>
+                      {allPrizePaid && (
+                        <span className="text-[9px] font-black bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-[0.08em]">
+                          Premio pagado
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {winners.map(w => {
                         const prof = profiles.find(p => p.id === w.profile_id)
@@ -340,16 +350,22 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   {winners.map(w => {
                     const prof = profiles.find(p => p.id === w.profile_id)
                     if (!prof) return null
-                    const debt = debtMap[w.profile_id] ?? 0
+                    // Prize already paid: show full amount, no debt deduction
+                    const debt = w.prize_paid ? 0 : (debtMap[w.profile_id] ?? 0)
                     const net = Math.max(0, prize - debt)
                     return (
                       <div key={w.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap gap-y-1">
                           <div className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                             style={{ backgroundColor: prof.color }}>
                             {prof.name.charAt(0)}
                           </div>
                           <span className="text-sm font-semibold text-green-400">{prof.name}</span>
+                          {w.prize_paid && (
+                            <span className="text-[9px] font-black bg-green-500/15 text-green-500 px-1.5 py-0.5 rounded-full border border-green-500/20 uppercase tracking-[0.08em]">
+                              Pagado
+                            </span>
+                          )}
                         </div>
                         {debt > 0 ? (
                           <div className="flex flex-col items-end">
@@ -554,14 +570,12 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
         </div>
       )}
 
-      {/* Payment/prize footer */}
-      {finished && myBet && (
+      {/* Prize footer — only for winning bets */}
+      {finished && myBet && match.home_score === myBet.home_score_bet && match.away_score === myBet.away_score_bet && (
         <div className="border-t border-[#1a1a1a] px-5 py-2.5 flex items-center justify-between">
-          <span className="text-[11px] text-[#666] font-[family-name:var(--font-body)]">
-            {myBet.prize_paid ? '✓ Premio entregado' : 'Premio pendiente'}
-          </span>
-          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${myBet.payment_confirmed ? 'bg-green-500/12 text-green-500' : 'bg-amber-500/10 text-amber-500'}`}>
-            {myBet.payment_confirmed ? 'Pagado' : 'Pago pendiente'}
+          <span className="text-[11px] text-[#666] font-[family-name:var(--font-body)]">Premio</span>
+          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${myBet.prize_paid ? 'bg-green-500/12 text-green-500' : 'bg-amber-500/10 text-amber-500'}`}>
+            {myBet.prize_paid ? '✓ Pagado' : 'Pendiente de pago'}
           </span>
         </div>
       )}
@@ -578,9 +592,10 @@ export default function MundialPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [allBets, setAllBets] = useState<Bet[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'finished' | 'groups'>('upcoming')
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'finished' | 'groups' | 'winners'>('upcoming')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [winnerFilter, setWinnerFilter] = useState<'all' | 'groups' | 'knockout'>('all')
 
   useEffect(() => { init() }, [])
 
@@ -996,16 +1011,17 @@ export default function MundialPage() {
 
         {/* ── Tabs ── */}
         {!searchActive && <div className="flex gap-1 bg-[#111] border border-[#1e1e1e] rounded-xl p-1">
-          {(['upcoming', 'finished', 'groups'] as const).map(tab => (
+          {(['upcoming', 'finished', 'groups', 'winners'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2 text-[11px] font-black uppercase tracking-[0.1em] rounded-lg transition-all duration-200 cursor-pointer ${
+              className={`flex-1 py-2 text-[11px] font-black uppercase tracking-[0.08em] rounded-lg transition-all duration-200 cursor-pointer ${
                 activeTab === tab
                   ? 'bg-[#f5f5f5] text-[#0a0a0a] shadow-sm'
                   : 'text-[#555] hover:text-[#888]'
               }`}>
               {tab === 'upcoming' ? 'Próximos'
                 : tab === 'finished' ? 'Anteriores'
-                : 'Grupos'}
+                : tab === 'groups' ? 'Grupos'
+                : 'Ganadores'}
             </button>
           ))}
         </div>}
@@ -1172,6 +1188,106 @@ export default function MundialPage() {
             )}
           </div>
         )}
+
+        {/* ── Ganadores tab ── */}
+        {!searchActive && activeTab === 'winners' && (() => {
+          const filteredFinished = finishedAll.filter(m => {
+            if (winnerFilter === 'groups')   return m.stage === 'GROUP_STAGE'
+            if (winnerFilter === 'knockout') return m.stage !== 'GROUP_STAGE'
+            return true
+          })
+
+          const leaderboard = profiles.map(prof => {
+            const wins = filteredFinished.flatMap(m => {
+              const myBet = allBets.find(b => b.match_id === m.id && b.profile_id === prof.id)
+              if (!myBet) return []
+              if (myBet.home_score_bet !== m.home_score || myBet.away_score_bet !== m.away_score) return []
+              const winningBets = allBets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
+              const pot = potMap[m.id] ?? 0
+              const prize = winningBets.length > 1 ? Math.floor(pot / winningBets.length) : pot
+              return [{ match: m, prize, prizePaid: myBet.prize_paid, coWinners: winningBets.length }]
+            })
+            const totalPrize = wins.reduce((s, w) => s + w.prize, 0)
+            return { profile: prof, wins, totalPrize }
+          })
+            .filter(s => s.wins.length > 0)
+            .sort((a, b) => b.totalPrize - a.totalPrize || b.wins.length - a.wins.length)
+
+          return (
+            <div className="flex flex-col gap-4">
+              {/* Filters */}
+              <div className="flex gap-2">
+                {([['all', 'Todos'], ['groups', 'Grupos'], ['knockout', 'Eliminatorias']] as const).map(([val, label]) => (
+                  <button key={val} onClick={() => setWinnerFilter(val)}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                      winnerFilter === val
+                        ? 'bg-[#f5f5f5] text-[#0a0a0a]'
+                        : 'bg-[#111] border border-[#1e1e1e] text-[#777] hover:text-[#bbb] hover:border-[#333]'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {leaderboard.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">
+                    {finishedAll.length === 0 ? 'Aún no se han jugado partidos' : 'Nadie ha acertado un resultado exacto todavía'}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6">
+                  {leaderboard.map(({ profile: prof, wins, totalPrize }, idx) => (
+                    <div key={prof.id} className="bg-[#111] border border-[#252525] rounded-2xl overflow-hidden shadow-[0_2px_16px_rgba(0,0,0,0.4)]">
+                      {/* User header */}
+                      <div className="px-5 py-4 flex items-center gap-3 border-b border-[#1e1e1e]"
+                        style={{ background: `linear-gradient(135deg, ${prof.color}18 0%, transparent 60%)` }}>
+                        <span className="text-xs font-black text-[#444] tabular-nums w-5 shrink-0">#{idx + 1}</span>
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
+                          style={{ backgroundColor: prof.color }}>
+                          {prof.name.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#f5f5f5]">{prof.name}</p>
+                          <p className="text-[11px] text-[#555] font-[family-name:var(--font-body)]">
+                            {wins.length} acierto{wins.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <span className="text-xl font-black tabular-nums text-green-400 shrink-0">Bs {totalPrize}</span>
+                      </div>
+                      {/* Winning matches */}
+                      <div className="divide-y divide-[#1a1a1a]">
+                        {wins.map(({ match: m, prize, prizePaid, coWinners }) => (
+                          <div key={m.id} className="px-5 py-2.5 flex items-center gap-3">
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              {m.home_crest && <img src={m.home_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                              <span className="text-[11px] text-[#888] truncate font-[family-name:var(--font-body)]">
+                                {tlaEs(m.home_tla) || m.home_team} vs {tlaEs(m.away_tla) || m.away_team}
+                              </span>
+                              {m.away_crest && <img src={m.away_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                            </div>
+                            <span className="text-[11px] font-bold text-green-600 tabular-nums shrink-0">
+                              {m.home_score}–{m.away_score}
+                            </span>
+                            {coWinners > 1 && (
+                              <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] shrink-0">{coWinners}×</span>
+                            )}
+                            <div className="flex flex-col items-end shrink-0 min-w-[52px]">
+                              <span className="text-xs font-bold tabular-nums text-green-400">Bs {prize}</span>
+                              <span className={`text-[9px] font-medium font-[family-name:var(--font-body)] ${prizePaid ? 'text-green-700' : 'text-amber-700'}`}>
+                                {prizePaid ? '✓ pagado' : 'pendiente'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {!matches.length && (
           <div className="text-center py-12">

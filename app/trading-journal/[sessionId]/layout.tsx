@@ -1,6 +1,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { SessionActions } from './session-actions'
 
 interface Props {
   children: React.ReactNode
@@ -40,18 +41,14 @@ export default async function SessionLayout({ children, params }: Props) {
           <p className="text-xs text-slate-400 dark:text-zinc-500 font-medium uppercase tracking-wider">
             {session.type === 'backtesting' ? 'Backtesting' : 'Journal'}
           </p>
-          <h1 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 truncate">{session.name}</h1>
+          <h1 className="text-sm font-semibold text-slate-900 dark:text-white truncate">{session.name}</h1>
         </div>
 
-        <Link
-          href={`/trading-journal/${sessionId}/variables`}
-          aria-label="Configurar variables"
-          className="flex items-center justify-center w-9 h-9 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-          </svg>
-        </Link>
+        <SessionActions
+          sessionId={session.id}
+          sessionName={session.name}
+          sessionType={session.type}
+        />
       </header>
 
       <div className="flex-1">{children}</div>

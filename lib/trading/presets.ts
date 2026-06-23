@@ -11,6 +11,14 @@ export interface PresetVariable {
 
 export const PRESET_VARIABLES: PresetVariable[] = [
   {
+    key: 'instrument',
+    label: 'Instrumento',
+    description: 'Par, activo o ticker del trade (ej. EURUSD, NQ, BTC)',
+    type: 'select_single',
+    options: [],
+    defaultSortOrder: 0,
+  },
+  {
     key: 'session_time',
     label: 'Sesión horaria',
     description: 'Sesión de mercado al momento del trade',

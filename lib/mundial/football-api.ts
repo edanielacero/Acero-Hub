@@ -12,7 +12,7 @@ async function fetchFootball(path: string) {
 export interface FootballMatch {
   id: number
   utcDate: string
-  status: 'SCHEDULED' | 'TIMED' | 'IN_PLAY' | 'PAUSED' | 'FINISHED' | 'SUSPENDED' | 'POSTPONED' | 'CANCELLED'
+  status: 'SCHEDULED' | 'TIMED' | 'IN_PLAY' | 'LIVE' | 'PAUSED' | 'FINISHED' | 'SUSPENDED' | 'POSTPONED' | 'CANCELLED'
   stage: string
   group: string | null
   homeTeam: { name: string | null; shortName: string | null; tla: string | null; crest: string | null } | null
@@ -42,7 +42,7 @@ export async function getWorldCupMatches(): Promise<FootballMatch[]> {
 }
 
 export async function getWCLiveMatches(): Promise<FootballMatch[]> {
-  const data = await fetchFootball('/competitions/WC/matches?season=2026&status=IN_PLAY')
+  const data = await fetchFootball('/competitions/WC/matches?season=2026&status=IN_PLAY,LIVE,PAUSED')
   return data.matches ?? []
 }
 
@@ -62,7 +62,7 @@ export async function getMatchesByIds(ids: number[]): Promise<FootballMatch[]> {
 }
 
 export function isLive(status: string) {
-  return status === 'IN_PLAY' || status === 'PAUSED'
+  return status === 'IN_PLAY' || status === 'LIVE' || status === 'PAUSED'
 }
 
 export function isClosed(matchDate: string) {

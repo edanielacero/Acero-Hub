@@ -1,6 +1,13 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase-server'
+import { Inter } from 'next/font/google'
+import { createClient, createAdminClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-tj',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Trading Journal',
@@ -13,14 +20,16 @@ export default async function TradingLayout({ children }: { children: React.Reac
 
   if (!user) redirect('/login')
 
+  const admin = createAdminClient()
+
   const [{ data: profile }, { data: project }] = await Promise.all([
-    supabase.from('profiles').select('role, accent_color, color_mode').eq('id', user.id).single(),
-    supabase.from('projects').select('id').eq('slug', 'trading-journal').single(),
+    admin.from('profiles').select('role, accent_color, color_mode').eq('id', user.id).single(),
+    admin.from('projects').select('id').eq('slug', 'trading-journal').single(),
   ])
 
   if (profile?.role !== 'admin') {
     if (!project) redirect('/')
-    const { data: access } = await supabase
+    const { data: access } = await admin
       .from('project_access')
       .select('id')
       .eq('user_id', user.id)
@@ -33,7 +42,7 @@ export default async function TradingLayout({ children }: { children: React.Reac
   const mode   = profile?.color_mode   ?? 'dark'
 
   return (
-    <div id="tj-root" data-accent={accent} data-mode={mode} className="min-h-screen">
+    <div id="tj-root" data-accent={accent} data-mode={mode} className={`${inter.variable} font-[family-name:var(--font-tj)] min-h-screen`}>
       {children}
     </div>
   )

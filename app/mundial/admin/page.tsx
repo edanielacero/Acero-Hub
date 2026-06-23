@@ -135,11 +135,17 @@ export default function AdminMundial() {
     await loadData()
   }
 
-  async function togglePrizePaid(betId: string, current: boolean) {
+  async function togglePrizePaid(betId: string, current: boolean, profileId?: string, settleAmount?: number) {
+    const body: Record<string, unknown> = { betId, prize_paid: !current }
+    // When marking as paid: pass profile + settle amount so API confirms exact cuotas needed
+    if (!current && profileId && settleAmount && settleAmount > 0) {
+      body.profileId = profileId
+      body.settleAmount = settleAmount
+    }
     await fetch('/api/mundial/admin/bets', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ betId, prize_paid: !current }),
+      body: JSON.stringify(body),
     })
     await loadData()
   }
@@ -188,6 +194,28 @@ export default function AdminMundial() {
   const todayMatches    = matches.filter(m => toDate(m.match_date) === todayDate && m.status !== 'FINISHED')
   const upcomingMatches = matches.filter(m => (m.status === 'SCHEDULED' || m.status === 'TIMED') && toDate(m.match_date) > todayDate)
   const pastMatches     = matches.filter(m => m.status === 'FINISHED').slice().reverse()
+
+  // Pot per finished match (carryover from matches with no winner, chronological order)
+  const potMapAdmin: Record<number, number> = {}
+  const sortedFinished = matches.filter(m => m.status === 'FINISHED').sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+  let carryAcc = 0
+  for (const m of sortedFinished) {
+    const mBets = bets.filter(b => b.match_id === m.id)
+    const pot = mBets.length * (m.bet_amount ?? Number(globalBetAmount)) + carryAcc
+    potMapAdmin[m.id] = pot
+    const hasWinner = mBets.some(b => b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
+    carryAcc = hasWinner ? 0 : pot
+  }
+
+  // Debt per profile (unpaid entry fees across all matches)
+  const debtMapAdmin: Record<string, number> = {}
+  for (const prof of profiles) {
+    const unpaid = bets.filter(b => b.profile_id === prof.id && !b.payment_confirmed)
+    debtMapAdmin[prof.id] = unpaid.reduce((sum, ub) => {
+      const m = matches.find(mx => mx.id === ub.match_id)
+      return sum + (m?.bet_amount ?? Number(globalBetAmount))
+    }, 0)
+  }
 
   const dateLabel = (d: string) => {
     if (d === todayDate) return 'Hoy'
@@ -262,7 +290,7 @@ export default function AdminMundial() {
           return (
             <section className="bg-amber-500/6 border border-amber-500/20 rounded-2xl overflow-hidden">
               <div className="px-6 py-4 border-b border-amber-500/15 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-amber-400">Deudas pendientes</h2>
+                <h2 className="text-sm font-semibold text-amber-400">Cuotas pendientes</h2>
                 <span className="text-sm font-black text-amber-400 tabular-nums">Bs {grandTotal}</span>
               </div>
               <div className="divide-y divide-amber-500/10">
@@ -276,7 +304,7 @@ export default function AdminMundial() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[#f5f5f5]">{profile.name}</p>
                         <p className="text-[11px] text-amber-700 font-[family-name:var(--font-body)]">
-                          {count} apuesta{count !== 1 ? 's' : ''} por pagar
+                          {count} cuota{count !== 1 ? 's' : ''} sin pagar
                         </p>
                       </div>
                       <span className="text-base font-black text-amber-400 tabular-nums shrink-0">Bs {total}</span>
@@ -481,7 +509,7 @@ export default function AdminMundial() {
                               <span className={`text-xs font-bold tabular-nums ${isWinner ? 'text-green-400' : 'text-[#f5f5f5]'}`}>{bet.home_score_bet} – {bet.away_score_bet}{isWinner && ' ✓'}</span>
                               <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
                                 className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                {bet.payment_confirmed ? '✓ Cuota pagada' : 'Confirmar cuota'}
                               </button>
                             </div>
                           )
@@ -596,7 +624,7 @@ export default function AdminMundial() {
                                 <span className="text-xs font-bold text-[#f5f5f5] tabular-nums">{bet.home_score_bet} – {bet.away_score_bet}</span>
                                 <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
                                   className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                  {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                  {bet.payment_confirmed ? '✓ Cuota pagada' : 'Confirmar cuota'}
                                 </button>
                               </div>
                             ))}
@@ -651,7 +679,7 @@ export default function AdminMundial() {
                                     <span className="text-xs font-bold text-[#f5f5f5] tabular-nums">{bet.home_score_bet} – {bet.away_score_bet}</span>
                                     <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
                                       className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                      {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                      {bet.payment_confirmed ? '✓ Cuota pagada' : 'Confirmar cuota'}
                                     </button>
                                   </div>
                                 ))}
@@ -675,8 +703,18 @@ export default function AdminMundial() {
                   <p className="text-xs text-[#666] font-[family-name:var(--font-body)]">Puedes editar o añadir apuestas retroactivamente</p>
                   {pastMatches.map(match => {
                     const matchBets = bets.filter(b => b.match_id === match.id)
+                    const winningBets = matchBets.filter(b => match.home_score === b.home_score_bet && match.away_score === b.away_score_bet)
+                    const hasWinner = winningBets.length > 0
+                    const allPrizePaid = hasWinner && winningBets.every(b => b.prize_paid)
+                    const pot = potMapAdmin[match.id] ?? 0
+                    const prizePerWinner = winningBets.length > 1 ? Math.floor(pot / winningBets.length) : pot
                     return (
-                      <div key={match.id} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+                      <div key={match.id} className={`rounded-2xl overflow-hidden ${
+                        allPrizePaid ? 'bg-green-500/4 border border-green-500/20' :
+                        hasWinner ? 'bg-amber-500/4 border border-amber-500/25' :
+                        'bg-[#111] border border-[#1e1e1e]'
+                      }`}>
+                        {/* Match header */}
                         <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-semibold text-[#f5f5f5]">{match.home_team} vs {match.away_team}</span>
@@ -684,9 +722,69 @@ export default function AdminMundial() {
                               {new Date(match.match_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'America/La_Paz' })}
                             </span>
                           </div>
-                          <AmountEditor match={match} />
+                          {hasWinner && (
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border shrink-0 uppercase tracking-[0.1em] ${
+                              allPrizePaid
+                                ? 'bg-green-500/12 text-green-500 border-green-500/20'
+                                : 'bg-amber-500/15 text-amber-400 border-amber-500/25'
+                            }`}>
+                              {allPrizePaid ? '✓ Premio pagado' : 'Premio pendiente'}
+                            </span>
+                          )}
                           <span className="text-sm font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}</span>
                         </div>
+
+                        {/* Pot / prize summary */}
+                        {pot > 0 && (
+                          <div className={`px-5 py-3 border-b flex items-start justify-between gap-4 ${
+                            allPrizePaid ? 'border-green-500/10 bg-green-500/4' :
+                            hasWinner ? 'border-amber-500/10 bg-amber-500/4' :
+                            'border-[#1a1a1a] bg-[#0d0d0d]'
+                          }`}>
+                            {/* Left: pot + winners */}
+                            <div className="flex flex-col gap-1.5 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#444] font-[family-name:var(--font-body)]">Bote</span>
+                                <span className="text-sm font-black tabular-nums text-[#f5f5f5]">Bs {pot}</span>
+                                {!hasWinner && <span className="text-[9px] text-[#3a3a3a] font-[family-name:var(--font-body)]">acumulado al siguiente</span>}
+                              </div>
+                              {hasWinner && winningBets.map(wb => {
+                                const prof = profiles.find(p => p.id === wb.profile_id)
+                                if (!prof) return null
+                                const debt = wb.prize_paid ? 0 : (debtMapAdmin[wb.profile_id] ?? 0)
+                                const net = Math.max(0, prizePerWinner - debt)
+                                return (
+                                  <div key={wb.id} className="flex items-center gap-2 flex-wrap">
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="w-4 h-4 rounded-md flex items-center justify-center text-[8px] font-bold text-white shrink-0" style={{ backgroundColor: prof.color }}>
+                                        {prof.name.charAt(0)}
+                                      </div>
+                                      <span className="text-xs font-semibold text-green-400">{prof.name}</span>
+                                    </div>
+                                    {debt > 0 ? (
+                                      <span className="text-xs tabular-nums text-[#aaa] font-[family-name:var(--font-body)]">
+                                        Bs {prizePerWinner}
+                                        <span className="text-amber-600"> − Bs {debt} deuda</span>
+                                        <span className="text-green-400 font-bold"> = Bs {net}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs font-bold tabular-nums text-green-400">
+                                        Bs {prizePerWinner}
+                                        {wb.prize_paid && <span className="ml-1.5 text-[9px] font-normal text-green-600">pagado</span>}
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            {/* Right: bet amount reference */}
+                            <div className="shrink-0 flex flex-col items-end gap-0.5">
+                              <span className="text-[9px] text-[#3a3a3a] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Cuota</span>
+                              <span className="text-xs font-bold text-[#555] tabular-nums">Bs {match.bet_amount ?? globalBetAmount}</span>
+                              <span className="text-[9px] text-[#2a2a2a] font-[family-name:var(--font-body)]">{matchBets.length} apuesta{matchBets.length !== 1 ? 's' : ''}</span>
+                            </div>
+                          </div>
+                        )}
                         <div className="divide-y divide-[#1a1a1a]">
                           {profiles.map(prof => {
                             const bet = matchBets.find(b => b.profile_id === prof.id)
@@ -731,12 +829,17 @@ export default function AdminMundial() {
                                   <div className="flex items-center gap-2 ml-auto">
                                     <button onClick={() => togglePaymentConfirmed(bet.id, bet.payment_confirmed)}
                                       className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.payment_confirmed ? 'bg-green-500/12 text-green-500 border-green-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                      {bet.payment_confirmed ? '✓ Pagó' : 'Confirmar pago'}
+                                      {bet.payment_confirmed ? '✓ Cuota pagada' : 'Confirmar cuota'}
                                     </button>
-                                    <button onClick={() => togglePrizePaid(bet.id, bet.prize_paid)}
-                                      className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.prize_paid ? 'bg-blue-500/12 text-blue-400 border-blue-500/20' : 'text-[#555] border-[#2a2a2a] hover:border-[#444]'}`}>
-                                      {bet.prize_paid ? '✓ Premio' : 'Premio'}
-                                    </button>
+                                    {isWinner && (
+                                      <button onClick={() => {
+                                        const debt = debtMapAdmin[bet.profile_id] ?? 0
+                                        togglePrizePaid(bet.id, bet.prize_paid, bet.profile_id, Math.min(prizePerWinner, debt))
+                                      }}
+                                        className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.prize_paid ? 'bg-green-500/12 text-green-400 border-green-500/20' : 'bg-amber-400 text-[#0a0a0a] border-amber-400 hover:bg-amber-300 hover:border-amber-300'}`}>
+                                        {bet.prize_paid ? '✓ Premio pagado' : 'Pagar premio'}
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>

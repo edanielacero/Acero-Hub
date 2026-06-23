@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
+import VariablesContent from './variables-content'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,16 @@ function IconMoon({ size = 16 }: { size?: number }) {
 
 // ─── Action Menu ──────────────────────────────────────────────────────────────
 
-function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal }: {
+function IconVariables({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+      <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+    </svg>
+  )
+}
+
+function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables }: {
   session: Session
   onEdit: () => void
   onDuplicate: () => void
@@ -205,6 +215,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
   onDelete: () => void
   onManageConnections: () => void
   onCreateJournal: () => void
+  onVariables: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -219,6 +230,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
   const items = [
     { icon: <IconEdit />, label: 'Editar', action: onEdit },
     { icon: <IconCopy />, label: 'Duplicar', action: onDuplicate },
+    { icon: <IconVariables />, label: 'Configurar variables', action: onVariables },
     ...(session.type === 'backtesting' ? [
       { icon: <IconLink />, label: 'Gestionar Journals', action: onManageConnections },
       { icon: <IconBook size={14} />, label: 'Crear Journal', action: onCreateJournal },
@@ -261,7 +273,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
 
 // ─── Session Card ──────────────────────────────────────────────────────────────
 
-function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal }: {
+function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables }: {
   session: Session
   onClick: () => void
   onToggleFavorite: () => void
@@ -271,6 +283,7 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
   onDelete: () => void
   onManageConnections: () => void
   onCreateJournal: () => void
+  onVariables: () => void
 }) {
   const isBt = session.type === 'backtesting'
 
@@ -290,7 +303,7 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
               {isBt ? 'Backtest' : 'Journal'}
             </span>
             {session.is_archived && (
-              <span className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-widest">archivado</span>
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">archivado</span>
             )}
           </div>
           <div className="flex items-center shrink-0 -mr-1.5 -mt-1.5">
@@ -308,6 +321,7 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
               onDelete={onDelete}
               onManageConnections={onManageConnections}
               onCreateJournal={onCreateJournal}
+              onVariables={onVariables}
             />
           </div>
         </div>
@@ -317,18 +331,13 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
           {session.name}
         </p>
 
-        {/* Instrument */}
-        {session.instrument && (
-          <p className="text-[12px] text-slate-500 dark:text-zinc-400 font-semibold mb-3 tracking-wide">{session.instrument}</p>
-        )}
-
         {/* Connections */}
         {session.connections.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
             {session.connections.map(c => (
               <span key={c.id} className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg border ${
                 c.sync_paused
-                  ? 'bg-slate-100 dark:bg-zinc-900 text-slate-400 dark:text-zinc-500 border-slate-200 dark:border-zinc-800'
+                  ? 'bg-slate-100 dark:bg-zinc-900 text-slate-500 dark:text-zinc-400 border-slate-200 dark:border-zinc-800'
                   : 'accent-badge'
               }`}>
                 <IconLink size={10} />
@@ -349,13 +358,13 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
           <span className={`text-[11px] font-semibold tabular-nums ${
             session.trade_count > 0
               ? 'text-slate-500 dark:text-zinc-400'
-              : 'text-slate-400 dark:text-zinc-500'
+              : 'text-slate-500 dark:text-zinc-400'
           }`}>
             {session.trade_count === 0
               ? 'Sin trades'
               : `${session.trade_count} trade${session.trade_count !== 1 ? 's' : ''}`}
           </span>
-          <span className="text-[11px] text-slate-400 dark:text-zinc-500 tabular-nums">{formatDate(session.created_at)}</span>
+          <span className="text-[11px] text-slate-500 dark:text-zinc-400 tabular-nums">{formatDate(session.created_at)}</span>
         </div>
       </div>
     </div>
@@ -397,7 +406,7 @@ function BottomSheet({ title, onClose, children }: {
           <button
             onClick={onClose}
             aria-label="Cerrar"
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
             <IconX size={16} />
           </button>
         </div>
@@ -485,7 +494,7 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
             <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-950 rounded-lg border border-slate-200 dark:border-zinc-800">
               <span className="flex-1 text-[12px] text-slate-700 dark:text-zinc-300">{opt}</span>
               <button type="button" onClick={() => setOptions(o => o.filter((_, j) => j !== i))}
-                className="text-slate-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer w-6 h-6 flex items-center justify-center rounded">
+                className="text-slate-500 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer w-6 h-6 flex items-center justify-center rounded">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
@@ -532,7 +541,6 @@ function SessionForm({ initial, onSave, onClose, loading }: {
   const isEdit = !!initial?.id
   const [name, setName] = useState(initial?.name ?? '')
   const [type] = useState<Tab>(initial?.type ?? 'backtesting')
-  const [instrument, setInstrument] = useState(initial?.instrument ?? '')
   const [capitalInitial, setCapitalInitial] = useState(String(initial?.capital_initial ?? ''))
   const [description, setDescription] = useState(initial?.description ?? '')
   const [selectedPresets, setSelectedPresets] = useState<string[]>([])
@@ -546,7 +554,6 @@ function SessionForm({ initial, onSave, onClose, loading }: {
     onSave({
       name: name.trim(),
       type,
-      instrument: instrument.trim() || null,
       capital_initial: type === 'journal' && capitalInitial ? Number(capitalInitial) : null,
       description: description.trim() || null,
       ...(!isEdit && {
@@ -569,16 +576,6 @@ function SessionForm({ initial, onSave, onClose, loading }: {
           value={name}
           onChange={e => setName(e.target.value)}
           autoFocus
-        />
-      </div>
-
-      <div>
-        <label className={fieldLabel}>Instrumento</label>
-        <input
-          className={inp}
-          placeholder="GBPUSD, NQ, BTC..."
-          value={instrument}
-          onChange={e => setInstrument(e.target.value)}
         />
       </div>
 
@@ -678,12 +675,12 @@ function SessionForm({ initial, onSave, onClose, loading }: {
                   <div key={cv.id} className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800">
                     <div className="flex-1 min-w-0">
                       <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200">{cv.label}</span>
-                      <span className="ml-2 text-[11px] text-slate-400 dark:text-zinc-500">{VAR_TYPE_LABELS[cv.type]}</span>
+                      <span className="ml-2 text-[11px] text-slate-500 dark:text-zinc-400">{VAR_TYPE_LABELS[cv.type]}</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setCustomVars(p => p.filter(v => v.id !== cv.id))}
-                      className="min-w-[32px] min-h-[32px] flex items-center justify-center text-slate-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors duration-150 cursor-pointer rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10">
+                      className="min-w-[32px] min-h-[32px] flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors duration-150 cursor-pointer rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10">
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                       </svg>
@@ -768,14 +765,14 @@ function ConnectionsSheet({ session, onClose, onRefresh }: {
           <div>
             <p className={fieldLabel}>Conectados · {data.connections.length}</p>
             {data.connections.length === 0 ? (
-              <p className="text-[13px] text-slate-400 dark:text-zinc-500 py-3">Sin journals conectados aún</p>
+              <p className="text-[13px] text-slate-500 dark:text-zinc-400 py-3">Sin journals conectados aún</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {data.connections.map(c => (
                   <div key={c.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200 truncate">{c.other_session?.name ?? 'Journal'}</p>
-                      {c.sync_paused && <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5">Sincronización pausada</p>}
+                      {c.sync_paused && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">Sincronización pausada</p>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
@@ -841,7 +838,6 @@ function CreateJournalSheet({ session, onClose, onRefresh }: {
         createJournal: true,
         name: name.trim(),
         capital_initial: capitalInitial ? Number(capitalInitial) : null,
-        instrument: session.instrument,
         connect,
       }),
     })
@@ -1021,7 +1017,7 @@ function SettingsSheet({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-3 leading-relaxed">
+          <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-3 leading-relaxed">
             Los cambios aplican a todo Acero Hub y se guardan en tu cuenta.
           </p>
         </div>
@@ -1043,7 +1039,7 @@ function EmptyState({ type, onCreate }: { type: Tab; onCreate: () => void }) {
       <p className="text-[16px] font-bold text-slate-700 dark:text-zinc-300 mb-2">
         {isBt ? 'Sin backtestings aún' : 'Sin journals aún'}
       </p>
-      <p className="text-[13px] text-slate-400 dark:text-zinc-500 mb-7 leading-relaxed max-w-[240px]">
+      <p className="text-[13px] text-slate-500 dark:text-zinc-400 mb-7 leading-relaxed max-w-[240px]">
         {isBt
           ? 'Crea tu primera estrategia para analizar trades en R'
           : 'Crea un journal para registrar tus trades reales en USD'}
@@ -1134,6 +1130,7 @@ export default function TradingJournalPage() {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
   const [connectTarget, setConnectTarget] = useState<Session | null>(null)
   const [createJournalFrom, setCreateJournalFrom] = useState<Session | null>(null)
+  const [variablesSession, setVariablesSession] = useState<Session | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1187,7 +1184,7 @@ export default function TradingJournalPage() {
       <div className="sticky top-0 z-30 bg-white/90 dark:bg-[#080808]/90 backdrop-blur-sm">
         <div className="max-w-lg mx-auto px-5 pt-5 pb-4 flex items-end justify-between">
           <div>
-            <p className="text-[9px] font-black tracking-[0.35em] uppercase text-slate-400 dark:text-zinc-500 mb-1">Acero Hub</p>
+            <p className="text-[9px] font-black tracking-[0.35em] uppercase text-slate-500 dark:text-zinc-400 mb-1">Acero Hub</p>
             <h1 className="text-[24px] font-black text-slate-900 dark:text-white tracking-tight leading-none">
               Trading Journal
             </h1>
@@ -1196,7 +1193,7 @@ export default function TradingJournalPage() {
             <button
               onClick={() => setShowSettings(true)}
               aria-label="Ajustes"
-              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
+              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
               <IconSettings size={18} />
             </button>
             <button
@@ -1235,6 +1232,7 @@ export default function TradingJournalPage() {
                 onDelete={() => setDeleteTarget(s)}
                 onManageConnections={() => setConnectTarget(s)}
                 onCreateJournal={() => setCreateJournalFrom(s)}
+                onVariables={() => setVariablesSession(s)}
               />
             ))}
 
@@ -1244,7 +1242,7 @@ export default function TradingJournalPage() {
                   onClick={() => setShowArchived(v => ({ ...v, [tab]: !v[tab] }))}
                   className="w-full flex items-center gap-3 mb-2 cursor-pointer group">
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800/60" />
-                  <span className="flex items-center gap-1.5 text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors duration-150 select-none">
+                  <span className="flex items-center gap-1.5 text-[9px] font-black tracking-[0.2em] uppercase text-slate-500 dark:text-zinc-400 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors duration-150 select-none">
                     Archivadas · {archivedOf(tab).length}
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
                       className={`transition-transform duration-200 ${showArchived[tab] ? 'rotate-180' : ''}`}>
@@ -1266,6 +1264,7 @@ export default function TradingJournalPage() {
                         onDelete={() => setDeleteTarget(s)}
                         onManageConnections={() => setConnectTarget(s)}
                         onCreateJournal={() => setCreateJournalFrom(s)}
+                        onVariables={() => setVariablesSession(s)}
                       />
                     ))}
                   </div>
@@ -1324,6 +1323,12 @@ export default function TradingJournalPage() {
       )}
 
       {showSettings && <SettingsSheet onClose={() => setShowSettings(false)} />}
+
+      {variablesSession && (
+        <BottomSheet title={`Variables · ${variablesSession.name}`} onClose={() => setVariablesSession(null)}>
+          <VariablesContent sessionId={variablesSession.id} />
+        </BottomSheet>
+      )}
     </div>
   )
 }

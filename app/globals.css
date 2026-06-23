@@ -10,6 +10,14 @@ html, body {
   color: #f5f5f5;
 }
 
+/* ─── Trading Journal: Inter con font-smoothing óptimo ───────────────────── */
+#tj-root {
+  font-family: var(--font-tj), 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 /* ─── Dark variant: matches elements inside any [data-mode="dark"] ancestor ──── */
 /* Used exclusively within #tj-root in the Trading Journal */
 @custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"]));
@@ -80,6 +88,41 @@ html, body {
   .accent-toggle-on         { background-color: rgb(var(--a6)) !important; border-color: rgb(var(--a5)) !important; }
 }
 
+/* ─── Explicit mode overrides (regular CSS → beats @layer utilities) ─────────── */
+
+/* Dark mode: force all accent classes to resolve vars from [data-accent] ancestor */
+[data-mode="dark"] .accent-txt        { color: rgb(var(--a4)); }
+[data-mode="dark"] .accent-txt-bright { color: rgb(var(--a3)); }
+[data-mode="dark"] .accent-badge {
+  background-color: rgb(var(--a5) / 0.10);
+  color: rgb(var(--a4));
+  border-color: rgb(var(--a5) / 0.20);
+}
+[data-mode="dark"] .accent-btn        { background-color: rgb(var(--a6)); color: white; }
+[data-mode="dark"] .accent-btn:hover  { background-color: rgb(var(--a5)); }
+[data-mode="dark"] .accent-btn-shadow { box-shadow: 0 4px 16px rgb(var(--a6) / 0.28); }
+[data-mode="dark"] .accent-tint       { background-color: rgb(var(--a5) / 0.08); }
+[data-mode="dark"] .accent-tint-md    { background-color: rgb(var(--a5) / 0.15); }
+[data-mode="dark"] .accent-subtle     { background-color: rgb(var(--a5) / 0.05); }
+[data-mode="dark"] .accent-border-lo  { border-color: rgb(var(--a5) / 0.20); }
+[data-mode="dark"] .accent-border-mid { border-color: rgb(var(--a5) / 0.40); }
+[data-mode="dark"] .accent-bar        { background-color: rgb(var(--a5) / 0.50); }
+[data-mode="dark"] .accent-selected {
+  background-color: rgb(var(--a5) / 0.15);
+  border-color: rgb(var(--a5) / 0.40);
+  color: rgb(var(--a3));
+}
+[data-mode="dark"] .accent-tab        { background-color: rgb(var(--a6)); color: white; }
+[data-mode="dark"] .accent-tab-off    { color: rgb(var(--a4) / 0.50); }
+[data-mode="dark"] .accent-tab-off:hover { color: rgb(var(--a4)); }
+[data-mode="dark"] .accent-row:hover  { background-color: rgb(var(--a5) / 0.05); border-color: rgb(var(--a5) / 0.40); }
+[data-mode="dark"] .accent-input:focus { border-color: rgb(var(--a5) / 0.65); outline: none; }
+[data-mode="dark"] .accent-spin       { border-top-color: rgb(var(--a5)); }
+[data-mode="dark"] .accent-toggle-on  { background-color: rgb(var(--a6)) !important; border-color: rgb(var(--a5)) !important; }
+
 /* Light mode: swap to darker accent shades for readability on light backgrounds */
-[data-mode="light"] .accent-txt   { color: rgb(var(--a6)); }
-[data-mode="light"] .accent-badge { color: rgb(var(--a6)); }
+[data-mode="light"] .accent-txt        { color: rgb(var(--a6)); }
+[data-mode="light"] .accent-txt-bright { color: rgb(var(--a5)); }
+[data-mode="light"] .accent-badge      { color: rgb(var(--a6)); border-color: rgb(var(--a5) / 0.30); }
+[data-mode="light"] .accent-tab-off    { color: rgb(var(--a6) / 0.50); }
+[data-mode="light"] .accent-tab-off:hover { color: rgb(var(--a6)); }
