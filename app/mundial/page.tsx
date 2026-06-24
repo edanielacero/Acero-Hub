@@ -18,6 +18,7 @@ interface Bet {
   id: string; profile_id: string; match_id: number
   home_score_bet: number; away_score_bet: number
   payment_confirmed: boolean; prize_paid: boolean
+  debt_offset: number
   mundial_profiles: { name: string; color: string }
 }
 interface Profile { id: string; name: string; color: string; token: string }
@@ -148,10 +149,10 @@ function formatDate(d: string) {
 
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
-function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, isNext, prizeCarryoverPerWinner, onBetPlaced, debtMap }: {
+function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, pot, carryoverPart, isNext, prizeCarryoverPerWinner, saldo, onBetPlaced, debtMap }: {
   match: Match; myBet?: Bet; allBets: Bet[]; profiles: Profile[]
   token: string; qrUrl: string | null; betAmount: number; pot: number; carryoverPart?: number; isNext?: boolean
-  prizeCarryoverPerWinner?: number
+  prizeCarryoverPerWinner?: number; saldo?: number
   onBetPlaced: () => void
   debtMap: Record<string, number>
 }) {
@@ -167,11 +168,12 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
   const betsForMatch = allBets.filter(b => b.match_id === match.id)
   const scoresReady = home !== '' && away !== ''
 
-  const handleBet = async (paymentConfirmed?: boolean) => {
+  const handleBet = async (paymentConfirmed?: boolean, payWithSaldo?: boolean) => {
     if (home === '' || away === '') return
     setLoading(true); setError('')
     const body: Record<string, unknown> = { token, matchId: match.id, homeScore: Number(home), awayScore: Number(away) }
-    if (paymentConfirmed !== undefined) body.paymentConfirmed = paymentConfirmed
+    if (payWithSaldo) { body.paymentConfirmed = true; body.payWithSaldo = true }
+    else if (paymentConfirmed !== undefined) body.paymentConfirmed = paymentConfirmed
     const res = await fetch('/api/mundial/bets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -299,10 +301,9 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
           if (winners.length > 0) {
             const prize = Math.floor(pot / winners.length) + carryoverPW
             const allPrizePaid = winners.every(w => w.prize_paid)
-            // Only show debt deduction for winners whose prize hasn't been paid yet
-            const hasDebtToShow = winners.some(w => !w.prize_paid && (debtMap[w.profile_id] ?? 0) > 0)
+            const hasDeductions = winners.some(w => !w.prize_paid && ((w.debt_offset ?? 0) > 0 || (debtMap[w.profile_id] ?? 0) > 0))
 
-            if (!hasDebtToShow) {
+            if (!hasDeductions) {
               return (
                 <div className="mt-4 bg-green-500/8 border border-green-500/15 rounded-2xl px-5 py-3 flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-1 min-w-0">
@@ -312,7 +313,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                       </span>
                       {allPrizePaid && (
                         <span className="text-[9px] font-black bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-[0.08em]">
-                          Premio pagado
+                          Saldo cobrado
                         </span>
                       )}
                     </div>
@@ -353,9 +354,10 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   {winners.map(w => {
                     const prof = profiles.find(p => p.id === w.profile_id)
                     if (!prof) return null
-                    // Prize already paid: show full amount, no debt deduction
+                    const offset = w.debt_offset ?? 0
                     const debt = w.prize_paid ? 0 : (debtMap[w.profile_id] ?? 0)
-                    const net = Math.max(0, prize - debt)
+                    const totalDeduction = offset + debt
+                    const saldo = Math.max(0, prize - totalDeduction)
                     return (
                       <div key={w.id} className="px-5 py-3 flex items-center justify-between gap-3">
                         <div className="flex items-center gap-1.5 flex-wrap gap-y-1">
@@ -364,18 +366,22 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                             {prof.name.charAt(0)}
                           </div>
                           <span className="text-sm font-semibold text-green-400">{prof.name}</span>
-                          {w.prize_paid && (
-                            <span className="text-[9px] font-black bg-green-500/15 text-green-500 px-1.5 py-0.5 rounded-full border border-green-500/20 uppercase tracking-[0.08em]">
-                              Pagado
-                            </span>
-                          )}
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${
+                            w.prize_paid
+                              ? 'bg-green-500/15 text-green-500 border-green-500/20'
+                              : 'bg-amber-500/15 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {w.prize_paid ? 'Cobrado' : 'Saldo'}
+                          </span>
                         </div>
-                        {debt > 0 ? (
+                        {totalDeduction > 0 ? (
                           <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-amber-600 tabular-nums font-[family-name:var(--font-body)]">
-                              Bs {prize} − Bs {debt} deuda
+                            <span className="text-[10px] tabular-nums font-[family-name:var(--font-body)]">
+                              <span className="text-[#888]">Bs {prize}</span>
+                              {offset > 0 && <span className="text-amber-600"> − Bs {offset} cuotas</span>}
+                              {debt > 0 && <span className="text-amber-600"> − Bs {debt} deuda</span>}
                             </span>
-                            <span className="text-xl font-black tabular-nums text-green-400">Bs {net}</span>
+                            <span className="text-xl font-black tabular-nums text-green-400">Bs {saldo}</span>
                           </div>
                         ) : (
                           <span className="text-xl font-black tabular-nums text-green-400">Bs {prize}</span>
@@ -445,10 +451,17 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                       className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
                       Pagar Ahora
                     </button>
-                    <button onClick={() => handleBet(false)} disabled={loading}
-                      className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
-                      {loading ? '...' : 'Pagar Después'}
-                    </button>
+                    {(saldo ?? 0) >= betAmount ? (
+                      <button onClick={() => handleBet(undefined, true)} disabled={loading}
+                        className="flex-1 text-xs font-bold bg-amber-400 text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-amber-300 transition-colors cursor-pointer disabled:opacity-40">
+                        {loading ? '...' : 'Pagar con Saldo'}
+                      </button>
+                    ) : (
+                      <button onClick={() => handleBet(false)} disabled={loading}
+                        className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
+                        {loading ? '...' : 'Pagar Después'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -933,8 +946,24 @@ export default function MundialPage() {
     }
   }
 
+  // Saldo per profile: pending prizes minus debt_offset (already settled) minus remaining debt
+  const saldoMap: Record<string, number> = {}
+  for (const prof of profiles) {
+    let totalPendingPrize = 0
+    let totalDebtOffset = 0
+    for (const m of finishedAll) {
+      const bet = allBets.find(b => b.match_id === m.id && b.profile_id === prof.id)
+      if (!bet || bet.prize_paid) continue
+      if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
+      const wBets = allBets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
+      totalPendingPrize += Math.floor((potMap[m.id] ?? 0) / wBets.length) + (prizeCarryoverPerWinnerMap[m.id] ?? 0)
+      totalDebtOffset += bet.debt_offset ?? 0
+    }
+    saldoMap[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMap[prof.id] ?? 0))
+  }
+
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
-  const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets, debtMap }
+  const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets, debtMap, saldo: saldoMap[profile!.id] ?? 0 }
 
   const groupStandings = computeStandings(matches)
 
@@ -994,6 +1023,17 @@ export default function MundialPage() {
             </button>
           </div>
         </div>
+
+        {/* Saldo banner */}
+        {(saldoMap[profile!.id] ?? 0) > 0 && (
+          <div className="bg-green-500/6 border border-green-500/15 rounded-2xl px-5 py-3 flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] font-black uppercase tracking-[0.15em] text-green-600">Tu saldo a favor</span>
+              <span className="text-[11px] text-green-800 font-[family-name:var(--font-body)]">Premios pendientes de cobro</span>
+            </div>
+            <span className="text-2xl font-black tabular-nums text-green-400">Bs {saldoMap[profile!.id]}</span>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative">
@@ -1305,7 +1345,8 @@ export default function MundialPage() {
               const pot = potMap[m.id] ?? 0
               const carryoverPW = prizeCarryoverPerWinnerMap[m.id] ?? 0
               const prize = Math.floor(pot / winningBets.length) + carryoverPW
-              return [{ match: m, prize, prizePaid: myBet.prize_paid, coWinners: winningBets.length }]
+              const offset = myBet.debt_offset ?? 0
+              return [{ match: m, prize, prizePaid: myBet.prize_paid, coWinners: winningBets.length, offset }]
             })
             const totalPrize = wins.reduce((s, w) => s + w.prize, 0)
             return { profile: prof, wins, totalPrize }
@@ -1353,33 +1394,51 @@ export default function MundialPage() {
                             {wins.length} acierto{wins.length !== 1 ? 's' : ''}
                           </p>
                         </div>
-                        <span className="text-xl font-black tabular-nums text-green-400 shrink-0">Bs {totalPrize}</span>
+                        <div className="flex flex-col items-end shrink-0">
+                          <span className="text-xl font-black tabular-nums text-green-400">Bs {totalPrize}</span>
+                          {(saldoMap[prof.id] ?? 0) > 0 && (
+                            <span className="text-[10px] text-amber-400 font-bold tabular-nums font-[family-name:var(--font-body)]">
+                              Saldo: Bs {saldoMap[prof.id]}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {/* Winning matches */}
                       <div className="divide-y divide-[#1a1a1a]">
-                        {wins.map(({ match: m, prize, prizePaid, coWinners }) => (
-                          <div key={m.id} className="px-5 py-2.5 flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                              {m.home_crest && <img src={m.home_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
-                              <span className="text-[11px] text-[#888] truncate font-[family-name:var(--font-body)]">
-                                {tlaEs(m.home_tla) || m.home_team} vs {tlaEs(m.away_tla) || m.away_team}
+                        {wins.map(({ match: m, prize, prizePaid, coWinners, offset }) => {
+                          const saldo = Math.max(0, prize - offset)
+                          return (
+                            <div key={m.id} className="px-5 py-2.5 flex items-center gap-3">
+                              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                {m.home_crest && <img src={m.home_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                                <span className="text-[11px] text-[#888] truncate font-[family-name:var(--font-body)]">
+                                  {tlaEs(m.home_tla) || m.home_team} vs {tlaEs(m.away_tla) || m.away_team}
+                                </span>
+                                {m.away_crest && <img src={m.away_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                              </div>
+                              <span className="text-[11px] font-bold text-green-600 tabular-nums shrink-0">
+                                {m.home_score}–{m.away_score}
                               </span>
-                              {m.away_crest && <img src={m.away_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                              {coWinners > 1 && (
+                                <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] shrink-0">{coWinners}×</span>
+                              )}
+                              <div className="flex flex-col items-end shrink-0 min-w-[52px]">
+                                {offset > 0 ? (
+                                  <>
+                                    <span className="text-[10px] tabular-nums text-[#666] font-[family-name:var(--font-body)] line-through">Bs {prize}</span>
+                                    <span className="text-xs font-bold tabular-nums text-green-400">Bs {saldo}</span>
+                                    <span className="text-[8px] text-amber-600 font-[family-name:var(--font-body)]">−Bs {offset} cuotas</span>
+                                  </>
+                                ) : (
+                                  <span className="text-xs font-bold tabular-nums text-green-400">Bs {prize}</span>
+                                )}
+                                <span className={`text-[9px] font-medium font-[family-name:var(--font-body)] ${prizePaid ? 'text-green-700' : 'text-amber-500'}`}>
+                                  {prizePaid ? '✓ cobrado' : 'saldo'}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-[11px] font-bold text-green-600 tabular-nums shrink-0">
-                              {m.home_score}–{m.away_score}
-                            </span>
-                            {coWinners > 1 && (
-                              <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] shrink-0">{coWinners}×</span>
-                            )}
-                            <div className="flex flex-col items-end shrink-0 min-w-[52px]">
-                              <span className="text-xs font-bold tabular-nums text-green-400">Bs {prize}</span>
-                              <span className={`text-[9px] font-medium font-[family-name:var(--font-body)] ${prizePaid ? 'text-green-700' : 'text-amber-700'}`}>
-                                {prizePaid ? '✓ pagado' : 'pendiente'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   ))}

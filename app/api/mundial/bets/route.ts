@@ -3,7 +3,7 @@ import { isClosed } from '@/lib/mundial/football-api'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  const { token, matchId, homeScore, awayScore, paymentConfirmed } = await request.json()
+  const { token, matchId, homeScore, awayScore, paymentConfirmed, payWithSaldo } = await request.json()
 
   if (!token || matchId == null || homeScore == null || awayScore == null)
     return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 })
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   if (!profile) return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
 
   const { data: match } = await admin
-    .from('mundial_matches').select('match_date, status').eq('id', matchId).single()
+    .from('mundial_matches').select('match_date, status, bet_amount').eq('id', matchId).single()
   if (!match) return NextResponse.json({ error: 'Partido no encontrado' }, { status: 404 })
 
   if (isClosed(match.match_date))
@@ -28,11 +28,47 @@ export async function POST(request: Request) {
     away_score_bet: awayScore,
     updated_at: new Date().toISOString(),
   }
-  if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
+  if (payWithSaldo) upsertData.payment_confirmed = true
+  else if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
 
   const { error } = await admin.from('mundial_bets').upsert(upsertData, { onConflict: 'profile_id,match_id' })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // When paying with saldo: increment debt_offset on the oldest unpaid winning bet
+  if (payWithSaldo) {
+    const { data: settings } = await admin.from('mundial_settings').select('bet_amount').eq('id', 1).single()
+    const amount = match.bet_amount ?? (settings as { bet_amount: number } | null)?.bet_amount ?? 5
+
+    const { data: profileBets } = await admin
+      .from('mundial_bets')
+      .select('id, match_id, home_score_bet, away_score_bet, debt_offset')
+      .eq('profile_id', profile.id)
+      .eq('prize_paid', false)
+
+    if (profileBets?.length) {
+      const betMatchIds = [...new Set(profileBets.map(b => b.match_id))]
+      const { data: finishedMatches } = await admin
+        .from('mundial_matches')
+        .select('id, home_score, away_score')
+        .in('id', betMatchIds)
+        .eq('status', 'FINISHED')
+        .order('match_date', { ascending: true })
+
+      for (const fm of finishedMatches ?? []) {
+        const winBet = profileBets.find(b =>
+          b.match_id === fm.id && b.home_score_bet === fm.home_score && b.away_score_bet === fm.away_score
+        )
+        if (winBet) {
+          await admin.from('mundial_bets')
+            .update({ debt_offset: (winBet.debt_offset ?? 0) + amount })
+            .eq('id', winBet.id)
+          break
+        }
+      }
+    }
+  }
+
   return NextResponse.json({ success: true })
 }
 
