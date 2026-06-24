@@ -838,6 +838,7 @@ export default function MundialPage() {
       const isSimultaneous = group.length > 1
       let groupHasWinner = false
       let groupOwnPot = 0
+      let unwonPot = 0
       let totalGroupWinners = 0
 
       for (const m of group) {
@@ -850,6 +851,7 @@ export default function MundialPage() {
         const mWinners = mBets.filter(b => b.home_score_bet === m.home_score && b.away_score_bet === m.away_score).length
         totalGroupWinners += mWinners
         if (mWinners > 0) groupHasWinner = true
+        else unwonPot += ownPot
       }
 
       // For simultaneous resolved groups with winners: compute per-winner carryover share
@@ -858,7 +860,9 @@ export default function MundialPage() {
         for (const m of group) prizeCarryoverPerWinnerMap[m.id] = perWinner
       }
 
-      acc = groupHasWinner ? 0 : groupOwnPot + acc
+      // Winners claim the carryover; un-won match pots carry forward.
+      // No winners at all: everything (own pots + incoming carryover) carries.
+      acc = groupHasWinner ? unwonPot : groupOwnPot + carryoverIn
     }
     return acc
   })()
@@ -868,9 +872,11 @@ export default function MundialPage() {
   const nextGroupIds = new Set(nextKickoffGroup.map(m => m.id))
   const isSimultaneousNextGroup = nextKickoffGroup.length > 1
 
-  // Upcoming/live: own pot only (carryover shown via separate banner for simultaneous groups)
+  // Upcoming/live pot: for single-match next group, include carryover in the displayed pot.
+  // For simultaneous groups, each match shows only its own pot — carryover is shown via banner.
   for (const m of [...liveMatches, ...upcomingAll]) {
-    potMap[m.id] = allBets.filter(b => b.match_id === m.id).length * effectiveAmount(m)
+    const base = allBets.filter(b => b.match_id === m.id).length * effectiveAmount(m)
+    potMap[m.id] = nextGroupIds.has(m.id) && !isSimultaneousNextGroup ? base + carryover : base
   }
 
   // Date grouping helpers (Bolivia timezone UTC-4)
@@ -901,6 +907,31 @@ export default function MundialPage() {
     }, 0)
     return acc
   }, {})
+
+  // Debt consumed sequentially: first won match absorbs debt, remaining passes to next
+  const effectiveMatchDebt: Record<number, Record<string, number>> = {}
+  {
+    const sortedFinished = [...finishedAll].sort((a, b) =>
+      new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
+    )
+    for (const prof of profiles) {
+      let remaining = debtMap[prof.id] ?? 0
+      if (remaining <= 0) continue
+      for (const m of sortedFinished) {
+        if (remaining <= 0) break
+        const bet = allBets.find(b => b.match_id === m.id && b.profile_id === prof.id)
+        if (!bet || bet.prize_paid) continue
+        if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
+        const winningBets = allBets.filter(b =>
+          b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score
+        )
+        const prize = Math.floor((potMap[m.id] ?? 0) / winningBets.length) + (prizeCarryoverPerWinnerMap[m.id] ?? 0)
+        if (!effectiveMatchDebt[m.id]) effectiveMatchDebt[m.id] = {}
+        effectiveMatchDebt[m.id][prof.id] = Math.min(remaining, prize)
+        remaining = Math.max(0, remaining - prize)
+      }
+    }
+  }
 
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)
   const cardProps = { profiles, token: profile!.token, qrUrl, onBetPlaced: refreshBets, debtMap }
@@ -1028,7 +1059,8 @@ export default function MundialPage() {
                   <MatchCard key={m.id} match={m}
                     myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
                     allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
-                    prizeCarryoverPerWinner={prizeCarryoverPerWinnerMap[m.id]} {...cardProps} />
+                    prizeCarryoverPerWinner={prizeCarryoverPerWinnerMap[m.id]}
+                    {...cardProps} debtMap={effectiveMatchDebt[m.id] ?? {}} />
                 ))}
               </div>
             )}
@@ -1175,7 +1207,8 @@ export default function MundialPage() {
                     <MatchCard key={m.id} match={m}
                       myBet={allBets.find(b => b.match_id === m.id && b.profile_id === profile!.id)}
                       allBets={allBets} betAmount={effectiveAmount(m)} pot={potMap[m.id] ?? 0}
-                      prizeCarryoverPerWinner={prizeCarryoverPerWinnerMap[m.id]} {...cardProps} />
+                      prizeCarryoverPerWinner={prizeCarryoverPerWinnerMap[m.id]}
+                      {...cardProps} debtMap={effectiveMatchDebt[m.id] ?? {}} />
                   ))}
                 </div>
               ))}

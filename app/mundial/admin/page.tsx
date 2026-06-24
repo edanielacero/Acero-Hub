@@ -217,6 +217,24 @@ export default function AdminMundial() {
     }, 0)
   }
 
+  // Debt consumed sequentially: first won match absorbs debt, remaining passes to next
+  const effectiveMatchDebtAdmin: Record<number, Record<string, number>> = {}
+  for (const prof of profiles) {
+    let remaining = debtMapAdmin[prof.id] ?? 0
+    if (remaining <= 0) continue
+    for (const m of sortedFinished) {
+      if (remaining <= 0) break
+      const bet = bets.find(b => b.match_id === m.id && b.profile_id === prof.id)
+      if (!bet || bet.prize_paid) continue
+      if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
+      const wBets = bets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
+      const prize = wBets.length > 0 ? Math.floor((potMapAdmin[m.id] ?? 0) / wBets.length) : 0
+      if (!effectiveMatchDebtAdmin[m.id]) effectiveMatchDebtAdmin[m.id] = {}
+      effectiveMatchDebtAdmin[m.id][prof.id] = Math.min(remaining, prize)
+      remaining = Math.max(0, remaining - prize)
+    }
+  }
+
   const dateLabel = (d: string) => {
     if (d === todayDate) return 'Hoy'
     if (d === tomorrowDate) return 'Mañana'
@@ -751,7 +769,7 @@ export default function AdminMundial() {
                               {hasWinner && winningBets.map(wb => {
                                 const prof = profiles.find(p => p.id === wb.profile_id)
                                 if (!prof) return null
-                                const debt = wb.prize_paid ? 0 : (debtMapAdmin[wb.profile_id] ?? 0)
+                                const debt = wb.prize_paid ? 0 : (effectiveMatchDebtAdmin[match.id]?.[wb.profile_id] ?? 0)
                                 const net = Math.max(0, prizePerWinner - debt)
                                 return (
                                   <div key={wb.id} className="flex items-center gap-2 flex-wrap">
@@ -833,7 +851,7 @@ export default function AdminMundial() {
                                     </button>
                                     {isWinner && (
                                       <button onClick={() => {
-                                        const debt = debtMapAdmin[bet.profile_id] ?? 0
+                                        const debt = effectiveMatchDebtAdmin[match.id]?.[bet.profile_id] ?? 0
                                         togglePrizePaid(bet.id, bet.prize_paid, bet.profile_id, Math.min(prizePerWinner, debt))
                                       }}
                                         className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${bet.prize_paid ? 'bg-green-500/12 text-green-400 border-green-500/20' : 'bg-amber-400 text-[#0a0a0a] border-amber-400 hover:bg-amber-300 hover:border-amber-300'}`}>
