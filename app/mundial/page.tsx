@@ -18,10 +18,10 @@ interface Bet {
   id: string; profile_id: string; match_id: number
   home_score_bet: number; away_score_bet: number
   payment_confirmed: boolean; prize_paid: boolean
-  debt_offset: number
+  debt_offset: number; paid_note: string | null
   mundial_profiles: { name: string; color: string }
 }
-interface Profile { id: string; name: string; color: string; token: string }
+interface Profile { id: string; name: string; color: string; token: string; saldo_adjustment: number }
 interface Settings { qr_image_url: string | null; bet_amount: number }
 interface TeamStanding {
   team: string; tla: string; crest: string
@@ -301,7 +301,9 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
           if (winners.length > 0) {
             const prize = Math.floor(pot / winners.length) + carryoverPW
             const allPrizePaid = winners.every(w => w.prize_paid)
-            const hasDeductions = winners.some(w => !w.prize_paid && ((w.debt_offset ?? 0) > 0 || (debtMap[w.profile_id] ?? 0) > 0))
+            const hasDeductions = winners.some(w =>
+              (w.debt_offset ?? 0) > 0 || w.paid_note || (!w.prize_paid && (debtMap[w.profile_id] ?? 0) > 0)
+            )
 
             if (!hasDeductions) {
               return (
@@ -311,22 +313,24 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                       <span className="text-[11px] font-medium text-green-600">
                         {winners.length > 1 ? `${winners.length} ganadores · Bs ${prize} c/u` : 'Ganador'}
                       </span>
-                      {allPrizePaid && (
-                        <span className="text-[9px] font-black bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full border border-green-500/20 uppercase tracking-[0.08em]">
-                          Saldo cobrado
-                        </span>
-                      )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {winners.map(w => {
                         const prof = profiles.find(p => p.id === w.profile_id)
                         return prof ? (
-                          <div key={w.id} className="flex items-center gap-1">
+                          <div key={w.id} className="flex items-center gap-1.5">
                             <div className="w-4 h-4 rounded-sm flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                               style={{ backgroundColor: prof.color }}>
                               {prof.name.charAt(0)}
                             </div>
                             <span className="text-xs font-semibold text-green-400">{prof.name}</span>
+                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${
+                              w.prize_paid
+                                ? 'bg-green-500/15 text-green-500 border-green-500/20'
+                                : 'bg-amber-500/15 text-amber-400 border-amber-500/20'
+                            }`}>
+                              {w.prize_paid ? 'Cobrado' : 'Saldo'}
+                            </span>
                           </div>
                         ) : null
                       })}
@@ -374,16 +378,28 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                             {w.prize_paid ? 'Cobrado' : 'Saldo'}
                           </span>
                         </div>
-                        {totalDeduction > 0 ? (
-                          <div className="flex flex-col items-end">
-                            <span className="text-[10px] tabular-nums font-[family-name:var(--font-body)]">
-                              <span className="text-[#888]">Bs {prize}</span>
-                              {offset > 0 && <span className="text-amber-600"> − Bs {offset} cuotas</span>}
-                              {debt > 0 && <span className="text-amber-600"> − Bs {debt} deuda</span>}
-                            </span>
-                            <span className="text-xl font-black tabular-nums text-green-400">Bs {saldo}</span>
-                          </div>
-                        ) : (
+                        {(totalDeduction > 0 || w.paid_note) ? (() => {
+                          const transferAmt = w.paid_note && w.prize_paid ? Math.max(0, prize - offset) : 0
+                          const finalSaldo = Math.max(0, saldo - transferAmt)
+                          return (
+                            <div className="flex flex-col items-end">
+                              <span className="text-[10px] tabular-nums font-[family-name:var(--font-body)]">
+                                <span className="text-[#888]">Bs {prize}</span>
+                                {offset > 0 && <span className={w.paid_note && !w.prize_paid ? 'text-blue-500' : 'text-amber-600'}>
+                                  {` − Bs ${offset} ${w.paid_note && !w.prize_paid ? 'traspaso' : 'cuotas'}`}
+                                </span>}
+                                {debt > 0 && <span className="text-amber-600"> − Bs {debt} deuda</span>}
+                                {transferAmt > 0 && <span className="text-blue-500"> − Bs {transferAmt} traspaso</span>}
+                              </span>
+                              <span className={`text-xl font-black tabular-nums ${finalSaldo > 0 ? 'text-green-400' : 'text-[#555]'}`}>
+                                Bs {finalSaldo}
+                              </span>
+                              {w.paid_note && (
+                                <span className="text-[9px] text-blue-600 font-[family-name:var(--font-body)]">{w.paid_note}</span>
+                              )}
+                            </div>
+                          )
+                        })() : (
                           <span className="text-xl font-black tabular-nums text-green-400">Bs {prize}</span>
                         )}
                       </div>
@@ -959,7 +975,7 @@ export default function MundialPage() {
       totalPendingPrize += Math.floor((potMap[m.id] ?? 0) / wBets.length) + (prizeCarryoverPerWinnerMap[m.id] ?? 0)
       totalDebtOffset += bet.debt_offset ?? 0
     }
-    saldoMap[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMap[prof.id] ?? 0))
+    saldoMap[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMap[prof.id] ?? 0) + (prof.saldo_adjustment ?? 0))
   }
 
   // Shared props for every MatchCard (betAmount is overridden per-match at call site)

@@ -9,9 +9,9 @@ import { teamSearchTokens } from '@/lib/mundial/team-names-es'
 const COLORS = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16']
 const randomToken = () => Math.random().toString(36).slice(2, 10)
 
-interface Profile { id: string; name: string; token: string; color: string }
+interface Profile { id: string; name: string; token: string; color: string; saldo_adjustment: number }
 interface Match { id: number; home_team: string; home_tla: string; home_crest: string | null; away_team: string; away_tla: string; away_crest: string | null; match_date: string; status: string; home_score: number | null; away_score: number | null; bet_amount: number | null }
-interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; debt_offset: number; mundial_profiles: { name: string; color: string } }
+interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; debt_offset: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
 
 const inputClass = "bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-sm text-[#f5f5f5] placeholder-[#444] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]"
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -248,7 +248,7 @@ export default function AdminMundial() {
       totalPendingPrize += wBets.length > 0 ? Math.floor((potMapAdmin[m.id] ?? 0) / wBets.length) : 0
       totalDebtOffset += bet.debt_offset ?? 0
     }
-    saldoMapAdmin[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMapAdmin[prof.id] ?? 0))
+    saldoMapAdmin[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMapAdmin[prof.id] ?? 0) + (prof.saldo_adjustment ?? 0))
   }
 
   const dateLabel = (d: string) => {
@@ -813,14 +813,22 @@ export default function AdminMundial() {
                                       </div>
                                       <span className="text-xs font-semibold text-green-400">{prof.name}</span>
                                     </div>
-                                    {totalDeduction > 0 ? (
-                                      <span className="text-xs tabular-nums text-[#aaa] font-[family-name:var(--font-body)]">
-                                        Bs {prizePerWinner}
-                                        {offset > 0 && <span className="text-amber-600"> − Bs {offset} cuotas</span>}
-                                        {debt > 0 && <span className="text-amber-600"> − Bs {debt} deuda</span>}
-                                        <span className="text-green-400 font-bold"> = Bs {saldo}</span>
-                                      </span>
-                                    ) : (
+                                    {(totalDeduction > 0 || wb.paid_note) ? (() => {
+                                      const transferAmt = wb.paid_note && wb.prize_paid ? Math.max(0, prizePerWinner - offset) : 0
+                                      const finalSaldo = Math.max(0, saldo - transferAmt)
+                                      return (
+                                        <span className="text-xs tabular-nums text-[#aaa] font-[family-name:var(--font-body)]">
+                                          Bs {prizePerWinner}
+                                          {offset > 0 && <span className={wb.paid_note && !wb.prize_paid ? 'text-blue-400' : 'text-amber-600'}>
+                                            {` − Bs ${offset} ${wb.paid_note && !wb.prize_paid ? 'traspaso' : 'cuotas'}`}
+                                          </span>}
+                                          {debt > 0 && <span className="text-amber-600"> − Bs {debt} deuda</span>}
+                                          {transferAmt > 0 && <span className="text-blue-400"> − Bs {transferAmt} traspaso</span>}
+                                          <span className={`font-bold ${finalSaldo > 0 ? 'text-green-400' : 'text-[#555]'}`}> = Bs {finalSaldo}</span>
+                                          {wb.paid_note && <span className="ml-1 text-[9px] text-blue-500 font-normal">({wb.paid_note})</span>}
+                                        </span>
+                                      )
+                                    })() : (
                                       <span className="text-xs font-bold tabular-nums text-green-400">
                                         Bs {prizePerWinner}
                                         {wb.prize_paid && <span className="ml-1.5 text-[9px] font-normal text-green-600">cobrado</span>}
