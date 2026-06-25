@@ -37,6 +37,7 @@ create table if not exists mundial_bets (
   home_score_bet int not null,
   away_score_bet int not null,
   payment_confirmed boolean default false,
+  paid_with_saldo boolean default false,
   prize_paid boolean default false,
   confirmed_by uuid references profiles(id),
   created_at timestamptz default now(),

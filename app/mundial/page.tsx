@@ -17,7 +17,7 @@ interface Match {
 interface Bet {
   id: string; profile_id: string; match_id: number
   home_score_bet: number; away_score_bet: number
-  payment_confirmed: boolean; prize_paid: boolean
+  payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean
   debt_offset: number; paid_note: string | null
   mundial_profiles: { name: string; color: string }
 }
@@ -436,7 +436,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                     {loading ? '...' : 'Actualizar'}
                   </button>
                 </div>
-                {!myBet.payment_confirmed && (
+                {(!myBet.payment_confirmed || myBet.paid_with_saldo) && (
                   <button onClick={async () => {
                     setLoading(true)
                     await fetch('/api/mundial/bets', {
@@ -448,7 +448,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                     onBetPlaced()
                   }} disabled={loading}
                     className="self-start text-[11px] text-red-500/60 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-40 font-[family-name:var(--font-body)]">
-                    Quitar apuesta
+                    {myBet.paid_with_saldo ? 'Quitar apuesta y reintegrar saldo' : 'Quitar apuesta'}
                   </button>
                 )}
               </div>

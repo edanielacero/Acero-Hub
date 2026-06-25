@@ -11,7 +11,7 @@ const randomToken = () => Math.random().toString(36).slice(2, 10)
 
 interface Profile { id: string; name: string; token: string; color: string; saldo_adjustment: number }
 interface Match { id: number; home_team: string; home_tla: string; home_crest: string | null; away_team: string; away_tla: string; away_crest: string | null; match_date: string; status: string; home_score: number | null; away_score: number | null; bet_amount: number | null }
-interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; debt_offset: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
+interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean; debt_offset: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
 
 const inputClass = "bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-sm text-[#f5f5f5] placeholder-[#444] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]"
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"

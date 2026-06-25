@@ -87,7 +87,7 @@ export async function settleDebts(): Promise<number> {
 
     await admin
       .from('mundial_bets')
-      .update({ payment_confirmed: true })
+      .update({ payment_confirmed: true, paid_with_saldo: true })
       .in('id', cuotasToConfirm)
 
     for (const u of offsetUpdates) {
