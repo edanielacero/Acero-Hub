@@ -625,6 +625,7 @@ export default function MundialPage() {
   const [allBets, setAllBets] = useState<Bet[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [activeTab, setActiveTab] = useState<'upcoming' | 'finished' | 'groups' | 'winners'>('upcoming')
+  const [groupsSubTab, setGroupsSubTab] = useState<'tables' | 'bracket'>('tables')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [winnerFilter, setWinnerFilter] = useState<'all' | 'groups' | 'knockout'>('all')
@@ -1275,72 +1276,214 @@ export default function MundialPage() {
         {/* ── Groups / Standings tab ── */}
         {!searchActive && activeTab === 'groups' && (
           <div className="flex flex-col gap-3">
-            {groupStandings.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">No hay datos de grupos disponibles</p>
-              </div>
-            ) : (
-              <>
-                {groupStandings.map(gs => (
-                  <div key={gs.group} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
-                    {/* Group header */}
-                    <div className="px-4 py-2.5 border-b border-[#181818]">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#555] font-[family-name:var(--font-body)]">Grupo {gs.group}</span>
+            {/* Sub-tabs */}
+            <div className="flex gap-2">
+              {([['tables', 'Tablas'], ['bracket', 'Eliminatorias']] as const).map(([val, label]) => (
+                <button key={val} onClick={() => setGroupsSubTab(val)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                    groupsSubTab === val
+                      ? 'bg-[#f5f5f5] text-[#0a0a0a]'
+                      : 'bg-[#111] border border-[#1e1e1e] text-[#777] hover:text-[#bbb] hover:border-[#333]'
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Tables sub-tab ── */}
+            {groupsSubTab === 'tables' && (
+              groupStandings.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">No hay datos de grupos disponibles</p>
+                </div>
+              ) : (
+                <>
+                  {groupStandings.map(gs => (
+                    <div key={gs.group} className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-[#181818]">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#555] font-[family-name:var(--font-body)]">Grupo {gs.group}</span>
+                      </div>
+                      <div className="grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-1.5 border-b border-[#161616]">
+                        <span />
+                        <span className="text-[9px] font-bold text-[#2a2a2a] uppercase tracking-[0.1em]">Equipo</span>
+                        {['J', 'G', 'E', 'P', 'DG', 'Pts'].map(h => (
+                          <span key={h} className={`text-[9px] font-bold text-center uppercase tracking-[0.1em] ${h === 'Pts' ? 'text-[#3a3a3a]' : 'text-[#2a2a2a]'}`}>{h}</span>
+                        ))}
+                      </div>
+                      {gs.table.map((row, i) => {
+                        const qualified = i < 2 || (i === 2 && best8Thirds.has(row.team))
+                        const outsideThird = i === 2 && !best8Thirds.has(row.team)
+                        return (
+                          <div key={row.team} className={`grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-2 ${
+                            i < gs.table.length - 1 ? 'border-b border-[#141414]' : ''
+                          } ${qualified ? 'bg-green-500/4' : outsideThird ? 'bg-amber-500/4' : ''}`}>
+                            <span className={`text-[10px] font-bold text-center tabular-nums leading-none ${
+                              qualified ? 'text-green-600' : outsideThird ? 'text-amber-600' : 'text-[#333]'
+                            }`}>{i + 1}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {row.crest
+                                ? <img src={row.crest} alt={row.tla} className="h-3.5 w-3.5 object-contain shrink-0" />
+                                : <div className="h-3.5 w-3.5 shrink-0 rounded-sm bg-[#1a1a1a]" />
+                              }
+                              <span className="text-[11px] font-medium text-[#ccc] truncate leading-none">{teamNameEs(row.team)}</span>
+                            </div>
+                            <span className="text-[10px] text-[#444] text-center tabular-nums">{row.played}</span>
+                            <span className="text-[10px] text-[#444] text-center tabular-nums">{row.won}</span>
+                            <span className="text-[10px] text-[#444] text-center tabular-nums">{row.drawn}</span>
+                            <span className="text-[10px] text-[#444] text-center tabular-nums">{row.lost}</span>
+                            <span className={`text-[10px] text-center tabular-nums font-medium ${
+                              row.goalDiff > 0 ? 'text-[#666]' : row.goalDiff < 0 ? 'text-[#3a3a3a]' : 'text-[#444]'
+                            }`}>{row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}</span>
+                            <span className={`text-[11px] font-black text-center tabular-nums ${
+                              qualified ? 'text-green-400' : outsideThird ? 'text-amber-400' : 'text-[#bbb]'
+                            }`}>{row.points}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-                    {/* Column headers */}
-                    <div className="grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-1.5 border-b border-[#161616]">
-                      <span />
-                      <span className="text-[9px] font-bold text-[#2a2a2a] uppercase tracking-[0.1em]">Equipo</span>
-                      {['J', 'G', 'E', 'P', 'DG', 'Pts'].map(h => (
-                        <span key={h} className={`text-[9px] font-bold text-center uppercase tracking-[0.1em] ${h === 'Pts' ? 'text-[#3a3a3a]' : 'text-[#2a2a2a]'}`}>{h}</span>
+                  ))}
+                  <div className="flex flex-col gap-1.5 px-1 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-sm bg-green-500/15 border border-green-500/25" />
+                      <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Clasificados a Dieciseisavos</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-sm bg-amber-500/15 border border-amber-500/25" />
+                      <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Tercer lugar fuera del top 8</span>
+                    </div>
+                  </div>
+                </>
+              )
+            )}
+
+            {/* ── Bracket sub-tab ── */}
+            {groupsSubTab === 'bracket' && (() => {
+              const knockoutMatches = matches
+                .filter(m => m.stage !== 'GROUP_STAGE' && m.stage !== 'THIRD_PLACE')
+                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+              const thirdPlace = matches.find(m => m.stage === 'THIRD_PLACE')
+
+              const r32 = knockoutMatches.filter(m => m.stage === 'LAST_32')
+              const r16 = knockoutMatches.filter(m => m.stage === 'LAST_16')
+              const rQF = knockoutMatches.filter(m => m.stage === 'QUARTER_FINALS')
+              const rSF = knockoutMatches.filter(m => m.stage === 'SEMI_FINALS')
+              const rF  = knockoutMatches.filter(m => m.stage === 'FINAL')
+
+              const half = (arr: Match[]) => [arr.slice(0, Math.ceil(arr.length / 2)), arr.slice(Math.ceil(arr.length / 2))]
+              const [l32, r32r] = half(r32)
+              const [l16, r16r] = half(r16)
+              const [lQF, rQFr] = half(rQF)
+              const [lSF, rSFr] = half(rSF)
+
+              if (r32.length === 0 && r16.length === 0) return (
+                <div className="text-center py-12">
+                  <p className="text-sm text-[#555] font-[family-name:var(--font-body)]">Aún no se han definido partidos de eliminatorias</p>
+                </div>
+              )
+
+              function BCard({ m }: { m: Match }) {
+                const fin = m.status === 'FINISHED'
+                const live = isLive(m.status)
+                const tbd = m.home_team === 'Por definir' || m.away_team === 'Por definir'
+                const hW = fin && m.home_score !== null && m.away_score !== null && m.home_score > m.away_score
+                const aW = fin && m.home_score !== null && m.away_score !== null && m.away_score > m.home_score
+                return (
+                  <div className={`rounded-lg border overflow-hidden w-[105px] shrink-0 ${
+                    live ? 'border-green-500/40 bg-[#0b110a]' : fin ? 'border-[#222] bg-[#0d0d0d]' : 'border-[#1a1a1a] bg-[#111]'
+                  }`}>
+                    <div className={`px-1.5 py-[3px] flex items-center gap-1 ${hW ? 'bg-green-500/8' : ''}`}>
+                      {m.home_crest && !tbd
+                        ? <img src={m.home_crest} alt="" className="w-3 h-3 object-contain shrink-0" />
+                        : <div className="w-3 h-3 rounded-[2px] bg-[#1a1a1a] shrink-0" />}
+                      <span className={`text-[9px] flex-1 truncate ${tbd ? 'text-[#333] italic' : hW ? 'font-bold text-[#eee]' : 'text-[#777]'}`}>
+                        {tlaEs(m.home_tla) || teamNameEs(m.home_team) || '???'}
+                      </span>
+                      {(fin || live) && <span className={`text-[10px] font-black tabular-nums ${hW ? 'text-green-400' : 'text-[#444]'}`}>{m.home_score}</span>}
+                    </div>
+                    <div className={`px-1.5 py-[3px] flex items-center gap-1 border-t border-[#151515] ${aW ? 'bg-green-500/8' : ''}`}>
+                      {m.away_crest && !tbd
+                        ? <img src={m.away_crest} alt="" className="w-3 h-3 object-contain shrink-0" />
+                        : <div className="w-3 h-3 rounded-[2px] bg-[#1a1a1a] shrink-0" />}
+                      <span className={`text-[9px] flex-1 truncate ${tbd ? 'text-[#333] italic' : aW ? 'font-bold text-[#eee]' : 'text-[#777]'}`}>
+                        {tlaEs(m.away_tla) || teamNameEs(m.away_team) || '???'}
+                      </span>
+                      {(fin || live) && <span className={`text-[10px] font-black tabular-nums ${aW ? 'text-green-400' : 'text-[#444]'}`}>{m.away_score}</span>}
+                    </div>
+                  </div>
+                )
+              }
+
+              function RoundCol({ ms, label }: { ms: Match[]; label: string }) {
+                return (
+                  <div className="flex flex-col shrink-0">
+                    <span className="text-[7px] font-black uppercase tracking-[0.15em] text-[#333] text-center h-4 font-[family-name:var(--font-body)]">{label}</span>
+                    <div className="flex-1 flex flex-col">
+                      {ms.map(m => (
+                        <div key={m.id} className="flex-1 flex items-center">
+                          <BCard m={m} />
+                        </div>
                       ))}
                     </div>
-                    {/* Team rows */}
-                    {gs.table.map((row, i) => {
-                      // WC 2026: top 2 always qualify; best 8 of 12 third-place teams also qualify
-                      const qualified = i < 2 || (i === 2 && best8Thirds.has(row.team))
-                      const outsideThird = i === 2 && !best8Thirds.has(row.team)
-                      return (
-                        <div key={row.team} className={`grid grid-cols-[18px_1fr_18px_18px_18px_18px_26px_26px] items-center gap-x-1 px-3 py-2 ${
-                          i < gs.table.length - 1 ? 'border-b border-[#141414]' : ''
-                        } ${qualified ? 'bg-green-500/4' : outsideThird ? 'bg-amber-500/4' : ''}`}>
-                          <span className={`text-[10px] font-bold text-center tabular-nums leading-none ${
-                            qualified ? 'text-green-600' : outsideThird ? 'text-amber-600' : 'text-[#333]'
-                          }`}>{i + 1}</span>
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            {row.crest
-                              ? <img src={row.crest} alt={row.tla} className="h-3.5 w-3.5 object-contain shrink-0" />
-                              : <div className="h-3.5 w-3.5 shrink-0 rounded-sm bg-[#1a1a1a]" />
-                            }
-                            <span className="text-[11px] font-medium text-[#ccc] truncate leading-none">{teamNameEs(row.team)}</span>
-                          </div>
-                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.played}</span>
-                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.won}</span>
-                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.drawn}</span>
-                          <span className="text-[10px] text-[#444] text-center tabular-nums">{row.lost}</span>
-                          <span className={`text-[10px] text-center tabular-nums font-medium ${
-                            row.goalDiff > 0 ? 'text-[#666]' : row.goalDiff < 0 ? 'text-[#3a3a3a]' : 'text-[#444]'
-                          }`}>{row.goalDiff > 0 ? `+${row.goalDiff}` : row.goalDiff}</span>
-                          <span className={`text-[11px] font-black text-center tabular-nums ${
-                            qualified ? 'text-green-400' : outsideThird ? 'text-amber-400' : 'text-[#bbb]'
-                          }`}>{row.points}</span>
+                  </div>
+                )
+              }
+
+              function Conn({ pairs, mirror }: { pairs: number; mirror?: boolean }) {
+                const side = mirror ? 'border-l' : 'border-r'
+                if (pairs === 0) return (
+                  <div className="w-3 shrink-0 flex flex-col">
+                    <div className="h-4" />
+                    <div className="flex-1 flex items-center"><div className={`w-full border-t border-[#2a2a2a]`} /></div>
+                  </div>
+                )
+                return (
+                  <div className="w-3 shrink-0 flex flex-col">
+                    <div className="h-4" />
+                    <div className="flex-1 flex flex-col">
+                      {Array.from({ length: pairs }).map((_, i) => (
+                        <div key={i} className="flex-1 flex flex-col">
+                          <div className={`flex-1 border-b ${side} border-[#2a2a2a]`} />
+                          <div className={`flex-1 border-t ${side} border-[#2a2a2a]`} />
                         </div>
-                      )
-                    })}
+                      ))}
+                    </div>
                   </div>
-                ))}
-                <div className="flex flex-col gap-1.5 px-1 pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-sm bg-green-500/15 border border-green-500/25" />
-                    <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Clasificados a Dieciseisavos</span>
+                )
+              }
+
+              const bracketH = Math.max(l32.length, r32r.length, 4) * 52
+
+              return (
+                <div className="flex flex-col gap-5">
+                  <div className="overflow-x-auto -mx-4 px-4 pb-2">
+                    <div className="flex min-w-max" style={{ height: bracketH }}>
+                      {/* Left bracket */}
+                      {l32.length > 0 && <><RoundCol ms={l32} label="16avos" /><Conn pairs={Math.floor(l32.length / 2)} /></>}
+                      {l16.length > 0 && <><RoundCol ms={l16} label="8vos" /><Conn pairs={Math.floor(l16.length / 2)} /></>}
+                      {lQF.length > 0 && <><RoundCol ms={lQF} label="4tos" /><Conn pairs={Math.floor(lQF.length / 2)} /></>}
+                      {lSF.length > 0 && <><RoundCol ms={lSF} label="Semis" /><Conn pairs={0} /></>}
+
+                      {/* Final */}
+                      {rF.length > 0 && <RoundCol ms={rF} label="Final" />}
+
+                      {/* Right bracket (mirrored) */}
+                      {rSFr.length > 0 && <><Conn pairs={0} mirror /><RoundCol ms={rSFr} label="Semis" /></>}
+                      {rQFr.length > 0 && <><Conn pairs={Math.floor(rQFr.length / 2)} mirror /><RoundCol ms={rQFr} label="4tos" /></>}
+                      {r16r.length > 0 && <><Conn pairs={Math.floor(r16r.length / 2)} mirror /><RoundCol ms={r16r} label="8vos" /></>}
+                      {r32r.length > 0 && <><Conn pairs={Math.floor(r32r.length / 2)} mirror /><RoundCol ms={r32r} label="16avos" /></>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-sm bg-amber-500/15 border border-amber-500/25" />
-                    <span className="text-[9px] text-[#333] uppercase tracking-[0.1em] font-[family-name:var(--font-body)]">Tercer lugar fuera del top 8</span>
-                  </div>
+
+                  {/* Third place */}
+                  {thirdPlace && (
+                    <div className="flex flex-col gap-1 items-center">
+                      <span className="text-[8px] font-black uppercase tracking-[0.15em] text-[#333] font-[family-name:var(--font-body)]">Tercer Lugar</span>
+                      <BCard m={thirdPlace} />
+                    </div>
+                  )}
                 </div>
-              </>
-            )}
+              )
+            })()}
           </div>
         )}
 
