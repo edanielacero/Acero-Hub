@@ -46,6 +46,13 @@ export default function AdminMundial() {
   // Match section tab
   const [matchTab, setMatchTab] = useState<'today' | 'upcoming' | 'past'>('today')
 
+  // Transfer state
+  const [transferFrom, setTransferFrom] = useState('')
+  const [transferTo, setTransferTo] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const [transferMsg, setTransferMsg] = useState('')
+
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -148,6 +155,25 @@ export default function AdminMundial() {
       body: JSON.stringify(body),
     })
     await loadData()
+  }
+
+  async function doTransfer() {
+    if (!transferFrom || !transferTo || !transferAmount) return
+    setTransferring(true); setTransferMsg('')
+    const res = await fetch('/api/mundial/admin/transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromProfileId: transferFrom, toProfileId: transferTo, amount: Number(transferAmount) }),
+    })
+    const d = await res.json()
+    if (res.ok) {
+      setTransferMsg(`✓ Bs ${d.transferred} traspasados`)
+      setTransferAmount('')
+      await loadData()
+    } else {
+      setTransferMsg(`Error: ${d.error}`)
+    }
+    setTransferring(false)
   }
 
   function startEdit(matchId: number, profileId: string, currentBet?: Bet) {
@@ -505,6 +531,58 @@ export default function AdminMundial() {
             })}
           </div>
         </section>
+
+        {/* ── Traspasos ── */}
+        {profiles.some(p => (saldoMapAdmin[p.id] ?? 0) > 0) && (
+          <section className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#1a1a1a]">
+              <h2 className="text-sm font-semibold text-[#f5f5f5]">Traspasar saldo</h2>
+              <p className="text-xs text-[#666] mt-0.5 font-[family-name:var(--font-body)]">Mover saldo de un perfil a otro</p>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <div className="flex items-end gap-3 flex-wrap">
+                <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#555] font-[family-name:var(--font-body)]">De</label>
+                  <select value={transferFrom} onChange={e => setTransferFrom(e.target.value)}
+                    className={`${inputClass} cursor-pointer`}>
+                    <option value="">Seleccionar...</option>
+                    {profiles.filter(p => (saldoMapAdmin[p.id] ?? 0) > 0).map(p => (
+                      <option key={p.id} value={p.id}>{p.name} (Bs {saldoMapAdmin[p.id]})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#555] font-[family-name:var(--font-body)]">A</label>
+                  <select value={transferTo} onChange={e => setTransferTo(e.target.value)}
+                    className={`${inputClass} cursor-pointer`}>
+                    <option value="">Seleccionar...</option>
+                    {profiles.filter(p => p.id !== transferFrom).map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1 w-24">
+                  <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#555] font-[family-name:var(--font-body)]">Monto</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-[#555]">Bs</span>
+                    <input type="number" min="1" value={transferAmount} onChange={e => setTransferAmount(e.target.value)}
+                      className="w-16 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-2.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                  </div>
+                </div>
+                <button onClick={doTransfer}
+                  disabled={transferring || !transferFrom || !transferTo || !transferAmount || Number(transferAmount) <= 0}
+                  className="text-xs font-bold bg-blue-500 text-white px-5 py-2.5 rounded-xl hover:bg-blue-400 transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
+                  {transferring ? '...' : 'Traspasar'}
+                </button>
+              </div>
+              {transferMsg && (
+                <p className="text-xs font-[family-name:var(--font-body)]" style={{ color: transferMsg.startsWith('✓') ? '#22c55e' : '#ef4444' }}>
+                  {transferMsg}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* ── Partidos · Tabs ── */}
         {matches.length > 0 && (
