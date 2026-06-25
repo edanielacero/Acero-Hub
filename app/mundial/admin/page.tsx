@@ -68,6 +68,8 @@ export default function AdminMundial() {
     if (me?.role !== 'admin') { router.push('/'); return }
     setIsAdmin(true)
 
+    await fetch('/api/mundial/admin/settle', { method: 'POST' }).catch(() => {})
+
     const [{ data: p }, { data: m }, { data: b }, { data: s }] = await Promise.all([
       supabase.from('mundial_profiles').select('*').order('created_at'),
       supabase.from('mundial_matches').select('*').order('match_date'),
@@ -263,6 +265,7 @@ export default function AdminMundial() {
 
   // Saldo per profile: pending prizes minus debt_offset (already settled) minus remaining debt
   const saldoMapAdmin: Record<string, number> = {}
+  const effectiveDebtAdmin: Record<string, number> = {}
   for (const prof of profiles) {
     let totalPendingPrize = 0
     let totalDebtOffset = 0
@@ -274,7 +277,10 @@ export default function AdminMundial() {
       totalPendingPrize += wBets.length > 0 ? Math.floor((potMapAdmin[m.id] ?? 0) / wBets.length) : 0
       totalDebtOffset += bet.debt_offset ?? 0
     }
-    saldoMapAdmin[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMapAdmin[prof.id] ?? 0) + (prof.saldo_adjustment ?? 0))
+    const debt = debtMapAdmin[prof.id] ?? 0
+    const netCoverage = totalPendingPrize - totalDebtOffset + (prof.saldo_adjustment ?? 0)
+    saldoMapAdmin[prof.id] = Math.max(0, netCoverage - debt)
+    effectiveDebtAdmin[prof.id] = Math.max(0, debt - Math.max(0, netCoverage))
   }
 
   const dateLabel = (d: string) => {
@@ -336,13 +342,10 @@ export default function AdminMundial() {
           const debts = profiles
             .map(profile => {
               const unpaid = bets.filter(b => b.profile_id === profile.id && !b.payment_confirmed)
-              const total = unpaid.reduce((sum, bet) => {
-                const match = matches.find(m => m.id === bet.match_id)
-                return sum + (match?.bet_amount ?? Number(globalBetAmount))
-              }, 0)
+              const total = effectiveDebtAdmin[profile.id] ?? 0
               return { profile, count: unpaid.length, total, unpaid }
             })
-            .filter(d => d.count > 0)
+            .filter(d => d.total > 0)
 
           if (!debts.length) return null
           const grandTotal = debts.reduce((s, d) => s + d.total, 0)
@@ -498,7 +501,7 @@ export default function AdminMundial() {
           <div className="divide-y divide-[#1a1a1a]">
             {profiles.map(p => {
               const saldo = saldoMapAdmin[p.id] ?? 0
-              const debt = debtMapAdmin[p.id] ?? 0
+              const debt = effectiveDebtAdmin[p.id] ?? 0
               return (
                 <div key={p.id} className="px-6 py-3 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
