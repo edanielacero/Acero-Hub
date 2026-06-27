@@ -101,6 +101,59 @@ const BallIcon = () => (
   </svg>
 )
 
+const PrismaBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-aia" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#08090a" />
+        <stop offset="100%" stopColor="#0c0d10" />
+      </linearGradient>
+      <linearGradient id="prisma-face-1" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#e5a000" stopOpacity="0.25" />
+        <stop offset="100%" stopColor="#00b8d4" stopOpacity="0.15" />
+      </linearGradient>
+      <linearGradient id="prisma-face-2" x1="1" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.2" />
+        <stop offset="100%" stopColor="#d946ef" stopOpacity="0.12" />
+      </linearGradient>
+      <radialGradient id="glow-aia" cx="50%" cy="50%" r="35%">
+        <stop offset="0%" stopColor="#e5a000" stopOpacity="0.08" />
+        <stop offset="100%" stopColor="#e5a000" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-aia)" />
+    <rect width="400" height="120" fill="url(#glow-aia)" />
+    {/* Dot pattern */}
+    {Array.from({ length: 160 }, (_, k) => {
+      const i = Math.floor(k / 20)
+      const j = k % 20
+      return <circle key={k} cx={j * 20 + 10} cy={i * 15 + 8} r="0.5" fill="#ffffff" fillOpacity="0.04" />
+    })}
+    {/* Prisma — geometric icosahedron */}
+    <polygon points="200,28 220,48 212,72 188,72 180,48" fill="url(#prisma-face-1)" stroke="#e5a000" strokeWidth="0.6" strokeOpacity="0.4" />
+    <polygon points="200,28 220,48 235,38 218,22" fill="url(#prisma-face-2)" stroke="#8b5cf6" strokeWidth="0.5" strokeOpacity="0.3" />
+    <polygon points="200,28 180,48 165,38 182,22" fill="url(#prisma-face-2)" stroke="#00b8d4" strokeWidth="0.5" strokeOpacity="0.3" />
+    <polygon points="220,48 212,72 232,62" fill="url(#prisma-face-1)" stroke="#e5a000" strokeWidth="0.4" strokeOpacity="0.2" />
+    <polygon points="180,48 188,72 168,62" fill="url(#prisma-face-1)" stroke="#00b8d4" strokeWidth="0.4" strokeOpacity="0.2" />
+    {/* Refraction lines */}
+    <line x1="200" y1="72" x2="200" y2="95" stroke="#e5a000" strokeWidth="0.5" strokeOpacity="0.15" />
+    <line x1="188" y1="72" x2="175" y2="92" stroke="#00b8d4" strokeWidth="0.5" strokeOpacity="0.1" />
+    <line x1="212" y1="72" x2="225" y2="92" stroke="#8b5cf6" strokeWidth="0.5" strokeOpacity="0.1" />
+    {/* Label */}
+    <rect x="155" y="88" width="90" height="18" rx="4" fill="#e5a000" fillOpacity="0.06" />
+    <text x="200" y="100" textAnchor="middle" fill="#e5a000" fontSize="9" fontFamily="system-ui" fontWeight="600" opacity="0.5" letterSpacing="2">ACERO IA</text>
+  </svg>
+)
+
+const PrismaIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="12,2 20,8 17,18 7,18 4,8" />
+    <line x1="12" y1="2" x2="17" y2="18" />
+    <line x1="12" y1="2" x2="7" y2="18" />
+    <line x1="4" y1="8" x2="20" y2="8" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
@@ -109,5 +162,9 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'mundial': {
     icon: <BallIcon />,
     banner: <MundialBanner />,
+  },
+  'acero-ia': {
+    icon: <PrismaIcon />,
+    banner: <PrismaBanner />,
   },
 }
