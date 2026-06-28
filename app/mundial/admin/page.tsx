@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { teamSearchTokens } from '@/lib/mundial/team-names-es'
 
 const COLORS = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16']
 const randomToken = () => Math.random().toString(36).slice(2, 10)
 
 interface Profile { id: string; name: string; token: string; color: string; saldo_adjustment: number }
-interface Match { id: number; home_team: string; home_tla: string; home_crest: string | null; away_team: string; away_tla: string; away_crest: string | null; match_date: string; status: string; home_score: number | null; away_score: number | null; bet_amount: number | null }
+interface Match { id: number; home_team: string; home_tla: string; home_crest: string | null; away_team: string; away_tla: string; away_crest: string | null; match_date: string; status: string; home_score: number | null; away_score: number | null; penalties_home: number | null; penalties_away: number | null; bet_amount: number | null }
 interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean; debt_offset: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
 
 const inputClass = "bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-sm text-[#f5f5f5] placeholder-[#444] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]"
@@ -52,6 +53,10 @@ export default function AdminMundial() {
   const [transferAmount, setTransferAmount] = useState('')
   const [transferring, setTransferring] = useState(false)
   const [transferMsg, setTransferMsg] = useState('')
+
+  const [payingSaldo, setPayingSaldo] = useState<{ profileId: string; max: number } | null>(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [paying, setPaying] = useState(false)
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -178,6 +183,22 @@ export default function AdminMundial() {
     setTransferring(false)
   }
 
+  async function doPaySaldo() {
+    if (!payingSaldo || !payAmount) return
+    const amt = Number(payAmount)
+    if (amt <= 0 || amt > payingSaldo.max) return
+    setPaying(true)
+    await fetch('/api/mundial/admin/pay-saldo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId: payingSaldo.profileId, amount: amt }),
+    })
+    setPaying(false)
+    setPayingSaldo(null)
+    setPayAmount('')
+    await loadData()
+  }
+
   function startEdit(matchId: number, profileId: string, currentBet?: Bet) {
     setEditKey(`${matchId}-${profileId}`)
     setEditHome(currentBet ? String(currentBet.home_score_bet) : '')
@@ -223,17 +244,9 @@ export default function AdminMundial() {
   const upcomingMatches = matches.filter(m => (m.status === 'SCHEDULED' || m.status === 'TIMED') && toDate(m.match_date) > todayDate)
   const pastMatches     = matches.filter(m => m.status === 'FINISHED').slice().reverse()
 
-  // Pot per finished match (carryover from matches with no winner, chronological order)
-  const potMapAdmin: Record<number, number> = {}
+  // Pot per finished match (with simultaneous kickoff group logic)
+  const { potMap: potMapAdmin, carryoverPerWinnerMap: carryoverPWAdmin } = computePots(matches, bets, Number(globalBetAmount))
   const sortedFinished = matches.filter(m => m.status === 'FINISHED').sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
-  let carryAcc = 0
-  for (const m of sortedFinished) {
-    const mBets = bets.filter(b => b.match_id === m.id)
-    const pot = mBets.length * (m.bet_amount ?? Number(globalBetAmount)) + carryAcc
-    potMapAdmin[m.id] = pot
-    const hasWinner = mBets.some(b => b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-    carryAcc = hasWinner ? 0 : pot
-  }
 
   // Debt per profile (unpaid entry fees across all matches)
   const debtMapAdmin: Record<string, number> = {}
@@ -256,7 +269,7 @@ export default function AdminMundial() {
       if (!bet || bet.prize_paid) continue
       if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
       const wBets = bets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-      const prize = wBets.length > 0 ? Math.floor((potMapAdmin[m.id] ?? 0) / wBets.length) : 0
+      const prize = prizeForMatch(m.id, wBets.length, potMapAdmin, carryoverPWAdmin)
       if (!effectiveMatchDebtAdmin[m.id]) effectiveMatchDebtAdmin[m.id] = {}
       effectiveMatchDebtAdmin[m.id][prof.id] = Math.min(remaining, prize)
       remaining = Math.max(0, remaining - prize)
@@ -274,7 +287,7 @@ export default function AdminMundial() {
       if (!bet || bet.prize_paid) continue
       if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
       const wBets = bets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-      totalPendingPrize += wBets.length > 0 ? Math.floor((potMapAdmin[m.id] ?? 0) / wBets.length) : 0
+      totalPendingPrize += prizeForMatch(m.id, wBets.length, potMapAdmin, carryoverPWAdmin)
       totalDebtOffset += bet.debt_offset ?? 0
     }
     const debt = debtMapAdmin[prof.id] ?? 0
@@ -502,33 +515,71 @@ export default function AdminMundial() {
             {profiles.map(p => {
               const saldo = saldoMapAdmin[p.id] ?? 0
               const debt = effectiveDebtAdmin[p.id] ?? 0
+              const isPayingThis = payingSaldo?.profileId === p.id
               return (
-                <div key={p.id} className="px-6 py-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ backgroundColor: p.color }}>
-                    {p.name.charAt(0)}
+                <div key={p.id} className="flex flex-col">
+                  <div className="px-6 py-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
+                      style={{ backgroundColor: p.color }}>
+                      {p.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#f5f5f5]">{p.name}</p>
+                      <p className="text-[11px] text-[#444] font-mono truncate">{p.token}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {debt > 0 && (
+                        <span className="text-[10px] font-bold tabular-nums text-amber-500 font-[family-name:var(--font-body)]">
+                          Deuda: Bs {debt}
+                        </span>
+                      )}
+                      {saldo > 0 && (
+                        <button
+                          onClick={() => {
+                            if (isPayingThis) { setPayingSaldo(null); setPayAmount('') }
+                            else { setPayingSaldo({ profileId: p.id, max: saldo }); setPayAmount('') }
+                          }}
+                          className="text-[10px] font-bold tabular-nums text-green-400 bg-green-500/10 px-2.5 py-1 rounded-full border border-green-500/20 hover:bg-green-500/20 hover:border-green-500/30 transition-colors cursor-pointer font-[family-name:var(--font-body)]">
+                          Saldo: Bs {saldo} — Pagar
+                        </button>
+                      )}
+                    </div>
+                    <button onClick={() => deleteProfile(p.id)} className="text-[#444] hover:text-red-400 transition-colors cursor-pointer">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#f5f5f5]">{p.name}</p>
-                    <p className="text-[11px] text-[#444] font-mono truncate">{p.token}</p>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    {debt > 0 && (
-                      <span className="text-[10px] font-bold tabular-nums text-amber-500 font-[family-name:var(--font-body)]">
-                        Deuda: Bs {debt}
-                      </span>
-                    )}
-                    {saldo > 0 && (
-                      <span className="text-[10px] font-bold tabular-nums text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 font-[family-name:var(--font-body)]">
-                        Saldo: Bs {saldo}
-                      </span>
-                    )}
-                  </div>
-                  <button onClick={() => deleteProfile(p.id)} className="text-[#444] hover:text-red-400 transition-colors cursor-pointer">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
-                    </svg>
-                  </button>
+                  {isPayingThis && (
+                    <div className="px-6 pb-3 flex items-center gap-2">
+                      <span className="text-[11px] text-[#666] font-[family-name:var(--font-body)] shrink-0">Bs</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max={payingSaldo.max}
+                        value={payAmount}
+                        onChange={e => setPayAmount(e.target.value)}
+                        placeholder="Monto"
+                        className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-1.5 text-sm text-[#f5f5f5] tabular-nums w-24 outline-none focus:border-[#444] transition-colors font-[family-name:var(--font-body)]"
+                      />
+                      <button
+                        onClick={() => setPayAmount(String(payingSaldo.max))}
+                        className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer font-[family-name:var(--font-body)]">
+                        MAX
+                      </button>
+                      <button
+                        onClick={doPaySaldo}
+                        disabled={paying || !payAmount || Number(payAmount) <= 0 || Number(payAmount) > payingSaldo.max}
+                        className="text-[10px] font-bold text-[#0a0a0a] bg-green-500 px-3 py-1.5 rounded-lg hover:bg-green-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed font-[family-name:var(--font-body)]">
+                        {paying ? '...' : 'Confirmar pago'}
+                      </button>
+                      <button
+                        onClick={() => { setPayingSaldo(null); setPayAmount('') }}
+                        className="text-[10px] text-[#555] hover:text-[#888] transition-colors cursor-pointer font-[family-name:var(--font-body)]">
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -617,7 +668,7 @@ export default function AdminMundial() {
                         {match.home_crest ? <img src={match.home_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
                         <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.home_tla || match.home_team}</span>
                         {isFinished
-                          ? <span className="text-xs font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}</span>
+                          ? <span className="text-xs font-bold text-[#aaa] tabular-nums shrink-0">{match.home_score} – {match.away_score}{match.penalties_home != null && match.penalties_away != null ? ` (${match.penalties_home}–${match.penalties_away} pen.)` : ''}</span>
                           : <span className="text-[#333] font-bold shrink-0">vs</span>}
                         <span className="text-sm font-semibold text-[#f5f5f5] truncate">{match.away_tla || match.away_team}</span>
                         {match.away_crest ? <img src={match.away_crest} alt="" className="w-5 h-5 object-contain shrink-0" /> : <div className="w-5 h-5 rounded-full bg-[#1a1a1a] shrink-0" />}
@@ -838,7 +889,7 @@ export default function AdminMundial() {
                     const hasWinner = winningBets.length > 0
                     const allPrizePaid = hasWinner && winningBets.every(b => b.prize_paid)
                     const pot = potMapAdmin[match.id] ?? 0
-                    const prizePerWinner = winningBets.length > 1 ? Math.floor(pot / winningBets.length) : pot
+                    const prizePerWinner = prizeForMatch(match.id, winningBets.length, potMapAdmin, carryoverPWAdmin)
                     return (
                       <div key={match.id} className={`rounded-2xl overflow-hidden ${
                         allPrizePaid ? 'bg-green-500/4 border border-green-500/20' :

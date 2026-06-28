@@ -19,6 +19,8 @@ async function runSync() {
     status: m.status,
     home_score: m.score.fullTime.home,
     away_score: m.score.fullTime.away,
+    penalties_home: m.score.penalties?.home ?? null,
+    penalties_away: m.score.penalties?.away ?? null,
     stage: m.stage,
     group_name: m.group,
     synced_at: new Date().toISOString(),

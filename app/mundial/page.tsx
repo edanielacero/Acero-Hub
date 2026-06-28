@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { isClosed, isLive, stageLabel } from '@/lib/mundial/football-api'
+import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { teamSearchTokens, teamNameEs, tlaEs } from '@/lib/mundial/team-names-es'
 
 const STORAGE_KEY = 'mundial_profile_token'
@@ -11,6 +12,7 @@ interface Match {
   id: number; home_team: string; home_tla: string; home_crest: string
   away_team: string; away_tla: string; away_crest: string
   match_date: string; status: string; home_score: number | null; away_score: number | null
+  penalties_home: number | null; penalties_away: number | null
   stage: string; group_name: string | null; bet_amount: number | null
   kickoff_at: string | null
 }
@@ -275,9 +277,16 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
           </div>
           <div className="text-center shrink-0 px-2">
             {(live || finished) ? (
-              <span className="text-4xl font-black text-[#f5f5f5] tabular-nums tracking-tighter">
-                {match.home_score ?? 0}–{match.away_score ?? 0}
-              </span>
+              <>
+                <span className="text-4xl font-black text-[#f5f5f5] tabular-nums tracking-tighter">
+                  {match.home_score ?? 0}–{match.away_score ?? 0}
+                </span>
+                {match.penalties_home != null && match.penalties_away != null && (
+                  <p className="text-[10px] text-[#555] font-medium tabular-nums mt-0.5">
+                    ({match.penalties_home}–{match.penalties_away} pen.)
+                  </p>
+                )}
+              </>
             ) : (
               <span className="text-lg font-black text-[#2a2a2a] tracking-widest">VS</span>
             )}
@@ -463,20 +472,22 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                 </div>
                 {scoresReady && (
                   <div className="flex gap-2">
-                    <button onClick={() => setPaymentMode('choosing')}
-                      className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
-                      Pagar Ahora
-                    </button>
                     {(saldo ?? 0) >= betAmount ? (
                       <button onClick={() => handleBet(undefined, true)} disabled={loading}
                         className="flex-1 text-xs font-bold bg-amber-400 text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-amber-300 transition-colors cursor-pointer disabled:opacity-40">
                         {loading ? '...' : 'Pagar con Saldo'}
                       </button>
                     ) : (
-                      <button onClick={() => handleBet(false)} disabled={loading}
-                        className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
-                        {loading ? '...' : 'Pagar Después'}
-                      </button>
+                      <>
+                        <button onClick={() => setPaymentMode('choosing')}
+                          className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
+                          Pagar Ahora
+                        </button>
+                        <button onClick={() => handleBet(false)} disabled={loading}
+                          className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
+                          {loading ? '...' : 'Pagar Después'}
+                        </button>
+                      </>
                     )}
                   </div>
                 )}
@@ -840,16 +851,10 @@ export default function MundialPage() {
     return match.bet_amount ?? betAmount
   }
 
-  // Pre-compute pots for every match.
-  // Groups are built from ALL matches (by exact kickoff time) so simultaneous pairs
-  // are always detected regardless of status. A group is only "resolved" (carryover
-  // distributed / accumulated) once EVERY match in that kickoff group is FINISHED.
-  // While any match in the group is still live, the carryover stays held.
-  const potMap: Record<number, number> = {}
-  // Per-winner carryover share for resolved simultaneous groups that had any winners.
-  const prizeCarryoverPerWinnerMap: Record<number, number> = {}
+  // Compute pots for finished matches (shared logic with admin/settle)
+  const { potMap, carryoverPerWinnerMap: prizeCarryoverPerWinnerMap, carryover } = computePots(matches, allBets, betAmount)
 
-  // Build kickoff groups from ALL matches
+  // Build kickoff groups to detect simultaneous next group for live/upcoming display
   const allSortedByKickoff = [...matches].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
   const allKickoffGroups: Match[][] = []
   for (const m of allSortedByKickoff) {
@@ -858,52 +863,10 @@ export default function MundialPage() {
     else allKickoffGroups.push([m])
   }
 
-  const carryover = (() => {
-    let acc = 0
-    for (const group of allKickoffGroups) {
-      // Only resolve this group once every match in it has finished
-      if (!group.every(m => m.status === 'FINISHED')) break
-
-      const carryoverIn = acc
-      const isSimultaneous = group.length > 1
-      let groupHasWinner = false
-      let groupOwnPot = 0
-      let unwonPot = 0
-      let totalGroupWinners = 0
-
-      for (const m of group) {
-        const mBets = allBets.filter(b => b.match_id === m.id)
-        const ownPot = mBets.length * effectiveAmount(m)
-        groupOwnPot += ownPot
-        // Single match: include carryover in displayed pot (unchanged behavior).
-        // Simultaneous: own pot only — carryover shown separately via banner.
-        potMap[m.id] = isSimultaneous ? ownPot : ownPot + carryoverIn
-        const mWinners = mBets.filter(b => b.home_score_bet === m.home_score && b.away_score_bet === m.away_score).length
-        totalGroupWinners += mWinners
-        if (mWinners > 0) groupHasWinner = true
-        else unwonPot += ownPot
-      }
-
-      // For simultaneous resolved groups with winners: compute per-winner carryover share
-      if (isSimultaneous && carryoverIn > 0 && totalGroupWinners > 0) {
-        const perWinner = Math.floor(carryoverIn / totalGroupWinners)
-        for (const m of group) prizeCarryoverPerWinnerMap[m.id] = perWinner
-      }
-
-      // Winners claim the carryover; un-won match pots carry forward.
-      // No winners at all: everything (own pots + incoming carryover) carries.
-      acc = groupHasWinner ? unwonPot : groupOwnPot + carryoverIn
-    }
-    return acc
-  })()
-
-  // Detect the next simultaneous group: the earliest kickoff group that is not fully finished
   const nextKickoffGroup = allKickoffGroups.find(g => !g.every(m => m.status === 'FINISHED')) ?? []
   const nextGroupIds = new Set(nextKickoffGroup.map(m => m.id))
   const isSimultaneousNextGroup = nextKickoffGroup.length > 1
 
-  // Upcoming/live pot: for single-match next group, include carryover in the displayed pot.
-  // For simultaneous groups, each match shows only its own pot — carryover is shown via banner.
   for (const m of [...liveMatches, ...upcomingAll]) {
     const base = allBets.filter(b => b.match_id === m.id).length * effectiveAmount(m)
     potMap[m.id] = nextGroupIds.has(m.id) && !isSimultaneousNextGroup ? base + carryover : base
@@ -955,7 +918,7 @@ export default function MundialPage() {
         const winningBets = allBets.filter(b =>
           b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score
         )
-        const prize = Math.floor((potMap[m.id] ?? 0) / winningBets.length) + (prizeCarryoverPerWinnerMap[m.id] ?? 0)
+        const prize = prizeForMatch(m.id, winningBets.length, potMap, prizeCarryoverPerWinnerMap)
         if (!effectiveMatchDebt[m.id]) effectiveMatchDebt[m.id] = {}
         effectiveMatchDebt[m.id][prof.id] = Math.min(remaining, prize)
         remaining = Math.max(0, remaining - prize)
@@ -973,7 +936,7 @@ export default function MundialPage() {
       if (!bet || bet.prize_paid) continue
       if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
       const wBets = allBets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-      totalPendingPrize += Math.floor((potMap[m.id] ?? 0) / wBets.length) + (prizeCarryoverPerWinnerMap[m.id] ?? 0)
+      totalPendingPrize += prizeForMatch(m.id, wBets.length, potMap, prizeCarryoverPerWinnerMap)
       totalDebtOffset += bet.debt_offset ?? 0
     }
     saldoMap[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMap[prof.id] ?? 0) + (prof.saldo_adjustment ?? 0))

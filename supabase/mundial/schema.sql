@@ -23,6 +23,8 @@ create table if not exists mundial_matches (
   status text default 'SCHEDULED',
   home_score int,
   away_score int,
+  penalties_home int,
+  penalties_away int,
   stage text,
   group_name text,
   bet_amount numeric,

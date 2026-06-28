@@ -18,8 +18,10 @@ export interface FootballMatch {
   homeTeam: { name: string | null; shortName: string | null; tla: string | null; crest: string | null } | null
   awayTeam: { name: string | null; shortName: string | null; tla: string | null; crest: string | null } | null
   score: {
+    duration: string | null
     fullTime: { home: number | null; away: number | null }
     halfTime: { home: number | null; away: number | null }
+    penalties: { home: number | null; away: number | null } | null
   }
 }
 

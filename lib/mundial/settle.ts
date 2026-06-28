@@ -1,11 +1,12 @@
 import { createAdminClient } from '@/lib/supabase-server'
+import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 
 export async function settleDebts(): Promise<number> {
   const admin = createAdminClient()
 
   const [{ data: profiles }, { data: matches }, { data: bets }, { data: settings }] = await Promise.all([
     admin.from('mundial_profiles').select('id, saldo_adjustment'),
-    admin.from('mundial_matches').select('id, match_date, home_score, away_score, bet_amount').not('home_score', 'is', null),
+    admin.from('mundial_matches').select('id, match_date, home_score, away_score, bet_amount, status'),
     admin.from('mundial_bets').select('id, profile_id, match_id, home_score_bet, away_score_bet, payment_confirmed, prize_paid, debt_offset'),
     admin.from('mundial_settings').select('bet_amount').eq('id', 1).single(),
   ])
@@ -13,17 +14,10 @@ export async function settleDebts(): Promise<number> {
   if (!profiles || !matches || !bets) return 0
 
   const globalAmt = (settings as { bet_amount: number } | null)?.bet_amount ?? 5
-  const sortedFinished = [...matches].sort((a, b) => a.match_date.localeCompare(b.match_date))
-
-  const potMap: Record<number, number> = {}
-  let carry = 0
-  for (const m of sortedFinished) {
-    const mBets = bets.filter(b => b.match_id === m.id)
-    const pot = mBets.length * (m.bet_amount ?? globalAmt) + carry
-    potMap[m.id] = pot
-    const hasWinner = mBets.some(b => b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-    carry = hasWinner ? 0 : pot
-  }
+  const { potMap, carryoverPerWinnerMap } = computePots(matches, bets, globalAmt)
+  const sortedFinished = matches
+    .filter(m => m.status === 'FINISHED')
+    .sort((a, b) => a.match_date.localeCompare(b.match_date))
 
   let totalSettled = 0
 
@@ -53,7 +47,7 @@ export async function settleDebts(): Promise<number> {
         b.home_score_bet === m.home_score &&
         b.away_score_bet === m.away_score
       )
-      const prize = winners.length > 0 ? Math.floor(potMap[m.id] / winners.length) : 0
+      const prize = prizeForMatch(m.id, winners.length, potMap, carryoverPerWinnerMap)
       const existingOffset = profBet.debt_offset ?? 0
       const available = prize - existingOffset
       if (available > 0) winningBets.push({ betId: profBet.id, prize, existingOffset, available })
