@@ -636,7 +636,7 @@ export default function MundialPage() {
   const [allBets, setAllBets] = useState<Bet[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [activeTab, setActiveTab] = useState<'upcoming' | 'finished' | 'groups' | 'winners'>('upcoming')
-  const [groupsSubTab, setGroupsSubTab] = useState<'tables' | 'bracket'>('tables')
+  const [groupsSubTab, setGroupsSubTab] = useState<'tables' | 'bracket'>('bracket')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [winnerFilter, setWinnerFilter] = useState<'all' | 'groups' | 'knockout'>('all')
@@ -1127,7 +1127,7 @@ export default function MundialPage() {
               }`}>
               {tab === 'upcoming' ? 'Próximos'
                 : tab === 'finished' ? 'Anteriores'
-                : tab === 'groups' ? 'Grupos'
+                : tab === 'groups' ? 'Eliminatorias'
                 : 'Ganadores'}
             </button>
           ))}
@@ -1241,7 +1241,7 @@ export default function MundialPage() {
           <div className="flex flex-col gap-3">
             {/* Sub-tabs */}
             <div className="flex gap-2">
-              {([['tables', 'Tablas'], ['bracket', 'Eliminatorias']] as const).map(([val, label]) => (
+              {([['bracket', 'Eliminatorias'], ['tables', 'Tablas']] as const).map(([val, label]) => (
                 <button key={val} onClick={() => setGroupsSubTab(val)}
                   className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
                     groupsSubTab === val
@@ -1347,31 +1347,40 @@ export default function MundialPage() {
               function BCard({ m }: { m: Match }) {
                 const fin = m.status === 'FINISHED'
                 const live = isLive(m.status)
-                const tbd = m.home_team === 'Por definir' || m.away_team === 'Por definir'
+                const homeTbd = m.home_team === 'Por definir' || m.home_tla === '???'
+                const awayTbd = m.away_team === 'Por definir' || m.away_tla === '???'
                 const hW = fin && m.home_score !== null && m.away_score !== null && m.home_score > m.away_score
                 const aW = fin && m.home_score !== null && m.away_score !== null && m.away_score > m.home_score
+                const pen = m.penalties_home != null && m.penalties_away != null
                 return (
-                  <div className={`rounded-lg border overflow-hidden w-[105px] shrink-0 ${
-                    live ? 'border-green-500/40 bg-[#0b110a]' : fin ? 'border-[#222] bg-[#0d0d0d]' : 'border-[#1a1a1a] bg-[#111]'
+                  <div className={`rounded-xl border overflow-hidden w-[140px] shrink-0 shadow-sm ${
+                    live ? 'border-green-500/40 bg-[#0b110a] shadow-[0_0_12px_rgba(34,197,94,0.06)]' : fin ? 'border-[#252525] bg-[#0e0e0e]' : 'border-[#1e1e1e] bg-[#121212]'
                   }`}>
-                    <div className={`px-1.5 py-[3px] flex items-center gap-1 ${hW ? 'bg-green-500/8' : ''}`}>
-                      {m.home_crest && !tbd
-                        ? <img src={m.home_crest} alt="" className="w-3 h-3 object-contain shrink-0" />
-                        : <div className="w-3 h-3 rounded-[2px] bg-[#1a1a1a] shrink-0" />}
-                      <span className={`text-[9px] flex-1 truncate ${tbd ? 'text-[#333] italic' : hW ? 'font-bold text-[#eee]' : 'text-[#777]'}`}>
-                        {tlaEs(m.home_tla) || teamNameEs(m.home_team) || '???'}
+                    <div className={`px-2.5 py-[5px] flex items-center gap-1.5 ${hW ? 'bg-green-500/8' : ''}`}>
+                      {m.home_crest && !homeTbd
+                        ? <img src={m.home_crest} alt="" className="w-4 h-4 object-contain shrink-0" />
+                        : <div className="w-4 h-4 rounded-[3px] bg-[#1a1a1a] shrink-0" />}
+                      <span className={`text-[11px] flex-1 truncate ${homeTbd ? 'text-[#333] italic' : hW ? 'font-bold text-[#eee]' : 'text-[#888]'}`}>
+                        {homeTbd ? '???' : tlaEs(m.home_tla) || teamNameEs(m.home_team) || '???'}
                       </span>
-                      {(fin || live) && <span className={`text-[10px] font-black tabular-nums ${hW ? 'text-green-400' : 'text-[#444]'}`}>{m.home_score}</span>}
+                      {(fin || live) && <span className={`text-xs font-black tabular-nums ${hW ? 'text-green-400' : 'text-[#555]'}`}>{m.home_score}</span>}
                     </div>
-                    <div className={`px-1.5 py-[3px] flex items-center gap-1 border-t border-[#151515] ${aW ? 'bg-green-500/8' : ''}`}>
-                      {m.away_crest && !tbd
-                        ? <img src={m.away_crest} alt="" className="w-3 h-3 object-contain shrink-0" />
-                        : <div className="w-3 h-3 rounded-[2px] bg-[#1a1a1a] shrink-0" />}
-                      <span className={`text-[9px] flex-1 truncate ${tbd ? 'text-[#333] italic' : aW ? 'font-bold text-[#eee]' : 'text-[#777]'}`}>
-                        {tlaEs(m.away_tla) || teamNameEs(m.away_team) || '???'}
+                    <div className={`px-2.5 py-[5px] flex items-center gap-1.5 border-t border-[#1a1a1a] ${aW ? 'bg-green-500/8' : ''}`}>
+                      {m.away_crest && !awayTbd
+                        ? <img src={m.away_crest} alt="" className="w-4 h-4 object-contain shrink-0" />
+                        : <div className="w-4 h-4 rounded-[3px] bg-[#1a1a1a] shrink-0" />}
+                      <span className={`text-[11px] flex-1 truncate ${awayTbd ? 'text-[#333] italic' : aW ? 'font-bold text-[#eee]' : 'text-[#888]'}`}>
+                        {awayTbd ? '???' : tlaEs(m.away_tla) || teamNameEs(m.away_team) || '???'}
                       </span>
-                      {(fin || live) && <span className={`text-[10px] font-black tabular-nums ${aW ? 'text-green-400' : 'text-[#444]'}`}>{m.away_score}</span>}
+                      {(fin || live) && <span className={`text-xs font-black tabular-nums ${aW ? 'text-green-400' : 'text-[#555]'}`}>{m.away_score}</span>}
                     </div>
+                    {pen && (
+                      <div className="px-2.5 py-[2px] border-t border-[#1a1a1a] bg-[#0a0a0a]">
+                        <span className="text-[9px] text-[#555] tabular-nums font-medium">
+                          ({m.penalties_home}–{m.penalties_away} pen.)
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )
               }
@@ -1379,7 +1388,7 @@ export default function MundialPage() {
               function RoundCol({ ms, label }: { ms: Match[]; label: string }) {
                 return (
                   <div className="flex flex-col shrink-0">
-                    <span className="text-[7px] font-black uppercase tracking-[0.15em] text-[#333] text-center h-4 font-[family-name:var(--font-body)]">{label}</span>
+                    <span className="text-[9px] font-black uppercase tracking-[0.15em] text-[#444] text-center h-6 flex items-center justify-center font-[family-name:var(--font-body)]">{label}</span>
                     <div className="flex-1 flex flex-col">
                       {ms.map(m => (
                         <div key={m.id} className="flex-1 flex items-center">
@@ -1394,14 +1403,14 @@ export default function MundialPage() {
               function Conn({ pairs, mirror }: { pairs: number; mirror?: boolean }) {
                 const side = mirror ? 'border-l' : 'border-r'
                 if (pairs === 0) return (
-                  <div className="w-3 shrink-0 flex flex-col">
-                    <div className="h-4" />
+                  <div className="w-4 shrink-0 flex flex-col">
+                    <div className="h-6" />
                     <div className="flex-1 flex items-center"><div className={`w-full border-t border-[#2a2a2a]`} /></div>
                   </div>
                 )
                 return (
-                  <div className="w-3 shrink-0 flex flex-col">
-                    <div className="h-4" />
+                  <div className="w-4 shrink-0 flex flex-col">
+                    <div className="h-6" />
                     <div className="flex-1 flex flex-col">
                       {Array.from({ length: pairs }).map((_, i) => (
                         <div key={i} className="flex-1 flex flex-col">
@@ -1414,7 +1423,7 @@ export default function MundialPage() {
                 )
               }
 
-              const bracketH = Math.max(l32.length, r32r.length, 4) * 52
+              const bracketH = Math.max(l32.length, r32r.length, 4) * 62
 
               return (
                 <div className="flex flex-col gap-5">
@@ -1439,8 +1448,8 @@ export default function MundialPage() {
 
                   {/* Third place */}
                   {thirdPlace && (
-                    <div className="flex flex-col gap-1 items-center">
-                      <span className="text-[8px] font-black uppercase tracking-[0.15em] text-[#333] font-[family-name:var(--font-body)]">Tercer Lugar</span>
+                    <div className="flex flex-col gap-1.5 items-center">
+                      <span className="text-[9px] font-black uppercase tracking-[0.15em] text-[#444] font-[family-name:var(--font-body)]">Tercer Lugar</span>
                       <BCard m={thirdPlace} />
                     </div>
                   )}
