@@ -1321,9 +1321,12 @@ export default function MundialPage() {
 
             {/* ── Bracket sub-tab ── */}
             {groupsSubTab === 'bracket' && (() => {
+              // Sort by id, not kickoff time: id order preserves the fixed bracket draw position
+              // (which team feeds which slot), while match_date reflects actual scheduling and
+              // can interleave matches from different bracket branches.
               const knockoutMatches = matches
                 .filter(m => m.stage !== 'GROUP_STAGE' && m.stage !== 'THIRD_PLACE')
-                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+                .sort((a, b) => a.id - b.id)
               const thirdPlace = matches.find(m => m.stage === 'THIRD_PLACE')
 
               const r32 = knockoutMatches.filter(m => m.stage === 'LAST_32')
@@ -1375,9 +1378,14 @@ export default function MundialPage() {
                       {(fin || live) && <span className={`text-xs font-black tabular-nums ${aW ? 'text-green-400' : 'text-[#555]'}`}>{m.away_score}</span>}
                     </div>
                     {pen && (
-                      <div className="px-2.5 py-[2px] border-t border-[#1a1a1a] bg-[#0a0a0a]">
-                        <span className="text-[9px] text-[#555] tabular-nums font-medium">
-                          ({m.penalties_home}–{m.penalties_away} pen.)
+                      <div className="px-2.5 py-[3px] border-t border-[#1a1a1a] bg-amber-500/8 flex items-center gap-1">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-amber-500 shrink-0">
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M12 7l3.5 2.5-1.3 4H9.8l-1.3-4L12 7z" fill="currentColor" stroke="none" />
+                          <path d="M12 2v5M4.2 7.5l4.3 2M19.8 7.5l-4.3 2M6 17l3.8-3.5M18 17l-3.8-3.5M9 21.5l1-4M15 21.5l-1-4" />
+                        </svg>
+                        <span className="text-[10px] text-amber-400 tabular-nums font-bold">
+                          {m.penalties_home}–{m.penalties_away} pen.
                         </span>
                       </div>
                     )}

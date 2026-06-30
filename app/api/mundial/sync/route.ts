@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { getWorldCupMatches } from '@/lib/mundial/football-api'
+import { getWorldCupMatches, liveScore } from '@/lib/mundial/football-api'
 import { settleDebts } from '@/lib/mundial/settle'
 import { NextResponse } from 'next/server'
 
@@ -7,24 +7,27 @@ async function runSync() {
   const matches = await getWorldCupMatches()
   const admin = createAdminClient()
 
-  const rows = matches.map(m => ({
-    id: m.id,
-    home_team: m.homeTeam?.name ?? 'Por definir',
-    home_tla: m.homeTeam?.tla ?? '???',
-    home_crest: m.homeTeam?.crest ?? null,
-    away_team: m.awayTeam?.name ?? 'Por definir',
-    away_tla: m.awayTeam?.tla ?? '???',
-    away_crest: m.awayTeam?.crest ?? null,
-    match_date: m.utcDate,
-    status: m.status,
-    home_score: m.score.fullTime.home,
-    away_score: m.score.fullTime.away,
-    penalties_home: m.score.penalties?.home ?? null,
-    penalties_away: m.score.penalties?.away ?? null,
-    stage: m.stage,
-    group_name: m.group,
-    synced_at: new Date().toISOString(),
-  }))
+  const rows = matches.map(m => {
+    const score = liveScore(m)
+    return {
+      id: m.id,
+      home_team: m.homeTeam?.name ?? 'Por definir',
+      home_tla: m.homeTeam?.tla ?? '???',
+      home_crest: m.homeTeam?.crest ?? null,
+      away_team: m.awayTeam?.name ?? 'Por definir',
+      away_tla: m.awayTeam?.tla ?? '???',
+      away_crest: m.awayTeam?.crest ?? null,
+      match_date: m.utcDate,
+      status: m.status,
+      home_score: score.home,
+      away_score: score.away,
+      penalties_home: m.score.penalties?.home ?? null,
+      penalties_away: m.score.penalties?.away ?? null,
+      stage: m.stage,
+      group_name: m.group,
+      synced_at: new Date().toISOString(),
+    }
+  })
 
   const { error } = await admin.from('mundial_matches').upsert(rows, { onConflict: 'id' })
   if (error) throw new Error(error.message)

@@ -21,16 +21,23 @@ export interface FootballMatch {
     duration: string | null
     fullTime: { home: number | null; away: number | null }
     halfTime: { home: number | null; away: number | null }
+    regularTime?: { home: number | null; away: number | null }
     penalties: { home: number | null; away: number | null } | null
   }
 }
 
 /**
- * Returns the best available live score for a match.
- * During IN_PLAY/PAUSED, football-data.org v4 uses fullTime for the running score.
+ * Returns the best available match score (goals only, excluding penalty shootout).
+ * For PENALTY_SHOOTOUT matches, football-data.org v4 reports fullTime as the score
+ * AFTER adding penalty goals on top (e.g. 1-1 + 3-4 pens = fullTime 4-5), so we must
+ * use regularTime instead to get the real 1-1 result that bets were placed against.
  * Falls back to halfTime if fullTime is null (first few seconds of match).
  */
 export function liveScore(match: FootballMatch): { home: number | null; away: number | null } {
+  if (match.score.duration === 'PENALTY_SHOOTOUT' && match.score.regularTime) {
+    const rt = match.score.regularTime
+    if (rt.home !== null || rt.away !== null) return rt
+  }
   const ft = match.score.fullTime
   const ht = match.score.halfTime
   if (ft.home !== null || ft.away !== null) return ft
