@@ -47,6 +47,38 @@ function teamForm(team: string, matches: FormMatch[]): { attack: number; defense
   return { attack: gf / played.length, defense: ga / played.length, played: played.length }
 }
 
+// Rank-gap → goals scaling and form-blend weights, tuned via backtest against the
+// 76 WC2026 matches finished so far (simulated match-by-match, no lookahead).
+// K=150/maxFormWeight=0.3/formGamesCap=4 outperformed the original guesses
+// (K=100/0.5/3): exact scoreline accuracy 13.2% → 17.1%, with only a small
+// outcome-accuracy tradeoff (65.8% → 63.2%). See chat history for the grid search.
+const RANK_GAP_SCALE = 150
+const MAX_FORM_WEIGHT = 0.3
+const FORM_GAMES_CAP = 4
+
+function poissonPmf(k: number, lambda: number): number {
+  let logP = -lambda + k * Math.log(lambda)
+  for (let i = 2; i <= k; i++) logP -= Math.log(i)
+  return Math.exp(logP)
+}
+
+// Goals in football are well-approximated by independent Poisson distributions
+// per team. Rounding each team's expected goals separately (the original
+// approach) almost never lands both teams on the same number, so it badly
+// under-predicts draws. Picking the single most likely joint (home, away)
+// pair under the Poisson model fixes that and is the standard approach used
+// by real football analytics models (e.g. Dixon-Coles).
+function modePoissonScore(expHome: number, expAway: number, maxGoals = 6): { home: number; away: number } {
+  let best = { home: 0, away: 0, p: -1 }
+  for (let h = 0; h <= maxGoals; h++) {
+    for (let a = 0; a <= maxGoals; a++) {
+      const p = poissonPmf(h, expHome) * poissonPmf(a, expAway)
+      if (p > best.p) best = { home: h, away: a, p }
+    }
+  }
+  return { home: best.home, away: best.away }
+}
+
 /**
  * Best-effort score prediction (regular/extra time, no penalties) combining FIFA
  * ranking strength with each team's actual goals scored/conceded so far in this
@@ -57,12 +89,12 @@ function teamForm(team: string, matches: FormMatch[]): { attack: number; defense
 export function predictScore(homeTeam: string, awayTeam: string, allMatches: FormMatch[]): { home: number; away: number } {
   const homeRank = FIFA_RANK[homeTeam] ?? 60
   const awayRank = FIFA_RANK[awayTeam] ?? 60
-  const rankDiff = (estimatePoints(homeRank) - estimatePoints(awayRank)) / 100 // ≈ goals-equivalent
+  const rankDiff = (estimatePoints(homeRank) - estimatePoints(awayRank)) / RANK_GAP_SCALE // ≈ goals-equivalent
 
   const homeForm = teamForm(homeTeam, allMatches)
   const awayForm = teamForm(awayTeam, allMatches)
-  const wHome = Math.min(homeForm.played, 3) / 3 * 0.5
-  const wAway = Math.min(awayForm.played, 3) / 3 * 0.5
+  const wHome = Math.min(homeForm.played, FORM_GAMES_CAP) / FORM_GAMES_CAP * MAX_FORM_WEIGHT
+  const wAway = Math.min(awayForm.played, FORM_GAMES_CAP) / FORM_GAMES_CAP * MAX_FORM_WEIGHT
 
   let expHome = WC_AVG_GOALS + rankDiff / 2
   let expAway = WC_AVG_GOALS - rankDiff / 2
@@ -70,8 +102,8 @@ export function predictScore(homeTeam: string, awayTeam: string, allMatches: For
   expHome = expHome * (1 - wHome) + ((homeForm.attack + awayForm.defense) / 2) * wHome
   expAway = expAway * (1 - wAway) + ((awayForm.attack + homeForm.defense) / 2) * wAway
 
-  expHome = Math.min(5, Math.max(0.15, expHome))
-  expAway = Math.min(5, Math.max(0.15, expAway))
+  expHome = Math.min(5, Math.max(0.1, expHome))
+  expAway = Math.min(5, Math.max(0.1, expAway))
 
-  return { home: Math.round(expHome), away: Math.round(expAway) }
+  return modePoissonScore(expHome, expAway)
 }
