@@ -42,7 +42,7 @@ export async function autoBetDani(): Promise<number> {
 
   let count = 0
   for (const m of due) {
-    const { home, away } = predictScore(m.home_team, m.away_team, matches)
+    const { home, away } = predictScore(m.home_team, m.away_team)
     const { error } = await admin.from('mundial_bets').upsert({
       profile_id: profile.id,
       match_id: m.id,

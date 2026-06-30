@@ -775,7 +775,7 @@ export default function AdminMundial() {
                     const matchBets = bets.filter(b => b.match_id === match.id)
                     const isLiveMatch = match.status === 'IN_PLAY' || match.status === 'PAUSED'
                     const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
-                    const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, matches) : null
+                    const prediction = teamsKnown ? predictScore(match.home_team, match.away_team) : null
                     return (
                       <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                         <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
@@ -848,7 +848,7 @@ export default function AdminMundial() {
                       {upcomingMatches.filter(m => toDate(m.match_date) === date).map(match => {
                         const matchBets = bets.filter(b => b.match_id === match.id)
                         const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
-                        const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, matches) : null
+                        const prediction = teamsKnown ? predictScore(match.home_team, match.away_team) : null
                         return (
                           <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                             <div className="px-5 py-3 flex items-center gap-3">
