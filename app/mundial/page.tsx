@@ -282,9 +282,16 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   {match.home_score ?? 0}–{match.away_score ?? 0}
                 </span>
                 {match.penalties_home != null && match.penalties_away != null && (
-                  <p className="text-[10px] text-[#555] font-medium tabular-nums mt-0.5">
-                    ({match.penalties_home}–{match.penalties_away} pen.)
-                  </p>
+                  <div className="flex items-center justify-center gap-1 mt-1">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#999] shrink-0">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 7l3.5 2.5-1.3 4H9.8l-1.3-4L12 7z" fill="currentColor" stroke="none" />
+                      <path d="M12 2v5M4.2 7.5l4.3 2M19.8 7.5l-4.3 2M6 17l3.8-3.5M18 17l-3.8-3.5M9 21.5l1-4M15 21.5l-1-4" />
+                    </svg>
+                    <span className="text-xs text-[#ccc] font-bold tabular-nums">
+                      {match.penalties_home}–{match.penalties_away} pen.
+                    </span>
+                  </div>
                 )}
               </>
             ) : (
@@ -1322,18 +1329,73 @@ export default function MundialPage() {
             {/* ── Bracket sub-tab ── */}
             {groupsSubTab === 'bracket' && (() => {
               // Sort by id, not kickoff time: id order preserves the fixed bracket draw position
-              // (which team feeds which slot), while match_date reflects actual scheduling and
-              // can interleave matches from different bracket branches.
+              // for rounds allocated together up front (LAST_16 through FINAL), while match_date
+              // reflects actual scheduling and can interleave matches from different branches.
               const knockoutMatches = matches
                 .filter(m => m.stage !== 'GROUP_STAGE' && m.stage !== 'THIRD_PLACE')
                 .sort((a, b) => a.id - b.id)
               const thirdPlace = matches.find(m => m.stage === 'THIRD_PLACE')
 
-              const r32 = knockoutMatches.filter(m => m.stage === 'LAST_32')
-              const r16 = knockoutMatches.filter(m => m.stage === 'LAST_16')
-              const rQF = knockoutMatches.filter(m => m.stage === 'QUARTER_FINALS')
-              const rSF = knockoutMatches.filter(m => m.stage === 'SEMI_FINALS')
-              const rF  = knockoutMatches.filter(m => m.stage === 'FINAL')
+              const r32Raw = knockoutMatches.filter(m => m.stage === 'LAST_32')
+              const r16Raw = knockoutMatches.filter(m => m.stage === 'LAST_16')
+              const rQFRaw = knockoutMatches.filter(m => m.stage === 'QUARTER_FINALS')
+              const rSFRaw = knockoutMatches.filter(m => m.stage === 'SEMI_FINALS')
+              const rF = knockoutMatches.filter(m => m.stage === 'FINAL')
+
+              // LAST_32 ("16avos") id order is the correct, fixed bracket draw position — leave
+              // it untouched. But later rounds (LAST_16/"8vos" onward) aren't always allocated
+              // in an order that lines up with it, so a match's real feeder pair can visually
+              // land under the wrong neighboring matchup (e.g. Brazil's real LAST_16 slot
+              // appearing connected to Portugal/Croacia's match instead of its own).
+              // Fix: keep each round's order as-is by default, but reorder it to match the
+              // *pairing* of the round before it, using already-known winners as ground truth.
+              // Unresolved pairs (no winner yet) keep their relative order and fill whatever
+              // slots remain open — this self-corrects automatically as more matches finish.
+              function winnerTeam(m: Match): string | null {
+                if (m.status !== 'FINISHED' || m.home_score === null || m.away_score === null) return null
+                if (m.home_score > m.away_score) return m.home_team
+                if (m.away_score > m.home_score) return m.away_team
+                // Tied after regular/extra time — decided by penalties
+                if (m.penalties_home !== null && m.penalties_away !== null) {
+                  if (m.penalties_home > m.penalties_away) return m.home_team
+                  if (m.penalties_away > m.penalties_home) return m.away_team
+                }
+                return null
+              }
+              function alignToPairs(round: Match[], prevRound: Match[]): Match[] {
+                if (prevRound.length === 0 || round.length === 0) return round
+                const pairs: Match[][] = []
+                for (let i = 0; i < prevRound.length; i += 2) pairs.push(prevRound.slice(i, i + 2))
+
+                const usedIdx = new Set<number>()
+                const ordered: (Match | null)[] = pairs.map(pair => {
+                  const idx = round.findIndex((nm, ni) =>
+                    !usedIdx.has(ni) && pair.some(m => {
+                      const w = winnerTeam(m)
+                      return w !== null && (w === nm.home_team || w === nm.away_team)
+                    })
+                  )
+                  if (idx === -1) return null
+                  usedIdx.add(idx)
+                  return round[idx]
+                })
+
+                let cursor = 0
+                for (let k = 0; k < ordered.length; k++) {
+                  if (ordered[k]) continue
+                  while (usedIdx.has(cursor) && cursor < round.length) cursor++
+                  if (cursor < round.length) { ordered[k] = round[cursor]; usedIdx.add(cursor) }
+                }
+
+                return ordered.filter((m): m is Match => m !== null)
+              }
+
+              // Cascade forward from LAST_32 (the fixed anchor) so every later round lines up
+              // with the pairing of the round before it.
+              const r32 = r32Raw
+              const r16 = alignToPairs(r16Raw, r32)
+              const rQF = alignToPairs(rQFRaw, r16)
+              const rSF = alignToPairs(rSFRaw, rQF)
 
               const half = (arr: Match[]) => [arr.slice(0, Math.ceil(arr.length / 2)), arr.slice(Math.ceil(arr.length / 2))]
               const [l32, r32r] = half(r32)
@@ -1378,13 +1440,13 @@ export default function MundialPage() {
                       {(fin || live) && <span className={`text-xs font-black tabular-nums ${aW ? 'text-green-400' : 'text-[#555]'}`}>{m.away_score}</span>}
                     </div>
                     {pen && (
-                      <div className="px-2.5 py-[3px] border-t border-[#1a1a1a] bg-amber-500/8 flex items-center gap-1">
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-amber-500 shrink-0">
+                      <div className="px-2.5 py-[3px] border-t border-[#1a1a1a] bg-white/[0.03] flex items-center gap-1">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#999] shrink-0">
                           <circle cx="12" cy="12" r="10" />
                           <path d="M12 7l3.5 2.5-1.3 4H9.8l-1.3-4L12 7z" fill="currentColor" stroke="none" />
                           <path d="M12 2v5M4.2 7.5l4.3 2M19.8 7.5l-4.3 2M6 17l3.8-3.5M18 17l-3.8-3.5M9 21.5l1-4M15 21.5l-1-4" />
                         </svg>
-                        <span className="text-[10px] text-amber-400 tabular-nums font-bold">
+                        <span className="text-[10px] text-[#ccc] tabular-nums font-bold">
                           {m.penalties_home}–{m.penalties_away} pen.
                         </span>
                       </div>
@@ -1399,7 +1461,7 @@ export default function MundialPage() {
                     <span className="text-[9px] font-black uppercase tracking-[0.15em] text-[#444] text-center h-6 flex items-center justify-center font-[family-name:var(--font-body)]">{label}</span>
                     <div className="flex-1 flex flex-col">
                       {ms.map(m => (
-                        <div key={m.id} className="flex-1 flex items-center">
+                        <div key={m.id} className="flex-1 flex items-center py-1">
                           <BCard m={m} />
                         </div>
                       ))}
@@ -1431,11 +1493,22 @@ export default function MundialPage() {
                 )
               }
 
-              const bracketH = Math.max(l32.length, r32r.length, 4) * 62
+              // Height is computed from real content, not guessed: a card showing penalties
+              // needs an extra row, and forcing every row in a column to the same (uniform)
+              // slot height keeps the connector lines aligned — so we size each column's
+              // slot to fit its tallest card (with penalties if present), per round.
+              const CARD_H = 53
+              const PEN_EXTRA_H = 22
+              const ROW_PAD = 8
+              const rowSlot = (ms: Match[]) => Math.max(
+                CARD_H + ROW_PAD,
+                ...ms.map(m => CARD_H + ROW_PAD + (m.penalties_home != null && m.penalties_away != null ? PEN_EXTRA_H : 0))
+              )
+              const bracketH = Math.max(l32.length, r32r.length, 4) * Math.max(rowSlot(l32), rowSlot(r32r))
 
               return (
                 <div className="flex flex-col gap-5">
-                  <div className="overflow-x-auto -mx-4 px-4 pb-2">
+                  <div className="overflow-x-auto overflow-y-hidden -mx-4 px-4 pb-2">
                     <div className="flex min-w-max" style={{ height: bracketH }}>
                       {/* Left bracket */}
                       {l32.length > 0 && <><RoundCol ms={l32} label="16avos" /><Conn pairs={Math.floor(l32.length / 2)} /></>}
