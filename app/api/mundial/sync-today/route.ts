@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase-server'
 import { getWCMatchesByDateRange, liveScore } from '@/lib/mundial/football-api'
+import { autoBetDani } from '@/lib/mundial/auto-bet'
 import { NextResponse } from 'next/server'
 
 // Syncs all WC matches from the last 2 days to tomorrow.
@@ -25,6 +26,7 @@ export async function GET() {
     })
 
     await admin.from('mundial_matches').upsert(rows, { onConflict: 'id' })
+    await autoBetDani().catch(() => {})
 
     return NextResponse.json({
       matches: apiMatches.map(m => {

@@ -99,6 +99,31 @@ create policy "Leer propio perfil o admin" on profiles for select
 create policy "Actualizar propio perfil" on profiles for update
   using (id = auth.uid());
 
+-- This UPDATE policy has no WITH CHECK, so by itself it lets a user change
+-- ANY column on their own row — including `role`. The trigger below closes
+-- that gap by reverting `role` changes made by anyone who isn't already an
+-- admin, so self-promotion via a direct client update is not possible.
+create or replace function prevent_self_role_escalation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role then
+    if not exists (select 1 from profiles where id = auth.uid() and role = 'admin') then
+      new.role := old.role;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_prevent_self_role_escalation on profiles;
+create trigger trg_prevent_self_role_escalation
+  before update on profiles
+  for each row execute procedure prevent_self_role_escalation();
+
 -- Projects
 create policy "Todos los autenticados leen proyectos" on projects for select
   to authenticated using (true);

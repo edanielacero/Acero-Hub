@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { teamSearchTokens } from '@/lib/mundial/team-names-es'
+import { predictScore } from '@/lib/mundial/predict'
 
 const COLORS = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16']
 const randomToken = () => Math.random().toString(36).slice(2, 10)
@@ -773,6 +774,8 @@ export default function AdminMundial() {
                   {todayMatches.map(match => {
                     const matchBets = bets.filter(b => b.match_id === match.id)
                     const isLiveMatch = match.status === 'IN_PLAY' || match.status === 'PAUSED'
+                    const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
+                    const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, matches) : null
                     return (
                       <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                         <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
@@ -795,6 +798,15 @@ export default function AdminMundial() {
                           )}
                           <AmountEditor match={match} />
                         </div>
+                        {prediction && !isLiveMatch && (
+                          <div className="px-5 py-2 border-b border-[#1a1a1a] bg-indigo-500/6 flex items-center gap-2">
+                            <span className="text-[9px] font-black uppercase tracking-[0.12em] text-indigo-400 shrink-0">Predicción</span>
+                            <span className="text-xs font-bold tabular-nums text-indigo-300">
+                              {match.home_tla || match.home_team} {prediction.home} – {prediction.away} {match.away_tla || match.away_team}
+                            </span>
+                            <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">ranking FIFA + forma en el torneo</span>
+                          </div>
+                        )}
                         {matchBets.length > 0 && (
                           <div className="divide-y divide-[#1a1a1a]">
                             {matchBets.map(bet => (
@@ -835,6 +847,8 @@ export default function AdminMundial() {
                       </p>
                       {upcomingMatches.filter(m => toDate(m.match_date) === date).map(match => {
                         const matchBets = bets.filter(b => b.match_id === match.id)
+                        const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
+                        const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, matches) : null
                         return (
                           <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                             <div className="px-5 py-3 flex items-center gap-3">
@@ -850,6 +864,15 @@ export default function AdminMundial() {
                               </span>
                               <AmountEditor match={match} />
                             </div>
+                            {prediction && (
+                              <div className="px-5 py-2 border-t border-[#1a1a1a] bg-indigo-500/6 flex items-center gap-2">
+                                <span className="text-[9px] font-black uppercase tracking-[0.12em] text-indigo-400 shrink-0">Predicción</span>
+                                <span className="text-xs font-bold tabular-nums text-indigo-300">
+                                  {match.home_tla || match.home_team} {prediction.home} – {prediction.away} {match.away_tla || match.away_team}
+                                </span>
+                                <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">ranking FIFA + forma en el torneo</span>
+                              </div>
+                            )}
                             {matchBets.length > 0 && (
                               <div className="border-t border-[#1a1a1a] divide-y divide-[#1a1a1a]">
                                 {matchBets.map(bet => (

@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase-server'
 import { getWorldCupMatches, liveScore } from '@/lib/mundial/football-api'
 import { settleDebts } from '@/lib/mundial/settle'
+import { autoBetDani } from '@/lib/mundial/auto-bet'
 import { NextResponse } from 'next/server'
 
 async function runSync() {
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
   try {
     const synced = await runSync()
     const settled = await settleDebts()
+    await autoBetDani().catch(() => {})
     return NextResponse.json({ synced, settled })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 })
@@ -55,6 +57,7 @@ export async function POST() {
   try {
     const synced = await runSync()
     const settled = await settleDebts()
+    await autoBetDani().catch(() => {})
     return NextResponse.json({ synced, settled })
   } catch (e: unknown) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Error' }, { status: 500 })
