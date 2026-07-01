@@ -25,6 +25,41 @@ const WC_AVG_GOALS = 1.35 // rough average goals/team/match across recent World 
 // Elo-gap → expected-goals scaling, tuned via backtest (stable across K=210-235).
 const ELO_GAP_SCALE = 220
 
+// eloratings.net K-factor for World Cup matches
+const ELO_K = 60
+
+function goalDiffMultiplier(gd: number): number {
+  if (gd <= 1) return 1
+  if (gd === 2) return 1.5
+  if (gd === 3) return 1.75
+  return 1.75 + (gd - 3) / 8
+}
+
+/**
+ * Updates Elo ratings by replaying completed WC matches in chronological order.
+ * Uses the standard eloratings.net formula (K=60 for WC, goal-diff multiplier).
+ * Penalty matches count as draws at the regular/ET score (which is what the DB stores).
+ */
+export function computeUpdatedElo(
+  completedMatches: Array<{ home_team: string; away_team: string; home_score: number; away_score: number }>,
+  baseElo: Record<string, number> = ELO_RATING,
+): Record<string, number> {
+  const elo = { ...baseElo }
+  for (const m of completedMatches) {
+    const rHome = elo[m.home_team] ?? 1500
+    const rAway = elo[m.away_team] ?? 1500
+    const dr = rHome - rAway
+    const weHome = 1 / (Math.pow(10, -dr / 400) + 1)
+    const gd = Math.abs(m.home_score - m.away_score)
+    const G = goalDiffMultiplier(gd)
+    const wHome = m.home_score > m.away_score ? 1 : m.home_score === m.away_score ? 0.5 : 0
+    const delta = ELO_K * G * (wHome - weHome)
+    elo[m.home_team] = Math.round(rHome + delta)
+    elo[m.away_team] = Math.round(rAway - delta)
+  }
+  return elo
+}
+
 function poissonPmf(k: number, lambda: number): number {
   let logP = -lambda + k * Math.log(lambda)
   for (let i = 2; i <= k; i++) logP -= Math.log(i)
@@ -54,9 +89,13 @@ function modePoissonScore(expHome: number, expAway: number, maxGoals = 6): { hom
  * consistently hurt backtested accuracy — with only 1-4 matches played per team
  * the sample is too small and noisy to add real information over Elo alone.
  */
-export function predictScore(homeTeam: string, awayTeam: string): { home: number; away: number } {
-  const homeElo = ELO_RATING[homeTeam] ?? 1500
-  const awayElo = ELO_RATING[awayTeam] ?? 1500
+export function predictScore(
+  homeTeam: string,
+  awayTeam: string,
+  elo: Record<string, number> = ELO_RATING,
+): { home: number; away: number } {
+  const homeElo = elo[homeTeam] ?? 1500
+  const awayElo = elo[awayTeam] ?? 1500
   const eloDiff = (homeElo - awayElo) / ELO_GAP_SCALE // ≈ goals-equivalent
 
   const expHome = Math.min(5, Math.max(0.1, WC_AVG_GOALS + eloDiff / 2))

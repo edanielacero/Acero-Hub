@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { teamSearchTokens } from '@/lib/mundial/team-names-es'
-import { predictScore } from '@/lib/mundial/predict'
+import { predictScore, computeUpdatedElo } from '@/lib/mundial/predict'
 
 const COLORS = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16']
 const randomToken = () => Math.random().toString(36).slice(2, 10)
@@ -240,6 +240,14 @@ export default function AdminMundial() {
   const toDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/La_Paz' })
   const todayDate  = toDate(new Date().toISOString())
   const tomorrowDate = toDate(new Date(Date.now() + 86_400_000).toISOString())
+
+  // Elo ratings updated with every WC match played so far (chronological order)
+  const updatedElo = computeUpdatedElo(
+    matches
+      .filter(m => m.status === 'FINISHED' && m.home_score !== null && m.away_score !== null)
+      .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+      .map(m => ({ home_team: m.home_team, away_team: m.away_team, home_score: m.home_score!, away_score: m.away_score! }))
+  )
 
   const todayMatches    = matches.filter(m => toDate(m.match_date) === todayDate && m.status !== 'FINISHED')
   const upcomingMatches = matches.filter(m => (m.status === 'SCHEDULED' || m.status === 'TIMED') && toDate(m.match_date) > todayDate)
@@ -775,7 +783,7 @@ export default function AdminMundial() {
                     const matchBets = bets.filter(b => b.match_id === match.id)
                     const isLiveMatch = match.status === 'IN_PLAY' || match.status === 'PAUSED'
                     const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
-                    const prediction = teamsKnown ? predictScore(match.home_team, match.away_team) : null
+                    const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, updatedElo) : null
                     return (
                       <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                         <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center gap-3">
@@ -804,7 +812,7 @@ export default function AdminMundial() {
                             <span className="text-xs font-bold tabular-nums text-indigo-300">
                               {match.home_tla || match.home_team} {prediction.home} – {prediction.away} {match.away_tla || match.away_team}
                             </span>
-                            <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">ranking FIFA + forma en el torneo</span>
+                            <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">Elo actualizado con resultados WC2026</span>
                           </div>
                         )}
                         {matchBets.length > 0 && (
@@ -848,7 +856,7 @@ export default function AdminMundial() {
                       {upcomingMatches.filter(m => toDate(m.match_date) === date).map(match => {
                         const matchBets = bets.filter(b => b.match_id === match.id)
                         const teamsKnown = match.home_team !== 'Por definir' && match.away_team !== 'Por definir'
-                        const prediction = teamsKnown ? predictScore(match.home_team, match.away_team) : null
+                        const prediction = teamsKnown ? predictScore(match.home_team, match.away_team, updatedElo) : null
                         return (
                           <div key={match.id} className={`bg-[#111] rounded-2xl overflow-hidden ${match.bet_amount !== null ? 'border border-amber-500/20' : 'border border-[#1e1e1e]'}`}>
                             <div className="px-5 py-3 flex items-center gap-3">
@@ -870,7 +878,7 @@ export default function AdminMundial() {
                                 <span className="text-xs font-bold tabular-nums text-indigo-300">
                                   {match.home_tla || match.home_team} {prediction.home} – {prediction.away} {match.away_tla || match.away_team}
                                 </span>
-                                <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">ranking FIFA + forma en el torneo</span>
+                                <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] ml-auto">Elo actualizado con resultados WC2026</span>
                               </div>
                             )}
                             {matchBets.length > 0 && (

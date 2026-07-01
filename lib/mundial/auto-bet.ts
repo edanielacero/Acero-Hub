@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase-server'
-import { predictScore } from './predict'
+import { predictScore, computeUpdatedElo } from './predict'
 
 const AUTO_BET_PROFILE_NAME = 'Dani'
 const WINDOW_MS = 30 * 60 * 1000
@@ -30,6 +30,13 @@ export async function autoBetDani(): Promise<number> {
     .select('id, home_team, away_team, status, home_score, away_score, match_date')
   if (!matches) return 0
 
+  const updatedElo = computeUpdatedElo(
+    matches
+      .filter(m => m.status === 'FINISHED' && m.home_score !== null && m.away_score !== null)
+      .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+      .map(m => ({ home_team: m.home_team, away_team: m.away_team, home_score: m.home_score!, away_score: m.away_score! }))
+  )
+
   const now = Date.now()
   const due = matches.filter(m => {
     if (m.status !== 'SCHEDULED' && m.status !== 'TIMED') return false
@@ -42,7 +49,7 @@ export async function autoBetDani(): Promise<number> {
 
   let count = 0
   for (const m of due) {
-    const { home, away } = predictScore(m.home_team, m.away_team)
+    const { home, away } = predictScore(m.home_team, m.away_team, updatedElo)
     const { error } = await admin.from('mundial_bets').upsert({
       profile_id: profile.id,
       match_id: m.id,
