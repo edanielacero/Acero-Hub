@@ -1,12 +1,22 @@
 const BASE = 'https://api.football-data.org/v4'
 
-async function fetchFootball(path: string) {
+// Server-side in-memory cache: multiple users hitting sync-today / live-all at the
+// same moment all share the same cached response, keeping football-data.org free-tier
+// usage well within the 10 req/min limit regardless of concurrent users.
+const _cache = new Map<string, { data: unknown; expires: number }>()
+
+async function fetchFootball(path: string, ttlMs = 8_000) {
+  const hit = _cache.get(path)
+  if (hit && hit.expires > Date.now()) return hit.data
+
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'X-Auth-Token': process.env.FOOTBALL_DATA_API_KEY! },
     cache: 'no-store',
   })
   if (!res.ok) throw new Error(`Football API ${res.status}: ${path}`)
-  return res.json()
+  const data = await res.json()
+  _cache.set(path, { data, expires: Date.now() + ttlMs })
+  return data
 }
 
 export interface FootballMatch {
@@ -56,7 +66,7 @@ export async function getWCLiveMatches(): Promise<FootballMatch[]> {
 }
 
 export async function getWCMatchesByDateRange(dateFrom: string, dateTo: string): Promise<FootballMatch[]> {
-  const data = await fetchFootball(`/competitions/WC/matches?season=2026&dateFrom=${dateFrom}&dateTo=${dateTo}`)
+  const data = await fetchFootball(`/competitions/WC/matches?season=2026&dateFrom=${dateFrom}&dateTo=${dateTo}`, 30_000)
   return data.matches ?? []
 }
 
