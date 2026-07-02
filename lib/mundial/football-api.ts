@@ -1,22 +1,16 @@
 const BASE = 'https://api.football-data.org/v4'
 
-// Server-side in-memory cache: multiple users hitting sync-today / live-all at the
-// same moment all share the same cached response, keeping football-data.org free-tier
-// usage well within the 10 req/min limit regardless of concurrent users.
-const _cache = new Map<string, { data: unknown; expires: number }>()
-
-async function fetchFootball(path: string, ttlMs = 8_000) {
-  const hit = _cache.get(path)
-  if (hit && hit.expires > Date.now()) return hit.data
-
+// Uses Next.js Data Cache (next: { revalidate }) so the underlying fetch to
+// football-data.org is shared across all concurrent serverless invocations on Vercel.
+// Without this, every user's browser poll hits the API separately, exhausting the
+// 10 req/min free-tier limit and causing silent 429 failures.
+async function fetchFootball(path: string, revalidate = 8) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'X-Auth-Token': process.env.FOOTBALL_DATA_API_KEY! },
-    cache: 'no-store',
+    next: { revalidate },
   })
   if (!res.ok) throw new Error(`Football API ${res.status}: ${path}`)
-  const data = await res.json()
-  _cache.set(path, { data, expires: Date.now() + ttlMs })
-  return data
+  return res.json()
 }
 
 export interface FootballMatch {
@@ -66,7 +60,7 @@ export async function getWCLiveMatches(): Promise<FootballMatch[]> {
 }
 
 export async function getWCMatchesByDateRange(dateFrom: string, dateTo: string): Promise<FootballMatch[]> {
-  const data = await fetchFootball(`/competitions/WC/matches?season=2026&dateFrom=${dateFrom}&dateTo=${dateTo}`, 30_000)
+  const data = await fetchFootball(`/competitions/WC/matches?season=2026&dateFrom=${dateFrom}&dateTo=${dateTo}`, 30)
   return data.matches ?? []
 }
 
