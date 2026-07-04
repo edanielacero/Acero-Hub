@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase-server'
 import { isClosed } from '@/lib/mundial/football-api'
+import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -28,8 +29,45 @@ export async function POST(request: Request) {
     away_score_bet: awayScore,
     updated_at: new Date().toISOString(),
   }
-  if (payWithSaldo) { upsertData.payment_confirmed = true; upsertData.paid_with_saldo = true }
-  else if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
+  if (payWithSaldo) {
+    // Server-side saldo validation: compute actual available saldo before accepting
+    const { data: settings } = await admin.from('mundial_settings').select('bet_amount').eq('id', 1).single()
+    const globalBetAmount = (settings as { bet_amount: number } | null)?.bet_amount ?? 5
+    const thisBetAmount = match.bet_amount ?? globalBetAmount
+
+    const [{ data: allMatches }, { data: allBets }, { data: profileBetsForSaldo }] = await Promise.all([
+      admin.from('mundial_matches').select('id, match_date, status, home_score, away_score, bet_amount'),
+      admin.from('mundial_bets').select('match_id, home_score_bet, away_score_bet'),
+      admin.from('mundial_bets').select('match_id, home_score_bet, away_score_bet, debt_offset, prize_paid, payment_confirmed').eq('profile_id', profile.id),
+    ])
+
+    const { potMap, carryoverPerWinnerMap } = computePots(allMatches ?? [], allBets ?? [], globalBetAmount)
+    const finishedMatches = (allMatches ?? []).filter(m => m.status === 'FINISHED')
+
+    let totalPrize = 0
+    let totalDebtOffset = 0
+    let unpaidFees = 0
+    for (const b of profileBetsForSaldo ?? []) {
+      const fm = finishedMatches.find(m => m.id === b.match_id)
+      if (!fm) {
+        if (!b.payment_confirmed) unpaidFees += (allMatches ?? []).find(m => m.id === b.match_id)?.bet_amount ?? globalBetAmount
+        continue
+      }
+      if (b.prize_paid) continue
+      if (b.home_score_bet !== fm.home_score || b.away_score_bet !== fm.away_score) continue
+      const winners = (allBets ?? []).filter(ab => ab.match_id === fm.id && ab.home_score_bet === fm.home_score && ab.away_score_bet === fm.away_score).length
+      totalPrize += prizeForMatch(fm.id, winners, potMap, carryoverPerWinnerMap)
+      totalDebtOffset += b.debt_offset ?? 0
+    }
+    const availableSaldo = Math.max(0, totalPrize - totalDebtOffset - unpaidFees)
+
+    if (availableSaldo < thisBetAmount) {
+      return NextResponse.json({ error: `Saldo insuficiente (disponible: Bs ${availableSaldo}, necesario: Bs ${thisBetAmount})` }, { status: 400 })
+    }
+
+    upsertData.payment_confirmed = true
+    upsertData.paid_with_saldo = true
+  } else if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
   if (receiptUrl) upsertData.receipt_url = receiptUrl
 
   const { error } = await admin.from('mundial_bets').upsert(upsertData, { onConflict: 'profile_id,match_id' })
