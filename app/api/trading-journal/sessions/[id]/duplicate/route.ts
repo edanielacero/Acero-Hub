@@ -36,7 +36,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   if (sessionError || !copy) return NextResponse.json({ error: sessionError?.message ?? 'Error al duplicar' }, { status: 500 })
 
-  // Copy variable definitions (without trades)
+  // Copy variable definitions
   const { data: varDefs } = await admin
     .from('tj_variable_definitions')
     .select('*')
@@ -48,6 +48,23 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       session_id: copy.id,
     }))
     await admin.from('tj_variable_definitions').insert(copies)
+  }
+
+  // Copy trades
+  const { data: trades } = await admin
+    .from('tj_trades')
+    .select('*')
+    .eq('session_id', id)
+
+  if (trades && trades.length > 0) {
+    const tradeCopies = trades.map(({
+      id: _id, created_at: _ca, session_id: _sid, linked_trade_id: _lt, ...rest
+    }) => ({
+      ...rest,
+      session_id: copy.id,
+      linked_trade_id: null,
+    }))
+    await admin.from('tj_trades').insert(tradeCopies)
   }
 
   return NextResponse.json({ session: copy }, { status: 201 })

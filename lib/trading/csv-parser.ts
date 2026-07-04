@@ -50,7 +50,10 @@ function parseLine(line: string): string[] {
 // Attempts to parse a date string (various formats) to ISO 8601
 export function coerceDate(value: string): string | null {
   if (!value) return null
-  const d = new Date(value)
+  const trimmed = value.trim()
+  // Treat date-only strings as local noon to avoid UTC midnight timezone shift
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+  const d = new Date(isDateOnly ? trimmed + 'T12:00:00' : trimmed)
   if (!isNaN(d.getTime())) return d.toISOString()
   return null
 }
@@ -64,7 +67,7 @@ export function coerceDirection(value: string): 'long' | 'short' | null {
 
 export function coerceResult(value: string): 'tp' | 'sl' | 'be' | null {
   const v = value.toLowerCase().trim()
-  if (v === 'tp' || v === 'win' || v === 'ganado' || v === 'ganancia') return 'tp'
+  if (v === 'tp' || v === 'win' || v === 'ganado' || v === 'ganada' || v === 'ganancia') return 'tp'
   if (v === 'sl' || v === 'loss' || v === 'perdido' || v === 'perdida') return 'sl'
   if (v === 'be' || v === 'breakeven' || v === 'break even') return 'be'
   return null

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { use } from 'react'
 import {
   calcExpectancy, calcProfitFactor, calcZScore, calcPValue,
-  calcStdDevRR, calcMonthlyConsistency,
+  calcStdDevRR, calcMonthlyConsistency, normalCDF,
 } from '@/lib/trading/metrics'
 
 type SessionType = 'backtesting' | 'journal'
@@ -23,6 +23,11 @@ interface PageData { session: Session; trades: Trade[] }
 
 function api(path: string) {
   return fetch(`/api/trading-journal${path}`, { headers: { 'Content-Type': 'application/json' } })
+}
+
+// Formats an R/RR number removing unnecessary trailing zeros (e.g. 1.00→"1", 1.50→"1.5")
+function fmtR(n: number, dec = 2): string {
+  return parseFloat(n.toFixed(dec)).toString()
 }
 
 // ─── Monthly breakdown ─────────────────────────────────────────────────────────
@@ -126,13 +131,13 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
           <div>
             <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Expectativa matemática</span>
             <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-              {expectancy >= 0 ? '+' : ''}{expectancy.toFixed(3)}R
+              {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R
             </p>
           </div>
           <div className="text-right">
             <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Profit Factor</span>
             <p className={`text-[22px] font-bold font-mono leading-none mt-0.5 ${pf !== null && pf > 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-              {pf === null ? '—' : pf === Infinity ? '∞' : pf.toFixed(2)}
+              {pf === null ? '—' : pf === Infinity ? '∞' : fmtR(pf)}
             </p>
           </div>
         </div>
@@ -144,17 +149,17 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
             <span className="text-slate-500 dark:text-zinc-400">(</span>
             <span className="text-emerald-600 dark:text-emerald-400 font-bold">{(wr * 100).toFixed(1)}%</span>
             <span className="text-slate-400">×</span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-bold">+{avgWin.toFixed(2)}R</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">+{fmtR(avgWin)}R</span>
             <span className="text-slate-500 dark:text-zinc-400">)</span>
             <span className="text-slate-400">−</span>
             <span className="text-slate-500 dark:text-zinc-400">(</span>
             <span className="text-rose-500 dark:text-rose-400 font-bold">{((1 - wr) * 100).toFixed(1)}%</span>
             <span className="text-slate-400">×</span>
-            <span className="text-rose-500 dark:text-rose-400 font-bold">{avgLoss.toFixed(2)}R</span>
+            <span className="text-rose-500 dark:text-rose-400 font-bold">{fmtR(avgLoss)}R</span>
             <span className="text-slate-500 dark:text-zinc-400">)</span>
             <span className="text-slate-400">=</span>
             <span className={`font-bold ${pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-              {expectancy >= 0 ? '+' : ''}{expectancy.toFixed(3)}R
+              {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R
             </span>
           </div>
         </div>
@@ -163,8 +168,8 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
         <div className="mt-2 grid grid-cols-3 gap-2">
           {[
             { label: 'Winrate',       value: `${(wr * 100).toFixed(1)}%`,   color: 'text-slate-700 dark:text-zinc-300' },
-            { label: 'RR prom. gan.', value: `+${avgWin.toFixed(2)}R`,       color: 'text-emerald-600 dark:text-emerald-400' },
-            { label: 'RR prom. perd.', value: `-${avgLoss.toFixed(2)}R`,     color: 'text-rose-500 dark:text-rose-400' },
+            { label: 'RR prom. gan.', value: `+${fmtR(avgWin)}R`,           color: 'text-emerald-600 dark:text-emerald-400' },
+            { label: 'RR prom. perd.', value: `-${fmtR(avgLoss)}R`,         color: 'text-rose-500 dark:text-rose-400' },
           ].map(s => (
             <div key={s.label} className="flex flex-col gap-0.5 p-2 bg-slate-50 dark:bg-zinc-900/80 rounded-xl">
               <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.08em]">{s.label}</span>
@@ -244,14 +249,15 @@ function ZScoreCard({ trades }: { trades: Trade[] }) {
         <span className="text-amber-500 dark:text-amber-400">Rachas</span>
       </div>
 
+      <p className="text-[9px] text-slate-400 dark:text-zinc-500 mb-2 uppercase tracking-[0.1em] font-bold">Independencia entre trades · no mide rentabilidad</p>
       <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed">
         {!reliable
-          ? `Necesitas ≥30 trades con resultado para calcular el Z-Score (tienes ${N}).`
+          ? `Necesitas ≥30 trades para el test de rachas (tienes ${N}). Este test mide si tus trades son independientes entre sí, no si la estrategia es rentable.`
           : zone === 'normal'
-          ? 'Tus trades son independientes entre sí — no hay rachas ni alternancia significativa.'
+          ? 'Tus trades son independientes entre sí — el resultado de uno no condiciona el siguiente. Esto es estadísticamente deseable.'
           : zone === 'rachas'
-          ? 'Tus trades tienden a agruparse en rachas ganadoras y perdedoras.'
-          : 'Tus trades tienden a alternar entre ganadores y perdedores más de lo esperado.'
+          ? 'Tus trades tienden a agruparse en rachas: varios ganadores seguidos, luego varios perdedores. Puede indicar que las condiciones de mercado afectan tu ejecución.'
+          : 'Tus trades tienden a alternar entre ganadores y perdedores más de lo esperado por el azar.'
         }
       </p>
     </Card>
@@ -261,58 +267,93 @@ function ZScoreCard({ trades }: { trades: Trade[] }) {
 // ─── P-Value card ──────────────────────────────────────────────────────────────
 
 function PValueCard({ trades }: { trades: Trade[] }) {
-  const pValue = calcPValue(trades)
-  const N      = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
-  const hasEdge = pValue !== null && pValue < 0.05
+  const result  = calcPValue(trades)
+  const N       = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
+  const hasEdge = result !== null && result.pValue < 0.05
+  const pStr    = result === null ? '—'
+    : result.pValue < 0.001 ? '<0.01%'
+    : `${(result.pValue * 100).toFixed(2)}%`
+  const zbStr   = result === null ? '—' : result.zb.toFixed(2)
+  const p0Pct   = result ? `${(result.p0 * 100).toFixed(1)}%` : '—'
 
-  const barFrac = pValue !== null ? Math.max(0, 1 - pValue / 0.5) : 0
+  // bar: 0 → p=1 (no evidence), full → p=0 (strong evidence). Scale: 0–0.5
+  const barFrac = result ? Math.max(0, Math.min(1, 1 - result.pValue / 0.5)) : 0
 
   return (
     <Card className="px-4 pt-4 pb-4">
-      <div className="flex items-start justify-between mb-3">
+      {/* Header: Z estadístico (primary) + badge */}
+      <div className="flex items-start justify-between mb-4">
         <div>
-          <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">P-Value</span>
-          <p className={`text-[26px] font-bold font-mono leading-none mt-0.5 ${
-            pValue === null ? 'text-slate-300 dark:text-zinc-700'
-            : hasEdge ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-zinc-400'
+          <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Z estadístico (edge)</span>
+          <p className={`text-[32px] font-bold font-mono leading-none mt-0.5 ${
+            result === null ? 'text-slate-300 dark:text-zinc-700'
+            : hasEdge ? 'text-emerald-600 dark:text-emerald-400'
+            : result.zb > 0 ? 'text-amber-500 dark:text-amber-400'
+            : 'text-rose-500 dark:text-rose-400'
           }`}>
-            {pValue === null ? '—' : pValue < 0.001 ? '<0.001' : pValue.toFixed(3)}
+            {zbStr}
+          </p>
+          <p className="text-[9px] text-slate-400 dark:text-zinc-500 mt-1 font-mono">
+            umbral ≥ 1.65 (90%) · ≥ 1.96 (95%)
           </p>
         </div>
-        {pValue !== null && (
+        {result !== null && (
           <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold ${
             hasEdge
               ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/50 text-emerald-600 dark:text-emerald-400'
-              : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400'
+              : result.zb > 0
+              ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-600 dark:text-amber-400'
+              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/50 text-rose-500 dark:text-rose-400'
           }`}>
-            {hasEdge ? 'Edge estadístico' : 'Sin evidencia'}
+            {hasEdge ? 'Edge confirmado' : result.zb > 0 ? 'Edge débil' : 'Sin edge'}
           </div>
         )}
       </div>
 
-      {/* Visual bar */}
-      {pValue !== null && (
-        <div className="mb-3">
-          <div className="flex justify-between text-[8.5px] font-mono text-slate-500 dark:text-zinc-400 mb-1">
-            <span>p = 0</span>
-            <span className="text-slate-600 dark:text-zinc-400">umbral p = 0.05</span>
-            <span>p = 0.5</span>
+      {/* Secondary metrics row */}
+      {result !== null && (
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="p-2.5 bg-slate-50 dark:bg-zinc-900/80 rounded-xl">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">P-Value</span>
+            <p className={`text-[15px] font-bold font-mono mt-0.5 ${hasEdge ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-zinc-300'}`}>
+              {pStr}
+            </p>
           </div>
-          <div className="relative h-2.5 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-400 dark:bg-emerald-500 rounded-full transition-all duration-500"
-              style={{ width: `${barFrac * 100}%` }} />
-            <div className="absolute top-0 bottom-0 w-px bg-slate-400 dark:bg-zinc-500 opacity-60"
-              style={{ left: '90%' }} />
+          <div className="p-2.5 bg-slate-50 dark:bg-zinc-900/80 rounded-xl">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Break-even WR</span>
+            <p className="text-[15px] font-bold font-mono mt-0.5 text-slate-600 dark:text-zinc-300">{p0Pct}</p>
           </div>
         </div>
       )}
 
+      {/* Visual bar: strength of evidence */}
+      {result !== null && (
+        <div className="mb-4">
+          <div className="flex justify-between text-[8.5px] font-mono text-slate-400 dark:text-zinc-500 mb-1">
+            <span>Sin evidencia</span>
+            <span>90%</span>
+            <span>95%+</span>
+          </div>
+          <div className="relative h-2.5 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${hasEdge ? 'bg-emerald-400 dark:bg-emerald-500' : 'bg-amber-300 dark:bg-amber-600'}`}
+              style={{ width: `${barFrac * 100}%` }} />
+            <div className="absolute top-0 bottom-0 w-px bg-slate-400 dark:bg-zinc-500 opacity-60" style={{ left: '80%' }} />
+            <div className="absolute top-0 bottom-0 w-px bg-slate-400 dark:bg-zinc-500 opacity-60" style={{ left: '90%' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Interpretation */}
       <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed">
         {N < 10
-          ? `Necesitas ≥10 trades con resultado para calcular el P-Value (tienes ${N}).`
+          ? `Necesitas ≥10 trades para este análisis (tienes ${N}).`
+          : result === null
+          ? 'No hay suficientes trades ganadores y perdedores para calcular.'
           : hasEdge
-          ? `Con p = ${pValue!.toFixed(3)}, hay evidencia estadística de que tu estrategia tiene edge real (no es resultado del azar).`
-          : `Con p = ${pValue!.toFixed(3)}, no hay suficiente evidencia estadística de edge. Podría ser azar.`
+          ? `Z = ${zbStr} (p = ${pStr}). Tu winrate supera estadísticamente el break-even de ${p0Pct}. La probabilidad de que sea azar es menor al ${pStr}.`
+          : result.zb > 0
+          ? `Z = ${zbStr} (p = ${pStr}). Hay tendencia positiva pero aún no es estadísticamente significativa. Necesitas más trades para confirmar el edge.`
+          : `Z = ${zbStr} (p = ${pStr}). Tu winrate actual no supera el break-even estadísticamente. Revisa la estrategia.`
         }
       </p>
     </Card>
@@ -332,7 +373,7 @@ function StdDevCard({ trades }: { trades: Trade[] }) {
         <div>
           <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Desv. estándar RR</span>
           <p className="text-[24px] font-bold font-mono leading-none mt-0.5 text-slate-700 dark:text-zinc-300">
-            {stdDev === null ? '—' : `${stdDev.toFixed(2)}R`}
+            {stdDev === null ? '—' : `${fmtR(stdDev)}R`}
           </p>
           <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Variabilidad de resultados</p>
         </div>
@@ -344,7 +385,7 @@ function StdDevCard({ trades }: { trades: Trade[] }) {
             : sharpe >= 0.5 ? 'text-amber-500 dark:text-amber-400'
             : 'text-rose-500 dark:text-rose-400'
           }`}>
-            {sharpe === null ? '—' : sharpe.toFixed(2)}
+            {sharpe === null ? '—' : fmtR(sharpe)}
           </p>
           <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Expectativa / Desv.</p>
         </div>
@@ -363,10 +404,23 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
   if (monthly.length === 0) return null
 
   const posMonths = monthly.filter(m => (sessionType === 'backtesting' ? m.netRR : m.netUSD) > 0).length
-  const negMonths = monthly.length - posMonths
+  const negMonths = monthly.filter(m => (sessionType === 'backtesting' ? m.netRR : m.netUSD) < 0).length
 
-  // Expected losing months at 50% baseline
-  const expectedLosing = Math.round(monthly.length * 0.5)
+  // CLT-based expected losing months
+  const N = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
+  const wr = N > 0 ? trades.filter(t => t.result === 'tp').length / N : 0
+  const winners = trades.filter(t => t.result === 'tp' && t.rr_exit != null)
+  const losers  = trades.filter(t => t.result === 'sl' && t.rr_exit != null)
+  const avgWinRR  = winners.length > 0 ? winners.reduce((s, t) => s + t.rr_exit!, 0) / winners.length : 1
+  const avgLossRR = losers.length  > 0 ? losers.reduce((s, t)  => s + t.rr_exit!, 0) / losers.length  : 1
+  const ePerTrade = wr * avgWinRR - (1 - wr) * avgLossRR
+  const eX2 = wr * avgWinRR * avgWinRR + (1 - wr) * avgLossRR * avgLossRR
+  const sigmaPerTrade = Math.sqrt(Math.max(0, eX2 - ePerTrade * ePerTrade))
+  const nPerMonth  = monthly.length > 0 ? N / monthly.length : 0
+  const muMonth    = nPerMonth * ePerTrade
+  const sigmaMonth = Math.sqrt(nPerMonth) * sigmaPerTrade
+  const pLosing    = sigmaMonth > 0 ? 1 - normalCDF(muMonth / sigmaMonth) : (ePerTrade < 0 ? 1 : 0)
+  const expectedLosing = monthly.length * pLosing
   const beatExpected   = negMonths < expectedLosing
 
   const visible = showAll ? monthly : monthly.slice(-6)
@@ -378,7 +432,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
         {[
           { label: 'Consistencia', value: consistency ? `${Math.round(consistency.pct)}%` : '—', color: consistency && consistency.pct >= 50 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
           { label: 'Meses positivos', value: consistency ? `${consistency.positive}/${consistency.total}` : '—', color: 'text-slate-700 dark:text-zinc-300' },
-          { label: 'Pérdidas vs esperadas', value: `${negMonths} / ~${expectedLosing}`, color: beatExpected ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+          { label: 'Pérdidas vs esperadas', value: `${negMonths} / ${expectedLosing.toFixed(1)}`, color: beatExpected ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
         ].map(s => (
           <div key={s.label} className="flex flex-col gap-1 p-3 bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 rounded-2xl shadow-sm dark:shadow-none">
             <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{s.label}</span>
@@ -404,7 +458,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
                   {row.tp}TP · {row.sl}SL{row.be > 0 ? ` · ${row.be}BE` : ''}
                 </span>
                 <span className={`text-[12px] font-bold font-mono ${pos ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-500 dark:text-zinc-400'}`}>
-                  {net >= 0 ? '+' : ''}{sessionType === 'backtesting' ? `${net.toFixed(1)}R` : `$${net.toFixed(0)}`}
+                  {net >= 0 ? '+' : ''}{sessionType === 'backtesting' ? `${fmtR(net)}R` : `$${net.toFixed(0)}`}
                 </span>
               </div>
             )
@@ -441,7 +495,7 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
         <div>
           <span className="text-[9px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Expectativa por mes</span>
           <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${epm >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {epm >= 0 ? '+' : ''}{epm.toFixed(1)}R
+            {epm >= 0 ? '+' : ''}{fmtR(epm)}R
           </p>
         </div>
         <div className="text-right">

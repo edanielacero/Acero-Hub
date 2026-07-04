@@ -6,7 +6,7 @@ import { parseCSV, coerceDate, coerceDirection, coerceResult } from '@/lib/tradi
 import {
   calcExpectancy, calcProfitFactor, calcZScore, calcPValue,
   calcStdDevRR, calcMonthlyConsistency, calcStreaks, calcMaxDrawdown,
-  calcStrategyConfidence,
+  calcStrategyConfidence, normalCDF,
 } from '@/lib/trading/metrics'
 import { calcSweetSpot } from '@/lib/trading/sweetspot'
 
@@ -22,6 +22,7 @@ type SortCol   = 'date' | 'result' | 'rr' | 'direction' | 'instrument' | 'risk' 
 
 interface FilterState {
   dateFrom: string; dateTo: string
+  months: string[]   // 'YYYY-MM' keys; when non-empty, replaces dateFrom/dateTo filtering
   results: Result[]; directions: Direction[]
   instruments: string[]
   vars: Record<string, string[]>
@@ -107,23 +108,29 @@ const RESULT_CFG: Record<Result, { label: string; bar: string; badge: string }> 
   be: { label: 'BE', bar: 'bg-zinc-400',    badge: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700' },
 }
 
-const EMPTY_FILTER: FilterState = { dateFrom: '', dateTo: '', results: [], directions: [], instruments: [], vars: {} }
+const EMPTY_FILTER: FilterState = { dateFrom: '', dateTo: '', months: [], results: [], directions: [], instruments: [], vars: {} }
 
 const IMPORT_FIELDS = [
-  { key: 'date_entry',    label: 'Fecha entrada',          required: true  },
-  { key: 'date_exit',     label: 'Fecha salida'                             },
-  { key: 'instrument',    label: 'Instrumento'                              },
-  { key: 'direction',     label: 'Dirección (long/short)'                  },
-  { key: 'result',        label: 'Resultado (tp/sl/be)'                    },
-  { key: 'rr_target',     label: 'RR objetivo'                             },
-  { key: 'rr_max',        label: 'RR máximo'                               },
-  { key: 'rr_exit',       label: 'RR salida'                               },
-  { key: 'notes',         label: 'Notas'                                   },
-  { key: 'risk_percent',  label: '% riesgo'                                },
-  { key: 'pnl_usd',       label: 'PnL USD'                                 },
-  { key: 'capital_start', label: 'Capital inicio'                          },
-  { key: 'capital_end',   label: 'Capital fin'                             },
+  { key: 'date_entry',       label: 'Fecha entrada',          required: true  },
+  { key: 'date_exit',        label: 'Fecha salida'                             },
+  { key: 'instrument',       label: 'Instrumento'                              },
+  { key: 'direction',        label: 'Dirección (long/short)'                  },
+  { key: 'result',           label: 'Resultado (tp/sl/be)'                    },
+  { key: 'rr_target',        label: 'RR objetivo'                             },
+  { key: 'rr_max',           label: 'RR máximo'                               },
+  { key: 'rr_exit',          label: 'RR salida'                               },
+  { key: 'notes',            label: 'Notas'                                   },
+  { key: 'risk_percent',     label: '% riesgo'                                },
+  { key: 'pnl_usd',          label: 'PnL USD'                                 },
+  { key: 'capital_start',    label: 'Capital inicio'                          },
+  { key: 'capital_end',      label: 'Capital fin'                             },
+  { key: 'enlace_analisis',  label: 'Link de análisis'                        },
 ]
+
+// Keys that map to custom_fields instead of top-level trade fields
+const CUSTOM_FIELD_MAP: Record<string, string> = {
+  enlace_analisis: 'analysis_link',
+}
 
 const EMPTY_FORM: TradeFormState = {
   date_entry: '', date_exit: '',  instrument: '',
@@ -148,7 +155,8 @@ function n(v: string): number | null {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
 }
 
 function fmtPnL(val: number | null) {
@@ -206,7 +214,30 @@ function formToPayload(f: TradeFormState, cf: Record<string, unknown>) {
 }
 
 function fmtDateShort(iso: string) {
-  return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+}
+
+// Formats an R/RR number removing unnecessary trailing zeros (e.g. 1.00→"1", 1.50→"1.5")
+function fmtR(n: number, dec = 2): string {
+  return parseFloat(n.toFixed(dec)).toString()
+}
+
+// Generates nice round Y-axis tick values for a given data range
+function niceYTicks(min: number, max: number, targetCount = 5): number[] {
+  if (min === max) return [min]
+  const range    = max - min
+  const rough    = range / (targetCount - 1)
+  const mag      = Math.pow(10, Math.floor(Math.log10(Math.abs(rough) || 1)))
+  const norm     = rough / mag
+  const step     = norm <= 1 ? mag : norm <= 2 ? 2 * mag : norm <= 5 ? 5 * mag : 10 * mag
+  const niceMin  = Math.floor(min / step) * step
+  const niceMax  = Math.ceil(max / step) * step
+  const ticks: number[] = []
+  for (let t = niceMin; t <= niceMax + step * 0.001; t = parseFloat((t + step).toFixed(10))) {
+    ticks.push(parseFloat(t.toFixed(10)))
+  }
+  return ticks
 }
 
 function tradeValue(t: Trade, sessionType: SessionType): number {
@@ -222,12 +253,12 @@ function fmtTradeValue(t: Trade, sessionType: SessionType): string {
   }
   if (!t.rr_exit) return '—'
   if (t.result === 'be') return '0R'
-  return t.result === 'sl' ? `-${t.rr_exit.toFixed(2)}R` : `+${t.rr_exit.toFixed(2)}R`
+  return t.result === 'sl' ? `-${fmtR(t.rr_exit)}R` : `+${fmtR(t.rr_exit)}R`
 }
 
 function activeFilterCount(f: FilterState): number {
   let n = 0
-  if (f.dateFrom || f.dateTo) n++
+  if (f.dateFrom || f.dateTo || f.months.length) n++
   if (f.results.length)       n++
   if (f.directions.length)    n++
   if (f.instruments.length)   n++
@@ -504,9 +535,9 @@ function TradeCard({ trade, sessionType, onEdit, onDelete }: {
 
   const rrLabel = (() => {
     if (!trade.rr_exit) return null
-    if (trade.result === 'sl') return `-${trade.rr_exit.toFixed(1)}R`
+    if (trade.result === 'sl') return `-${fmtR(trade.rr_exit)}R`
     if (trade.result === 'be') return '0R'
-    return `+${trade.rr_exit.toFixed(1)}R`
+    return `+${fmtR(trade.rr_exit)}R`
   })()
 
   const valueLabel = (() => {
@@ -628,7 +659,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
 
   const avgRRWin  = W > 0 ? trades.filter(t => t.result === 'tp' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0) / W : 0
   const avgRRLoss = L > 0 ? trades.filter(t => t.result === 'sl' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0) / L : 0
-  const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `1:${avgRRWin.toFixed(1)}` : '—'
+  const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `${fmtR(avgRRWin)}:${fmtR(avgRRLoss)}` : '—'
 
   let returnPct: number | null = null
   if (sessionType === 'journal' && capitalInitial) {
@@ -639,7 +670,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
   const rentLabel = sessionType === 'backtesting' ? 'Rentabilidad' : 'Rentabilidad (%)'
   const rentValue = empty ? '—'
     : sessionType === 'backtesting'
-      ? `${totalRR >= 0 ? '+' : ''}${totalRR.toFixed(2)}R`
+      ? `${totalRR >= 0 ? '+' : ''}${fmtR(totalRR)}R`
     : returnPct !== null
       ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%`
     : hasPctData
@@ -905,8 +936,8 @@ function SyncModal({ synced, btTrade, onDone }: {
 
 type ImportStep = 'upload' | 'mapping' | 'preview' | 'done'
 
-function ImportSheet({ session, onClose, onImported }: {
-  session: Session; onClose: () => void; onImported: () => void
+function ImportSheet({ session, variables, onClose, onImported }: {
+  session: Session; variables: Variable[]; onClose: () => void; onImported: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [step, setStep]       = useState<ImportStep>('upload')
@@ -927,6 +958,10 @@ function ImportSheet({ session, onClose, onImported }: {
         const match = parsed.headers.find(h => h.trim().toLowerCase() === field.key.toLowerCase())
         if (match) autoMap[field.key] = match
       }
+      for (const v of variables) {
+        const match = parsed.headers.find(h => h.trim().toLowerCase() === v.key.toLowerCase())
+        if (match) autoMap[v.key] = match
+      }
       setMapping(autoMap)
       setStep('mapping')
     }
@@ -944,13 +979,19 @@ function ImportSheet({ session, onClose, onImported }: {
   async function handleImport() {
     if (!csvData) return
     setLoading(true)
+    const varKeys = new Set(variables.map(v => v.key))
     const trades = csvData.rows.map(row => {
       const t: Record<string, unknown> = {}
+      const custom_fields: Record<string, unknown> = {}
       for (const [field, col] of Object.entries(mapping)) {
         if (!col) continue
         const val = row[col]?.trim()
         if (!val) continue
-        if (['rr_target','rr_max','rr_exit','risk_percent','pnl_usd','capital_start','capital_end'].includes(field)) {
+        if (CUSTOM_FIELD_MAP[field]) {
+          custom_fields[CUSTOM_FIELD_MAP[field]] = val
+        } else if (varKeys.has(field)) {
+          custom_fields[field] = val
+        } else if (['rr_target','rr_max','rr_exit','risk_percent','pnl_usd','capital_start','capital_end'].includes(field)) {
           t[field] = parseFloat(val)
         } else if (field === 'date_entry' || field === 'date_exit') {
           t[field] = coerceDate(val)
@@ -962,6 +1003,7 @@ function ImportSheet({ session, onClose, onImported }: {
           t[field] = val
         }
       }
+      t.custom_fields = custom_fields
       return t
     })
 
@@ -1013,6 +1055,26 @@ function ImportSheet({ session, onClose, onImported }: {
                 </select>
               </div>
             ))}
+            {variables.length > 0 && (
+              <>
+                <div className="flex items-center gap-3 mt-1">
+                  <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800" />
+                  <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500 shrink-0">Variables de la sesión</span>
+                  <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800" />
+                </div>
+                {variables.map(v => (
+                  <div key={v.key} className="flex items-center gap-3">
+                    <span className="text-[12px] text-slate-600 dark:text-zinc-400 w-36 shrink-0">{v.label}</span>
+                    <select value={mapping[v.key] ?? ''}
+                      onChange={e => setMapping(prev => ({ ...prev, [v.key]: e.target.value }))}
+                      className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-[12px] text-slate-800 dark:text-zinc-100 outline-none">
+                      <option value="">— No mapear —</option>
+                      {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
           <div className="flex gap-2 mt-2">
             <button onClick={() => setStep('upload')}
@@ -1449,10 +1511,11 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
 
-  const vals    = points.map(p => p.cumValue)
-  const hasData = points.length >= 2
-  const minV    = hasData ? Math.min(...vals) : -3
-  const maxV    = hasData ? Math.max(...vals) : 12
+  const vals         = points.map(p => p.cumValue)
+  const hasData      = points.length >= 1
+  const isSinglePoint = points.length === 1
+  const minV = points.length === 0 ? -3 : isSinglePoint ? Math.min(0, vals[0]) : Math.min(...vals)
+  const maxV = points.length === 0 ? 12 : isSinglePoint ? Math.max(0, vals[0]) : Math.max(...vals)
   const vRange  = maxV - minV || 1
   const dMin    = minV - vRange * 0.08
   const dMax    = maxV + vRange * 0.08
@@ -1469,7 +1532,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     ? `${pathD} L ${xs(points.length - 1).toFixed(1)} ${zero.toFixed(1)} L ${xs(0).toFixed(1)} ${zero.toFixed(1)} Z`
     : ''
 
-  const yTicks  = Array.from({ length: 5 }, (_, i) => dMin + (i / 4) * dRange)
+  const yTicks  = niceYTicks(dMin, dMax)
   const xTCount = Math.min(7, points.length)
   const xTicks  = points.length <= 1 ? []
     : Array.from({ length: xTCount }, (_, i) =>
@@ -1477,7 +1540,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
   function fmtVal(v: number, signed = false) {
     const s = signed ? (v >= 0 ? '+' : '') : ''
-    return isPercent ? `${s}${v.toFixed(1)}%` : `${s}${v.toFixed(2)}R`
+    return isPercent ? `${s}${v.toFixed(1)}%` : `${s}${fmtR(v)}R`
   }
   function fmtAxisDate(d: string) {
     return new Date(d + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
@@ -1558,23 +1621,43 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
               className="text-slate-500 dark:text-zinc-500" />
           )}
 
-          {/* Area + line */}
-          {areaD && <path d={areaD} fill="url(#eq-area-g)" />}
-          {pathD && (
-            <path d={pathD} fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+          {/* Area + line (only with ≥2 points) */}
+          {!isSinglePoint && areaD && <path d={areaD} fill="url(#eq-area-g)" />}
+          {!isSinglePoint && pathD && (
+            <path d={pathD} fill="none" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
               style={{ stroke: 'rgb(var(--a5))' }} />
           )}
 
+          {/* Single point: centered dot + date label */}
+          {isSinglePoint && (() => {
+            const cx = PAD.left + iW / 2
+            const cy = ys(vals[0])
+            return (
+              <g>
+                <line x1={cx.toFixed(1)} y1={PAD.top} x2={cx.toFixed(1)} y2={H - PAD.bottom}
+                  stroke="currentColor" strokeOpacity="0.12" strokeWidth="1"
+                  className="text-slate-900 dark:text-white" />
+                <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)}
+                  r="4.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2"
+                  className="dark:fill-zinc-950" />
+                <text x={cx.toFixed(1)} y={H - 7} textAnchor="middle" fontSize="7"
+                  className="fill-slate-500 dark:fill-zinc-500">
+                  {fmtAxisDate(points[0].date)}
+                </text>
+              </g>
+            )
+          })()}
+
           {/* Empty state */}
-          {!hasData && (
+          {points.length === 0 && (
             <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="11"
               className="fill-slate-300 dark:fill-zinc-700">
               Sin datos aún
             </text>
           )}
 
-          {/* X axis labels */}
-          {xTicks.map(i => (
+          {/* X axis labels (only with ≥2 points) */}
+          {!isSinglePoint && xTicks.map(i => (
             <text key={i} x={xs(i).toFixed(1)} y={H - 7} textAnchor="middle" fontSize="7"
               className="fill-slate-500 dark:fill-zinc-500">
               {fmtAxisDate(points[i].date)}
@@ -1589,7 +1672,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                 stroke="currentColor" strokeOpacity="0.3" strokeWidth="1"
                 className="text-slate-600 dark:text-zinc-400" />
               <circle cx={xs(hoverIdx).toFixed(1)} cy={ys(hovered.cumValue).toFixed(1)}
-                r="4.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2.5"
+                r="3.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2"
                 className="dark:fill-zinc-950" />
             </g>
           )}
@@ -1768,7 +1851,7 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
         <div className="flex-1 min-w-0">
           <p className={`text-[18px] font-bold leading-tight ${verdictColor}`}>{verdict}</p>
           <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-            {expectancy >= 0 ? '+' : ''}{expectancy.toFixed(3)}R por trade · WR {(wr * 100).toFixed(0)}% · break-even {(breakevenWR * 100).toFixed(1)}%
+            {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R por trade · WR {(wr * 100).toFixed(0)}% · break-even {(breakevenWR * 100).toFixed(1)}%
           </p>
         </div>
         <div className={`shrink-0 text-right px-3 py-2 rounded-xl ${tierBg}`}>
@@ -1840,27 +1923,27 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa</span>
           <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {expectancy >= 0 ? '+' : ''}{expectancy.toFixed(3)}R
+            {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R
           </p>
         </div>
         <div className="text-right">
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Profit Factor</span>
           <p className={`text-[22px] font-bold font-mono leading-none mt-0.5 ${pf !== null && pf > 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {pf === null ? '—' : pf === Infinity ? '∞' : pf.toFixed(2)}
+            {pf === null ? '—' : pf === Infinity ? '∞' : fmtR(pf)}
           </p>
         </div>
       </div>
       <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed mt-1">
         {pos
-          ? `Por cada trade, recuperás en promedio ${expectancy.toFixed(2)}R neto. Ganás +${avgWin.toFixed(2)}R en el ${(wr * 100).toFixed(0)}% de los casos y perdés −${avgLoss.toFixed(2)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
-          : `Por cada trade, perdés en promedio ${Math.abs(expectancy).toFixed(2)}R neto. Ganás +${avgWin.toFixed(2)}R en el ${(wr * 100).toFixed(0)}% de los casos pero perdés −${avgLoss.toFixed(2)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
+          ? `Por cada trade, recuperás en promedio ${fmtR(expectancy, 3)}R neto. Ganás +${fmtR(avgWin)}R en el ${(wr * 100).toFixed(0)}% de los casos y perdés −${fmtR(avgLoss)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
+          : `Por cada trade, perdés en promedio ${fmtR(Math.abs(expectancy), 3)}R neto. Ganás +${fmtR(avgWin)}R en el ${(wr * 100).toFixed(0)}% de los casos pero perdés −${fmtR(avgLoss)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
         }
       </p>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {[
           { label: 'Winrate',        value: `${(wr * 100).toFixed(1)}%`,   color: 'text-slate-700 dark:text-zinc-200' },
-          { label: 'RR prom. gan.',  value: `+${avgWin.toFixed(2)}R`,       color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'RR prom. perd.', value: `-${avgLoss.toFixed(2)}R`,      color: 'text-rose-500 dark:text-rose-400' },
+          { label: 'RR prom. gan.',  value: `+${fmtR(avgWin)}R`,           color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'RR prom. perd.', value: `-${fmtR(avgLoss)}R`,          color: 'text-rose-500 dark:text-rose-400' },
         ].map(s => (
           <div key={s.label} className="flex flex-col gap-0.5 p-2 bg-slate-50 dark:bg-white/[0.04] rounded-xl">
             <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.08em]">{s.label}</span>
@@ -1872,118 +1955,128 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
   )
 }
 
-// ─── Z-Score card (explanation style) ─────────────────────────────────────────
+// ─── Z-Score card (runs test — independencia entre trades) ────────────────────
 
 function ZScoreCard({ trades }: { trades: Trade[] }) {
   const sorted = useMemo(() => [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry)), [trades])
   const result = calcZScore(sorted)
-  const N  = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
-  const wr = N > 0 ? (trades.filter(t => t.result === 'tp').length / N) * 100 : null
-  const z  = result?.z ?? null
+  const N = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
+  const z = result?.z ?? null
+  const reliable = N >= 30
 
-  const avgRRExit = (() => {
-    const tpRR  = trades.filter(t => t.result === 'tp' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0)
-    const slRR  = trades.filter(t => t.result === 'sl' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0)
-    const tpCnt = trades.filter(t => t.result === 'tp' && t.rr_exit).length
-    const slCnt = trades.filter(t => t.result === 'sl' && t.rr_exit).length
-    const avgW  = tpCnt > 0 ? tpRR / tpCnt : 1
-    const avgL  = slCnt > 0 ? slRR / slCnt : 1
-    return { avgW: avgW.toFixed(1), avgL: avgL.toFixed(1) }
-  })()
-  const breakeven = N > 0 ? (100 / (100 + parseFloat(avgRRExit.avgW) / parseFloat(avgRRExit.avgL) * 100)).toFixed(1) : null
+  const zone = !reliable || z === null ? 'normal'
+    : z < -1.96 ? 'rachas'
+    : z >  1.96 ? 'alternante'
+    : 'normal'
 
-  const ok = z !== null && N >= 30
-  const zone = !ok ? 'normal' : z! < -1.96 ? 'alternante' : z! > 1.96 ? 'rachas' : 'normal'
-  const positive = ok && zone === 'normal'
+  // Verde = aleatorio/independiente (deseable). Ámbar = rachas o alternancia.
+  const isNeutral = zone === 'normal'
 
   let narrative = ''
   if (N < 30) {
-    narrative = `Necesitas al menos 30 trades para que el Z-Score sea confiable. Llevas ${N}.`
-  } else if (z !== null) {
-    if (zone === 'normal') {
-      narrative = `Tu winrate (${wr?.toFixed(1)}%) supera con claridad el breakeven de ${breakeven}% para tu RR ${avgRRExit.avgW}:${avgRRExit.avgL}. Hay evidencia sólida de que tu estrategia tiene una ventaja real.`
-    } else if (zone === 'rachas') {
-      narrative = `Tus trades tienden a agruparse en rachas (Z=${z.toFixed(2)}). Los resultados no son completamente aleatorios — considera si el mercado afecta tus decisiones en series.`
-    } else {
-      narrative = `Tus trades alternan entre ganadores y perdedores más de lo esperado (Z=${z.toFixed(2)}). Podría indicar sobre-ajuste o gestión del riesgo muy conservadora tras pérdidas.`
-    }
+    narrative = `Necesitas al menos 30 trades para este test (llevas ${N}).`
+  } else if (zone === 'normal') {
+    narrative = `Z=${z!.toFixed(2)} está muy cerca de 0 (independencia perfecta). El resultado de un trade no condiciona el siguiente. Cuanto más cercano a 0, más aleatorio — esto es lo deseable.`
+  } else if (zone === 'rachas') {
+    narrative = `Tus resultados se agrupan en rachas ganadoras y perdedoras (Z=${z!.toFixed(2)}). El mercado o tu estado emocional podrían estar influyendo en series.`
+  } else {
+    narrative = `Tus trades alternan entre ganadores y perdedores más de lo esperado (Z=${z!.toFixed(2)}). Puede indicar gestión muy reactiva tras cada resultado.`
   }
 
   return (
     <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
-        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${ok && positive ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-slate-100 dark:bg-zinc-800'}`}>
-          {ok && positive
+        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isNeutral && reliable ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
+          {isNeutral && reliable
             ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-            : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-500 dark:text-zinc-400"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           }
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
-            <span className="text-[13px] font-bold text-slate-800 dark:text-white">Z-Score</span>
+            <span className="text-[13px] font-bold text-slate-800 dark:text-white">
+              Z-Score de Rachas{' '}
+              <span className="text-[10px] font-normal text-slate-400 dark:text-zinc-500">· independencia</span>
+            </span>
             <span className={`text-[14px] font-bold font-mono shrink-0 ${
-              z === null ? 'text-slate-300 dark:text-zinc-700'
-              : ok && positive ? 'text-emerald-500 dark:text-emerald-400'
-              : ok ? 'text-amber-500 dark:text-amber-400'
-              : 'text-slate-500 dark:text-zinc-400'
+              !reliable || z === null ? 'text-slate-400 dark:text-zinc-500'
+              : isNeutral ? 'text-emerald-500 dark:text-emerald-400'
+              : 'text-amber-500 dark:text-amber-400'
             }`}>{z !== null ? z.toFixed(2) : '—'}</span>
           </div>
           <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed mb-1.5">
-            El Z-Score mide qué tan improbable es que tu winrate supere el breakeven correspondiente a tu RR promedio. Un valor mayor a 2 indica ventaja estadística real.
+            Mide si tus trades son independientes entre sí. Verde = aleatorio (bueno). Ámbar = rachas o alternancia. <strong>No mide si la estrategia es rentable.</strong>
           </p>
-          {narrative && (
-            <p className={`text-[11px] leading-relaxed font-medium ${ok && positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>
-              {narrative}
-            </p>
-          )}
+          <p className={`text-[11px] leading-relaxed font-medium ${isNeutral && reliable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+            {narrative}
+          </p>
         </div>
       </div>
     </div>
   )
 }
 
-// ─── P-Value card (explanation style) ─────────────────────────────────────────
+// ─── P-Value card (edge estadístico) ──────────────────────────────────────────
 
 function PValueCard({ trades }: { trades: Trade[] }) {
-  const pValue  = calcPValue(trades)
+  const result  = calcPValue(trades)
   const N       = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
-  const hasEdge = pValue !== null && pValue < 0.05
-  const pStr    = pValue === null ? '—' : pValue < 0.001 ? '<0.001' : `${(pValue * 100).toFixed(2)}%`
+  const hasEdge = result !== null && result.pValue < 0.05
+  const zbStr   = result === null ? '—' : result.zb.toFixed(2)
+  const pStr    = result === null ? '—'
+    : result.pValue < 0.0001 ? '<0.01%'
+    : `${(result.pValue * 100).toFixed(2)}%`
 
   let narrative = ''
   if (N < 10) {
-    narrative = `Necesitas al menos 10 trades para calcular el P-Value. Llevas ${N}.`
-  } else if (pValue !== null) {
-    const pPct = (pValue * 100).toFixed(2)
+    narrative = `Necesitas al menos 10 trades para este análisis. Llevas ${N}.`
+  } else if (result !== null) {
+    const p0Pct   = (result.p0 * 100).toFixed(1)
+    const confPct = ((1 - result.pValue) * 100).toFixed(1)
     if (hasEdge) {
-      narrative = `Si tu estrategia no tuviera ninguna ventaja real, habría solo un ${pPct}% de chances de ver estos resultados. La suerte como explicación queda prácticamente descartada.`
+      narrative = `Con ${confPct}% de confianza tu winrate supera el break-even de ${p0Pct}%. La suerte queda prácticamente descartada.`
+    } else if (result.zb > 0) {
+      narrative = `Hay tendencia positiva (Z estadístico=${zbStr}) pero el p-value ${pStr} todavía no es significativo. Necesitas más trades.`
     } else {
-      narrative = `Con un ${pPct}% de probabilidad, tus resultados podrían explicarse por el azar. Necesitas más trades o mejorar la consistencia para descartar la suerte.`
+      narrative = `Tu winrate no supera el break-even de ${p0Pct}% estadísticamente (Z=${zbStr}). Revisa la estrategia.`
     }
   }
+
+  const iconColor = hasEdge ? '#10b981' : result !== null && result.zb > 0 ? '#f59e0b' : '#f43f5e'
+  const iconBg    = hasEdge ? 'bg-emerald-100 dark:bg-emerald-900/40'
+    : result !== null && result.zb > 0 ? 'bg-amber-100 dark:bg-amber-900/30'
+    : 'bg-rose-100 dark:bg-rose-900/30'
+  const mainColor = result === null ? 'text-slate-300 dark:text-zinc-700'
+    : hasEdge ? 'text-emerald-500 dark:text-emerald-400'
+    : result.zb > 0 ? 'text-amber-500 dark:text-amber-400'
+    : 'text-rose-500 dark:text-rose-400'
 
   return (
     <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
-        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${hasEdge ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-slate-100 dark:bg-zinc-800'}`}>
+        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${iconBg}`}>
           {hasEdge
-            ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-            : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-500 dark:text-zinc-400"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+            : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           }
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
-            <span className="text-[13px] font-bold text-slate-800 dark:text-white">P-Value</span>
-            <span className={`text-[14px] font-bold font-mono shrink-0 ${
-              pValue === null ? 'text-slate-300 dark:text-zinc-700'
-              : hasEdge ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'
-            }`}>{pStr}</span>
+            <span className="text-[13px] font-bold text-slate-800 dark:text-white">
+              P-Value{' '}
+              <span className="text-[10px] font-normal text-slate-400 dark:text-zinc-500">· edge estadístico</span>
+            </span>
+            <span className={`text-[14px] font-bold font-mono shrink-0 ${mainColor}`}>{pStr}</span>
           </div>
           <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed mb-1.5">
-            El P-Value indica la probabilidad de obtener estos resultados por pura suerte. Cuanto más bajo, más confiables son tus datos.
+            Probabilidad de que el edge sea pura suerte. {'<5%'} = estadísticamente significativo. Z estadístico binomial = {zbStr}.
           </p>
           {narrative && (
-            <p className={`text-[11px] leading-relaxed font-medium ${hasEdge ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>
+            <p className={`text-[11px] leading-relaxed font-medium ${
+              hasEdge ? 'text-emerald-600 dark:text-emerald-400'
+              : result !== null && result.zb > 0 ? 'text-amber-600 dark:text-amber-400'
+              : 'text-rose-500 dark:text-rose-400'
+            }`}>
               {narrative}
             </p>
           )}
@@ -2005,7 +2098,7 @@ function StdDevCard({ trades }: { trades: Trade[] }) {
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Desv. estándar RR</span>
           <p className="text-[24px] font-bold font-mono leading-none mt-0.5 text-slate-700 dark:text-zinc-200">
-            {stdDev === null ? '—' : `${stdDev.toFixed(2)}R`}
+            {stdDev === null ? '—' : `${fmtR(stdDev)}R`}
           </p>
           <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Variabilidad de resultados</p>
         </div>
@@ -2017,7 +2110,7 @@ function StdDevCard({ trades }: { trades: Trade[] }) {
             : sharpe >= 0.5 ? 'text-amber-500 dark:text-amber-400'
             : 'text-rose-500 dark:text-rose-400'
           }`}>
-            {sharpe === null ? '—' : sharpe.toFixed(2)}
+            {sharpe === null ? '—' : fmtR(sharpe)}
           </p>
           <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Expectativa / Desv.</p>
         </div>
@@ -2040,7 +2133,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
   const visible    = reversed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   const posMonths      = monthly.filter(m => (sessionType === 'backtesting' ? m.netRR : m.netUSD) > 0).length
-  const negMonths      = monthly.length - posMonths
+  const negMonths      = monthly.filter(m => (sessionType === 'backtesting' ? m.netRR : m.netUSD) < 0).length
   const avgRRExit      = (() => {
     const tpRR  = trades.filter(t => t.result === 'tp' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0)
     const slRR  = trades.filter(t => t.result === 'sl' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0)
@@ -2050,7 +2143,22 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
   })()
   const N = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
   const wr = N > 0 ? trades.filter(t => t.result === 'tp').length / N : 0
-  const expectedNeg = monthly.length * (1 - wr)
+
+  // CLT-based expected losing months:
+  // P(month < 0) = normalCDF(-μ_month / σ_month)
+  // where μ and σ are derived from per-trade stats scaled by avg trades/month
+  const winners = trades.filter(t => t.result === 'tp' && t.rr_exit != null)
+  const losers  = trades.filter(t => t.result === 'sl' && t.rr_exit != null)
+  const avgWinRR  = winners.length > 0 ? winners.reduce((s, t) => s + t.rr_exit!, 0) / winners.length : 1
+  const avgLossRR = losers.length  > 0 ? losers.reduce((s, t)  => s + t.rr_exit!, 0) / losers.length  : 1
+  const ePerTrade = wr * avgWinRR - (1 - wr) * avgLossRR
+  const eX2 = wr * avgWinRR * avgWinRR + (1 - wr) * avgLossRR * avgLossRR
+  const sigmaPerTrade = Math.sqrt(Math.max(0, eX2 - ePerTrade * ePerTrade))
+  const nPerMonth = monthly.length > 0 ? N / monthly.length : 0
+  const muMonth    = nPerMonth * ePerTrade
+  const sigmaMonth = Math.sqrt(nPerMonth) * sigmaPerTrade
+  const pLosing    = sigmaMonth > 0 ? 1 - normalCDF(muMonth / sigmaMonth) : (ePerTrade < 0 ? 1 : 0)
+  const expectedNeg = monthly.length * pLosing
   const beatExpected = negMonths < expectedNeg
 
   return (
@@ -2076,7 +2184,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
             </p>
             <p className={`text-[11px] leading-relaxed font-medium ${beatExpected ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>
               {monthly.length > 0 && consistency
-                ? `La estadística predice ${expectedNeg.toFixed(1)} meses en pérdida de un total de ${monthly.length} meses (considerando tu RR promedio de ${avgRRExit.toFixed(2)}:1.00), pero solo tuviste ${negMonths}. ${beatExpected ? 'Estás ejecutando tu estrategia mejor de lo que los números esperan.' : 'Estás teniendo más meses negativos de lo estadísticamente esperado.'}`
+                ? `Con ${fmtR(nPerMonth, 1)} trades/mes de media y una expectativa de ${fmtR(ePerTrade, 3)}R/trade, la estadística predice ${expectedNeg.toFixed(1)} meses negativos de ${monthly.length}. Tuviste ${negMonths}. ${beatExpected ? 'Estás superando lo que los números esperan.' : 'Estás por encima de los meses negativos esperados.'}`
                 : 'Necesitas más datos para este análisis.'}
             </p>
           </div>
@@ -2105,7 +2213,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
                   {row.tp}TP · {row.sl}SL{row.be > 0 ? ` · ${row.be}BE` : ''}
                 </span>
                 <span className={`text-[12px] font-bold font-mono ${pos ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-500 dark:text-zinc-400'}`}>
-                  {net >= 0 ? '+' : ''}{sessionType === 'backtesting' ? `${net.toFixed(1)}R` : `$${net.toFixed(0)}`}
+                  {net >= 0 ? '+' : ''}{sessionType === 'backtesting' ? `${fmtR(net)}R` : `$${net.toFixed(0)}`}
                 </span>
               </div>
             )
@@ -2150,8 +2258,8 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
       <div className="flex items-start justify-between">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por mes</span>
-          <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${epm >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {epm >= 0 ? '+' : ''}{epm.toFixed(1)}R
+          <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${epm > 0 ? 'text-emerald-600 dark:text-emerald-400' : epm < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500'}`}>
+            {epm >= 0 ? '+' : ''}{fmtR(epm)}R
           </p>
         </div>
         <div className="text-right">
@@ -2196,7 +2304,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
   const areaD = hasData
     ? `${pathD} L ${xs(points.length - 1).toFixed(1)} ${zero.toFixed(1)} L ${xs(0).toFixed(1)} ${zero.toFixed(1)} Z`
     : ''
-  const yTicks = Array.from({ length: 5 }, (_, i) => dMin + (i / 4) * dRange)
+  const yTicks = niceYTicks(dMin, dMax)
   const xTCount = Math.min(7, points.length)
   const xTicks  = points.length <= 1 ? []
     : Array.from({ length: xTCount }, (_, i) =>
@@ -2241,7 +2349,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
               <text x={PAD.left - 5} y={parseFloat(ys(v).toFixed(1)) + 3.5}
                 textAnchor="end" fontSize="7" fontFamily="monospace"
                 className="fill-slate-500 dark:fill-zinc-500">
-                {v >= 0 ? '+' : ''}{v.toFixed(1)}R
+                {v >= 0 ? '+' : ''}{fmtR(v)}R
               </text>
             </g>
           ))}
@@ -2293,12 +2401,12 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
             style={{ left: `${tipXFrac * 100}%`, transform: tipXFrac > 0.58 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)' }}>
             <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 shadow-lg">
               <p className="text-[11px] font-bold text-slate-800 dark:text-white mb-1.5">
-                Salida en {hovered.level.toFixed(2)}R
+                Salida en {fmtR(hovered.level)}R
                 {hoverIdx === ssIdx && <span className="ml-1.5 text-amber-500">★</span>}
               </p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">Total RR: <span className={`font-bold ${hovered.totalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>{hovered.totalRR >= 0 ? '+' : ''}{hovered.totalRR.toFixed(2)}R</span></p>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400">Total RR: <span className={`font-bold ${hovered.totalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>{hovered.totalRR >= 0 ? '+' : ''}{fmtR(hovered.totalRR)}R</span></p>
               <p className="text-[11px] text-slate-500 dark:text-zinc-400">Winrate: <span className="font-bold text-slate-700 dark:text-zinc-200">{hovered.winrate.toFixed(1)}%</span></p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">PF: <span className="font-bold text-slate-700 dark:text-zinc-200">{hovered.profitFactor === null ? '—' : hovered.profitFactor === Infinity ? '∞' : hovered.profitFactor.toFixed(2)}</span></p>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400">PF: <span className="font-bold text-slate-700 dark:text-zinc-200">{hovered.profitFactor === null ? '—' : hovered.profitFactor === Infinity ? '∞' : fmtR(hovered.profitFactor)}</span></p>
             </div>
           </div>
         )}
@@ -2306,9 +2414,9 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
       {hasData && (
         <div className="grid grid-cols-3 border-t border-slate-100 dark:border-white/[0.05] divide-x divide-slate-100 dark:divide-zinc-800/60">
           {([
-            { label: 'Sweet Spot',  value: `${sweetSpotLevel.toFixed(2)}R`,                                                       color: 'text-amber-600 dark:text-amber-400' },
-            { label: 'RR simulado', value: `${sweetSpotRR >= 0 ? '+' : ''}${sweetSpotRR.toFixed(1)}R`,                           color: sweetSpotRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
-            { label: 'RR real',     value: `${realTotalRR >= 0 ? '+' : ''}${realTotalRR.toFixed(1)}R`,                           color: realTotalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+            { label: 'Sweet Spot',  value: `${fmtR(sweetSpotLevel)}R`,                                                          color: 'text-amber-600 dark:text-amber-400' },
+            { label: 'RR simulado', value: `${sweetSpotRR >= 0 ? '+' : ''}${fmtR(sweetSpotRR)}R`,                              color: sweetSpotRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+            { label: 'RR real',     value: `${realTotalRR >= 0 ? '+' : ''}${fmtR(realTotalRR)}R`,                              color: realTotalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
           ] as { label: string; value: string; color: string }[]).map(s => (
             <div key={s.label} className="flex flex-col gap-0.5 px-3 py-2.5">
               <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{s.label}</span>
@@ -2352,16 +2460,16 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
                         ? <span className="text-[9px] font-bold text-amber-500 shrink-0">★</span>
                         : <span className="text-[9px] text-slate-300 dark:text-zinc-700 font-mono shrink-0">{idx + 1}</span>}
                       <span className={`font-bold font-mono ${isBest ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-zinc-200'}`}>
-                        {row.level.toFixed(2)}R
+                        {fmtR(row.level)}R
                       </span>
                     </div>
                   </td>
                   <td className={`px-3 py-2.5 text-right font-bold font-mono ${row.totalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                    {row.totalRR >= 0 ? '+' : ''}{row.totalRR.toFixed(2)}R
+                    {row.totalRR >= 0 ? '+' : ''}{fmtR(row.totalRR)}R
                   </td>
                   <td className="px-3 py-2.5 text-right font-mono text-slate-600 dark:text-zinc-400">{row.winrate.toFixed(1)}%</td>
                   <td className="px-4 py-2.5 text-right font-mono text-slate-600 dark:text-zinc-400">
-                    {row.profitFactor === null ? '—' : row.profitFactor === Infinity ? '∞' : row.profitFactor.toFixed(2)}
+                    {row.profitFactor === null ? '—' : row.profitFactor === Infinity ? '∞' : fmtR(row.profitFactor)}
                   </td>
                 </tr>
               )
@@ -2369,7 +2477,7 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
             <tr className="bg-slate-50/60 dark:bg-zinc-900/40">
               <td className="px-4 py-2.5"><span className="text-[10px] font-bold text-slate-500 dark:text-zinc-400">Real (histórico)</span></td>
               <td className={`px-3 py-2.5 text-right font-bold font-mono ${realTotalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                {realTotalRR >= 0 ? '+' : ''}{realTotalRR.toFixed(2)}R
+                {realTotalRR >= 0 ? '+' : ''}{fmtR(realTotalRR)}R
               </td>
               <td className="px-3 py-2.5 text-right font-mono text-slate-500 dark:text-zinc-500">{result.realWinrate.toFixed(1)}%</td>
               <td className="px-4 py-2.5 text-right font-mono text-slate-500 dark:text-zinc-500">—</td>
@@ -2383,9 +2491,11 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
 
 // ─── Dashboard Date Filter ─────────────────────────────────────────────────────
 
-function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
-  from: string; to: string
-  onChange: (f: string, t: string) => void
+const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+function CalendarDatePicker({ from, to, months, onChange, onClose, allTrades }: {
+  from: string; to: string; months: string[]
+  onChange: (f: string, t: string, months: string[]) => void
   onClose: () => void
   allTrades: Trade[]
 }) {
@@ -2393,6 +2503,10 @@ function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
   const [year, setYear]   = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [step, setStep]   = useState<'start' | 'end'>(from ? 'end' : 'start')
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(
+    () => new Set([String(today.getFullYear())])
+  )
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => new Set(months))
 
   const firstDay    = new Date(year, month, 1)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -2408,12 +2522,28 @@ function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
 
   function handleDay(d: number) {
     const key = getKey(d)
-    if (step === 'start') {
-      onChange(key, ''); setStep('end')
-    } else {
-      if (from && key < from) { onChange(key, from); setStep('start') }
-      else { onChange(from, key); setStep('start') }
+    if (selectedMonths.size > 0) {
+      setSelectedMonths(new Set())
+      onChange(key, '', [])
+      setStep('end')
+      return
     }
+    if (step === 'start') {
+      onChange(key, '', []); setStep('end')
+    } else {
+      if (from && key < from) { onChange(key, from, []); setStep('start') }
+      else { onChange(from, key, []); setStep('start') }
+    }
+  }
+
+  function toggleMonth(y: string, m: number) {
+    const mk = `${y}-${String(m).padStart(2, '0')}`
+    setSelectedMonths(prev => {
+      const next = new Set(prev)
+      next.has(mk) ? next.delete(mk) : next.add(mk)
+      onChange('', '', Array.from(next))
+      return next
+    })
   }
 
   const tradeYears = useMemo(() => {
@@ -2421,13 +2551,50 @@ function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
     return ys
   }, [allTrades])
 
+  const monthsByYear = useMemo(() => {
+    const result: Record<string, number[]> = {}
+    for (const t of allTrades) {
+      const y = t.date_entry.slice(0, 4)
+      const m = parseInt(t.date_entry.slice(5, 7))
+      if (!result[y]) result[y] = []
+      if (!result[y].includes(m)) result[y].push(m)
+    }
+    return Object.fromEntries(
+      Object.entries(result).map(([y, ms]) => [y, ms.sort((a, b) => a - b)])
+    )
+  }, [allTrades])
+
+  function toggleYear(y: string) {
+    const yearMks = (monthsByYear[y] ?? []).map(m => `${y}-${String(m).padStart(2, '0')}`)
+    const allSelected = yearMks.length > 0 && yearMks.every(mk => selectedMonths.has(mk))
+    setSelectedMonths(prev => {
+      const next = new Set(prev)
+      if (allSelected) yearMks.forEach(mk => next.delete(mk))
+      else             yearMks.forEach(mk => next.add(mk))
+      onChange('', '', Array.from(next))
+      return next
+    })
+    setExpandedYears(prev => {
+      const next = new Set(prev)
+      if (allSelected) next.delete(y)
+      else             next.add(y)
+      return next
+    })
+  }
+
+  function isMonthActive(y: string, m: number) {
+    return selectedMonths.has(`${y}-${String(m).padStart(2, '0')}`)
+  }
+
   const curMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const curMonthLabel = today.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
     .replace(/^\w/, c => c.toUpperCase())
 
   const DAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do']
 
-  const label = !from && !to ? 'Todas las fechas'
+  const label = selectedMonths.size > 0
+    ? Array.from(selectedMonths).sort().map(mk => `${MONTH_LABELS[parseInt(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`).join(' · ')
+    : !from && !to ? 'Todas las fechas'
     : from && to ? `${fmtDateShort(from)} → ${fmtDateShort(to)}`
     : from ? `Desde ${fmtDateShort(from)}`
     : `Hasta ${fmtDateShort(to)}`
@@ -2437,7 +2604,9 @@ function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
       <div className="flex flex-col gap-4">
         {/* Status */}
         <p className="text-[12px] text-center text-slate-500 dark:text-zinc-400">
-          {step === 'start' ? 'Selecciona la fecha inicial' : 'Ahora selecciona la fecha final'}
+          {selectedMonths.size > 0
+            ? `${selectedMonths.size} mes${selectedMonths.size !== 1 ? 'es' : ''} seleccionado${selectedMonths.size !== 1 ? 's' : ''}`
+            : step === 'start' ? 'Selecciona la fecha inicial' : 'Ahora selecciona la fecha final'}
         </p>
 
         {/* Calendar */}
@@ -2482,27 +2651,58 @@ function CalendarDatePicker({ from, to, onChange, onClose, allTrades }: {
           </div>
         </div>
 
-        {/* Quick pills */}
+        {/* Quick shortcuts */}
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => { onChange('', ''); setStep('start') }}
+          <button onClick={() => { setSelectedMonths(new Set()); onChange('', '', []); setStep('start') }}
             className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors cursor-pointer ${
-              !from && !to ? 'accent-btn border-transparent text-white' : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
+              !from && !to && selectedMonths.size === 0 ? 'accent-btn border-transparent text-white' : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
             }`}>Todo</button>
-          <button onClick={() => {
-            const f = `${curMonthKey}-01`
-            const l = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-            onChange(f, l.toISOString().slice(0, 10)); setStep('start')
-          }}
+          <button onClick={() => toggleMonth(String(today.getFullYear()), today.getMonth() + 1)}
             className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors cursor-pointer ${
-              from?.startsWith(curMonthKey) ? 'accent-btn border-transparent text-white' : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
+              isMonthActive(String(today.getFullYear()), today.getMonth() + 1) ? 'accent-btn border-transparent text-white' : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
             }`}>{curMonthLabel}</button>
-          {tradeYears.map(y => (
-            <button key={y} onClick={() => { onChange(`${y}-01-01`, `${y}-12-31`); setStep('start') }}
-              className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors cursor-pointer ${
-                from === `${y}-01-01` && to === `${y}-12-31` ? 'accent-btn border-transparent text-white' : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
-              }`}>{y}</button>
-          ))}
         </div>
+
+        {/* Year toggles */}
+        <div className="flex flex-wrap gap-2">
+          {tradeYears.map(y => {
+            const yearMks = (monthsByYear[y] ?? []).map(m => `${y}-${String(m).padStart(2, '0')}`)
+            const allSel  = yearMks.length > 0 && yearMks.every(mk => selectedMonths.has(mk))
+            const someSel = !allSel && yearMks.some(mk => selectedMonths.has(mk))
+            return (
+              <button key={y} onClick={() => toggleYear(y)}
+                className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors cursor-pointer ${
+                  allSel  ? 'accent-btn border-transparent text-white'
+                  : someSel ? 'accent-tint accent-border-lo accent-txt'
+                  : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                }`}>{y}</button>
+            )
+          })}
+        </div>
+
+        {/* Month pickers per expanded year */}
+        {tradeYears.filter(y => {
+          const yearMks = (monthsByYear[y] ?? []).map(m => `${y}-${String(m).padStart(2, '0')}`)
+          return (expandedYears.has(y) || yearMks.some(mk => selectedMonths.has(mk))) && monthsByYear[y]?.length > 0
+        }).map(y => (
+          <div key={y}>
+            <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">
+              Meses {y}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {monthsByYear[y].map(m => (
+                <button key={m} onClick={() => toggleMonth(y, m)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
+                    isMonthActive(y, m)
+                      ? 'accent-btn border-transparent text-white'
+                      : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                  }`}>
+                  {MONTH_LABELS[m - 1]}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
 
         {/* Summary */}
         <p className="text-center text-[12px] font-medium text-slate-500 dark:text-zinc-400">{label}</p>
@@ -2668,7 +2868,7 @@ function DayDetailSheet({ dateKey, trades, sessionType, onClose }: {
   const title = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
   const net   = trades.reduce((acc, t) => acc + tradeValue(t, sessionType), 0)
   const netFmt = sessionType === 'backtesting'
-    ? `${net >= 0 ? '+' : ''}${net.toFixed(2)}R`
+    ? `${net >= 0 ? '+' : ''}${fmtR(net)}R`
     : fmtPnL(net) ?? `${net >= 0 ? '+' : ''}$${Math.abs(net).toFixed(0)}`
 
   return (
@@ -2677,7 +2877,7 @@ function DayDetailSheet({ dateKey, trades, sessionType, onClose }: {
         <span className="text-[12px] text-slate-500 dark:text-zinc-400">
           {trades.length} trade{trades.length !== 1 ? 's' : ''}
         </span>
-        <span className={`text-[14px] font-bold font-mono ml-auto ${net >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+        <span className={`text-[14px] font-bold font-mono ml-auto ${net > 0 ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500'}`}>
           {netFmt}
         </span>
       </div>
@@ -2748,13 +2948,13 @@ function SortTh({ col, label, className = '', sortCol, sortDir, onSort }: {
 
 const PAGE_SIZE = 10
 
-function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete }: {
+function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, showInstrument, setShowInstrument, visibleVars, setVisibleVars }: {
   trades: Trade[]; sessionType: SessionType; variables: Variable[]
   sortCol: SortCol; sortDir: SortDir; onSort: (c: SortCol) => void
   onEdit: (t: Trade) => void; onDelete: (t: Trade) => void
+  showInstrument: boolean; setShowInstrument: React.Dispatch<React.SetStateAction<boolean>>
+  visibleVars: Set<string>; setVisibleVars: React.Dispatch<React.SetStateAction<Set<string>>>
 }) {
-  const [showInstrument, setShowInstrument] = useState(true)
-  const [visibleVars, setVisibleVars]       = useState<Set<string>>(new Set())
   const [showColPicker, setShowColPicker]   = useState(false)
   const [page, setPage]                     = useState(0)
   const colPickerRef = useRef<HTMLDivElement>(null)
@@ -2850,7 +3050,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                 if (t.result === 'be') return 'BE'
                 if (sessionType === 'backtesting') {
                   if (!t.rr_exit) return t.result === 'tp' ? 'TP' : 'SL'
-                  return t.result === 'tp' ? `+${t.rr_exit.toFixed(2)}R` : `-${t.rr_exit.toFixed(2)}R`
+                  return t.result === 'tp' ? `+${fmtR(t.rr_exit)}R` : `-${fmtR(t.rr_exit)}R`
                 }
                 // journal → %
                 if (t.risk_percent != null && t.rr_exit != null) {
@@ -2918,7 +3118,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                   <td className="px-2 py-3">
                     {detailUrl ? (
                       <a href={detailUrl} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/40 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors cursor-pointer">
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold accent-txt accent-tint accent-border-lo hover:opacity-80 transition-opacity cursor-pointer border">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         Ver
                       </a>
@@ -2950,24 +3150,49 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
       {/* Pagination */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-white/[0.05]">
         <span className="text-[11px] text-slate-500 dark:text-zinc-400">
-          {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, trades.length)} de {trades.length}
+          Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, trades.length)} de {trades.length} trades
         </span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
-          {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i).map(i => (
-            <button key={i} onClick={() => setPage(i)}
-              className={`w-8 h-8 rounded-lg text-[12px] font-semibold transition-colors cursor-pointer ${i === page ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'}`}>
-              {i + 1}
-            </button>
-          ))}
-          <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-        </div>
+        {totalPages > 1 && (() => {
+          const btnCls = (active: boolean, disabled?: boolean) =>
+            `w-8 h-8 flex items-center justify-center rounded-lg text-[12px] font-semibold transition-colors cursor-pointer ${
+              disabled ? 'opacity-30 cursor-not-allowed' :
+              active ? 'accent-tab' :
+              'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`
+          const pages: (number | '…')[] = []
+          if (totalPages <= 7) {
+            for (let i = 0; i < totalPages; i++) pages.push(i)
+          } else {
+            pages.push(0)
+            if (page > 2) pages.push('…')
+            const lo = Math.max(1, page - 1)
+            const hi = Math.min(totalPages - 2, page + 1)
+            for (let i = lo; i <= hi; i++) pages.push(i)
+            if (page < totalPages - 3) pages.push('…')
+            pages.push(totalPages - 1)
+          }
+          return (
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(0)} disabled={page === 0} className={btnCls(false, page === 0)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+              </button>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className={btnCls(false, page === 0)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              {pages.map((p, idx) =>
+                p === '…'
+                  ? <span key={`ellipsis-${idx}`} className="w-8 h-8 flex items-center justify-center text-[12px] text-slate-400 dark:text-zinc-500">…</span>
+                  : <button key={p} onClick={() => setPage(p)} className={btnCls(p === page)}>{(p as number) + 1}</button>
+              )}
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className={btnCls(false, page >= totalPages - 1)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+              <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className={btnCls(false, page >= totalPages - 1)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+              </button>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -3011,10 +3236,10 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const wr  = (W + L) > 0 ? (W / (W + L)) * 100 : null
   const netMonth = monthTrades.reduce((acc, t) => acc + tradeValue(t, sessionType), 0)
 
-  function fmtNet(v: number, decimals = 2) {
+  function fmtNet(v: number) {
     const s = v >= 0 ? '+' : ''
     return sessionType === 'backtesting'
-      ? `${s}${v.toFixed(decimals)}R`
+      ? `${s}${fmtR(v)}R`
       : fmtPnL(v) ?? `${s}$${Math.abs(v).toFixed(0)}`
   }
 
@@ -3027,7 +3252,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     return `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
   }
   function fmtDayVal(net: number) {
-    if (sessionType === 'backtesting') return `${net >= 0 ? '+' : ''}${net.toFixed(1)}R`
+    if (sessionType === 'backtesting') return `${net >= 0 ? '+' : ''}${fmtR(net)}R`
     const abs = Math.abs(net)
     const s   = net >= 0 ? '+' : '-'
     return abs >= 1000 ? `${s}${(abs / 1000).toFixed(1)}k` : `${s}${Math.round(abs)}`
@@ -3047,7 +3272,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     return pts
   }, [byDay, daysInMonth, year, month, sessionType])
 
-  const hasChart   = chartPoints.some((p, i) => i > 0 && p.cum !== chartPoints[i - 1].cum)
+  const hasChart   = monthTrades.length > 0
   const cVals      = chartPoints.map(p => p.cum)
   const cMin       = Math.min(...cVals, 0)
   const cMax       = Math.max(...cVals, 0)
@@ -3071,7 +3296,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const pathD = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${cxs(p.day).toFixed(1)} ${cys(p.cum).toFixed(1)}`).join(' ')
   const areaD = `${pathD} L ${cxs(daysInMonth).toFixed(1)} ${zero.toFixed(1)} L ${cxs(1).toFixed(1)} ${zero.toFixed(1)} Z`
 
-  const yTicks = Array.from({ length: 5 }, (_, i) => cDMin + (i / 4) * cDRange)
+  const yTicks = niceYTicks(cDMin, cDMax)
   const xStep  = daysInMonth <= 15 ? 2 : daysInMonth <= 20 ? 3 : 5
   const xTicks = Array.from({ length: daysInMonth }, (_, i) => i + 1).filter(d => d === 1 || d % xStep === 0 || d === daysInMonth)
 
@@ -3112,7 +3337,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
           {[
             { label: 'Trades',   value: String(N),  color: 'text-slate-900 dark:text-white' },
             { label: 'Winrate',  value: wr !== null ? `${wr.toFixed(1)}%` : '—', color: wr !== null && wr >= 50 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
-            { label: sessionType === 'backtesting' ? 'Rentabilidad' : 'PnL', value: N > 0 ? fmtNet(netMonth) : '—', color: netMonth >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+            { label: sessionType === 'backtesting' ? 'Rentabilidad' : 'PnL', value: N > 0 ? fmtNet(netMonth) : '—', color: netMonth > 0.005 ? 'text-emerald-500 dark:text-emerald-400' : netMonth < -0.005 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500' },
           ].map(({ label, value, color }) => (
             <div key={label} className="text-center px-2">
               <p className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em] mb-0.5">{label}</p>
@@ -3143,13 +3368,14 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
             let netColor    = ''
             let candleColor = ''
 
+            const netIsZero = Math.abs(net) < 0.005  // rounds to 0 when displayed
             if (hasTrades) {
-              if (net > 0) {
+              if (net > 0 && !netIsZero) {
                 cellStyle   = 'bg-emerald-500/10 dark:bg-emerald-500/[0.14] border-emerald-500/20 dark:border-emerald-500/20'
                 dayNumColor = 'text-emerald-700 dark:text-emerald-300'
                 netColor    = 'text-emerald-600 dark:text-emerald-400'
                 candleColor = 'text-emerald-500/60 dark:text-emerald-500/50'
-              } else if (net < 0) {
+              } else if (net < 0 && !netIsZero) {
                 cellStyle   = 'bg-rose-500/10 dark:bg-rose-500/[0.14] border-rose-500/20 dark:border-rose-500/20'
                 dayNumColor = 'text-rose-700 dark:text-rose-300'
                 netColor    = 'text-rose-600 dark:text-rose-400'
@@ -3243,7 +3469,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                     <text x={CP.left - 5} y={parseFloat(cys(v).toFixed(1)) + 3.5}
                       textAnchor="end" fontSize="7" fontFamily="monospace"
                       className="fill-slate-500 dark:fill-zinc-500">
-                      {fmtNet(v, 1)}
+                      {fmtNet(v)}
                     </text>
                   </g>
                 ))}
@@ -3257,7 +3483,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                 {/* Area + line */}
                 {hasChart && <path d={areaD} fill="url(#cal-area-g)" />}
                 {hasChart && (
-                  <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                 )}
 
                 {/* X axis labels */}
@@ -3278,8 +3504,8 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                     <g>
                       <line x1={hx.toFixed(1)} y1={CP.top - 4} x2={hx.toFixed(1)} y2={CH - CP.bottom + 2}
                         stroke="#3b82f6" strokeOpacity="0.4" strokeWidth="1" />
-                      <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="4.5"
-                        fill="white" stroke="#3b82f6" strokeWidth="2.5" className="dark:fill-[#080d1a]" />
+                      <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="3.5"
+                        fill="white" stroke="#3b82f6" strokeWidth="2" className="dark:fill-[#080d1a]" />
                     </g>
                   )
                 })()}
@@ -3297,7 +3523,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                   <div className="absolute top-2 pointer-events-none z-10"
                     style={{ left: `${frac * 100}%`, transform: frac > 0.6 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)' }}>
                     <div className="bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.1] rounded-xl px-3 py-2 shadow-lg min-w-[100px]">
-                      <p className="text-[10px] text-slate-500 dark:text-zinc-400 mb-1">Día {hoverDay}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-zinc-400 mb-1">{new Date(year, month, hoverDay).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</p>
                       <p className={`text-[13px] font-bold font-mono ${pt.cum >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{fmtNet(pt.cum)}</p>
                       {dayT.length > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">{dayT.length} trade{dayT.length !== 1 ? 's' : ''}</p>}
                     </div>
@@ -3359,6 +3585,9 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
   const [search, setSearch]               = useState('')
   const [sortCol, setSortCol]             = useState<SortCol>('date')
   const [sortDir, setSortDir]             = useState<SortDir>('desc')
+  const [colsLoaded, setColsLoaded]       = useState(false)
+  const [showInstrument, setShowInstrument] = useState(true)
+  const [visibleVars, setVisibleVars]       = useState<Set<string>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -3371,6 +3600,32 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
   }
 
   useEffect(() => { load() }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setColsLoaded(false)
+    try {
+      const saved = localStorage.getItem(`tj_cols_${sessionId}`)
+      if (saved) {
+        const { showInstrument: si, visibleVars: vv } = JSON.parse(saved)
+        if (typeof si === 'boolean') setShowInstrument(si)
+        if (Array.isArray(vv)) setVisibleVars(new Set(vv))
+      } else {
+        setShowInstrument(true)
+        setVisibleVars(new Set())
+      }
+    } catch {}
+    setColsLoaded(true)
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!colsLoaded) return
+    try {
+      localStorage.setItem(`tj_cols_${sessionId}`, JSON.stringify({
+        showInstrument,
+        visibleVars: Array.from(visibleVars),
+      }))
+    } catch {}
+  }, [sessionId, showInstrument, visibleVars, colsLoaded])
 
   function handleSave(trade: Trade, synced: SyncedJournal[]) {
     setShowForm(false)
@@ -3446,14 +3701,16 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
     else { setSortCol(col); setSortDir('desc') }
   }
 
-  const filtered = useMemo(() => {
+  // All structured filters applied (no text search, no sort) — drives the entire session view
+  const dashTrades = useMemo(() => {
     if (!data) return []
     let ts = [...data.trades]
-    const q = search.trim().toLowerCase()
-    const sessionType = data.session.type
-
-    if (filter.dateFrom) ts = ts.filter(t => t.date_entry.slice(0, 10) >= filter.dateFrom)
-    if (filter.dateTo)   ts = ts.filter(t => t.date_entry.slice(0, 10) <= filter.dateTo)
+    if (filter.months.length) {
+      ts = ts.filter(t => filter.months.includes(t.date_entry.slice(0, 7)))
+    } else {
+      if (filter.dateFrom) ts = ts.filter(t => t.date_entry.slice(0, 10) >= filter.dateFrom)
+      if (filter.dateTo)   ts = ts.filter(t => t.date_entry.slice(0, 10) <= filter.dateTo)
+    }
     if (filter.results.length)    ts = ts.filter(t => t.result    && filter.results.includes(t.result))
     if (filter.directions.length) ts = ts.filter(t => t.direction && filter.directions.includes(t.direction))
     if (filter.instruments.length) ts = ts.filter(t => {
@@ -3470,8 +3727,15 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         })
       }
     }
-    if (q) ts = ts.filter(t => t.notes?.toLowerCase().includes(q) || t.instrument?.toLowerCase().includes(q))
+    return ts
+  }, [data, filter])
 
+  // Table view: dashTrades + text search + sort
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const sessionType = data?.session.type
+    let ts = [...dashTrades]
+    if (q) ts = ts.filter(t => t.notes?.toLowerCase().includes(q) || t.instrument?.toLowerCase().includes(q))
     ts.sort((a, b) => {
       let cmp = 0
       switch (sortCol) {
@@ -3490,9 +3754,8 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
-
     return ts
-  }, [data, filter, search, sortCol, sortDir])
+  }, [dashTrades, data, search, sortCol, sortDir])
 
   const instrumentOptions = useMemo(() => {
     if (!data) return []
@@ -3503,14 +3766,6 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       .filter((v): v is string => !!v)
     return [...new Set([...fromVariable, ...fromTrades])]
   }, [data])
-
-  const dashTrades = useMemo(() => {
-    if (!data) return []
-    let ts = data.trades
-    if (filter.dateFrom) ts = ts.filter(t => t.date_entry.slice(0, 10) >= filter.dateFrom)
-    if (filter.dateTo)   ts = ts.filter(t => t.date_entry.slice(0, 10) <= filter.dateTo)
-    return ts
-  }, [data, filter.dateFrom, filter.dateTo])
 
   if (loading) {
     return (
@@ -3598,7 +3853,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         {/* Date picker */}
         <button onClick={() => setShowDatePicker(true)}
           className={`shrink-0 flex items-center gap-1.5 h-10 px-3 rounded-xl border transition-all duration-150 cursor-pointer ${
-            filter.dateFrom || filter.dateTo
+            filter.dateFrom || filter.dateTo || filter.months.length > 0
               ? 'accent-tint accent-border-lo accent-txt'
               : 'bg-white dark:bg-white/[0.05] border-slate-200/70 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/[0.08]'
           }`}>
@@ -3606,19 +3861,23 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
             <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
           <span className="text-[11px] font-medium whitespace-nowrap">
-            {filter.dateFrom || filter.dateTo
-              ? filter.dateFrom && filter.dateTo
-                ? `${fmtDateShort(filter.dateFrom)} → ${fmtDateShort(filter.dateTo)}`
-                : filter.dateFrom ? `Desde ${fmtDateShort(filter.dateFrom)}` : `Hasta ${fmtDateShort(filter.dateTo)}`
-              : 'Fechas'}
+            {filter.months.length > 0
+              ? filter.months.length <= 2
+                ? filter.months.slice().sort().map(mk => `${MONTH_LABELS[parseInt(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`).join(', ')
+                : `${filter.months.length} meses`
+              : filter.dateFrom || filter.dateTo
+                ? filter.dateFrom && filter.dateTo
+                  ? `${fmtDateShort(filter.dateFrom)} → ${fmtDateShort(filter.dateTo)}`
+                  : filter.dateFrom ? `Desde ${fmtDateShort(filter.dateFrom)}` : `Hasta ${fmtDateShort(filter.dateTo)}`
+                : 'Fechas'}
           </span>
-          {(filter.dateFrom || filter.dateTo)
-            ? <button onClick={e => { e.stopPropagation(); setFilter(f => ({ ...f, dateFrom: '', dateTo: '' })) }}
+          {(filter.dateFrom || filter.dateTo || filter.months.length > 0)
+            ? <span onClick={e => { e.stopPropagation(); setFilter(f => ({ ...f, dateFrom: '', dateTo: '', months: [] })) }}
                 className="shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
-              </button>
+              </span>
             : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="shrink-0 opacity-40">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
@@ -3717,7 +3976,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         </div>
       ) : view === 'calendar' ? (
         <CalendarView
-          trades={filtered}
+          trades={dashTrades}
           sessionType={session.type}
         />
       ) : (
@@ -3730,6 +3989,10 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
           onSort={handleSort}
           onEdit={t => { setEditTrade(t); setShowForm(true) }}
           onDelete={t => setDelTrade(t)}
+          showInstrument={showInstrument}
+          setShowInstrument={setShowInstrument}
+          visibleVars={visibleVars}
+          setVisibleVars={setVisibleVars}
         />
       )}
 
@@ -3738,7 +4001,8 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         <CalendarDatePicker
           from={filter.dateFrom}
           to={filter.dateTo}
-          onChange={(f, t) => setFilter(prev => ({ ...prev, dateFrom: f, dateTo: t }))}
+          months={filter.months}
+          onChange={(f, t, ms) => setFilter(prev => ({ ...prev, dateFrom: f, dateTo: t, months: ms }))}
           onClose={() => setShowDatePicker(false)}
           allTrades={trades}
         />
@@ -3778,6 +4042,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       {showImport && (
         <ImportSheet
           session={session}
+          variables={variables}
           onClose={() => setShowImport(false)}
           onImported={load}
         />

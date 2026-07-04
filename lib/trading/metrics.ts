@@ -17,7 +17,7 @@ export function normalCDF(z: number): number {
   const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741
   const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
   const sign = z < 0 ? -1 : 1
-  const az = Math.abs(z)
+  const az = Math.abs(z) / Math.SQRT2   // erf needs z/√2, not z
   const t = 1 / (1 + p * az)
   const poly = t * (a1 + t * (a2 + t * (a3 + t * (a4 + t * a5))))
   return 0.5 * (1 + sign * (1 - poly * Math.exp(-az * az)))
@@ -62,17 +62,35 @@ export function calcZScore(sorted: MetricsTrade[]): { z: number; label: string }
   const den = Math.sqrt((2 * W * L * (2 * W * L - N)) / (N - 1))
   if (den === 0) return null
   const z = num / den
-  const label = z > 1.96 ? 'Rachas' : z < -1.96 ? 'Alternante' : 'Normal'
+  const label = z > 1.96 ? 'Alternante' : z < -1.96 ? 'Rachas' : 'Normal'
   return { z, label }
 }
 
-export function calcPValue(trades: MetricsTrade[]): number | null {
-  const tl = trades.filter(t => t.result === 'tp' || t.result === 'sl')
-  const N = tl.length
+export interface PValueResult {
+  pValue: number  // one-tailed p-value (H1: WR > break-even)
+  zb:     number  // binomial Z statistic (the "edge Z-score")
+  p0:     number  // break-even winrate used as null hypothesis
+}
+
+export function calcPValue(trades: MetricsTrade[]): PValueResult | null {
+  const tl      = trades.filter(t => t.result === 'tp' || t.result === 'sl')
+  const N       = tl.length
   if (N < 10) return null
-  const W = tl.filter(t => t.result === 'tp').length
-  const zb = (W - N * 0.5) / Math.sqrt(N * 0.25)
-  return 2 * (1 - normalCDF(Math.abs(zb)))
+  const winners = tl.filter(t => t.result === 'tp')
+  const losers  = tl.filter(t => t.result === 'sl')
+  if (winners.length === 0 || losers.length === 0) return null
+
+  // Break-even WR based on actual average RR (not hardcoded 50%)
+  const avgWin  = winners.reduce((s, t) => s + (t.rr_exit ?? 1), 0) / winners.length
+  const avgLoss = losers.reduce((s, t)  => s + (t.rr_exit ?? 1), 0) / losers.length
+  const p0 = avgLoss / (avgWin + avgLoss)
+
+  const wr = winners.length / N
+  const zb = (wr - p0) / Math.sqrt(p0 * (1 - p0) / N)
+  // One-tailed: H0: WR ≤ p0  →  H1: WR > p0  (estrategia tiene edge)
+  const pValue = 1 - normalCDF(zb)
+
+  return { pValue, zb, p0 }
 }
 
 export function calcStrategyConfidence(trades: MetricsTrade[]): {
