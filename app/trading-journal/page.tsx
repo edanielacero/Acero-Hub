@@ -446,6 +446,7 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
   const [type, setType] = useState<VarType>('text')
   const [options, setOptions] = useState<string[]>([])
   const [optionDraft, setOptionDraft] = useState('')
+  const [isRequired, setIsRequired] = useState(false)
 
   const needsOptions = type === 'select_single' || type === 'select_multiple'
 
@@ -459,11 +460,12 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
   const handleAdd = () => {
     if (!label.trim()) return
     if (needsOptions && options.length === 0) return
-    onAdd({ id: crypto.randomUUID(), label: label.trim(), type, options, is_required: false })
+    onAdd({ id: crypto.randomUUID(), label: label.trim(), type, options, is_required: isRequired })
     setLabel('')
     setType('text')
     setOptions([])
     setOptionDraft('')
+    setIsRequired(false)
   }
 
   return (
@@ -486,6 +488,15 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
           <option key={t} value={t}>{VAR_TYPE_LABELS[t]}</option>
         ))}
       </select>
+
+      {/* Required toggle */}
+      <button type="button" onClick={() => setIsRequired(v => !v)}
+        className="flex items-center justify-between w-full px-4 py-3 bg-white dark:bg-zinc-950 rounded-xl border border-slate-200 dark:border-zinc-800 cursor-pointer">
+        <span className="text-[13px] text-slate-700 dark:text-zinc-300">Obligatoria</span>
+        <div className={`w-10 h-6 rounded-full transition-colors duration-200 flex items-center px-0.5 ${isRequired ? 'accent-btn' : 'bg-slate-200 dark:bg-zinc-700'}`}>
+          <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${isRequired ? 'translate-x-4' : 'translate-x-0'}`} />
+        </div>
+      </button>
 
       {/* Options field */}
       {needsOptions && (
@@ -1142,7 +1153,10 @@ export default function TradingJournalPage() {
   useEffect(() => { load() }, [load])
 
   const byType     = (t: Tab) => sessions.filter(s => s.type === t)
-  const activeOf   = (t: Tab) => byType(t).filter(s => !s.is_archived)
+  const activeOf   = (t: Tab) => {
+    const active = byType(t).filter(s => !s.is_archived)
+    return [...active].sort((a, b) => (a.is_favorite === b.is_favorite ? 0 : a.is_favorite ? -1 : 1))
+  }
   const archivedOf = (t: Tab) => byType(t).filter(s => s.is_archived)
 
   const btCount = byType('backtesting').length
@@ -1173,7 +1187,21 @@ export default function TradingJournalPage() {
     load()
   }
 
-  const toggleFavorite = (s: Session) => updateSession(s.id, { is_favorite: !s.is_favorite })
+  const toggleFavorite = async (s: Session) => {
+    setSaving(true)
+    if (!s.is_favorite) {
+      // Desmarcar el favorito previo del mismo tipo si existe
+      const prev = sessions.find(x => x.type === s.type && x.is_favorite && x.id !== s.id)
+      if (prev) {
+        await api(`/sessions/${prev.id}`, { method: 'PATCH', body: JSON.stringify({ is_favorite: false }) })
+      }
+      await api(`/sessions/${s.id}`, { method: 'PATCH', body: JSON.stringify({ is_favorite: true }) })
+    } else {
+      await api(`/sessions/${s.id}`, { method: 'PATCH', body: JSON.stringify({ is_favorite: false }) })
+    }
+    setSaving(false)
+    load()
+  }
   const toggleArchive  = (s: Session) => updateSession(s.id, { is_archived: !s.is_archived })
   const openCreate = () => setShowCreate(true)
 

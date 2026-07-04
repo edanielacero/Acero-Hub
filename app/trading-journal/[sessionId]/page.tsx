@@ -110,22 +110,29 @@ const RESULT_CFG: Record<Result, { label: string; bar: string; badge: string }> 
 
 const EMPTY_FILTER: FilterState = { dateFrom: '', dateTo: '', months: [], results: [], directions: [], instruments: [], vars: {} }
 
-const IMPORT_FIELDS = [
-  { key: 'date_entry',       label: 'Fecha entrada',          required: true  },
-  { key: 'date_exit',        label: 'Fecha salida'                             },
-  { key: 'instrument',       label: 'Instrumento'                              },
-  { key: 'direction',        label: 'Dirección (long/short)'                  },
-  { key: 'result',           label: 'Resultado (tp/sl/be)'                    },
-  { key: 'rr_target',        label: 'RR objetivo'                             },
-  { key: 'rr_max',           label: 'RR máximo'                               },
-  { key: 'rr_exit',          label: 'RR salida'                               },
-  { key: 'notes',            label: 'Notas'                                   },
-  { key: 'risk_percent',     label: '% riesgo'                                },
-  { key: 'pnl_usd',          label: 'PnL USD'                                 },
-  { key: 'capital_start',    label: 'Capital inicio'                          },
-  { key: 'capital_end',      label: 'Capital fin'                             },
-  { key: 'enlace_analisis',  label: 'Link de análisis'                        },
+const IMPORT_FIELDS_BASE = [
+  { key: 'date_entry',       label: 'Fecha entrada',          required: true, sessionTypes: ['backtesting', 'journal'] },
+  { key: 'date_exit',        label: 'Fecha salida',                           sessionTypes: ['backtesting', 'journal'] },
+  { key: 'direction',        label: 'Dirección (long/short)',                 sessionTypes: ['backtesting', 'journal'] },
+  { key: 'result',           label: 'Resultado (tp/sl/be)',                   sessionTypes: ['backtesting', 'journal'] },
+  { key: 'rr_target',        label: 'RR objetivo',                            sessionTypes: ['backtesting']            },
+  { key: 'rr_max',           label: 'RR máximo',                              sessionTypes: ['backtesting']            },
+  { key: 'rr_exit',          label: 'RR salida',                              sessionTypes: ['backtesting']            },
+  { key: 'risk_percent',     label: '% riesgo',                               sessionTypes: ['backtesting', 'journal'] },
+  { key: 'pnl_usd',          label: 'PnL USD',                                sessionTypes: ['journal']                },
+  { key: 'capital_start',    label: 'Capital inicio',                         sessionTypes: ['journal']                },
+  { key: 'capital_end',      label: 'Capital fin',                            sessionTypes: ['journal']                },
+  { key: 'notes',            label: 'Notas',                                  sessionTypes: ['backtesting', 'journal'] },
+  { key: 'enlace_analisis',  label: 'Link de análisis',                       sessionTypes: ['backtesting', 'journal'] },
 ]
+
+function getImportFields(sessionType: SessionType, hasInstrument: boolean) {
+  const fields = IMPORT_FIELDS_BASE.filter(f => f.sessionTypes.includes(sessionType))
+  if (hasInstrument) {
+    fields.splice(2, 0, { key: 'instrument', label: 'Instrumento', sessionTypes: ['backtesting', 'journal'] })
+  }
+  return fields
+}
 
 // Keys that map to custom_fields instead of top-level trade fields
 const CUSTOM_FIELD_MAP: Record<string, string> = {
@@ -659,7 +666,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
 
   const avgRRWin  = W > 0 ? trades.filter(t => t.result === 'tp' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0) / W : 0
   const avgRRLoss = L > 0 ? trades.filter(t => t.result === 'sl' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0) / L : 0
-  const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `${fmtR(avgRRWin)}:${fmtR(avgRRLoss)}` : '—'
+  const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `${fmtR(avgRRLoss)}:${fmtR(avgRRWin)}` : '—'
 
   let returnPct: number | null = null
   if (sessionType === 'journal' && capitalInitial) {
@@ -693,9 +700,9 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
       </div>
     )
   }
-  function Icon({ children }: { color?: string; children: React.ReactNode }) {
+  function Icon({ children, cls = 'text-slate-400 dark:text-zinc-500', bg = 'bg-slate-100 dark:bg-zinc-800/60' }: { children: React.ReactNode; cls?: string; bg?: string }) {
     return (
-      <div className="w-7 h-7 flex items-center justify-center shrink-0 text-slate-300 dark:text-zinc-700">
+      <div className={`w-9 h-9 flex items-center justify-center shrink-0 rounded-xl ${bg} ${cls}`}>
         {children}
       </div>
     )
@@ -708,8 +715,8 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Total Trades</span>
         <div className="flex items-end justify-between mt-0.5">
           <span className="text-[26px] font-bold text-slate-900 dark:text-white leading-none tabular-nums">{empty ? '—' : W + L + BE}</span>
-          <Icon>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <Icon cls="accent-txt" bg="accent-tint">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </Icon>
         </div>
       </Card>
@@ -744,10 +751,13 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
             <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-300 dark:text-zinc-700'}`}>
               {rentValue}
             </span>
-            {!empty && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR {avgRR}</p>}
+            {!empty && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
           </div>
-          <Icon>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          <Icon
+            cls={!empty ? (rentPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
+            bg={!empty ? (rentPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           </Icon>
         </div>
       </Card>
@@ -762,8 +772,11 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
           }`}>
             {empty || pfactor === null ? '—' : pfactor === Infinity ? '∞' : pfactor.toFixed(2)}
           </span>
-          <Icon>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
+          <Icon
+            cls={!empty && pfactor !== null ? (pfactor > 1 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
+            bg={!empty && pfactor !== null ? (pfactor > 1 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
           </Icon>
         </div>
       </Card>
@@ -773,11 +786,18 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Racha Gan.</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className="text-[26px] font-bold text-slate-900 dark:text-white leading-none tabular-nums">{empty ? '—' : maxWin}</span>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && maxWin > 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-300 dark:text-zinc-700'}`}>{empty ? '—' : maxWin}</span>
             {!empty && maxWin > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">seguidas</p>}
           </div>
-          <Icon>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2c0 0-4 4.5-4 8a4 4 0 0 0 8 0c0-3.5-4-8-4-8z"/><path d="M12 10c0 0-2 2.5-2 4a2 2 0 0 0 4 0c0-1.5-2-4-2-4z" fill="currentColor" opacity=".4"/></svg>
+          <Icon
+            cls={!empty && maxWin > 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-zinc-500'}
+            bg={!empty && maxWin > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-slate-100 dark:bg-zinc-800/60'}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C9.5 6.5 6 11 6 15a6 6 0 0 0 12 0c0-4-3.5-8.5-6-13z" opacity="0.3"/>
+              <path d="M15 7c-.7 2.5-2 4.5-2 6.5a2 2 0 0 0 4 0c0-2.5-1-4.5-2-6.5z" opacity="0.55"/>
+              <path d="M12 10c-.9 2-2.5 3.5-2.5 5a2.5 2.5 0 0 0 5 0c0-1.5-1.6-3-2.5-5z"/>
+            </svg>
           </Icon>
         </div>
       </Card>
@@ -792,8 +812,11 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
             </span>
             {!empty && maxLoss > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">seguidas</p>}
           </div>
-          <Icon>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><path d="M13 15h4"/><path d="M13 19h4"/></svg>
+          <Icon
+            cls={!empty && maxLoss > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500'}
+            bg={!empty && maxLoss > 0 ? 'bg-rose-50 dark:bg-rose-500/10' : 'bg-slate-100 dark:bg-zinc-800/60'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/></svg>
           </Icon>
         </div>
       </Card>
@@ -946,6 +969,10 @@ function ImportSheet({ session, variables, onClose, onImported }: {
   const [result, setResult]   = useState<{ inserted: number; errors: { index: number; message: string }[] } | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const hasInstrumentVar = variables.some(v => v.key === 'instrument')
+  const importFields     = getImportFields(session.type, hasInstrumentVar)
+  const nonInstrumentVars = variables.filter(v => v.key !== 'instrument')
+
   function handleFile(file: File) {
     const reader = new FileReader()
     reader.onload = e => {
@@ -954,7 +981,7 @@ function ImportSheet({ session, variables, onClose, onImported }: {
       if (!parsed.headers.length) return
       setCsvData(parsed)
       const autoMap: Record<string, string> = {}
-      for (const field of IMPORT_FIELDS) {
+      for (const field of importFields) {
         const match = parsed.headers.find(h => h.trim().toLowerCase() === field.key.toLowerCase())
         if (match) autoMap[field.key] = match
       }
@@ -1042,7 +1069,7 @@ function ImportSheet({ session, variables, onClose, onImported }: {
             {csvData.rows.length} filas detectadas. Asigna columnas del CSV a campos del trade.
           </p>
           <div className="flex flex-col gap-2.5">
-            {IMPORT_FIELDS.map(field => (
+            {importFields.map(field => (
               <div key={field.key} className="flex items-center gap-3">
                 <span className="text-[12px] text-slate-600 dark:text-zinc-400 w-36 shrink-0">
                   {field.label}{field.required && <span className="text-rose-500 ml-0.5">*</span>}
@@ -1055,14 +1082,14 @@ function ImportSheet({ session, variables, onClose, onImported }: {
                 </select>
               </div>
             ))}
-            {variables.length > 0 && (
+            {nonInstrumentVars.length > 0 && (
               <>
                 <div className="flex items-center gap-3 mt-1">
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800" />
                   <span className="text-[9px] font-black tracking-[0.2em] uppercase text-slate-400 dark:text-zinc-500 shrink-0">Variables de la sesión</span>
                   <div className="flex-1 h-px bg-slate-200 dark:bg-zinc-800" />
                 </div>
-                {variables.map(v => (
+                {nonInstrumentVars.map(v => (
                   <div key={v.key} className="flex items-center gap-3">
                     <span className="text-[12px] text-slate-600 dark:text-zinc-400 w-36 shrink-0">{v.label}</span>
                     <select value={mapping[v.key] ?? ''}
@@ -1151,7 +1178,14 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
   onSave: (trade: Trade, synced: SyncedJournal[]) => void
 }) {
   const isEdit = Boolean(initial)
-  const [f, setF]   = useState<TradeFormState>(initial ? tradeToForm(initial) : EMPTY_FORM)
+  const [f, setF]   = useState<TradeFormState>(() => {
+    if (initial) return tradeToForm(initial)
+    const today = new Date()
+    const yyyy = today.getFullYear()
+    const mm   = String(today.getMonth() + 1).padStart(2, '0')
+    const dd   = String(today.getDate()).padStart(2, '0')
+    return { ...EMPTY_FORM, date_entry: `${yyyy}-${mm}-${dd}` }
+  })
   const [cf, setCf] = useState<Record<string, unknown>>(initial?.custom_fields ?? {})
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
@@ -2751,8 +2785,8 @@ function FilterSheet({ filter, onApply, onClose, instrumentOptions, variables }:
 
   const filterableVars = variables.filter(v =>
     v.key !== 'instrument' &&
-    (v.type === 'select_single' || v.type === 'select_multiple') &&
-    v.options && v.options.length > 0
+    (v.type === 'select_single' || v.type === 'select_multiple' || v.type === 'boolean') &&
+    (v.type === 'boolean' || (v.options && v.options.length > 0))
   )
 
   const tinp = 'w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 rounded-xl px-4 py-3 text-[14px] text-slate-900 dark:text-white outline-none min-h-[48px] accent-input'
@@ -2822,29 +2856,34 @@ function FilterSheet({ filter, onApply, onClose, instrumentOptions, variables }:
           </div>
         </>
       )}
-      {filterableVars.map(v => (
-        <div key={v.key}>
-          <div className={div} />
-          <div>
-            <p className={lbl}>{v.label}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {v.options!.map(opt => {
-                const on = (local.vars[v.key] ?? []).includes(opt)
-                return (
-                  <button key={opt} onClick={() => toggleVar(v.key, opt)}
-                    className={`px-3 py-1.5 rounded-xl text-[12px] font-semibold border transition-colors cursor-pointer ${
-                      on
-                        ? 'accent-badge'
-                        : 'border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-900'
-                    }`}>
-                    {opt}
-                  </button>
-                )
-              })}
+      {filterableVars.map(v => {
+        const opts = v.type === 'boolean'
+          ? [{ val: 'true', label: 'Sí' }, { val: 'false', label: 'No' }]
+          : v.options!.map(o => ({ val: o, label: o }))
+        return (
+          <div key={v.key}>
+            <div className={div} />
+            <div>
+              <p className={lbl}>{v.label}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {opts.map(({ val, label }) => {
+                  const on = (local.vars[v.key] ?? []).includes(val)
+                  return (
+                    <button key={val} onClick={() => toggleVar(v.key, val)}
+                      className={`px-3 py-1.5 rounded-xl text-[12px] font-semibold border transition-colors cursor-pointer ${
+                        on
+                          ? 'accent-badge'
+                          : 'border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-900'
+                      }`}>
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
       <div className="flex gap-2 mt-6">
         <button onClick={() => setLocal(EMPTY_FILTER)}
           className="flex-1 min-h-[48px] rounded-2xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 font-medium text-[13px] cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors">
@@ -2976,11 +3015,14 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
     )
   }
 
-  const sortProps      = { sortCol, sortDir, onSort }
-  const visibleVarKeys = Array.from(visibleVars).filter(k => variables.some(v => v.key === k))
-  const totalPages     = Math.ceil(trades.length / PAGE_SIZE)
-  const paginated      = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-  const hasColumns     = variables.length > 0 || true
+  const sortProps        = { sortCol, sortDir, onSort }
+  const visibleVarKeys   = Array.from(visibleVars).filter(k => variables.some(v => v.key === k))
+  const totalPages       = Math.ceil(trades.length / PAGE_SIZE)
+  const paginated        = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const hasInstrumentVar = variables.some(v => v.key === 'instrument')
+  const otherVars        = variables.filter(v => v.key !== 'instrument')
+  const hasColumns       = hasInstrumentVar || otherVars.length > 0
+  const showInstCol      = showInstrument && hasInstrumentVar
 
   return (
     <div>
@@ -2989,7 +3031,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
         <div className="flex justify-end px-4 py-2 relative" ref={colPickerRef}>
           <button onClick={() => setShowColPicker(p => !p)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer border ${
-              visibleVars.size > 0 || !showInstrument
+              visibleVars.size > 0 || (hasInstrumentVar && !showInstrument)
                 ? 'accent-badge'
                 : 'border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
             }`}>
@@ -2998,6 +3040,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
           </button>
           {showColPicker && (
             <div className="absolute right-4 top-10 z-20 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-2xl shadow-xl py-2 min-w-[200px]">
+              {hasInstrumentVar && (
               <button
                 onClick={() => setShowInstrument(v => !v)}
                 className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
@@ -3006,7 +3049,8 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                 </div>
                 Instrumento
               </button>
-              {variables.map(v => {
+              )}
+              {otherVars.map(v => {
                 const on = visibleVars.has(v.key)
                 return (
                   <button key={v.key}
@@ -3032,7 +3076,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
               <SortTh col="direction" label="Dirección" {...sortProps} />
               <SortTh col="result"    label="Resultado" {...sortProps} />
               <SortTh col="rr"        label="RR"        {...sortProps} />
-              {showInstrument && <SortTh col="instrument" label="Instrumento" {...sortProps} />}
+              {showInstCol && <SortTh col="instrument" label="Instrumento" {...sortProps} />}
               {visibleVarKeys.map(key => {
                 const v = variables.find(x => x.key === key)!
                 return <SortTh key={key} col={key} label={v.label} {...sortProps} />
@@ -3099,7 +3143,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                       : 'text-slate-500 dark:text-zinc-400'
                     }`}>{rrStr}</span>
                   </td>
-                  {showInstrument && (
+                  {showInstCol && (
                     <td className="px-2 py-3">
                       {t.instrument ? (
                         <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 text-[11px] font-medium">
@@ -3108,13 +3152,23 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                       ) : <span className="text-zinc-300 dark:text-zinc-700 text-[12px]">—</span>}
                     </td>
                   )}
-                  {visibleVarKeys.map(key => (
-                    <td key={key} className="px-2 py-3">
-                      <span className="text-[11px] text-slate-500 dark:text-zinc-400">
-                        {t.custom_fields[key] != null ? String(t.custom_fields[key]) : '—'}
-                      </span>
-                    </td>
-                  ))}
+                  {visibleVarKeys.map(key => {
+                    const varDef = variables.find(v => v.key === key)
+                    const raw    = t.custom_fields[key]
+                    let display  = '—'
+                    if (raw != null) {
+                      if (varDef?.type === 'boolean') {
+                        display = (raw === true || raw === 'true') ? 'Sí' : 'No'
+                      } else {
+                        display = String(raw)
+                      }
+                    }
+                    return (
+                      <td key={key} className="px-2 py-3">
+                        <span className="text-[11px] text-slate-500 dark:text-zinc-400">{display}</span>
+                      </td>
+                    )
+                  })}
                   <td className="px-2 py-3">
                     {detailUrl ? (
                       <a href={detailUrl} target="_blank" rel="noopener noreferrer"
