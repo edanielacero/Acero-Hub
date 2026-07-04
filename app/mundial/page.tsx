@@ -162,7 +162,8 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
   const [away, setAway] = useState<string | number>(myBet?.away_score_bet ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [paymentMode, setPaymentMode] = useState<null | 'choosing' | 'qr' | 'cash'>(null)
+  const [paymentMode, setPaymentMode] = useState<null | 'qr'>(null)
+  const [receipt, setReceipt] = useState<File | null>(null)
 
   const closed = isClosed(match.match_date)
   const finished = match.status === 'FINISHED'
@@ -486,10 +487,12 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                       </button>
                     ) : (
                       <>
-                        <button onClick={() => setPaymentMode('choosing')}
-                          className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
-                          Pagar Ahora
-                        </button>
+                        {qrUrl && (
+                          <button onClick={() => setPaymentMode('qr')}
+                            className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
+                            Pagar con QR
+                          </button>
+                        )}
                         <button onClick={() => handleBet(false)} disabled={loading}
                           className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
                           {loading ? '...' : 'Pagar Después'}
@@ -499,60 +502,66 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   </div>
                 )}
               </div>
-            ) : paymentMode === 'choosing' ? (
-              /* Payment method choice */
-              <div className="mt-4 flex flex-col gap-3">
-                <div className="flex items-center gap-1.5 text-xs text-[#777] font-[family-name:var(--font-body)]">
-                  <span>Predicción:</span>
-                  <span className="font-bold text-[#f5f5f5] tabular-nums">{home} – {away}</span>
-                </div>
-                <div className="flex gap-2">
-                  {qrUrl && (
-                    <button onClick={() => setPaymentMode('qr')}
-                      className="flex-1 text-xs font-semibold bg-[#f5f5f5] text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-white transition-colors cursor-pointer">
-                      Pagar QR
-                    </button>
-                  )}
-                  <button onClick={() => setPaymentMode('cash')}
-                    className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer">
-                    Pagar Efectivo
-                  </button>
-                </div>
-                <button onClick={() => setPaymentMode(null)}
-                  className="text-xs text-[#555] hover:text-[#888] cursor-pointer font-[family-name:var(--font-body)] self-start px-1 py-1">
-                  ← Volver
-                </button>
-              </div>
             ) : (
-              /* Payment confirmation step */
+              /* QR payment + comprobante upload */
               <div className="mt-4 flex flex-col gap-3">
                 <div className="flex items-center gap-1.5 text-xs text-[#777] font-[family-name:var(--font-body)]">
                   <span>Predicción:</span>
                   <span className="font-bold text-[#f5f5f5] tabular-nums">{home} – {away}</span>
                   <span className="text-[#333] mx-0.5">·</span>
-                  <span>{paymentMode === 'qr' ? 'Pago por QR' : 'Pago en efectivo'}</span>
+                  <span>Pago por QR</span>
                 </div>
 
-                {paymentMode === 'qr' && qrUrl && (
+                {qrUrl && (
                   <div className="flex flex-col items-center gap-2 py-4 bg-[#0e0e0e] rounded-xl border border-[#1e1e1e]">
                     <img src={qrUrl} alt="QR de pago" className="w-40 h-40 object-contain rounded-lg" />
                     <p className="text-[11px] text-[#666] font-[family-name:var(--font-body)]">Escanea y paga Bs {betAmount}</p>
                   </div>
                 )}
-                {paymentMode === 'cash' && (
-                  <div className="py-4 px-4 bg-[#0e0e0e] rounded-xl border border-[#1e1e1e] text-center">
-                    <p className="text-sm font-bold text-[#f5f5f5]">Bs {betAmount}</p>
-                    <p className="text-[11px] text-[#666] mt-1 font-[family-name:var(--font-body)]">Entrégalo en efectivo al admin</p>
-                  </div>
-                )}
+
+                {/* Comprobante upload */}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[11px] text-[#666] font-[family-name:var(--font-body)]">Sube tu comprobante de pago para continuar</p>
+                  <label className="flex items-center gap-2 cursor-pointer self-start">
+                    <span className={`text-xs font-medium px-3 py-1.5 rounded-xl border transition-colors cursor-pointer font-[family-name:var(--font-body)] ${receipt ? 'bg-green-500/12 text-green-400 border-green-500/25' : 'bg-[#1a1a1a] text-[#aaa] border-[#2a2a2a] hover:border-[#444]'}`}>
+                      {receipt ? `✓ ${receipt.name}` : '+ Subir comprobante'}
+                    </span>
+                    <input type="file" accept="image/*,.pdf" className="sr-only"
+                      onChange={e => setReceipt(e.target.files?.[0] ?? null)} />
+                  </label>
+                </div>
 
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setPaymentMode('choosing')}
+                  <button onClick={() => { setPaymentMode(null); setReceipt(null) }}
                     className="text-xs text-[#555] hover:text-[#888] cursor-pointer font-[family-name:var(--font-body)] px-3 py-2">
                     ← Volver
                   </button>
-                  <button onClick={() => handleBet(true)} disabled={loading}
-                    className="flex-1 text-xs font-semibold bg-green-600 text-white px-4 py-2.5 rounded-xl hover:bg-green-500 transition-colors disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed">
+                  <button
+                    disabled={loading || !receipt}
+                    onClick={async () => {
+                      if (!receipt || loading) return
+                      setLoading(true)
+                      setError('')
+                      try {
+                        const form = new FormData()
+                        form.append('file', receipt)
+                        const uploadRes = await fetch('/api/mundial/bets/upload-receipt', { method: 'POST', body: form })
+                        if (!uploadRes.ok) { setError('Error al subir el comprobante'); return }
+                        const { url: receiptUrl } = await uploadRes.json()
+                        const res = await fetch('/api/mundial/bets', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ token, matchId: match.id, homeScore: Number(home), awayScore: Number(away), paymentConfirmed: true, receiptUrl }),
+                        })
+                        const data = await res.json()
+                        if (!res.ok) { setError(data.error ?? 'Error al registrar'); return }
+                        setPaymentMode(null)
+                        setReceipt(null)
+                        onBetPlaced()
+                      } catch { setError('Error de conexión') }
+                      finally { setLoading(false) }
+                    }}
+                    className="flex-1 text-xs font-semibold bg-green-600 text-white px-4 py-2.5 rounded-xl hover:bg-green-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
                     {loading ? '...' : '✓ Ya Pagué · Registrar apuesta'}
                   </button>
                 </div>
