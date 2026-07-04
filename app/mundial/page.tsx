@@ -20,7 +20,7 @@ interface Bet {
   id: string; profile_id: string; match_id: number
   home_score_bet: number; away_score_bet: number
   payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean
-  debt_offset: number; paid_note: string | null
+  debt_offset: number; amount_paid: number; paid_note: string | null
   mundial_profiles: { name: string; color: string }
 }
 interface Profile { id: string; name: string; color: string; token: string; saldo_adjustment: number }
@@ -912,7 +912,7 @@ export default function MundialPage() {
     const unpaidBets = allBets.filter(b => b.profile_id === prof.id && !b.payment_confirmed)
     acc[prof.id] = unpaidBets.reduce((sum, ub) => {
       const found = matches.find(mx => mx.id === ub.match_id)
-      return sum + (found?.bet_amount ?? betAmount)
+      return sum + (found?.bet_amount ?? betAmount) - (ub.amount_paid ?? 0)
     }, 0)
     return acc
   }, {})

@@ -13,7 +13,7 @@ const randomToken = () => Math.random().toString(36).slice(2, 10)
 
 interface Profile { id: string; name: string; token: string; color: string; saldo_adjustment: number }
 interface Match { id: number; home_team: string; home_tla: string; home_crest: string | null; away_team: string; away_tla: string; away_crest: string | null; match_date: string; status: string; home_score: number | null; away_score: number | null; penalties_home: number | null; penalties_away: number | null; bet_amount: number | null }
-interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean; debt_offset: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
+interface Bet { id: string; profile_id: string; match_id: number; home_score_bet: number; away_score_bet: number; payment_confirmed: boolean; prize_paid: boolean; paid_with_saldo: boolean; debt_offset: number; amount_paid: number; paid_note: string | null; mundial_profiles: { name: string; color: string } }
 
 const inputClass = "bg-[#111] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-sm text-[#f5f5f5] placeholder-[#444] outline-none focus:border-[#333] transition-colors font-[family-name:var(--font-body)]"
 const numInput = "w-12 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-sm text-center text-[#f5f5f5] outline-none focus:border-[#555] transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -58,6 +58,10 @@ export default function AdminMundial() {
   const [payingSaldo, setPayingSaldo] = useState<{ profileId: string; max: number } | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [paying, setPaying] = useState(false)
+
+  const [payingDebt, setPayingDebt] = useState<string | null>(null) // profileId
+  const [debtPayAmount, setDebtPayAmount] = useState('')
+  const [payingDebtLoading, setPayingDebtLoading] = useState(false)
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -184,6 +188,21 @@ export default function AdminMundial() {
     setTransferring(false)
   }
 
+  async function doPayDebt(profileId: string) {
+    const amt = Number(debtPayAmount)
+    if (!amt || amt <= 0) return
+    setPayingDebtLoading(true)
+    await fetch('/api/mundial/admin/pay-debt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId, amount: amt }),
+    })
+    setPayingDebtLoading(false)
+    setPayingDebt(null)
+    setDebtPayAmount('')
+    await loadData()
+  }
+
   async function doPaySaldo() {
     if (!payingSaldo || !payAmount) return
     const amt = Number(payAmount)
@@ -263,7 +282,8 @@ export default function AdminMundial() {
     const unpaid = bets.filter(b => b.profile_id === prof.id && !b.payment_confirmed)
     debtMapAdmin[prof.id] = unpaid.reduce((sum, ub) => {
       const m = matches.find(mx => mx.id === ub.match_id)
-      return sum + (m?.bet_amount ?? Number(globalBetAmount))
+      const betAmt = m?.bet_amount ?? Number(globalBetAmount)
+      return sum + betAmt - (ub.amount_paid ?? 0)
     }, 0)
   }
 
@@ -379,7 +399,9 @@ export default function AdminMundial() {
                 <span className="text-sm font-black text-amber-400 tabular-nums">Bs {grandTotal}</span>
               </div>
               <div className="divide-y divide-amber-500/10">
-                {debts.map(({ profile, count, total, unpaid }) => (
+                {debts.map(({ profile, count, total, unpaid }) => {
+                  const isPayingThisDebt = payingDebt === profile.id
+                  return (
                   <div key={profile.id} className="flex flex-col">
                     <div className="px-6 py-3 flex items-center gap-3">
                       <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
@@ -393,12 +415,43 @@ export default function AdminMundial() {
                         </p>
                       </div>
                       <span className="text-base font-black text-amber-400 tabular-nums shrink-0">Bs {total}</span>
+                      <button
+                        onClick={() => {
+                          if (isPayingThisDebt) { setPayingDebt(null); setDebtPayAmount('') }
+                          else { setPayingDebt(profile.id); setDebtPayAmount('') }
+                        }}
+                        className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer shrink-0 font-[family-name:var(--font-body)]">
+                        {isPayingThisDebt ? 'Cancelar' : 'Registrar pago'}
+                      </button>
                     </div>
+                    {isPayingThisDebt && (
+                      <div className="px-6 pb-3 flex items-center gap-2 pl-16">
+                        <span className="text-[11px] text-[#666] font-[family-name:var(--font-body)] shrink-0">Bs</span>
+                        <input
+                          type="number" min="1" max={total} value={debtPayAmount}
+                          onChange={e => setDebtPayAmount(e.target.value)}
+                          placeholder={`máx ${total}`}
+                          className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-1.5 text-sm text-[#f5f5f5] tabular-nums w-24 outline-none focus:border-[#444] transition-colors font-[family-name:var(--font-body)]"
+                        />
+                        <button onClick={() => setDebtPayAmount(String(total))}
+                          className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer font-[family-name:var(--font-body)]">
+                          MAX
+                        </button>
+                        <button
+                          onClick={() => doPayDebt(profile.id)}
+                          disabled={payingDebtLoading || !debtPayAmount || Number(debtPayAmount) <= 0}
+                          className="text-[10px] font-bold text-[#0a0a0a] bg-amber-400 px-3 py-1.5 rounded-lg hover:bg-amber-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed font-[family-name:var(--font-body)]">
+                          {payingDebtLoading ? '...' : 'Confirmar'}
+                        </button>
+                      </div>
+                    )}
                     <div className="px-6 pb-3 flex flex-col gap-1.5">
                       {unpaid.map(bet => {
                         const match = matches.find(m => m.id === bet.match_id)
                         if (!match) return null
                         const amount = match.bet_amount ?? Number(globalBetAmount)
+                        const paid = bet.amount_paid ?? 0
+                        const owed = amount - paid
                         return (
                           <div key={bet.id} className="flex items-center justify-between pl-10">
                             <span className="text-[11px] text-[#555] font-[family-name:var(--font-body)]">
@@ -407,13 +460,21 @@ export default function AdminMundial() {
                                 {new Date(match.match_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'America/La_Paz' })}
                               </span>
                             </span>
-                            <span className="text-[11px] text-amber-600/80 tabular-nums font-medium font-[family-name:var(--font-body)]">Bs {amount}</span>
+                            {paid > 0 ? (
+                              <span className="text-[11px] tabular-nums font-medium font-[family-name:var(--font-body)]">
+                                <span className="text-green-500/70">Bs {paid} pagado</span>
+                                <span className="text-amber-500"> · Resta Bs {owed}</span>
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-amber-600/80 tabular-nums font-medium font-[family-name:var(--font-body)]">Bs {amount}</span>
+                            )}
                           </div>
                         )
                       })}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </section>
           )
