@@ -3311,10 +3311,10 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
   return (
-    <div className="flex flex-col md:flex-row md:min-h-[460px]">
+    <div className="flex flex-col">
 
       {/* ── Left panel: Calendar ─────────────────────────────── */}
-      <div className="md:w-[380px] md:shrink-0 px-4 pt-4 pb-4 md:border-r border-slate-100 dark:border-white/[0.05]">
+      <div className="px-4 pt-4 pb-4">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
@@ -3435,7 +3435,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
       </div>
 
       {/* ── Right panel: Monthly chart ───────────────────────── */}
-      <div className="flex-1 px-4 md:px-5 pt-4 pb-4 flex flex-col">
+      <div className="flex-1 px-4 pt-0 pb-4 flex flex-col">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[13px] font-semibold text-slate-700 dark:text-zinc-100">Progreso del mes</p>
           <p className="text-[11px] text-slate-500 dark:text-zinc-400">{monthLabel}</p>
@@ -3787,7 +3787,8 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
   const nFilters = activeFilterCount(filter)
 
   return (
-    <div className="flex flex-col pt-5 pb-12 bg-slate-50 dark:bg-[#080d1a] min-h-screen">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
+    <div className="flex flex-col pt-5 pb-12 max-w-2xl mx-auto">
 
       {/* ── KPI Cards ─────────────────────────────────────────── */}
       <BasicMetrics
@@ -4047,6 +4048,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
           onImported={load}
         />
       )}
+    </div>
     </div>
   )
 }
