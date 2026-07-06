@@ -709,7 +709,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
   }
 
   return (
-    <div className="mx-4 mb-4 grid grid-cols-3 gap-2.5">
+    <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
       {/* Total Trades */}
       <Card>
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Total Trades</span>
@@ -751,7 +751,12 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
             <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-300 dark:text-zinc-700'}`}>
               {rentValue}
             </span>
-            {!empty && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
+            {!empty && sessionType === 'backtesting' && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
+            {!empty && sessionType === 'journal' && totalPnL !== 0 && (
+              <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">
+                {W > 0 ? `+${fmtPnL(trades.filter(t => t.result === 'tp').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / W)}` : ''}{W > 0 && L > 0 ? ' / ' : ''}{L > 0 ? `${fmtPnL(trades.filter(t => t.result === 'sl').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / L)}` : ''}
+              </p>
+            )}
           </div>
           <Icon
             cls={!empty ? (rentPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
@@ -1945,19 +1950,36 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
   const losers  = trades.filter(t => t.result === 'sl')
   const N = winners.length + losers.length
   if (N === 0) return null
-  const wr       = winners.length / N
-  const avgWin   = winners.length > 0 ? winners.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / winners.length : 0
-  const avgLoss  = losers.length  > 0 ? losers.reduce((s, t)  => s + (t.rr_exit ?? 0), 0) / losers.length  : 0
-  const expectancy = (wr * avgWin) - ((1 - wr) * avgLoss)
+  const wr = winners.length / N
   const pf = calcProfitFactor(trades, sessionType)
+
+  const isJournal = sessionType === 'journal'
+  const hasUSD    = isJournal && trades.some(t => t.pnl_usd != null)
+
+  // For journal with USD data: use pnl_usd; otherwise fall back to rr_exit
+  const avgWin  = winners.length > 0
+    ? (hasUSD
+        ? winners.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / winners.length
+        : winners.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / winners.length)
+    : 0
+  const avgLoss = losers.length > 0
+    ? (hasUSD
+        ? Math.abs(losers.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / losers.length)
+        : losers.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / losers.length)
+    : 0
+  const expectancy = (wr * avgWin) - ((1 - wr) * avgLoss)
   const pos = expectancy >= 0
+
+  const fmtVal   = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${fmtR(Math.abs(v))}R`
+  const fmtExpct = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${v >= 0 ? '+' : ''}${fmtR(Math.abs(v))}R`
+
   return (
     <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 pt-4 pb-3">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa</span>
+          <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por trade</span>
           <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-            {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R
+            {fmtExpct(expectancy)}
           </p>
         </div>
         <div className="text-right">
@@ -1969,15 +1991,15 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
       </div>
       <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed mt-1">
         {pos
-          ? `Por cada trade, recuperás en promedio ${fmtR(expectancy, 3)}R neto. Ganás +${fmtR(avgWin)}R en el ${(wr * 100).toFixed(0)}% de los casos y perdés −${fmtR(avgLoss)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
-          : `Por cada trade, perdés en promedio ${fmtR(Math.abs(expectancy), 3)}R neto. Ganás +${fmtR(avgWin)}R en el ${(wr * 100).toFixed(0)}% de los casos pero perdés −${fmtR(avgLoss)}R en el ${((1 - wr) * 100).toFixed(0)}% restante.`
+          ? `Por cada trade, recuperás en promedio ${fmtExpct(expectancy)} neto. Ganás ${fmtVal(avgWin)} en el ${(wr * 100).toFixed(0)}% de los casos y perdés −${fmtVal(avgLoss)} en el ${((1 - wr) * 100).toFixed(0)}% restante.`
+          : `Por cada trade, perdés en promedio ${fmtExpct(expectancy)} neto. Ganás ${fmtVal(avgWin)} en el ${(wr * 100).toFixed(0)}% de los casos pero perdés −${fmtVal(avgLoss)} en el ${((1 - wr) * 100).toFixed(0)}% restante.`
         }
       </p>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {[
-          { label: 'Winrate',        value: `${(wr * 100).toFixed(1)}%`,   color: 'text-slate-700 dark:text-zinc-200' },
-          { label: 'RR prom. gan.',  value: `+${fmtR(avgWin)}R`,           color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'RR prom. perd.', value: `-${fmtR(avgLoss)}R`,          color: 'text-rose-500 dark:text-rose-400' },
+          { label: 'Winrate',                          value: `${(wr * 100).toFixed(1)}%`,   color: 'text-slate-700 dark:text-zinc-200' },
+          { label: isJournal ? 'PnL prom. gan.'  : 'RR prom. gan.',  value: `+${fmtVal(avgWin)}`,   color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: isJournal ? 'PnL prom. perd.' : 'RR prom. perd.', value: `-${fmtVal(avgLoss)}`,  color: 'text-rose-500 dark:text-rose-400' },
         ].map(s => (
           <div key={s.label} className="flex flex-col gap-0.5 p-2 bg-slate-50 dark:bg-white/[0.04] rounded-xl">
             <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.08em]">{s.label}</span>
@@ -2122,17 +2144,49 @@ function PValueCard({ trades }: { trades: Trade[] }) {
 
 // ─── StdDev + Sharpe ───────────────────────────────────────────────────────────
 
-function StdDevCard({ trades }: { trades: Trade[] }) {
-  const stdDev    = calcStdDevRR(trades)
-  const expectancy = calcExpectancy(trades)
-  const sharpe    = (stdDev && stdDev > 0 && expectancy !== null) ? expectancy / stdDev : null
+function StdDevCard({ trades, sessionType }: { trades: Trade[]; sessionType: SessionType }) {
+  const isJournal = sessionType === 'journal'
+  const hasUSD    = isJournal && trades.some(t => t.pnl_usd != null)
+
+  // Journal with USD: compute std dev of pnl_usd values
+  const stdDevUSD: number | null = (() => {
+    if (!hasUSD) return null
+    const vals = trades.map(t => t.pnl_usd ?? 0)
+    if (vals.length < 2) return null
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1)
+    return Math.sqrt(variance)
+  })()
+
+  // Backtesting: use R-based calc
+  const stdDevRR = hasUSD ? null : calcStdDevRR(trades)
+
+  // Expectancy
+  const avgPnL: number | null = (() => {
+    if (!hasUSD) return null
+    const relevant = trades.filter(t => t.result === 'tp' || t.result === 'sl')
+    if (relevant.length === 0) return null
+    return relevant.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / relevant.length
+  })()
+  const expectancyRR = hasUSD ? null : calcExpectancy(trades)
+
+  const sharpe = hasUSD
+    ? (stdDevUSD && stdDevUSD > 0 && avgPnL !== null ? avgPnL / stdDevUSD : null)
+    : (stdDevRR && stdDevRR > 0 && expectancyRR !== null ? expectancyRR / stdDevRR : null)
+
+  const stdDevDisplay = hasUSD
+    ? (stdDevUSD === null ? '—' : (fmtPnL(stdDevUSD) ?? '—'))
+    : (stdDevRR === null ? '—' : `${fmtR(stdDevRR)}R`)
+
   return (
     <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 pt-4 pb-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Desv. estándar RR</span>
+          <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">
+            {hasUSD ? 'Desv. estándar PnL' : 'Desv. estándar RR'}
+          </span>
           <p className="text-[24px] font-bold font-mono leading-none mt-0.5 text-slate-700 dark:text-zinc-200">
-            {stdDev === null ? '—' : `${fmtR(stdDev)}R`}
+            {stdDevDisplay}
           </p>
           <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Variabilidad de resultados</p>
         </div>
@@ -2146,7 +2200,9 @@ function StdDevCard({ trades }: { trades: Trade[] }) {
           }`}>
             {sharpe === null ? '—' : fmtR(sharpe)}
           </p>
-          <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">Expectativa / Desv.</p>
+          <p className="text-[9.5px] text-slate-500 dark:text-zinc-400 mt-1">
+            {hasUSD ? 'PnL prom. / Desv.' : 'Expectativa / Desv.'}
+          </p>
         </div>
       </div>
     </div>
@@ -2996,6 +3052,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
 }) {
   const [showColPicker, setShowColPicker]   = useState(false)
   const [page, setPage]                     = useState(0)
+  const [notesModal, setNotesModal]         = useState<{ notes: string; url?: string } | null>(null)
   const colPickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { setPage(0) }, [trades])
@@ -3170,17 +3227,29 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                     )
                   })}
                   <td className="px-2 py-3">
-                    {detailUrl ? (
-                      <a href={detailUrl} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold accent-txt accent-tint accent-border-lo hover:opacity-80 transition-opacity cursor-pointer border">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                        Ver
-                      </a>
-                    ) : (
-                      t.notes ? (
-                        <span className="text-[11px] text-slate-500 dark:text-zinc-400 max-w-[100px] truncate block">{t.notes}</span>
-                      ) : <span className="text-zinc-300 dark:text-zinc-700 text-[12px]">—</span>
-                    )}
+                    {(() => {
+                      const hasNotes = !!t.notes && !t.notes.startsWith('http')
+                      const hasLink  = !!detailUrl
+                      if (!hasNotes && !hasLink) return <span className="text-zinc-300 dark:text-zinc-700 text-[12px]">—</span>
+                      if (!hasNotes && hasLink) return (
+                        <a href={detailUrl} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold accent-txt accent-tint accent-border-lo hover:opacity-80 transition-opacity cursor-pointer border">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                          Ver
+                        </a>
+                      )
+                      return (
+                        <button
+                          onClick={() => setNotesModal({ notes: t.notes!, url: hasLink ? detailUrl : undefined })}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold accent-txt accent-tint accent-border-lo hover:opacity-80 transition-opacity cursor-pointer border">
+                          {hasLink && (
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                          )}
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                          Ver
+                        </button>
+                      )
+                    })()}
                   </td>
                   <td className="px-2 py-3 pr-4">
                     <div className="flex items-center gap-1">
@@ -3248,6 +3317,50 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
           )
         })()}
       </div>
+
+      {/* Notes modal */}
+      {notesModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+          onClick={() => setNotesModal(null)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm bg-white dark:bg-[#0e1729] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100 dark:border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 dark:text-zinc-500">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+                <span className="text-[13px] font-semibold text-slate-700 dark:text-zinc-200">Notas</span>
+              </div>
+              <button
+                onClick={() => setNotesModal(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 dark:text-zinc-500 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            {/* Content */}
+            <div className="px-4 py-4">
+              <p className="text-[13px] text-slate-700 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
+                {notesModal.notes}
+              </p>
+            </div>
+            {/* Footer */}
+            {notesModal.url && (
+              <div className="px-4 pb-4">
+                <a
+                  href={notesModal.url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full h-10 rounded-xl text-[13px] font-semibold accent-btn accent-btn-shadow transition-opacity hover:opacity-90 cursor-pointer">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  Abrir análisis
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3615,17 +3728,21 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   )
 }
 
+// ─── Module-level page data cache (TTL: 60s per session) ──────────────────────
+const _pageCache = new Map<string, { data: PageData; time: number }>()
+const PAGE_CACHE_TTL = 60_000
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SessionDashboardPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params)
 
-  const [data, setData]       = useState<PageData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const cached = _pageCache.get(sessionId)
+  const [data, setData]       = useState<PageData | null>(cached?.data ?? null)
+  const [loading, setLoading] = useState(cached == null)
   const [showForm, setShowForm]     = useState(false)
   const [editTrade, setEditTrade]   = useState<Trade | null>(null)
   const [delTrade, setDelTrade]     = useState<Trade | null>(null)
-  const [deleting, setDeleting]     = useState(false)
   const [syncInfo, setSyncInfo]     = useState<{ synced: SyncedJournal[]; btTrade: Trade } | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [showCsvMenu, setShowCsvMenu] = useState(false)
@@ -3643,11 +3760,24 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
   const [showInstrument, setShowInstrument] = useState(true)
   const [visibleVars, setVisibleVars]       = useState<Set<string>>(new Set())
 
-  async function load() {
-    setLoading(true)
+  async function load(invalidate = false) {
+    if (invalidate) _pageCache.delete(sessionId)
+    const hit = _pageCache.get(sessionId)
+    const now = Date.now()
+    if (hit) {
+      setData(hit.data)
+      setLoading(false)
+      if (now - hit.time < PAGE_CACHE_TTL) return // fresh — skip re-fetch
+    } else {
+      setLoading(true)
+    }
     try {
       const res = await api(`/sessions/${sessionId}/trades`)
-      if (res.ok) setData(await res.json())
+      if (res.ok) {
+        const json: PageData = await res.json()
+        _pageCache.set(sessionId, { data: json, time: Date.now() })
+        setData(json)
+      }
     } finally {
       setLoading(false)
     }
@@ -3690,19 +3820,33 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       const trades = exists
         ? prev.trades.map(t => t.id === trade.id ? trade : t)
         : [trade, ...prev.trades]
-      return { ...prev, trades }
+      const next = { ...prev, trades }
+      _pageCache.set(sessionId, { data: next, time: Date.now() })
+      return next
     })
     if (synced.length > 0) setSyncInfo({ synced, btTrade: trade })
   }
 
   async function handleDelete() {
     if (!delTrade) return
-    setDeleting(true)
-    const res = await api(`/trades/${delTrade.id}`, { method: 'DELETE' })
-    setDeleting(false)
-    if (res.ok) {
-      setData(prev => prev ? { ...prev, trades: prev.trades.filter(t => t.id !== delTrade.id) } : prev)
-      setDelTrade(null)
+    const trade = delTrade
+    // Optimistic: close dialog + remove from state immediately
+    setDelTrade(null)
+    setData(prev => {
+      if (!prev) return prev
+      const next = { ...prev, trades: prev.trades.filter(t => t.id !== trade.id) }
+      _pageCache.set(sessionId, { data: next, time: Date.now() })
+      return next
+    })
+    // API en background — si falla, revertir
+    const res = await api(`/trades/${trade.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      setData(prev => {
+        if (!prev) return prev
+        const next = { ...prev, trades: [trade, ...prev.trades] }
+        _pageCache.set(sessionId, { data: next, time: Date.now() })
+        return next
+      })
     }
   }
 
@@ -3823,8 +3967,47 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32">
-        <div className="w-6 h-6 border-2 border-slate-200 dark:border-zinc-700 accent-spin rounded-full animate-spin" />
+      <div className="flex flex-col pt-4 pb-12 max-w-6xl mx-auto animate-pulse">
+        {/* KPI grid skeleton */}
+        <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-2 px-3 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07]">
+              <div className="h-2 w-16 bg-slate-100 dark:bg-zinc-800 rounded-full" />
+              <div className="flex items-end justify-between mt-1">
+                <div className="h-7 w-12 bg-slate-100 dark:bg-zinc-800 rounded-lg" />
+                <div className="w-9 h-9 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Stats accordion skeleton */}
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07] px-4 py-3.5">
+          <div className="h-3 w-32 bg-slate-100 dark:bg-zinc-800 rounded-full" />
+        </div>
+        {/* Equity chart skeleton */}
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07] overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-white/[0.05] flex items-center justify-between">
+            <div className="h-3 w-20 bg-slate-100 dark:bg-zinc-800 rounded-full" />
+            <div className="h-3 w-24 bg-slate-100 dark:bg-zinc-800 rounded-full" />
+          </div>
+          <div className="h-40 bg-slate-50 dark:bg-white/[0.01]" />
+        </div>
+        {/* Toolbar skeleton */}
+        <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
+          <div className="h-11 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+          <div className="flex gap-2">
+            <div className="flex-1 h-10 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+            <div className="w-10 h-10 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+            <div className="w-[82px] h-10 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+            <div className="w-10 h-10 bg-slate-100 dark:bg-zinc-800 rounded-xl" />
+          </div>
+        </div>
+        {/* Trade rows skeleton */}
+        <div className="flex flex-col gap-2 px-3 pt-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07]" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -3842,7 +4025,8 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
-    <div className="flex flex-col pt-5 pb-12 max-w-6xl mx-auto">
+
+    <div className="flex flex-col pt-4 pb-12 max-w-6xl mx-auto">
 
       {/* ── KPI Cards ─────────────────────────────────────────── */}
       <BasicMetrics
@@ -3875,7 +4059,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
               <ExpectancyDetail trades={dashTrades} sessionType={session.type} />
               <ZScoreCard trades={dashTrades} />
               <PValueCard trades={dashTrades} />
-              <StdDevCard trades={dashTrades} />
+              <StdDevCard trades={dashTrades} sessionType={session.type} />
               <ConsistencySection trades={dashTrades} sessionType={session.type} />
               <ExpPerMonthCard trades={dashTrades} sessionType={session.type} />
               {session.type === 'backtesting' && dashTrades.length >= 3 && (
@@ -3902,116 +4086,120 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         capitalInitial={session.capital_initial}
       />
 
-      {/* ── Toolbar: fecha · filtro · vista · nuevo · csv ─────── */}
-      <div className="px-4 pt-3 pb-2 flex items-center gap-2">
+      {/* ── Toolbar ────────────────────────────────────────────── */}
+      <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
 
-        {/* Date picker */}
-        <button onClick={() => setShowDatePicker(true)}
-          className={`shrink-0 flex items-center gap-1.5 h-10 px-3 rounded-xl border transition-all duration-150 cursor-pointer ${
-            filter.dateFrom || filter.dateTo || filter.months.length > 0
-              ? 'accent-tint accent-border-lo accent-txt'
-              : 'bg-white dark:bg-white/[0.05] border-slate-200/70 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/[0.08]'
-          }`}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 opacity-60">
-            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          <span className="text-[11px] font-medium whitespace-nowrap">
-            {filter.months.length > 0
-              ? filter.months.length <= 2
-                ? filter.months.slice().sort().map(mk => `${MONTH_LABELS[parseInt(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`).join(', ')
-                : `${filter.months.length} meses`
-              : filter.dateFrom || filter.dateTo
-                ? filter.dateFrom && filter.dateTo
-                  ? `${fmtDateShort(filter.dateFrom)} → ${fmtDateShort(filter.dateTo)}`
-                  : filter.dateFrom ? `Desde ${fmtDateShort(filter.dateFrom)}` : `Hasta ${fmtDateShort(filter.dateTo)}`
-                : 'Fechas'}
-          </span>
-          {(filter.dateFrom || filter.dateTo || filter.months.length > 0)
-            ? <span onClick={e => { e.stopPropagation(); setFilter(f => ({ ...f, dateFrom: '', dateTo: '', months: [] })) }}
-                className="shrink-0 opacity-50 hover:opacity-100 transition-opacity cursor-pointer">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </span>
-            : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="shrink-0 opacity-40">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-          }
-        </button>
-
-        {/* Filter */}
-        <button onClick={() => setShowFilters(true)}
-          className={`relative shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer ${
-            nFilters > 0
-              ? 'accent-tint accent-border-lo accent-txt'
-              : 'border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-          }`}>
-          <IconFilter />
-          {nFilters > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full accent-btn text-[9px] font-bold flex items-center justify-center">
-              {nFilters}
-            </span>
-          )}
-        </button>
-
-        {/* View toggle */}
-        <div className="flex rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden shrink-0">
-          <button onClick={() => setView('table')}
-            className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
-              view === 'table' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-            }`}>
-            <IconList />
-          </button>
-          <div className="w-px bg-slate-200 dark:bg-white/[0.08]" />
-          <button onClick={() => setView('calendar')}
-            className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
-              view === 'calendar' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-            }`}>
-            <IconCalendarView />
-          </button>
-        </div>
-
-        {/* New trade */}
+        {/* Row 1: Primary action */}
         <button
           onClick={() => { setEditTrade(null); setShowForm(true) }}
-          className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-xl accent-btn font-semibold text-[13px] cursor-pointer transition-colors active:opacity-80">
-          <IconPlus size={15} />
+          className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80">
+          <IconPlus size={16} />
           Nuevo trade
         </button>
 
-        {/* CSV */}
-        <div className="relative shrink-0" ref={csvMenuRef}>
-          <button onClick={() => setShowCsvMenu(o => !o)}
-            className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-              <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
+        {/* Row 2: Filters + controls */}
+        <div className="flex items-center gap-2">
+
+          {/* Date picker */}
+          <button onClick={() => setShowDatePicker(true)}
+            className={`flex-1 min-w-0 flex items-center gap-1.5 h-10 px-3 rounded-xl border transition-all duration-150 cursor-pointer ${
+              filter.dateFrom || filter.dateTo || filter.months.length > 0
+                ? 'accent-tint accent-border-lo accent-txt'
+                : 'bg-white dark:bg-white/[0.05] border-slate-200/70 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/[0.08]'
+            }`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 opacity-60">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
-          </button>
-          {showCsvMenu && (
-            <div className="absolute right-0 top-[calc(100%+6px)] z-20 w-44 bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.09] rounded-2xl shadow-xl overflow-hidden">
-              <button onClick={() => { setShowImport(true); setShowCsvMenu(false) }}
-                className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
-                <IconUpload size={14} />
-                Importar CSV
-              </button>
-              <div className="h-px bg-slate-100 dark:bg-white/[0.05] mx-3" />
-              <button onClick={exportCSV}
-                className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            <span className="text-[11px] font-medium truncate">
+              {filter.months.length > 0
+                ? filter.months.length <= 2
+                  ? filter.months.slice().sort().map(mk => `${MONTH_LABELS[parseInt(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`).join(', ')
+                  : `${filter.months.length} meses`
+                : filter.dateFrom || filter.dateTo
+                  ? filter.dateFrom && filter.dateTo
+                    ? `${fmtDateShort(filter.dateFrom)} → ${fmtDateShort(filter.dateTo)}`
+                    : filter.dateFrom ? `Desde ${fmtDateShort(filter.dateFrom)}` : `Hasta ${fmtDateShort(filter.dateTo)}`
+                  : 'Fechas'}
+            </span>
+            {(filter.dateFrom || filter.dateTo || filter.months.length > 0)
+              ? <span onClick={e => { e.stopPropagation(); setFilter(f => ({ ...f, dateFrom: '', dateTo: '', months: [] })) }}
+                  className="shrink-0 ml-auto opacity-50 hover:opacity-100 transition-opacity cursor-pointer">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </span>
+              : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="shrink-0 ml-auto opacity-40">
+                  <polyline points="6 9 12 15 18 9"/>
                 </svg>
-                Exportar CSV
-              </button>
-            </div>
-          )}
+            }
+          </button>
+
+          {/* Filter */}
+          <button onClick={() => setShowFilters(true)}
+            className={`relative shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer ${
+              nFilters > 0
+                ? 'accent-tint accent-border-lo accent-txt'
+                : 'border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+            }`}>
+            <IconFilter />
+            {nFilters > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full accent-btn text-[9px] font-bold flex items-center justify-center">
+                {nFilters}
+              </span>
+            )}
+          </button>
+
+          {/* View toggle */}
+          <div className="flex rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden shrink-0">
+            <button onClick={() => setView('table')}
+              className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
+                view === 'table' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+              }`}>
+              <IconList />
+            </button>
+            <div className="w-px bg-slate-200 dark:bg-white/[0.08]" />
+            <button onClick={() => setView('calendar')}
+              className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
+                view === 'calendar' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+              }`}>
+              <IconCalendarView />
+            </button>
+          </div>
+
+          {/* CSV */}
+          <div className="relative shrink-0" ref={csvMenuRef}>
+            <button onClick={() => setShowCsvMenu(o => !o)}
+              className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
+              </svg>
+            </button>
+            {showCsvMenu && (
+              <div className="absolute right-0 top-[calc(100%+6px)] z-20 w-44 bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.09] rounded-2xl shadow-xl overflow-hidden">
+                <button onClick={() => { setShowImport(true); setShowCsvMenu(false) }}
+                  className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
+                  <IconUpload size={14} />
+                  Importar CSV
+                </button>
+                <div className="h-px bg-slate-100 dark:bg-white/[0.05] mx-3" />
+                <button onClick={exportCSV}
+                  className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Exportar CSV
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Active filter summary */}
       {nFilters > 0 && (
-        <div className="px-4 pb-2 flex items-center justify-between">
+        <div className="px-3 pb-2 flex items-center justify-between">
           <span className="text-[11px] text-slate-500 dark:text-zinc-400">
             {filtered.length} de {trades.length} trade{trades.length !== 1 ? 's' : ''}
           </span>
@@ -4084,7 +4272,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         <DeleteConfirmSheet
           onConfirm={handleDelete}
           onClose={() => setDelTrade(null)}
-          loading={deleting}
+          loading={false}
         />
       )}
       {syncInfo && (

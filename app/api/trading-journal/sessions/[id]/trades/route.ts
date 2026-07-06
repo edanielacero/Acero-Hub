@@ -20,12 +20,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const session = await getOwnedSession(id, user.id)
-  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
   const admin = createAdminClient()
 
-  const [variablesRes, tradesRes] = await Promise.all([
+  // Fan-out all queries in parallel — ownership check included
+  const [sessionRes, variablesRes, tradesRes, connectionsRes] = await Promise.all([
+    admin
+      .from('tj_sessions')
+      .select('id, type, name, instrument, capital_initial')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single(),
     admin
       .from('tj_variable_definitions')
       .select('id, key, label, type, options, is_required')
@@ -37,30 +41,30 @@ export async function GET(_req: NextRequest, { params }: Params) {
       .select('*')
       .eq('session_id', id)
       .order('date_entry', { ascending: false }),
-  ])
-
-  let activeConnections: { id: string; journalId: string; journalName: string }[] = []
-
-  if (session.type === 'backtesting') {
-    const { data: connections } = await admin
+    admin
       .from('tj_session_connections')
       .select('id, journal_id')
       .eq('backtesting_id', id)
-      .eq('sync_paused', false)
+      .eq('sync_paused', false),
+  ])
 
-    if (connections?.length) {
-      const journalIds = connections.map(c => c.journal_id)
-      const { data: journals } = await admin
-        .from('tj_sessions')
-        .select('id, name')
-        .in('id', journalIds)
+  const session = sessionRes.data
+  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-      activeConnections = connections.map(conn => ({
-        id: conn.id,
-        journalId: conn.journal_id,
-        journalName: journals?.find(j => j.id === conn.journal_id)?.name ?? 'Journal',
-      }))
-    }
+  let activeConnections: { id: string; journalId: string; journalName: string }[] = []
+
+  if (session.type === 'backtesting' && connectionsRes.data?.length) {
+    const journalIds = connectionsRes.data.map(c => c.journal_id)
+    const { data: journals } = await admin
+      .from('tj_sessions')
+      .select('id, name')
+      .in('id', journalIds)
+
+    activeConnections = connectionsRes.data.map(conn => ({
+      id: conn.id,
+      journalId: conn.journal_id,
+      journalName: journals?.find(j => j.id === conn.journal_id)?.name ?? 'Journal',
+    }))
   }
 
   return NextResponse.json({

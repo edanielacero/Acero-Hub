@@ -1070,16 +1070,21 @@ function EmptyState({ type, onCreate }: { type: Tab; onCreate: () => void }) {
 function SkeletonCard() {
   return (
     <div className="flex rounded-2xl overflow-hidden bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 shadow-sm dark:shadow-none animate-pulse">
-      <div className="w-[3px] bg-slate-100 dark:bg-zinc-800" />
+      <div className="w-[3px] shrink-0 self-stretch bg-slate-200 dark:bg-zinc-800 rounded-l-2xl" />
       <div className="flex-1 px-4 py-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="h-5 w-16 bg-slate-100 dark:bg-zinc-800 rounded-lg" />
+        {/* Top row: badge + star */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="h-[22px] w-20 bg-slate-100 dark:bg-zinc-800 rounded-lg mt-1" />
+          <div className="w-9 h-9 bg-slate-100 dark:bg-zinc-800 rounded-xl shrink-0 -mr-1.5 -mt-1.5" />
         </div>
-        <div className="h-4 w-3/4 bg-slate-100 dark:bg-zinc-800 rounded-lg mb-2" />
-        <div className="h-3 w-1/3 bg-slate-50 dark:bg-zinc-900 rounded-lg mb-4" />
+        {/* Name */}
+        <div className="h-[17px] w-2/3 bg-slate-100 dark:bg-zinc-800 rounded-lg mb-2" />
+        {/* Description */}
+        <div className="h-3 w-2/5 bg-slate-50 dark:bg-zinc-900 rounded-lg mb-4" />
+        {/* Footer */}
         <div className="flex justify-between pt-3 border-t border-slate-100 dark:border-zinc-800/50">
-          <div className="h-3 w-16 bg-slate-50 dark:bg-zinc-900 rounded" />
-          <div className="h-3 w-20 bg-slate-50 dark:bg-zinc-900 rounded" />
+          <div className="h-3 w-14 bg-slate-50 dark:bg-zinc-900 rounded" />
+          <div className="h-3 w-24 bg-slate-50 dark:bg-zinc-900 rounded" />
         </div>
       </div>
     </div>
@@ -1125,12 +1130,17 @@ function TabBar({ tab, onTabChange, btCount, jnCount }: {
   )
 }
 
+// ─── Module-level sessions cache (TTL: 30s) ───────────────────────────────────
+let _sessionsCache: Session[] | null = null
+let _sessionsCacheTime = 0
+const SESSIONS_TTL = 30_000
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TradingJournalPage() {
   const router = useRouter()
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [loading, setLoading] = useState(true)
+  const [sessions, setSessions] = useState<Session[]>(_sessionsCache ?? [])
+  const [loading, setLoading] = useState(_sessionsCache === null)
   const [tab, setTab] = useState<Tab>('backtesting')
   const [saving, setSaving] = useState(false)
 
@@ -1143,10 +1153,15 @@ export default function TradingJournalPage() {
   const [createJournalFrom, setCreateJournalFrom] = useState<Session | null>(null)
   const [variablesSession, setVariablesSession] = useState<Session | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (invalidate = false) => {
+    if (invalidate) _sessionsCacheTime = 0
+    const now = Date.now()
+    if (_sessionsCache !== null && now - _sessionsCacheTime < SESSIONS_TTL) return
+    if (_sessionsCache === null) setLoading(true)
     const res = await api('/sessions').then(r => r.json()).catch(() => ({ sessions: [] }))
-    setSessions(res.sessions ?? [])
+    _sessionsCache = res.sessions ?? []
+    _sessionsCacheTime = Date.now()
+    setSessions(_sessionsCache!)
     setLoading(false)
   }, [])
 
@@ -1166,31 +1181,30 @@ export default function TradingJournalPage() {
     setSaving(true)
     const res = await api('/sessions', { method: 'POST', body: JSON.stringify(data) })
     setSaving(false)
-    if (res.ok) { setShowCreate(false); load() }
+    if (res.ok) { setShowCreate(false); load(true) }
   }
 
   const updateSession = async (id: string, data: Record<string, unknown>) => {
     setSaving(true)
     const res = await api(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
     setSaving(false)
-    if (res.ok) { setEditSession(null); load() }
+    if (res.ok) { setEditSession(null); load(true) }
   }
 
   const deleteSession = async (id: string) => {
     await api(`/sessions/${id}`, { method: 'DELETE' })
     setDeleteTarget(null)
-    load()
+    load(true)
   }
 
   const duplicate = async (id: string) => {
     await api(`/sessions/${id}/duplicate`, { method: 'POST' })
-    load()
+    load(true)
   }
 
   const toggleFavorite = async (s: Session) => {
     setSaving(true)
     if (!s.is_favorite) {
-      // Desmarcar el favorito previo del mismo tipo si existe
       const prev = sessions.find(x => x.type === s.type && x.is_favorite && x.id !== s.id)
       if (prev) {
         await api(`/sessions/${prev.id}`, { method: 'PATCH', body: JSON.stringify({ is_favorite: false }) })
@@ -1200,7 +1214,7 @@ export default function TradingJournalPage() {
       await api(`/sessions/${s.id}`, { method: 'PATCH', body: JSON.stringify({ is_favorite: false }) })
     }
     setSaving(false)
-    load()
+    load(true)
   }
   const toggleArchive  = (s: Session) => updateSession(s.id, { is_archived: !s.is_archived })
   const openCreate = () => setShowCreate(true)
@@ -1242,9 +1256,9 @@ export default function TradingJournalPage() {
       <div className="max-w-lg mx-auto px-4 pt-4 pb-12">
         {loading ? (
           <div className="flex flex-col gap-3">
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
+            {Array.from({ length: Math.max(1, byType(tab).length || 3) }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         ) : byType(tab).length === 0 ? (
           <EmptyState type={tab} onCreate={openCreate} />

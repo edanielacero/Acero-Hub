@@ -3,26 +3,24 @@ import { NextRequest, NextResponse } from 'next/server'
 
 interface Params { params: Promise<{ tradeId: string }> }
 
-async function getOwnedTrade(tradeId: string, userId: string) {
-  const admin = createAdminClient()
+type AdminClient = ReturnType<typeof createAdminClient>
 
-  const { data: trade } = await admin
+// Single JOIN query — avoids 2 serial round-trips for ownership check
+async function getOwnedTrade(tradeId: string, userId: string, admin: AdminClient) {
+  const { data } = await admin
     .from('tj_trades')
-    .select('*')
+    .select('*, tj_sessions!inner(user_id, type)')
     .eq('id', tradeId)
     .single()
 
-  if (!trade) return null
+  if (!data) return null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sess = (data as any).tj_sessions as { user_id: string; type: string }
+  if (sess.user_id !== userId) return null
 
-  const { data: session } = await admin
-    .from('tj_sessions')
-    .select('id, user_id, type')
-    .eq('id', trade.session_id)
-    .single()
-
-  if (session?.user_id !== userId) return null
-
-  return { trade, sessionType: session?.type ?? null }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { tj_sessions: _, ...trade } = data as any
+  return { trade, sessionType: sess.type }
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -31,10 +29,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const owned = await getOwnedTrade(tradeId, user.id)
+  const admin = createAdminClient()
+  const [owned, body] = await Promise.all([
+    getOwnedTrade(tradeId, user.id, admin),
+    req.json(),
+  ])
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const body = await req.json()
 
   const allowed = [
     'date_entry', 'date_exit', 'instrument', 'direction', 'result',
@@ -48,7 +48,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (key in body) updates[key] = body[key]
   }
 
-  const admin = createAdminClient()
   const { data: trade, error } = await admin
     .from('tj_trades')
     .update(updates)
@@ -67,10 +66,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const owned = await getOwnedTrade(tradeId, user.id)
+  const admin = createAdminClient()
+  const owned = await getOwnedTrade(tradeId, user.id, admin)
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const admin = createAdminClient()
   const { error } = await admin
     .from('tj_trades')
     .delete()
