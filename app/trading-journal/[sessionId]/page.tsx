@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { use } from 'react'
+import Link from 'next/link'
+import { SessionActions } from './session-actions'
 import { parseCSV, coerceDate, coerceDirection, coerceResult } from '@/lib/trading/csv-parser'
 import {
   calcExpectancy, calcProfitFactor, calcZScore, calcPValue,
@@ -1490,7 +1492,19 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
   trades: Trade[]; sessionType: SessionType; capitalInitial: number | null
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [svgW, setSvgW] = useState(600)
   const svgRef = useRef<SVGSVGElement>(null)
+
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setSvgW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Returns fontSize in SVG units that renders to exactly `px` CSS pixels
+  const fs = (px: number) => ((px * W) / Math.max(svgW, 1)).toFixed(2)
 
   const sorted = useMemo(
     () => [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry)),
@@ -1545,20 +1559,21 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     return { points: pts, isPercent: false }
   }, [sorted, sessionType, capitalInitial])
 
-  const W = 600, H = 180
-  const PAD = { top: 18, right: 16, bottom: 36, left: 46 }
+  // Geometry — more padding so labels never clip
+  const W = 600, H = 210
+  const PAD = { top: 16, right: 20, bottom: 48, left: 58 }
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
 
-  const vals         = points.map(p => p.cumValue)
-  const hasData      = points.length >= 1
+  const vals          = points.map(p => p.cumValue)
+  const hasData       = points.length >= 1
   const isSinglePoint = points.length === 1
-  const minV = points.length === 0 ? -3 : isSinglePoint ? Math.min(0, vals[0]) : Math.min(...vals)
-  const maxV = points.length === 0 ? 12 : isSinglePoint ? Math.max(0, vals[0]) : Math.max(...vals)
-  const vRange  = maxV - minV || 1
-  const dMin    = minV - vRange * 0.08
-  const dMax    = maxV + vRange * 0.08
-  const dRange  = dMax - dMin
+  const minV  = points.length === 0 ? -3 : isSinglePoint ? Math.min(0, vals[0]) : Math.min(...vals)
+  const maxV  = points.length === 0 ? 12 : isSinglePoint ? Math.max(0, vals[0]) : Math.max(...vals)
+  const vRange = maxV - minV || 1
+  const dMin  = minV - vRange * 0.10
+  const dMax  = maxV + vRange * 0.10
+  const dRange = dMax - dMin
 
   const xs = (i: number) => PAD.left + (i / Math.max(points.length - 1, 1)) * iW
   const ys = (v: number) => PAD.top  + (1 - (v - dMin) / dRange) * iH
@@ -1571,8 +1586,10 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     ? `${pathD} L ${xs(points.length - 1).toFixed(1)} ${zero.toFixed(1)} L ${xs(0).toFixed(1)} ${zero.toFixed(1)} Z`
     : ''
 
-  const yTicks  = niceYTicks(dMin, dMax)
-  const xTCount = Math.min(7, points.length)
+  // Fewer Y ticks (4) so labels don't crowd
+  const yTicks  = niceYTicks(dMin, dMax, 4)
+  // Max 5 X ticks to avoid overlap
+  const xTCount = Math.min(5, Math.max(2, points.length))
   const xTicks  = points.length <= 1 ? []
     : Array.from({ length: xTCount }, (_, i) =>
         Math.round(i * (points.length - 1) / Math.max(xTCount - 1, 1)))
@@ -1581,19 +1598,34 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     const s = signed ? (v >= 0 ? '+' : '') : ''
     return isPercent ? `${s}${v.toFixed(1)}%` : `${s}${fmtR(v)}R`
   }
+  // "07 Jul 26" format as requested
   function fmtAxisDate(d: string) {
-    return new Date(d + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    const dt = new Date(d + 'T12:00:00')
+    const day   = String(dt.getDate()).padStart(2, '0')
+    const month = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][dt.getMonth()]
+    const year  = String(dt.getFullYear()).slice(-2)
+    return `${day} ${month} ${year}`
   }
   function fmtTooltipDate(d: string) {
     return new Date(d + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
+  function pickIdx(clientX: number, rect: DOMRect) {
+    const svgX = (clientX - rect.left) * (W / rect.width) - PAD.left
+    const idx  = Math.round((svgX / iW) * (points.length - 1))
+    return Math.max(0, Math.min(points.length - 1, idx))
+  }
+
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || points.length < 2) return
-    const rect = svgRef.current.getBoundingClientRect()
-    const svgX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
-    const idx  = Math.round((svgX / iW) * (points.length - 1))
-    setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
+    setHoverIdx(pickIdx(e.clientX, svgRef.current.getBoundingClientRect()))
+  }
+
+  function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
+    if (!svgRef.current || points.length < 2) return
+    const touch = e.touches[0]
+    if (!touch) return
+    setHoverIdx(pickIdx(touch.clientX, svgRef.current.getBoundingClientRect()))
   }
 
   const lastVal   = points[points.length - 1]?.cumValue ?? 0
@@ -1626,12 +1658,18 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         </span>
       </div>
 
-      {/* Chart */}
+      {/* Chart — touch-none prevents the browser from capturing swipe for scrolling */}
       <div className="relative select-none">
-        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full"
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full touch-none"
           onMouseMove={hasData ? handleMouseMove : undefined}
-          onMouseLeave={() => setHoverIdx(null)}>
-
+          onMouseLeave={() => setHoverIdx(null)}
+          onTouchStart={hasData && !isSinglePoint ? handleTouch : undefined}
+          onTouchMove={hasData && !isSinglePoint ? handleTouch : undefined}
+          onTouchEnd={() => setHoverIdx(null)}
+        >
           <defs>
             <linearGradient id="eq-area-g" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%"   stopColor="rgb(var(--a5))" stopOpacity="0.18" />
@@ -1639,35 +1677,60 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
             </linearGradient>
           </defs>
 
-          {/* Grid + Y labels */}
-          {yTicks.map((v, i) => (
-            <g key={i}>
-              <line x1={PAD.left} y1={ys(v).toFixed(1)} x2={W - PAD.right} y2={ys(v).toFixed(1)}
-                stroke="currentColor" strokeOpacity="0.07" strokeWidth="1"
-                className="text-slate-900 dark:text-white" />
-              <text x={PAD.left - 5} y={parseFloat(ys(v).toFixed(1)) + 3.5}
-                textAnchor="end" fontSize="7" fontFamily="monospace"
-                className="fill-slate-500 dark:fill-zinc-500">
-                {fmtVal(v)}
-              </text>
-            </g>
-          ))}
+          {/* Grid + Y labels — skip ticks too close to the X-axis label band, and skip 0 (handled separately) */}
+          {yTicks.map((v, i) => {
+            const y = ys(v)
+            // Skip 0 (drawn as special zero line above) and ticks outside/near-bottom
+            if (Math.abs(v) < 1e-9) return null
+            if (y < PAD.top - 2 || y > H - PAD.bottom - 18) return null
+            return (
+              <g key={i}>
+                <line
+                  x1={PAD.left} y1={y.toFixed(1)}
+                  x2={W - PAD.right} y2={y.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.07" strokeWidth="1"
+                  className="text-slate-900 dark:text-white"
+                />
+                <text
+                  x={PAD.left - 7} y={y + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400">
+                  {fmtVal(v)}
+                </text>
+              </g>
+            )
+          })}
 
-          {/* Zero line */}
-          {minV < 0 && maxV > 0 && (
-            <line x1={PAD.left} y1={ys(0).toFixed(1)} x2={W - PAD.right} y2={ys(0).toFixed(1)}
-              stroke="currentColor" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="4 3"
-              className="text-slate-500 dark:text-zinc-500" />
-          )}
+          {/* Zero line — always shown when 0 is within chart bounds */}
+          {(() => {
+            const y0 = ys(0)
+            if (y0 < PAD.top || y0 > H - PAD.bottom) return null
+            return (
+              <g>
+                <line
+                  x1={PAD.left} y1={y0.toFixed(1)}
+                  x2={W - PAD.right} y2={y0.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.3" strokeWidth="1" strokeDasharray="4 3"
+                  className="text-slate-400 dark:text-zinc-500"
+                />
+                <text
+                  x={PAD.left - 7} y={y0 + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400 font-bold">
+                  {isPercent ? '0%' : '0R'}
+                </text>
+              </g>
+            )
+          })()}
 
-          {/* Area + line (only with ≥2 points) */}
+          {/* Area + line */}
           {!isSinglePoint && areaD && <path d={areaD} fill="url(#eq-area-g)" />}
           {!isSinglePoint && pathD && (
-            <path d={pathD} fill="none" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"
+            <path d={pathD} fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
               style={{ stroke: 'rgb(var(--a5))' }} />
           )}
 
-          {/* Single point: centered dot + date label */}
+          {/* Single point */}
           {isSinglePoint && (() => {
             const cx = PAD.left + iW / 2
             const cy = ys(vals[0])
@@ -1677,10 +1740,10 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                   stroke="currentColor" strokeOpacity="0.12" strokeWidth="1"
                   className="text-slate-900 dark:text-white" />
                 <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)}
-                  r="4.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2"
-                  className="dark:fill-zinc-950" />
-                <text x={cx.toFixed(1)} y={H - 7} textAnchor="middle" fontSize="7"
-                  className="fill-slate-500 dark:fill-zinc-500">
+                  r="5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2.5"
+                  className="dark:fill-[#0e1729]" />
+                <text x={cx.toFixed(1)} y={H - 10} textAnchor="middle" fontSize={fs(11)}
+                  className="fill-slate-500 dark:fill-zinc-400">
                   {fmtAxisDate(points[0].date)}
                 </text>
               </g>
@@ -1689,45 +1752,57 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
           {/* Empty state */}
           {points.length === 0 && (
-            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="11"
+            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize={fs(13)}
               className="fill-slate-300 dark:fill-zinc-700">
               Sin datos aún
             </text>
           )}
 
-          {/* X axis labels (only with ≥2 points) */}
+          {/* X axis labels */}
           {!isSinglePoint && xTicks.map(i => (
-            <text key={i} x={xs(i).toFixed(1)} y={H - 7} textAnchor="middle" fontSize="7"
-              className="fill-slate-500 dark:fill-zinc-500">
+            <text key={i} x={xs(i).toFixed(1)} y={H - 10} textAnchor="middle" fontSize={fs(11)}
+              className="fill-slate-500 dark:fill-zinc-400">
               {fmtAxisDate(points[i].date)}
             </text>
           ))}
 
+          {/* X axis baseline */}
+          <line
+            x1={PAD.left} y1={H - PAD.bottom}
+            x2={W - PAD.right} y2={H - PAD.bottom}
+            stroke="currentColor" strokeOpacity="0.1" strokeWidth="1"
+            className="text-slate-900 dark:text-white"
+          />
+
           {/* Hover: vertical line + dot */}
           {hovered && hoverIdx != null && (
             <g>
-              <line x1={xs(hoverIdx).toFixed(1)} y1={PAD.top - 4}
-                    x2={xs(hoverIdx).toFixed(1)} y2={H - PAD.bottom + 2}
-                stroke="currentColor" strokeOpacity="0.3" strokeWidth="1"
-                className="text-slate-600 dark:text-zinc-400" />
-              <circle cx={xs(hoverIdx).toFixed(1)} cy={ys(hovered.cumValue).toFixed(1)}
-                r="3.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2"
-                className="dark:fill-zinc-950" />
+              <line
+                x1={xs(hoverIdx).toFixed(1)} y1={PAD.top - 4}
+                x2={xs(hoverIdx).toFixed(1)} y2={H - PAD.bottom}
+                stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" strokeDasharray="3 2"
+                className="text-slate-600 dark:text-zinc-400"
+              />
+              <circle
+                cx={xs(hoverIdx).toFixed(1)} cy={ys(hovered.cumValue).toFixed(1)}
+                r="4.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2.5"
+                className="dark:fill-[#0e1729]"
+              />
             </g>
           )}
 
-          {/* Hit area */}
-          <rect x={PAD.left} y={PAD.top} width={iW} height={iH} fill="transparent" />
+          {/* Transparent hit area for mouse/touch */}
+          <rect x={PAD.left} y={PAD.top} width={iW} height={iH + (PAD.bottom / 2)} fill="transparent" />
         </svg>
 
         {/* Tooltip */}
         {hovered && hoverIdx != null && (
-          <div className="absolute top-2 pointer-events-none z-10"
+          <div className="absolute top-3 pointer-events-none z-10"
             style={{
               left: `${tipXFrac * 100}%`,
-              transform: tipXFrac > 0.58 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)',
+              transform: tipXFrac > 0.6 ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
             }}>
-            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 shadow-lg">
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 shadow-lg min-w-[140px]">
               <p className="text-[11px] font-bold text-slate-800 dark:text-white mb-1.5">
                 {fmtTooltipDate(hovered.date)}
               </p>
@@ -1742,7 +1817,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                 <span className={`font-bold ${hovered.dayChange >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                   {fmtVal(hovered.dayChange, true)}
                 </span>
-                <span className="text-slate-500 dark:text-zinc-400"> ({hovered.tradeCount} trade{hovered.tradeCount !== 1 ? 's' : ''})</span>
+                <span className="text-slate-400 dark:text-zinc-500"> · {hovered.tradeCount} trade{hovered.tradeCount !== 1 ? 's' : ''}</span>
               </p>
             </div>
           </div>
@@ -2368,11 +2443,22 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
 
 function SweetSpotChart({ trades }: { trades: Trade[] }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [svgW, setSvgW] = useState(600)
   const svgRef = useRef<SVGSVGElement>(null)
+
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setSvgW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const result = useMemo(() => calcSweetSpot(trades), [trades])
   const { points, sweetSpotLevel, sweetSpotRR, realTotalRR } = result
-  const W = 600, H = 200
-  const PAD = { top: 20, right: 16, bottom: 36, left: 48 }
+  const W = 600, H = 210
+  const PAD = { top: 16, right: 20, bottom: 48, left: 58 }
+  const fs = (px: number) => ((px * W) / Math.max(svgW, 1)).toFixed(2)
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
   const vals    = points.map(p => p.totalRR)
@@ -2394,8 +2480,8 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
   const areaD = hasData
     ? `${pathD} L ${xs(points.length - 1).toFixed(1)} ${zero.toFixed(1)} L ${xs(0).toFixed(1)} ${zero.toFixed(1)} Z`
     : ''
-  const yTicks = niceYTicks(dMin, dMax)
-  const xTCount = Math.min(7, points.length)
+  const yTicks = niceYTicks(dMin, dMax, 4)
+  const xTCount = Math.min(5, points.length)
   const xTicks  = points.length <= 1 ? []
     : Array.from({ length: xTCount }, (_, i) =>
         Math.round(i * (points.length - 1) / Math.max(xTCount - 1, 1)))
@@ -2403,6 +2489,14 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
     if (!svgRef.current || points.length < 2) return
     const rect = svgRef.current.getBoundingClientRect()
     const svgX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
+    setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
+  }
+  function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
+    if (!svgRef.current || points.length < 2) return
+    const touch = e.touches[0]
+    if (!touch) return
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = (touch.clientX - rect.left) * (W / rect.width) - PAD.left
     setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
   }
   const hovered  = hoverIdx != null ? points[hoverIdx] : null
@@ -2423,31 +2517,50 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
         </div>
       </div>
       <div className="relative select-none">
-        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full"
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full touch-none"
           onMouseMove={hasData ? handleMouseMove : undefined}
-          onMouseLeave={() => setHoverIdx(null)}>
+          onMouseLeave={() => setHoverIdx(null)}
+          onTouchStart={hasData ? handleTouch : undefined}
+          onTouchMove={hasData ? handleTouch : undefined}
+          onTouchEnd={() => setHoverIdx(null)}>
           <defs>
             <linearGradient id="ss-g" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%"   stopColor="rgb(var(--a5))" stopOpacity="0.18" />
               <stop offset="100%" stopColor="rgb(var(--a5))" stopOpacity="0.01" />
             </linearGradient>
           </defs>
-          {yTicks.map((v, i) => (
-            <g key={i}>
-              <line x1={PAD.left} y1={ys(v).toFixed(1)} x2={W - PAD.right} y2={ys(v).toFixed(1)}
-                stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" className="text-slate-900 dark:text-white" />
-              <text x={PAD.left - 5} y={parseFloat(ys(v).toFixed(1)) + 3.5}
-                textAnchor="end" fontSize="7" fontFamily="monospace"
-                className="fill-slate-500 dark:fill-zinc-500">
-                {v >= 0 ? '+' : ''}{fmtR(v)}R
-              </text>
-            </g>
-          ))}
-          {dMin < 0 && dMax > 0 && (
-            <line x1={PAD.left} y1={ys(0).toFixed(1)} x2={W - PAD.right} y2={ys(0).toFixed(1)}
-              stroke="currentColor" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="4 3"
-              className="text-slate-500 dark:text-zinc-500" />
-          )}
+          {yTicks.map((v, i) => {
+            const y = ys(v)
+            if (Math.abs(v) < 1e-9) return null
+            if (y < PAD.top - 2 || y > H - PAD.bottom - 18) return null
+            return (
+              <g key={i}>
+                <line x1={PAD.left} y1={y.toFixed(1)} x2={W - PAD.right} y2={y.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" className="text-slate-900 dark:text-white" />
+                <text x={PAD.left - 7} y={y + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400">
+                  {v >= 0 ? '+' : ''}{fmtR(v)}R
+                </text>
+              </g>
+            )
+          })}
+          {(() => {
+            const y0 = ys(0)
+            if (y0 < PAD.top || y0 > H - PAD.bottom) return null
+            return (
+              <g>
+                <line x1={PAD.left} y1={y0.toFixed(1)} x2={W - PAD.right} y2={y0.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="4 3"
+                  className="text-slate-400 dark:text-zinc-500" />
+                <text x={PAD.left - 7} y={y0 + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400 font-bold">
+                  0R
+                </text>
+              </g>
+            )
+          })()}
           {hasData && (
             <line x1={PAD.left} y1={realY.toFixed(1)} x2={W - PAD.right} y2={realY.toFixed(1)}
               stroke="currentColor" strokeOpacity="0.3" strokeWidth="1" strokeDasharray="5 4"
@@ -2467,15 +2580,21 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
               r="6" fill="#f59e0b" stroke="white" strokeWidth="2.5" className="dark:stroke-zinc-950" />
           )}
           {!hasData && (
-            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="11"
+            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize={fs(13)}
               className="fill-slate-300 dark:fill-zinc-700">Sin datos de RR máximo</text>
           )}
           {xTicks.map(i => (
-            <text key={i} x={xs(i).toFixed(1)} y={H - 7} textAnchor="middle" fontSize="7"
-              className="fill-slate-500 dark:fill-zinc-500">
+            <text key={i} x={xs(i).toFixed(1)} y={H - 10} textAnchor="middle" fontSize={fs(11)}
+              className="fill-slate-500 dark:fill-zinc-400">
               {points[i].level.toFixed(2)}R
             </text>
           ))}
+          <line
+            x1={PAD.left} y1={H - PAD.bottom}
+            x2={W - PAD.right} y2={H - PAD.bottom}
+            stroke="currentColor" strokeOpacity="0.1" strokeWidth="1"
+            className="text-slate-900 dark:text-white"
+          />
           {hovered && hoverIdx != null && hoverIdx !== ssIdx && (
             <g>
               <line x1={xs(hoverIdx).toFixed(1)} y1={PAD.top - 4} x2={xs(hoverIdx).toFixed(1)} y2={H - PAD.bottom + 2}
@@ -2484,7 +2603,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
                 r="4" fill="white" stroke="rgb(var(--a5))" strokeWidth="2" className="dark:fill-zinc-950" />
             </g>
           )}
-          <rect x={PAD.left} y={PAD.top} width={iW} height={iH} fill="transparent" />
+          <rect x={PAD.left} y={PAD.top} width={iW} height={iH + (PAD.bottom / 2)} fill="transparent" />
         </svg>
         {hovered && hoverIdx != null && (
           <div className="absolute top-2 pointer-events-none z-10"
@@ -3373,7 +3492,16 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const [month, setMonth]     = useState(today.getMonth())
   const [dayKey, setDayKey]   = useState<string | null>(null)
   const [hoverDay, setHoverDay] = useState<number | null>(null)
+  const [chartSvgW, setChartSvgW] = useState(380)
   const chartRef = useRef<SVGSVGElement>(null)
+
+  useEffect(() => {
+    const el = chartRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setChartSvgW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const byDay = useMemo(() => {
     const map: Record<string, Trade[]> = {}
@@ -3451,10 +3579,11 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const finalVal   = cVals[cVals.length - 1] ?? 0
   const initVal    = 0
 
-  const CW = 600, CH = 200
-  const CP = { top: 20, right: 16, bottom: 32, left: 52 }
+  const CW = 380, CH = 185
+  const CP = { top: 12, right: 14, bottom: 40, left: 58 }
   const ciW = CW - CP.left - CP.right
   const ciH = CH - CP.top  - CP.bottom
+  const cfs = (px: number) => ((px * CW) / Math.max(chartSvgW, 1)).toFixed(2)
 
   const cxs = (d: number) => CP.left + ((d - 1) / Math.max(daysInMonth - 1, 1)) * ciW
   const cys = (v: number) => CP.top  + (1 - (v - cDMin) / cDRange) * ciH
@@ -3463,7 +3592,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   const pathD = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${cxs(p.day).toFixed(1)} ${cys(p.cum).toFixed(1)}`).join(' ')
   const areaD = `${pathD} L ${cxs(daysInMonth).toFixed(1)} ${zero.toFixed(1)} L ${cxs(1).toFixed(1)} ${zero.toFixed(1)} Z`
 
-  const yTicks = niceYTicks(cDMin, cDMax)
+  const yTicks = niceYTicks(cDMin, cDMax, 4)
   const xStep  = daysInMonth <= 15 ? 2 : daysInMonth <= 20 ? 3 : 5
   const xTicks = Array.from({ length: daysInMonth }, (_, i) => i + 1).filter(d => d === 1 || d % xStep === 0 || d === daysInMonth)
 
@@ -3472,6 +3601,15 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     const rect = chartRef.current.getBoundingClientRect()
     const svgX  = (e.clientX - rect.left) * (CW / rect.width) - CP.left
     const day   = Math.round((svgX / ciW) * (daysInMonth - 1)) + 1
+    setHoverDay(Math.max(1, Math.min(daysInMonth, day)))
+  }
+  function handleChartTouch(e: React.TouchEvent<SVGSVGElement>) {
+    if (!chartRef.current) return
+    const touch = e.touches[0]
+    if (!touch) return
+    const rect = chartRef.current.getBoundingClientRect()
+    const svgX = (touch.clientX - rect.left) * (CW / rect.width) - CP.left
+    const day  = Math.round((svgX / ciW) * (daysInMonth - 1)) + 1
     setHoverDay(Math.max(1, Math.min(daysInMonth, day)))
   }
 
@@ -3615,10 +3753,13 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         ) : (
           <>
             {/* SVG Chart */}
-            <div className="flex-1 relative select-none min-h-[180px]">
-              <svg ref={chartRef} viewBox={`0 0 ${CW} ${CH}`} className="w-full h-full"
+            <div className="relative select-none">
+              <svg ref={chartRef} viewBox={`0 0 ${CW} ${CH}`} className="w-full touch-none"
                 onMouseMove={hasChart ? handleChartMouseMove : undefined}
-                onMouseLeave={() => setHoverDay(null)}>
+                onMouseLeave={() => setHoverDay(null)}
+                onTouchStart={hasChart ? handleChartTouch : undefined}
+                onTouchMove={hasChart ? handleChartTouch : undefined}
+                onTouchEnd={() => setHoverDay(null)}>
 
                 <defs>
                   <linearGradient id="cal-area-g" x1="0" y1="0" x2="0" y2="1">
@@ -3628,24 +3769,41 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                 </defs>
 
                 {/* Grid lines + Y labels */}
-                {yTicks.map((v, i) => (
-                  <g key={i}>
-                    <line x1={CP.left} y1={cys(v).toFixed(1)} x2={CW - CP.right} y2={cys(v).toFixed(1)}
-                      stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" strokeDasharray="3 3"
-                      className="text-slate-900 dark:text-white" />
-                    <text x={CP.left - 5} y={parseFloat(cys(v).toFixed(1)) + 3.5}
-                      textAnchor="end" fontSize="7" fontFamily="monospace"
-                      className="fill-slate-500 dark:fill-zinc-500">
-                      {fmtNet(v)}
-                    </text>
-                  </g>
-                ))}
+                {yTicks.map((v, i) => {
+                  const y = cys(v)
+                  if (Math.abs(v) < 1e-9) return null
+                  if (y < CP.top - 2 || y > CH - CP.bottom - 18) return null
+                  return (
+                    <g key={i}>
+                      <line x1={CP.left} y1={y.toFixed(1)} x2={CW - CP.right} y2={y.toFixed(1)}
+                        stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" strokeDasharray="3 3"
+                        className="text-slate-900 dark:text-white" />
+                      <text x={CP.left - 7} y={y + 4}
+                        textAnchor="end" fontSize={cfs(11)} fontFamily="monospace"
+                        className="fill-slate-500 dark:fill-zinc-400">
+                        {fmtNet(v)}
+                      </text>
+                    </g>
+                  )
+                })}
 
-                {/* Zero line */}
-                {cMin < 0 && cMax >= 0 && (
-                  <line x1={CP.left} y1={cys(0).toFixed(1)} x2={CW - CP.right} y2={cys(0).toFixed(1)}
-                    stroke="#94a3b8" strokeOpacity="0.35" strokeWidth="1" strokeDasharray="5 3" />
-                )}
+                {/* Zero line — always visible when 0 is within chart bounds */}
+                {(() => {
+                  const y0 = cys(0)
+                  if (y0 < CP.top || y0 > CH - CP.bottom) return null
+                  return (
+                    <g>
+                      <line x1={CP.left} y1={y0.toFixed(1)} x2={CW - CP.right} y2={y0.toFixed(1)}
+                        stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="4 3"
+                        className="text-slate-400 dark:text-zinc-500" />
+                      <text x={CP.left - 7} y={y0 + 4}
+                        textAnchor="end" fontSize={cfs(11)} fontFamily="monospace"
+                        className="fill-slate-500 dark:fill-zinc-400 font-bold">
+                        {fmtNet(0)}
+                      </text>
+                    </g>
+                  )
+                })()}
 
                 {/* Area + line */}
                 {hasChart && <path d={areaD} fill="url(#cal-area-g)" />}
@@ -3655,11 +3813,19 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
 
                 {/* X axis labels */}
                 {xTicks.map(d => (
-                  <text key={d} x={cxs(d).toFixed(1)} y={CH - 7} textAnchor="middle" fontSize="7"
-                    fontFamily="monospace" className="fill-slate-500 dark:fill-zinc-500">
+                  <text key={d} x={cxs(d).toFixed(1)} y={CH - 10} textAnchor="middle" fontSize={cfs(11)}
+                    fontFamily="monospace" className="fill-slate-500 dark:fill-zinc-400">
                     {d}
                   </text>
                 ))}
+
+                {/* X baseline */}
+                <line
+                  x1={CP.left} y1={CH - CP.bottom}
+                  x2={CW - CP.right} y2={CH - CP.bottom}
+                  stroke="currentColor" strokeOpacity="0.1" strokeWidth="1"
+                  className="text-slate-900 dark:text-white"
+                />
 
                 {/* Hover */}
                 {hoverDay !== null && hasChart && (() => {
@@ -3677,7 +3843,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                   )
                 })()}
 
-                <rect x={CP.left} y={CP.top} width={ciW} height={ciH} fill="transparent" />
+                <rect x={CP.left} y={CP.top} width={ciW} height={ciH + (CP.bottom / 2)} fill="transparent" />
               </svg>
 
               {/* Tooltip */}
@@ -3967,7 +4133,12 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
 
   if (loading) {
     return (
-      <div className="flex flex-col pt-4 pb-12 max-w-6xl mx-auto animate-pulse">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
+        {/* Header skeleton */}
+        <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-zinc-950/90 backdrop-blur border-b border-slate-200/80 dark:border-zinc-800/60">
+          <div className="h-4 w-20 bg-slate-100 dark:bg-zinc-800 rounded-full animate-pulse" />
+        </header>
+        <div className="flex flex-col pt-4 pb-12 max-w-3xl mx-auto animate-pulse">
         {/* KPI grid skeleton */}
         <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -4008,6 +4179,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
             <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07]" />
           ))}
         </div>
+        </div>
       </div>
     )
   }
@@ -4026,7 +4198,31 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
 
-    <div className="flex flex-col pt-4 pb-12 max-w-6xl mx-auto">
+      {/* ── Sticky header (client-rendered — instant on cache hit) ── */}
+      <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-zinc-950/90 backdrop-blur border-b border-slate-200/80 dark:border-zinc-800/60">
+        <Link
+          href="/trading-journal"
+          className="flex items-center gap-1.5 text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
+          aria-label="Volver">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          <span className="text-[13px] font-medium">Sesiones</span>
+        </Link>
+        <SessionActions sessionId={session.id} sessionName={session.name} sessionType={session.type} />
+      </header>
+
+    <div className="flex flex-col pt-4 pb-12 max-w-3xl mx-auto">
+
+      {/* ── Nombre de sesión ──────────────────────────────────── */}
+      <div className="px-4 pb-3">
+        <p className="text-[10px] font-black uppercase tracking-[0.15em] accent-txt mb-1">
+          {session.type === 'backtesting' ? 'Backtesting' : 'Journal'}
+        </p>
+        <h2 className="text-[22px] font-bold text-slate-900 dark:text-white leading-tight tracking-tight">
+          {session.name}
+        </h2>
+      </div>
 
       {/* ── KPI Cards ─────────────────────────────────────────── */}
       <BasicMetrics

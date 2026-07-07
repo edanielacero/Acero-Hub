@@ -20,17 +20,43 @@ function api(path: string) {
   return fetch(`/api/trading-journal${path}`, { headers: { 'Content-Type': 'application/json' } })
 }
 
+function niceYTicks(min: number, max: number, targetCount = 5): number[] {
+  if (min === max) return [min]
+  const range   = max - min
+  const rough   = range / (targetCount - 1)
+  const mag     = Math.pow(10, Math.floor(Math.log10(Math.abs(rough) || 1)))
+  const norm    = rough / mag
+  const step    = norm <= 1 ? mag : norm <= 2 ? 2 * mag : norm <= 5 ? 5 * mag : 10 * mag
+  const niceMin = Math.floor(min / step) * step
+  const niceMax = Math.ceil(max / step) * step
+  const ticks: number[] = []
+  for (let t = niceMin; t <= niceMax + step * 0.001; t = parseFloat((t + step).toFixed(10))) {
+    ticks.push(parseFloat(t.toFixed(10)))
+  }
+  return ticks
+}
+
 // ─── Sweet Spot Chart ──────────────────────────────────────────────────────────
 
 function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType: SessionType }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [svgW, setSvgW] = useState(600)
   const svgRef = useRef<SVGSVGElement>(null)
+
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setSvgW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const result = useMemo(() => calcSweetSpot(trades), [trades])
   const { points, sweetSpotLevel, sweetSpotRR, realTotalRR } = result
 
-  const W = 600, H = 200
-  const PAD = { top: 20, right: 16, bottom: 36, left: 48 }
+  const W = 600, H = 210
+  const PAD = { top: 16, right: 20, bottom: 48, left: 58 }
+  const fs = (px: number) => ((px * W) / Math.max(svgW, 1)).toFixed(2)
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
 
@@ -58,8 +84,8 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
     ? `${pathD} L ${xs(points.length - 1).toFixed(1)} ${zero.toFixed(1)} L ${xs(0).toFixed(1)} ${zero.toFixed(1)} Z`
     : ''
 
-  const yTicks = Array.from({ length: 5 }, (_, i) => dMin + (i / 4) * dRange)
-  const xTCount = Math.min(7, points.length)
+  const yTicks = niceYTicks(dMin, dMax, 4)
+  const xTCount = Math.min(5, points.length)
   const xTicks  = points.length <= 1 ? []
     : Array.from({ length: xTCount }, (_, i) =>
         Math.round(i * (points.length - 1) / Math.max(xTCount - 1, 1)))
@@ -70,6 +96,14 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
     const svgX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
     const idx  = Math.round((svgX / iW) * (points.length - 1))
     setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
+  }
+  function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
+    if (!svgRef.current || points.length < 2) return
+    const touch = e.touches[0]
+    if (!touch) return
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = (touch.clientX - rect.left) * (W / rect.width) - PAD.left
+    setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
   }
 
   const hovered  = hoverIdx != null ? points[hoverIdx] : null
@@ -103,9 +137,12 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
 
       {/* Chart */}
       <div className="relative select-none">
-        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full"
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full touch-none"
           onMouseMove={hasData ? handleMouseMove : undefined}
-          onMouseLeave={() => setHoverIdx(null)}>
+          onMouseLeave={() => setHoverIdx(null)}
+          onTouchStart={hasData ? handleTouch : undefined}
+          onTouchMove={hasData ? handleTouch : undefined}
+          onTouchEnd={() => setHoverIdx(null)}>
 
           <defs>
             <linearGradient id="ss-area-g" x1="0" y1="0" x2="0" y2="1">
@@ -115,25 +152,41 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
           </defs>
 
           {/* Grid + Y labels */}
-          {yTicks.map((v, i) => (
-            <g key={i}>
-              <line x1={PAD.left} y1={ys(v).toFixed(1)} x2={W - PAD.right} y2={ys(v).toFixed(1)}
-                stroke="currentColor" strokeOpacity="0.07" strokeWidth="1"
-                className="text-slate-900 dark:text-white" />
-              <text x={PAD.left - 5} y={parseFloat(ys(v).toFixed(1)) + 3.5}
-                textAnchor="end" fontSize="8.5" fontFamily="monospace"
-                className="fill-slate-400 dark:fill-zinc-600">
-                {v >= 0 ? '+' : ''}{v.toFixed(1)}R
-              </text>
-            </g>
-          ))}
+          {yTicks.map((v, i) => {
+            const y = ys(v)
+            if (Math.abs(v) < 1e-9) return null
+            if (y < PAD.top - 2 || y > H - PAD.bottom - 18) return null
+            return (
+              <g key={i}>
+                <line x1={PAD.left} y1={y.toFixed(1)} x2={W - PAD.right} y2={y.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.07" strokeWidth="1"
+                  className="text-slate-900 dark:text-white" />
+                <text x={PAD.left - 7} y={y + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400">
+                  {v >= 0 ? '+' : ''}{v.toFixed(1)}R
+                </text>
+              </g>
+            )
+          })}
 
-          {/* Zero line */}
-          {dMin < 0 && dMax > 0 && (
-            <line x1={PAD.left} y1={ys(0).toFixed(1)} x2={W - PAD.right} y2={ys(0).toFixed(1)}
-              stroke="currentColor" strokeOpacity="0.2" strokeWidth="1" strokeDasharray="4 3"
-              className="text-slate-500 dark:text-zinc-500" />
-          )}
+          {/* Zero line — always visible when 0 is within chart bounds */}
+          {(() => {
+            const y0 = ys(0)
+            if (y0 < PAD.top || y0 > H - PAD.bottom) return null
+            return (
+              <g>
+                <line x1={PAD.left} y1={y0.toFixed(1)} x2={W - PAD.right} y2={y0.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="4 3"
+                  className="text-slate-400 dark:text-zinc-500" />
+                <text x={PAD.left - 7} y={y0 + 4}
+                  textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
+                  className="fill-slate-500 dark:fill-zinc-400 font-bold">
+                  0R
+                </text>
+              </g>
+            )
+          })()}
 
           {/* Real RR reference line */}
           {hasData && (
@@ -165,7 +218,7 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
 
           {/* Empty state */}
           {!hasData && (
-            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize="11"
+            <text x={W / 2} y={H / 2} textAnchor="middle" fontSize={fs(13)}
               className="fill-slate-300 dark:fill-zinc-700">
               Sin datos de RR máximo
             </text>
@@ -173,11 +226,19 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
 
           {/* X axis labels */}
           {xTicks.map(i => (
-            <text key={i} x={xs(i).toFixed(1)} y={H - 7} textAnchor="middle" fontSize="8.5"
-              className="fill-slate-400 dark:fill-zinc-600">
+            <text key={i} x={xs(i).toFixed(1)} y={H - 10} textAnchor="middle" fontSize={fs(11)}
+              className="fill-slate-500 dark:fill-zinc-400">
               {points[i].level.toFixed(2)}R
             </text>
           ))}
+
+          {/* X baseline */}
+          <line
+            x1={PAD.left} y1={H - PAD.bottom}
+            x2={W - PAD.right} y2={H - PAD.bottom}
+            stroke="currentColor" strokeOpacity="0.1" strokeWidth="1"
+            className="text-slate-900 dark:text-white"
+          />
 
           {/* Hover: vertical line + dot */}
           {hovered && hoverIdx != null && hoverIdx !== ssIdx && (
@@ -192,7 +253,7 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
             </g>
           )}
 
-          <rect x={PAD.left} y={PAD.top} width={iW} height={iH} fill="transparent" />
+          <rect x={PAD.left} y={PAD.top} width={iW} height={iH + (PAD.bottom / 2)} fill="transparent" />
         </svg>
 
         {/* Tooltip */}
