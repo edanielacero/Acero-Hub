@@ -93,8 +93,13 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || points.length < 2) return
     const rect = svgRef.current.getBoundingClientRect()
-    const svgX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
-    const idx  = Math.round((svgX / iW) * (points.length - 1))
+    const rawX = (e.clientX - rect.left) * (W / rect.width)
+    const rawY = (e.clientY - rect.top)  * (H / rect.height)
+    if (rawX < PAD.left || rawX > W - PAD.right || rawY < PAD.top || rawY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    const idx = Math.round(((rawX - PAD.left) / iW) * (points.length - 1))
     setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)))
   }
   function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
@@ -102,8 +107,13 @@ function SweetSpotChart({ trades, sessionType }: { trades: Trade[]; sessionType:
     const touch = e.touches[0]
     if (!touch) return
     const rect = svgRef.current.getBoundingClientRect()
-    const svgX = (touch.clientX - rect.left) * (W / rect.width) - PAD.left
-    setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
+    const rawX = (touch.clientX - rect.left) * (W / rect.width)
+    const rawY = (touch.clientY - rect.top)  * (H / rect.height)
+    if (rawX < PAD.left || rawX > W - PAD.right || rawY < PAD.top || rawY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round(((rawX - PAD.left) / iW) * (points.length - 1)))))
   }
 
   const hovered  = hoverIdx != null ? points[hoverIdx] : null

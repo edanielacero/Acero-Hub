@@ -257,7 +257,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
                 item.danger
                   ? 'text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
                   : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-300 dark:hover:bg-white/5 dark:hover:text-white'
-              } ${i === 0 ? '' : 'border-t border-slate-100 dark:border-zinc-800/60'}`}>
+              } ${i === 0 ? '' : 'border-t border-slate-200 dark:border-zinc-700/50'}`}>
               <span className={item.danger
                 ? 'text-red-400'
                 : 'text-slate-400 dark:text-zinc-400'
@@ -290,7 +290,7 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
   return (
     <div onClick={onClick} className={`relative flex rounded-2xl transition-all duration-150 ${
       session.is_archived ? 'opacity-40' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'
-    } bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 hover:border-slate-200 dark:hover:border-zinc-700/60 shadow-sm dark:shadow-none cursor-pointer`}>
+    } bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700/60 hover:border-slate-300 dark:hover:border-zinc-600/60 shadow-sm dark:shadow-none cursor-pointer`}>
 
       {/* Left accent line */}
       <div className="w-[3px] shrink-0 self-stretch rounded-l-2xl accent-bar" />
@@ -350,11 +350,11 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
 
         {/* Description preview */}
         {session.description && (
-          <p className="text-[12px] text-slate-500 dark:text-zinc-500 leading-relaxed mb-3 line-clamp-1">{session.description}</p>
+          <p className="text-[12px] text-slate-500 dark:text-zinc-400 leading-relaxed mb-3 line-clamp-1">{session.description}</p>
         )}
 
         {/* Footer meta */}
-        <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800/50 mt-1">
+        <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-zinc-700/50 mt-1">
           <span className={`text-[11px] font-semibold tabular-nums ${
             session.trade_count > 0
               ? 'text-slate-500 dark:text-zinc-400'
@@ -429,7 +429,7 @@ const inp = [
   'min-h-[48px]',
 ].join(' ')
 
-const fieldLabel = 'block text-[11px] font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-[0.1em] mb-2'
+const fieldLabel = 'block text-[11px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2'
 
 // ─── Custom Var Mini-Form ──────────────────────────────────────────────────────
 
@@ -780,7 +780,7 @@ function ConnectionsSheet({ session, onClose, onRefresh }: {
             ) : (
               <div className="flex flex-col gap-2">
                 {data.connections.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60">
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200 truncate">{c.other_session?.name ?? 'Journal'}</p>
                       {c.sync_paused && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">Sincronización pausada</p>}
@@ -813,7 +813,7 @@ function ConnectionsSheet({ session, onClose, onRefresh }: {
                     key={j.id}
                     onClick={() => connectExisting(j.id)}
                     disabled={loading}
-                    className="flex items-center justify-between px-4 min-h-[48px] rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 accent-row transition-all duration-150 cursor-pointer text-left disabled:opacity-40">
+                    className="flex items-center justify-between px-4 min-h-[48px] rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 accent-row transition-all duration-150 cursor-pointer text-left disabled:opacity-40">
                     <span className="text-[13px] font-medium text-slate-800 dark:text-zinc-200">{j.name}</span>
                     <span className="text-[11px] accent-txt font-bold">Conectar</span>
                   </button>
@@ -980,29 +980,32 @@ function SettingsSheet({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <BottomSheet title="Ajustes" onClose={onClose}>
-      <div className="flex flex-col gap-7">
+    <BottomSheet title="Apariencia" onClose={onClose}>
+      <div className="flex flex-col gap-6">
 
         {/* Mode */}
         <div>
           <p className={fieldLabel}>Modo</p>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2.5">
             {([
-              { key: 'dark'  as Mode, label: 'Oscuro', icon: <IconMoon size={15} /> },
-              { key: 'light' as Mode, label: 'Claro',  icon: <IconSun  size={15} /> },
-            ]).map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => applyMode(opt.key)}
-                className={`flex-1 flex items-center justify-center gap-2 min-h-[48px] rounded-xl text-[13px] font-bold border transition-all duration-150 cursor-pointer ${
-                  mode === opt.key
-                    ? 'accent-btn accent-btn-shadow border-transparent'
-                    : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-500 hover:text-slate-800 dark:hover:text-zinc-200'
-                }`}>
-                {opt.icon}
-                {opt.label}
-              </button>
-            ))}
+              { key: 'dark'  as Mode, label: 'Oscuro', icon: <IconMoon size={17} /> },
+              { key: 'light' as Mode, label: 'Claro',  icon: <IconSun  size={17} /> },
+            ]).map(opt => {
+              const active = mode === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => applyMode(opt.key)}
+                  className={`flex items-center justify-center gap-2.5 min-h-[54px] rounded-2xl text-[14px] font-bold border-2 transition-all duration-150 cursor-pointer ${
+                    active
+                      ? 'accent-btn border-transparent'
+                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:border-slate-300 dark:hover:border-zinc-500 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                  }`}>
+                  {opt.icon}
+                  {opt.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -1010,27 +1013,32 @@ function SettingsSheet({ onClose }: { onClose: () => void }) {
         <div>
           <p className={fieldLabel}>Color de acento</p>
           <div className="grid grid-cols-3 gap-2">
-            {ACCENT_OPTIONS.map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => applyAccent(opt.key)}
-                className={`flex items-center gap-2.5 px-3 min-h-[44px] rounded-xl text-[12px] font-semibold border transition-all duration-150 cursor-pointer ${
-                  accent === opt.key
-                    ? 'border-transparent text-white'
-                    : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-600'
-                }`}
-                style={accent === opt.key ? { backgroundColor: opt.color } : undefined}>
-                <span
-                  className={`w-3.5 h-3.5 rounded-full shrink-0 ${accent === opt.key ? 'bg-white/40' : ''}`}
-                  style={accent !== opt.key ? { backgroundColor: opt.color } : undefined}
-                />
-                {opt.label}
-              </button>
-            ))}
+            {ACCENT_OPTIONS.map(opt => {
+              const active = accent === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => applyAccent(opt.key)}
+                  className={`flex items-center gap-2.5 px-3 min-h-[50px] rounded-xl text-[13px] font-semibold border-2 transition-all duration-150 cursor-pointer ${
+                    active
+                      ? 'border-transparent text-white'
+                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:border-slate-300 dark:hover:border-zinc-600 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                  }`}
+                  style={active ? { backgroundColor: opt.color } : undefined}>
+                  <span
+                    className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
+                    style={{ backgroundColor: active ? 'rgba(255,255,255,0.28)' : opt.color }}>
+                    {active && (
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    )}
+                  </span>
+                  {opt.label}
+                </button>
+              )
+            })}
           </div>
-          <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-3 leading-relaxed">
-            Los cambios aplican a todo Acero Hub y se guardan en tu cuenta.
-          </p>
         </div>
 
       </div>
@@ -1069,7 +1077,7 @@ function EmptyState({ type, onCreate }: { type: Tab; onCreate: () => void }) {
 
 function SkeletonCard() {
   return (
-    <div className="flex rounded-2xl overflow-hidden bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800/60 shadow-sm dark:shadow-none animate-pulse">
+    <div className="flex rounded-2xl overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700/60/60 shadow-sm dark:shadow-none animate-pulse">
       <div className="w-[3px] shrink-0 self-stretch bg-slate-200 dark:bg-zinc-800 rounded-l-2xl" />
       <div className="flex-1 px-4 py-4">
         {/* Top row: badge + star */}
@@ -1082,7 +1090,7 @@ function SkeletonCard() {
         {/* Description */}
         <div className="h-3 w-2/5 bg-slate-50 dark:bg-zinc-900 rounded-lg mb-4" />
         {/* Footer */}
-        <div className="flex justify-between pt-3 border-t border-slate-100 dark:border-zinc-800/50">
+        <div className="flex justify-between pt-3 border-t border-slate-200 dark:border-zinc-700/50">
           <div className="h-3 w-14 bg-slate-50 dark:bg-zinc-900 rounded" />
           <div className="h-3 w-24 bg-slate-50 dark:bg-zinc-900 rounded" />
         </div>

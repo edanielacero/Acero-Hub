@@ -123,6 +123,23 @@ html, body {
 /* Light mode: swap to darker accent shades for readability on light backgrounds */
 [data-mode="light"] .accent-txt        { color: rgb(var(--a6)); }
 [data-mode="light"] .accent-txt-bright { color: rgb(var(--a5)); }
-[data-mode="light"] .accent-badge      { color: rgb(var(--a6)); border-color: rgb(var(--a5) / 0.30); }
+[data-mode="light"] .accent-badge      { background-color: rgb(var(--a6) / 0.08); color: rgb(var(--a6)); border-color: rgb(var(--a6) / 0.22); }
 [data-mode="light"] .accent-tab-off    { color: rgb(var(--a6) / 0.50); }
 [data-mode="light"] .accent-tab-off:hover { color: rgb(var(--a6)); }
+
+/* Light mode: utilities missing from original set — use --a6 (darkest) on white */
+[data-mode="light"] .accent-tint       { background-color: rgb(var(--a6) / 0.08); }
+[data-mode="light"] .accent-tint-md    { background-color: rgb(var(--a6) / 0.14); }
+[data-mode="light"] .accent-subtle     { background-color: rgb(var(--a6) / 0.04); }
+[data-mode="light"] .accent-border-lo  { border-color: rgb(var(--a6) / 0.22); }
+[data-mode="light"] .accent-border-mid { border-color: rgb(var(--a6) / 0.45); }
+[data-mode="light"] .accent-bar        { background-color: rgb(var(--a6)); }
+[data-mode="light"] .accent-btn        { background-color: rgb(var(--a6)); color: white; }
+[data-mode="light"] .accent-btn:hover  { background-color: rgb(var(--a5)); }
+[data-mode="light"] .accent-btn-shadow { box-shadow: 0 4px 14px rgb(var(--a6) / 0.22); }
+[data-mode="light"] .accent-selected   { background-color: rgb(var(--a6) / 0.08); border-color: rgb(var(--a6) / 0.35); color: rgb(var(--a6)); }
+[data-mode="light"] .accent-tab        { background-color: rgb(var(--a6)); color: white; }
+[data-mode="light"] .accent-row:hover  { background-color: rgb(var(--a6) / 0.04); border-color: rgb(var(--a6) / 0.30); }
+[data-mode="light"] .accent-input:focus { border-color: rgb(var(--a6) / 0.55); }
+[data-mode="light"] .accent-spin       { border-top-color: rgb(var(--a6)); }
+[data-mode="light"] .accent-toggle-on  { background-color: rgb(var(--a6)) !important; border-color: rgb(var(--a5)) !important; }

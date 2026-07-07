@@ -11,6 +11,7 @@ import {
   calcStrategyConfidence, normalCDF,
 } from '@/lib/trading/metrics'
 import { calcSweetSpot } from '@/lib/trading/sweetspot'
+import { runMontecarlo, buildResultsArray, buildManualResults, MontecarloMode, MontecarloResult } from '@/lib/trading/montecarlo'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ type SessionType = 'backtesting' | 'journal'
 type Direction = 'long' | 'short'
 type Result = 'tp' | 'sl' | 'be'
 type VarType = 'text' | 'number' | 'select_single' | 'select_multiple' | 'boolean'
-type TradeView = 'table' | 'calendar'
+type TradeView = 'table' | 'calendar' | 'montecarlo'
 type SortDir   = 'asc' | 'desc'
 type SortCol   = 'date' | 'result' | 'rr' | 'direction' | 'instrument' | 'risk' | string
 
@@ -391,7 +392,7 @@ const inp = [
   'min-h-[48px]',
 ].join(' ')
 
-const fieldLabel = 'block text-[11px] font-bold text-slate-500 dark:text-zinc-500 uppercase tracking-[0.1em] mb-2'
+const fieldLabel = 'block text-[11px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2'
 
 // ─── Bottom Sheet ──────────────────────────────────────────────────────────────
 
@@ -560,7 +561,7 @@ function TradeCard({ trade, sessionType, onEdit, onDelete }: {
     : 'text-zinc-400 dark:text-zinc-500'
 
   return (
-    <div className="flex gap-3 pl-3 pr-2 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none min-h-[62px] items-stretch transition-all duration-150 hover:bg-slate-50 dark:hover:bg-zinc-900 hover:border-slate-200 dark:hover:border-zinc-700/60">
+    <div className="flex gap-3 pl-3 pr-2 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none min-h-[62px] items-stretch transition-all duration-150 hover:bg-slate-50 dark:hover:bg-zinc-900 hover:border-slate-200 dark:hover:border-zinc-700/60">
       <div className={`w-[3px] rounded-full shrink-0 self-stretch ${cfg?.bar ?? 'bg-zinc-200 dark:bg-zinc-700'}`} />
 
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
@@ -697,7 +698,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
 
   function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
     return (
-      <div className={`flex flex-col gap-1.5 px-3.5 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none ${className}`}>
+      <div className={`flex flex-col gap-1.5 px-3.5 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none ${className}`}>
         {children}
       </div>
     )
@@ -728,7 +729,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Winrate</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && wrPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-300 dark:text-zinc-700'}`}>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && wrPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-600'}`}>
               {wr !== null ? `${wr.toFixed(1)}%` : '—'}
             </span>
             {!empty && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1 font-mono tabular-nums">{W}W · {L}L{BE > 0 ? ` · ${BE}BE` : ''}</p>}
@@ -750,7 +751,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">{rentLabel}</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-300 dark:text-zinc-700'}`}>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-600'}`}>
               {rentValue}
             </span>
             {!empty && sessionType === 'backtesting' && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
@@ -774,7 +775,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Profit Factor</span>
         <div className="flex items-end justify-between mt-0.5">
           <span className={`text-[26px] font-bold leading-none tabular-nums ${
-            empty || pfactor === null ? 'text-slate-300 dark:text-zinc-700'
+            empty || pfactor === null ? 'text-slate-400 dark:text-zinc-600'
             : pfactor > 1 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'
           }`}>
             {empty || pfactor === null ? '—' : pfactor === Infinity ? '∞' : pfactor.toFixed(2)}
@@ -793,7 +794,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Racha Gan.</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && maxWin > 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-300 dark:text-zinc-700'}`}>{empty ? '—' : maxWin}</span>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && maxWin > 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-zinc-600'}`}>{empty ? '—' : maxWin}</span>
             {!empty && maxWin > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">seguidas</p>}
           </div>
           <Icon
@@ -814,7 +815,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Racha Per.</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && maxLoss > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-300 dark:text-zinc-700'}`}>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && maxLoss > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-600'}`}>
               {empty ? '—' : maxLoss}
             </span>
             {!empty && maxLoss > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">seguidas</p>}
@@ -1618,14 +1619,28 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || points.length < 2) return
-    setHoverIdx(pickIdx(e.clientX, svgRef.current.getBoundingClientRect()))
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = (e.clientX - rect.left) * (W / rect.width)
+    const svgY = (e.clientY - rect.top)  * (H / rect.height)
+    if (svgX < PAD.left || svgX > W - PAD.right || svgY < PAD.top || svgY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    setHoverIdx(pickIdx(e.clientX, rect))
   }
 
   function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
     if (!svgRef.current || points.length < 2) return
     const touch = e.touches[0]
     if (!touch) return
-    setHoverIdx(pickIdx(touch.clientX, svgRef.current.getBoundingClientRect()))
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = (touch.clientX - rect.left) * (W / rect.width)
+    const svgY = (touch.clientY - rect.top)  * (H / rect.height)
+    if (svgX < PAD.left || svgX > W - PAD.right || svgY < PAD.top || svgY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    setHoverIdx(pickIdx(touch.clientX, rect))
   }
 
   const lastVal   = points[points.length - 1]?.cumValue ?? 0
@@ -1638,7 +1653,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     : 0
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
@@ -1826,7 +1841,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
       {/* Footer stats */}
       {points.length > 0 && (
-        <div className="grid grid-cols-4 border-t border-slate-100 dark:border-white/[0.05] divide-x divide-slate-100 dark:divide-zinc-800/60">
+        <div className="grid grid-cols-4 border-t border-slate-200 dark:border-white/[0.08] divide-x divide-slate-200 dark:divide-zinc-700/50">
           {([
             { label: 'Primer Trade', value: firstDate ? new Date(firstDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—', color: 'text-slate-700 dark:text-zinc-200' },
             { label: 'Rent. Máxima', value: `${peakVal >= 0 ? '+' : ''}${fmtVal(peakVal)}`, color: peakVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
@@ -1899,7 +1914,7 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
     const faltanTrades = nMin - N
     const progress = Math.min((N / nMin) * 100, 99)
     return (
-      <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
+      <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
         <div className="px-4 pt-4 pb-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
@@ -2001,7 +2016,7 @@ function ConfidenceBar({ trades }: { trades: Trade[] }) {
   else if (total >= 30) { color = 'rgb(var(--a5) / 0.40)'; msg = `Métricas básicas disponibles — se necesitan ${MAX} trades para el veredicto` }
 
   return (
-    <div className="mx-4 mb-3 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none">
+    <div className="mx-4 mb-3 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Muestra para veredicto</span>
         <span className={`text-[10px] font-mono font-bold ${done ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>{total} / {MAX}</span>
@@ -2049,7 +2064,7 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
   const fmtExpct = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${v >= 0 ? '+' : ''}${fmtR(Math.abs(v))}R`
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 pt-4 pb-3">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-3">
       <div className="flex items-start justify-between mb-3">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por trade</span>
@@ -2115,7 +2130,7 @@ function ZScoreCard({ trades }: { trades: Trade[] }) {
   }
 
   return (
-    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 py-4">
+    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isNeutral && reliable ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
           {isNeutral && reliable
@@ -2177,13 +2192,13 @@ function PValueCard({ trades }: { trades: Trade[] }) {
   const iconBg    = hasEdge ? 'bg-emerald-100 dark:bg-emerald-900/40'
     : result !== null && result.zb > 0 ? 'bg-amber-100 dark:bg-amber-900/30'
     : 'bg-rose-100 dark:bg-rose-900/30'
-  const mainColor = result === null ? 'text-slate-300 dark:text-zinc-700'
+  const mainColor = result === null ? 'text-slate-400 dark:text-zinc-600'
     : hasEdge ? 'text-emerald-500 dark:text-emerald-400'
     : result.zb > 0 ? 'text-amber-500 dark:text-amber-400'
     : 'text-rose-500 dark:text-rose-400'
 
   return (
-    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 py-4">
+    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${iconBg}`}>
           {hasEdge
@@ -2254,7 +2269,7 @@ function StdDevCard({ trades, sessionType }: { trades: Trade[]; sessionType: Ses
     : (stdDevRR === null ? '—' : `${fmtR(stdDevRR)}R`)
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 pt-4 pb-4">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">
@@ -2268,7 +2283,7 @@ function StdDevCard({ trades, sessionType }: { trades: Trade[]; sessionType: Ses
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Ratio Sharpe</span>
           <p className={`text-[24px] font-bold font-mono leading-none mt-0.5 ${
-            sharpe === null ? 'text-slate-300 dark:text-zinc-700'
+            sharpe === null ? 'text-slate-400 dark:text-zinc-600'
             : sharpe >= 1 ? 'text-emerald-600 dark:text-emerald-400'
             : sharpe >= 0.5 ? 'text-amber-500 dark:text-amber-400'
             : 'text-rose-500 dark:text-rose-400'
@@ -2329,7 +2344,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
   return (
     <div className="mx-4 mb-1.5 flex flex-col gap-1.5">
       {/* Meses Perdedores explanation row */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 py-4">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
         <div className="flex items-start gap-3">
           <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${beatExpected ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-rose-100 dark:bg-rose-900/40'}`}>
             {beatExpected
@@ -2357,8 +2372,8 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
       </div>
 
       {/* Month-by-month table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-white/[0.05] flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between">
           <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Mes a mes</p>
           {consistency && (
             <span className={`text-[10px] font-bold font-mono ${consistency.pct >= 50 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
@@ -2385,7 +2400,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
           })}
         </div>
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 dark:border-white/[0.05]">
+          <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 dark:border-white/[0.08]">
             <button
               onClick={() => setPage(p => p - 1)}
               disabled={page === 0}
@@ -2419,7 +2434,7 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
   if (epm === null) return null
   const tradesPerMonth = consistency ? (N / consistency.total).toFixed(1) : '—'
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none px-4 pt-4 pb-4">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
       <div className="flex items-start justify-between">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por mes</span>
@@ -2488,7 +2503,13 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || points.length < 2) return
     const rect = svgRef.current.getBoundingClientRect()
-    const svgX = (e.clientX - rect.left) * (W / rect.width) - PAD.left
+    const rawX = (e.clientX - rect.left) * (W / rect.width)
+    const rawY = (e.clientY - rect.top)  * (H / rect.height)
+    if (rawX < PAD.left || rawX > W - PAD.right || rawY < PAD.top || rawY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    const svgX = rawX - PAD.left
     setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
   }
   function handleTouch(e: React.TouchEvent<SVGSVGElement>) {
@@ -2496,7 +2517,13 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
     const touch = e.touches[0]
     if (!touch) return
     const rect = svgRef.current.getBoundingClientRect()
-    const svgX = (touch.clientX - rect.left) * (W / rect.width) - PAD.left
+    const rawX = (touch.clientX - rect.left) * (W / rect.width)
+    const rawY = (touch.clientY - rect.top)  * (H / rect.height)
+    if (rawX < PAD.left || rawX > W - PAD.right || rawY < PAD.top || rawY > H - PAD.bottom) {
+      setHoverIdx(null)
+      return
+    }
+    const svgX = rawX - PAD.left
     setHoverIdx(Math.max(0, Math.min(points.length - 1, Math.round((svgX / iW) * (points.length - 1)))))
   }
   const hovered  = hoverIdx != null ? points[hoverIdx] : null
@@ -2504,7 +2531,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
     ? (PAD.left + (hoverIdx / Math.max(points.length - 1, 1)) * iW) / W : 0
   const realY = hasData ? ys(realTotalRR) : H / 2
   return (
-    <div className="mx-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
+    <div className="mx-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
         <span className="text-[12px] font-bold text-slate-800 dark:text-white">RR simulado por nivel de salida</span>
         <div className="flex items-center gap-3 text-[10px] font-mono">
@@ -2621,7 +2648,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
         )}
       </div>
       {hasData && (
-        <div className="grid grid-cols-3 border-t border-slate-100 dark:border-white/[0.05] divide-x divide-slate-100 dark:divide-zinc-800/60">
+        <div className="grid grid-cols-3 border-t border-slate-200 dark:border-white/[0.08] divide-x divide-slate-200 dark:divide-zinc-700/50">
           {([
             { label: 'Sweet Spot',  value: `${fmtR(sweetSpotLevel)}R`,                                                          color: 'text-amber-600 dark:text-amber-400' },
             { label: 'RR simulado', value: `${sweetSpotRR >= 0 ? '+' : ''}${fmtR(sweetSpotRR)}R`,                              color: sweetSpotRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
@@ -2644,8 +2671,8 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
   if (points.length === 0) return null
   const sorted = [...points].sort((a, b) => b.totalRR - a.totalRR).slice(0, 12)
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-slate-100 dark:border-white/[0.05]">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/[0.08]">
         <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Top niveles de salida</p>
       </div>
       <div className="overflow-x-auto">
@@ -2667,7 +2694,7 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
                     <div className="flex items-center gap-2">
                       {isBest
                         ? <span className="text-[9px] font-bold text-amber-500 shrink-0">★</span>
-                        : <span className="text-[9px] text-slate-300 dark:text-zinc-700 font-mono shrink-0">{idx + 1}</span>}
+                        : <span className="text-[9px] text-slate-400 dark:text-zinc-600 font-mono shrink-0">{idx + 1}</span>}
                       <span className={`font-bold font-mono ${isBest ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-zinc-200'}`}>
                         {fmtR(row.level)}R
                       </span>
@@ -2746,13 +2773,11 @@ function CalendarDatePicker({ from, to, months, onChange, onClose, allTrades }: 
   }
 
   function toggleMonth(y: string, m: number) {
-    const mk = `${y}-${String(m).padStart(2, '0')}`
-    setSelectedMonths(prev => {
-      const next = new Set(prev)
-      next.has(mk) ? next.delete(mk) : next.add(mk)
-      onChange('', '', Array.from(next))
-      return next
-    })
+    const mk   = `${y}-${String(m).padStart(2, '0')}`
+    const next = new Set(selectedMonths)
+    next.has(mk) ? next.delete(mk) : next.add(mk)
+    setSelectedMonths(next)
+    onChange('', '', Array.from(next))
   }
 
   const tradeYears = useMemo(() => {
@@ -2774,20 +2799,18 @@ function CalendarDatePicker({ from, to, months, onChange, onClose, allTrades }: 
   }, [allTrades])
 
   function toggleYear(y: string) {
-    const yearMks = (monthsByYear[y] ?? []).map(m => `${y}-${String(m).padStart(2, '0')}`)
+    const yearMks    = (monthsByYear[y] ?? []).map(m => `${y}-${String(m).padStart(2, '0')}`)
     const allSelected = yearMks.length > 0 && yearMks.every(mk => selectedMonths.has(mk))
-    setSelectedMonths(prev => {
-      const next = new Set(prev)
-      if (allSelected) yearMks.forEach(mk => next.delete(mk))
-      else             yearMks.forEach(mk => next.add(mk))
-      onChange('', '', Array.from(next))
-      return next
-    })
+    const next = new Set(selectedMonths)
+    if (allSelected) yearMks.forEach(mk => next.delete(mk))
+    else             yearMks.forEach(mk => next.add(mk))
+    setSelectedMonths(next)
+    onChange('', '', Array.from(next))
     setExpandedYears(prev => {
-      const next = new Set(prev)
-      if (allSelected) next.delete(y)
-      else             next.add(y)
-      return next
+      const e = new Set(prev)
+      if (allSelected) e.delete(y)
+      else             e.add(y)
+      return e
     })
   }
 
@@ -3247,7 +3270,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
       <div className="overflow-x-auto pb-4">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 dark:border-white/[0.05] bg-slate-50/80 dark:bg-white/[0.03]">
+            <tr className="border-b border-slate-200 dark:border-white/[0.08] bg-slate-50/80 dark:bg-white/[0.03]">
               <SortTh col="date"      label="Fecha"     className="pl-4 pr-2" {...sortProps} />
               <SortTh col="direction" label="Dirección" {...sortProps} />
               <SortTh col="result"    label="Resultado" {...sortProps} />
@@ -3390,7 +3413,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 dark:border-white/[0.05]">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-white/[0.08]">
         <span className="text-[11px] text-slate-500 dark:text-zinc-400">
           Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, trades.length)} de {trades.length} trades
         </span>
@@ -3599,8 +3622,14 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
   function handleChartMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!chartRef.current) return
     const rect = chartRef.current.getBoundingClientRect()
-    const svgX  = (e.clientX - rect.left) * (CW / rect.width) - CP.left
-    const day   = Math.round((svgX / ciW) * (daysInMonth - 1)) + 1
+    const rawX = (e.clientX - rect.left) * (CW / rect.width)
+    const rawY = (e.clientY - rect.top)  * (CH / rect.height)
+    if (rawX < CP.left || rawX > CW - CP.right || rawY < CP.top || rawY > CH - CP.bottom) {
+      setHoverDay(null)
+      return
+    }
+    const svgX = rawX - CP.left
+    const day  = Math.round((svgX / ciW) * (daysInMonth - 1)) + 1
     setHoverDay(Math.max(1, Math.min(daysInMonth, day)))
   }
   function handleChartTouch(e: React.TouchEvent<SVGSVGElement>) {
@@ -3608,7 +3637,13 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     const touch = e.touches[0]
     if (!touch) return
     const rect = chartRef.current.getBoundingClientRect()
-    const svgX = (touch.clientX - rect.left) * (CW / rect.width) - CP.left
+    const rawX = (touch.clientX - rect.left) * (CW / rect.width)
+    const rawY = (touch.clientY - rect.top)  * (CH / rect.height)
+    if (rawX < CP.left || rawX > CW - CP.right || rawY < CP.top || rawY > CH - CP.bottom) {
+      setHoverDay(null)
+      return
+    }
+    const svgX = rawX - CP.left
     const day  = Math.round((svgX / ciW) * (daysInMonth - 1)) + 1
     setHoverDay(Math.max(1, Math.min(daysInMonth, day)))
   }
@@ -3619,7 +3654,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     <div className="flex flex-col sm:flex-row sm:min-h-[420px]">
 
       {/* ── Left panel: Calendar ─────────────────────────────── */}
-      <div className="sm:w-[360px] sm:shrink-0 px-4 pt-4 pb-4 sm:border-r border-slate-100 dark:border-white/[0.05]">
+      <div className="sm:w-[360px] sm:shrink-0 px-4 pt-4 pb-4 sm:border-r border-slate-200 dark:border-white/[0.08]">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
@@ -3638,7 +3673,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         </div>
 
         {/* Stats row */}
-        <div className="bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.07] rounded-2xl px-4 py-3 mb-3 grid grid-cols-3 divide-x divide-slate-100 dark:divide-white/[0.05]">
+        <div className="bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.10] rounded-2xl px-4 py-3 mb-3 grid grid-cols-3 divide-x divide-slate-100 dark:divide-white/[0.05]">
           {[
             { label: 'Trades',   value: String(N),  color: 'text-slate-900 dark:text-white' },
             { label: 'Winrate',  value: wr !== null ? `${wr.toFixed(1)}%` : '—', color: wr !== null && wr >= 50 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
@@ -3654,7 +3689,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         {/* Day headers */}
         <div className="grid grid-cols-7 mb-1">
           {DAYS.map(d => (
-            <div key={d} className="text-center text-[9px] font-medium text-slate-300 dark:text-zinc-700 uppercase tracking-[0.06em] py-1">{d}</div>
+            <div key={d} className="text-center text-[9px] font-medium text-slate-400 dark:text-zinc-600 uppercase tracking-[0.06em] py-1">{d}</div>
           ))}
         </div>
 
@@ -3723,7 +3758,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         </div>
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-5 mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.05]">
+        <div className="flex items-center justify-center gap-5 mt-3 pt-3 border-t border-slate-200 dark:border-white/[0.08]">
           {[
             { bg: 'bg-emerald-500/20 border border-emerald-500/30', dot: 'bg-emerald-500', label: 'Positivo' },
             { bg: 'bg-zinc-400/20 dark:bg-zinc-600/20 border border-zinc-400/30', dot: 'bg-zinc-400 dark:bg-zinc-500', label: 'Neutro' },
@@ -3748,7 +3783,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
 
         {N === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[13px] text-slate-300 dark:text-zinc-700">Sin trades este mes</p>
+            <p className="text-[13px] text-slate-400 dark:text-zinc-600">Sin trades este mes</p>
           </div>
         ) : (
           <>
@@ -3866,7 +3901,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
             </div>
 
             {/* Bottom stats: Inicio / Máxima / Final */}
-            <div className="grid grid-cols-3 mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.05]">
+            <div className="grid grid-cols-3 mt-3 pt-3 border-t border-slate-200 dark:border-white/[0.08]">
               {[
                 { label: 'Inicio',  value: fmtNet(initVal), color: 'text-slate-500 dark:text-zinc-400' },
                 { label: 'Máxima',  value: fmtNet(peakVal), color: peakVal >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
@@ -3889,6 +3924,441 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
           sessionType={sessionType}
           onClose={() => setDayKey(null)}
         />
+      )}
+    </div>
+  )
+}
+
+// ─── Montecarlo inline view ────────────────────────────────────────────────────
+
+const MC_MODE_LABELS: Record<MontecarloMode, string> = {
+  simple:            'Interés Simple',
+  compuesto:         'Interés Compuesto',
+  hwm:               'High Water Mark',
+  dalembert_inverso: 'Dalembert Inverso',
+}
+const MC_MODE_DESC: Record<MontecarloMode, string> = {
+  simple:            'El % de riesgo se calcula siempre sobre el capital inicial fijo.',
+  compuesto:         'El % de riesgo se calcula sobre el capital actual.',
+  hwm:               'El % de riesgo se calcula sobre el capital máximo alcanzado. Si el capital sube, el riesgo sube; si baja, el riesgo se mantiene.',
+  dalembert_inverso: 'El % de riesgo varía según si ganaste o perdiste el trade anterior.',
+}
+
+function mcFmt$(n: number): string {
+  const sign = n < 0 ? '-' : ''
+  const abs  = Math.abs(n)
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`
+  return `${sign}$${abs.toFixed(0)}`
+}
+function mcNetFmt$(value: number, initial: number): string {
+  const delta = value - initial
+  return (delta >= 0 ? '+' : '') + mcFmt$(delta)
+}
+
+function MontecarloChart({ result, capitalInitial }: { result: MontecarloResult; capitalInitial: number }) {
+  const [hoverX, setHoverX] = useState<number | null>(null)
+  const [svgW, setSvgW]     = useState(600)
+  const svgRef              = useRef<SVGSVGElement>(null)
+
+  useEffect(() => {
+    const el = svgRef.current; if (!el) return
+    const ro = new ResizeObserver(([e]) => setSvgW(e.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const W = 600, H = 230
+  const PAD = { top: 16, right: 24, bottom: 44, left: 62 }
+  const fs  = (px: number) => ((px * W) / Math.max(svgW, 1)).toFixed(2)
+  const iW  = W - PAD.left - PAD.right
+  const iH  = H - PAD.top - PAD.bottom
+  const n   = result.avgPath.length
+
+  const allVals = [...result.bestPath, ...result.worstPath, ...result.avgPath, capitalInitial]
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals)
+  const pad  = (maxV - minV) * 0.1 || capitalInitial * 0.1
+  const dMin = minV - pad, dMax = maxV + pad, dRange = dMax - dMin || 1
+
+  const xs = (i: number) => PAD.left + (i / Math.max(n - 1, 1)) * iW
+  const ys = (v: number) => PAD.top  + (1 - (v - dMin) / dRange) * iH
+
+  function yTicks(): number[] {
+    const range = dMax - dMin
+    const rough = range / 4
+    const mag   = Math.pow(10, Math.floor(Math.log10(Math.abs(rough) || 1)))
+    const norm  = rough / mag
+    const step  = norm <= 1 ? mag : norm <= 2 ? 2 * mag : norm <= 5 ? 5 * mag : 10 * mag
+    const lo = Math.floor(dMin / step) * step, hi = Math.ceil(dMax / step) * step
+    const t: number[] = []
+    for (let v = lo; v <= hi + step * 0.001; v = parseFloat((v + step).toFixed(10))) t.push(v)
+    return t
+  }
+  const xTicks = Array.from({ length: Math.min(7, n) }, (_, i) => Math.round(i * (n - 1) / Math.max(Math.min(7, n) - 1, 1)))
+
+  function pathD(pts: number[]) {
+    return pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xs(i).toFixed(1)} ${ys(v).toFixed(1)}`).join(' ')
+  }
+  function onMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current) return
+    const r = svgRef.current.getBoundingClientRect()
+    const rx = (e.clientX - r.left) * (W / r.width), ry = (e.clientY - r.top) * (H / r.height)
+    if (rx < PAD.left || rx > W - PAD.right || ry < PAD.top || ry > H - PAD.bottom) { setHoverX(null); return }
+    setHoverX(Math.max(0, Math.min(n - 1, Math.round(((rx - PAD.left) / iW) * (n - 1)))))
+  }
+  function onTouch(e: React.TouchEvent<SVGSVGElement>) {
+    const t = e.touches[0]; if (!t || !svgRef.current) return
+    const r = svgRef.current.getBoundingClientRect()
+    const rx = (t.clientX - r.left) * (W / r.width), ry = (t.clientY - r.top) * (H / r.height)
+    if (rx < PAD.left || rx > W - PAD.right || ry < PAD.top || ry > H - PAD.bottom) { setHoverX(null); return }
+    setHoverX(Math.max(0, Math.min(n - 1, Math.round(((rx - PAD.left) / iW) * (n - 1)))))
+  }
+  const tipFrac = hoverX != null ? (PAD.left + (hoverX / Math.max(n - 1, 1)) * iW) / W : 0
+
+  return (
+    <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.10] rounded-2xl shadow-sm dark:shadow-none overflow-hidden">
+      <div className="px-4 pt-3.5 pb-1">
+        <p className="text-[12px] font-bold text-slate-800 dark:text-white">
+          Evolución del Capital ({result.totalSims.toLocaleString()} simulaciones)
+        </p>
+        <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
+          Solo se visualizan {Math.min(100, result.samplePaths.length)} trayectorias de muestra.
+        </p>
+      </div>
+      <div className="flex items-center gap-4 px-4 pb-2 pt-1">
+        {([['#22c55e','Mejor',false],['#3b82f6','Promedio',false],['#ef4444','Peor',false],['#71717a','Otras',true]] as [string,string,boolean][]).map(([c,l,d]) => (
+          <span key={l} className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-zinc-400">
+            {d ? <span className="w-4 h-px border-t border-dashed" style={{borderColor:c}}/> : <span className="w-4 h-0.5 rounded-full" style={{backgroundColor:c}}/>}
+            {l}
+          </span>
+        ))}
+      </div>
+      <div className="relative select-none">
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full touch-none"
+          onMouseMove={onMove} onMouseLeave={() => setHoverX(null)}
+          onTouchStart={onTouch} onTouchMove={onTouch} onTouchEnd={() => setHoverX(null)}>
+          {yTicks().map((v, i) => {
+            const y = ys(v); if (y < PAD.top - 2 || y > H - PAD.bottom + 2) return null
+            return (
+              <g key={i}>
+                <line x1={PAD.left} y1={y.toFixed(1)} x2={W-PAD.right} y2={y.toFixed(1)} stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" className="text-slate-900 dark:text-white"/>
+                <text x={PAD.left-6} y={y+4} textAnchor="end" fontSize={fs(10)} fontFamily="monospace" className="fill-slate-500 dark:fill-zinc-400">{mcFmt$(v)}</text>
+              </g>
+            )
+          })}
+          {(() => { const y0 = ys(capitalInitial); if (y0 < PAD.top || y0 > H-PAD.bottom) return null
+            return <line x1={PAD.left} y1={y0.toFixed(1)} x2={W-PAD.right} y2={y0.toFixed(1)} stroke="currentColor" strokeOpacity="0.20" strokeWidth="1" strokeDasharray="4 3" className="text-slate-400 dark:text-zinc-500"/>
+          })()}
+          {result.samplePaths.map((p, i) => <path key={i} d={pathD(p)} fill="none" stroke="#71717a" strokeWidth="0.6" strokeOpacity="0.22"/>)}
+          <path d={pathD(result.avgPath)}   fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d={pathD(result.bestPath)}  fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d={pathD(result.worstPath)} fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          {xTicks.map(i => <text key={i} x={xs(i).toFixed(1)} y={H-8} textAnchor="middle" fontSize={fs(10)} fontFamily="monospace" className="fill-slate-500 dark:fill-zinc-400">{i}</text>)}
+          <line x1={PAD.left} y1={H-PAD.bottom} x2={W-PAD.right} y2={H-PAD.bottom} stroke="currentColor" strokeOpacity="0.10" strokeWidth="1" className="text-slate-900 dark:text-white"/>
+          {hoverX != null && (
+            <g>
+              <line x1={xs(hoverX).toFixed(1)} y1={PAD.top-4} x2={xs(hoverX).toFixed(1)} y2={H-PAD.bottom+2} stroke="currentColor" strokeOpacity="0.20" strokeWidth="1" className="text-slate-600 dark:text-zinc-400"/>
+              {([['#3b82f6',result.avgPath],['#22c55e',result.bestPath],['#ef4444',result.worstPath]] as [string,number[]][]).map(([c,p]) => (
+                <circle key={c} cx={xs(hoverX!).toFixed(1)} cy={ys(p[hoverX!]??p[p.length-1]).toFixed(1)} r="3.5" fill={c} stroke="white" strokeWidth="1.5" className="dark:stroke-zinc-950"/>
+              ))}
+            </g>
+          )}
+        </svg>
+        {hoverX != null && (
+          <div className="absolute top-2 pointer-events-none z-10" style={{left:`${tipFrac*100}%`,transform:tipFrac>0.60?'translateX(calc(-100% - 8px))':'translateX(8px)'}}>
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 shadow-lg">
+              <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 mb-1">Trade {hoverX}</p>
+              {([['Mejor',result.bestPath,'text-emerald-600 dark:text-emerald-400'],['Promedio',result.avgPath,'text-blue-600 dark:text-blue-400'],['Peor',result.worstPath,'text-rose-500 dark:text-rose-400']] as [string,number[],string][]).map(([l,p,c]) => (
+                <p key={l} className="text-[11px] text-slate-500 dark:text-zinc-400">{l}: <span className={`font-bold ${c}`}>{mcNetFmt$(p[hoverX!]??0, capitalInitial)}</span></p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MontecarloView({ trades, session }: { trades: Trade[]; session: Session }) {
+  const [mode, setMode]                     = useState<MontecarloMode>('hwm')
+  const [capitalInitial, setCapitalInitial] = useState(session.capital_initial ?? 10000)
+  const [riskPct, setRiskPct]               = useState(1)
+  const [nSims, setNSims]                   = useState(10000)
+  const [nTrades, setNTrades]               = useState(trades.length || 100)
+  const [useReal, setUseReal]               = useState(true)
+  const [mWinrate, setMWinrate]             = useState(50)
+  const [mRrWin, setMRrWin]                 = useState(1.5)
+  const [dalInc, setDalInc]                 = useState(0.5)
+  const [dalLim, setDalLim]                 = useState(3)
+  const [result, setResult]                 = useState<MontecarloResult | null>(null)
+  const [running, setRunning]               = useState(false)
+  const [modeOpen, setModeOpen]             = useState(false)
+
+  const tradeCount = trades.length
+  const wins       = trades.filter(t => t.result === 'tp').length
+  const winrate    = tradeCount > 0 ? (wins / tradeCount) * 100 : 0
+  // Average RR of winning trades only
+  const winTrades  = trades.filter(t => t.result === 'tp' && t.rr_exit != null)
+  const avgWinRR   = winTrades.length > 0
+    ? winTrades.reduce((s, t) => s + t.rr_exit!, 0) / winTrades.length
+    : 0
+
+  function toggleUseReal() {
+    const next = !useReal
+    setUseReal(next)
+    if (next) setNTrades(tradeCount || 100)  // snap back to real count when turning ON
+  }
+
+  function handleRun() {
+    setRunning(true)
+    setTimeout(() => {
+      try {
+        const results = useReal
+          ? buildResultsArray(trades, session.type)
+          : buildManualResults(mWinrate, mRrWin, 1)  // RR loss siempre 1R
+        const out = runMontecarlo({
+          results, capitalInitial: Math.max(capitalInitial, 1), riskPct,
+          nSimulations: Math.min(Math.max(nSims, 100), 10000),
+          nTrades: useReal ? Math.max(results.length, 1) : Math.max(nTrades, 1),
+          mode, dalembertIncrement: dalInc, dalembertLimit: dalLim,
+        })
+        setResult(out)
+      } finally {
+        setRunning(false)
+      }
+    }, 10)
+  }
+
+  const s = result?.stats
+  const ruinColor = !s ? '' : s.ruinProbability === 0 ? 'text-emerald-600 dark:text-emerald-400' : s.ruinProbability < 5 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500 dark:text-rose-400'
+  const ruinBg    = !s ? '' : s.ruinProbability === 0 ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50' : s.ruinProbability < 5 ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50' : 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/50'
+
+  function mcInput(label: string, value: number, onChange: (v: number) => void, opts: { min?: number; max?: number; step?: number; disabled?: boolean } = {}) {
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] font-semibold text-slate-600 dark:text-zinc-400">{label}</label>
+        <input
+          type="number"
+          value={value}
+          disabled={opts.disabled}
+          min={opts.min} max={opts.max} step={opts.step}
+          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onChange(v) }}
+          className={`h-9 px-2.5 rounded-lg border text-[12px] font-mono focus:outline-none transition-colors ${
+            opts.disabled
+              ? 'border-slate-100 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-400 dark:text-zinc-600 cursor-not-allowed'
+              : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 accent-input'
+          }`}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3 px-3 pb-10">
+
+      {/* ── Config card */}
+      <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.10] rounded-2xl shadow-sm dark:shadow-none">
+
+        {/* Title row */}
+        <div className="px-4 pt-4 pb-2.5 flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="text-slate-400 dark:text-zinc-500 shrink-0">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <p className="text-[13px] font-bold text-slate-900 dark:text-white flex-1">Simulación Monte Carlo</p>
+        </div>
+
+        {/* Stats + toggle row */}
+        <div className="px-4 pb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
+            <span className="font-bold text-slate-700 dark:text-zinc-300">{tradeCount} trades</span>
+            <span className="accent-txt font-bold">{winrate.toFixed(1)}% winrate</span>
+            {avgWinRR > 0 && <span className="font-mono">1:{avgWinRR % 1 === 0 ? avgWinRR.toFixed(0) : avgWinRR.toFixed(1)} RR prom.</span>}
+          </div>
+          {/* Toggle */}
+          <button
+            onClick={toggleUseReal}
+            className="flex items-center gap-2 shrink-0 cursor-pointer group"
+            aria-label="Datos automáticos">
+            <span className="text-[11px] text-slate-500 dark:text-zinc-400 group-hover:text-slate-700 dark:group-hover:text-zinc-300 transition-colors select-none">
+              Datos automáticos
+            </span>
+            <span className={`relative inline-flex w-9 h-5 rounded-full transition-colors duration-200 shrink-0 ${
+              useReal ? 'bg-[rgb(var(--a5))]' : 'bg-slate-200 dark:bg-zinc-700'
+            }`}>
+              <span className={`absolute top-[3px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                useReal ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}/>
+            </span>
+          </button>
+        </div>
+
+        <div className="border-t border-slate-100 dark:border-white/[0.06] px-4 pt-4 pb-4 flex flex-col gap-3">
+
+          {/* Mode selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold text-slate-600 dark:text-zinc-400">Tipo de Simulación</label>
+            <div className="relative">
+              <button onClick={() => setModeOpen(o => !o)}
+                className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 text-[13px] text-left flex items-center justify-between cursor-pointer transition-colors hover:border-slate-300 dark:hover:border-zinc-600">
+                <span>{MC_MODE_LABELS[mode]}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                  className={`text-slate-400 dark:text-zinc-500 shrink-0 transition-transform ${modeOpen ? 'rotate-180' : ''}`}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              {modeOpen && (
+                <>
+                <div className="fixed inset-0 z-10" onClick={() => setModeOpen(false)}/>
+                <div className="absolute z-20 top-[calc(100%+4px)] left-0 right-0 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-lg overflow-hidden">
+                  {(Object.entries(MC_MODE_LABELS) as [MontecarloMode, string][]).map(([k, label]) => (
+                    <button key={k} onClick={() => { setMode(k); setModeOpen(false) }}
+                      className={`w-full px-3 py-2.5 text-left text-[13px] flex items-center gap-2 cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800 ${mode === k ? 'accent-txt font-semibold' : 'text-slate-700 dark:text-zinc-300'}`}>
+                      {mode === k
+                        ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        : <span className="w-3"/>}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                </>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-zinc-400">{MC_MODE_DESC[mode]}</p>
+          </div>
+
+          {/* Manual distribution — only when toggle OFF */}
+          {!useReal && (
+            <div className="bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-700/60 rounded-xl p-3 flex flex-col gap-3">
+              <p className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Distribución manual</p>
+              <div className="grid grid-cols-3 gap-2">
+                {mcInput('Trades', nTrades, v => setNTrades(Math.max(1, v)), { min: 1, step: 10 })}
+                {mcInput('Winrate (%)', mWinrate, setMWinrate, { min: 1, max: 99, step: 0.5 })}
+                {mcInput('RR ganador', mRrWin, setMRrWin, { min: 0.1, step: 0.1 })}
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-400">
+                El RR en pérdida se asume siempre como <strong className="text-slate-700 dark:text-zinc-300">1R</strong>.
+              </p>
+            </div>
+          )}
+
+          {/* Capital, Riesgo, Simulaciones */}
+          <div className="grid grid-cols-3 gap-2">
+            {mcInput('Capital ($)', capitalInitial, setCapitalInitial, { min: 100, step: 1000 })}
+            {mcInput('Riesgo (%)', riskPct, setRiskPct, { min: 0.1, max: 50, step: 0.5 })}
+            {mcInput('Simulaciones', nSims, v => setNSims(Math.min(10000, Math.max(100, v))), { min: 100, max: 10000, step: 1000 })}
+          </div>
+
+          {/* Dalembert extra */}
+          {mode === 'dalembert_inverso' && (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                {mcInput('Incremento (%)', dalInc, setDalInc, { min: 0.1, max: 5, step: 0.1 })}
+                {mcInput('Límite (x)', dalLim, setDalLim, { min: 1, max: 20, step: 0.5 })}
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-400">
+                Riesgo entre <strong className="text-slate-700 dark:text-zinc-300">{riskPct.toFixed(1)}%</strong> y <strong className="text-slate-700 dark:text-zinc-300">{(riskPct * dalLim).toFixed(1)}%</strong> del capital inicial.
+              </p>
+            </div>
+          )}
+
+          {/* Run button */}
+          <button onClick={handleRun} disabled={running}
+            className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80 disabled:opacity-60 disabled:cursor-not-allowed">
+            {running
+              ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>Simulando...</>
+              : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Ejecutar ({MC_MODE_LABELS[mode]})</>
+            }
+          </button>
+        </div>
+      </div>
+
+      {/* ── Results */}
+      {result && s && (
+        <div className="flex flex-col gap-3">
+          <p className="text-[11px] font-bold text-slate-600 dark:text-zinc-400 px-1">
+            Resultados · {result.totalSims.toLocaleString()} simulaciones · {MC_MODE_LABELS[mode]}
+          </p>
+
+          <MontecarloChart result={result} capitalInitial={capitalInitial}/>
+
+          {/* Capital Final — 3 tarjetas de color */}
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] px-0.5">Resultado Final</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { label: 'Promedio', value: s.finalCapital.avg,   pct: s.finalCapital.changePct.avg,   bg: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/40',    labelColor: 'text-blue-500 dark:text-blue-400' },
+                { label: 'Mejor',    value: s.finalCapital.best,  pct: s.finalCapital.changePct.best,  bg: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/40', labelColor: 'text-emerald-600 dark:text-emerald-400' },
+                { label: 'Peor',     value: s.finalCapital.worst, pct: s.finalCapital.changePct.worst, bg: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/40',    labelColor: 'text-rose-500 dark:text-rose-400' },
+              ] as { label: string; value: number; pct: number; bg: string; labelColor: string }[]).map(({ label, value, pct, bg, labelColor }) => (
+                <div key={label} className={`border rounded-2xl px-3 py-2.5 flex flex-col gap-0.5 ${bg}`}>
+                  <span className={`text-[9px] font-bold uppercase tracking-[0.1em] ${labelColor}`}>{label}</span>
+                  <span className={`text-[14px] font-bold leading-tight ${value >= capitalInitial ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                    {mcNetFmt$(value, capitalInitial)}
+                  </span>
+                  <span className={`text-[10px] font-mono ${pct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                    {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+
+          {/* Racha TP + Racha SL */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* TP streak: Mejor = most TPs in a row (good), Peor = fewest */}
+            <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.10] rounded-2xl shadow-sm dark:shadow-none overflow-hidden">
+              <div className="px-3 pt-2.5 pb-1.5 flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-emerald-500 shrink-0">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <p className="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Racha máx. TP</p>
+              </div>
+              <div className="grid grid-cols-3 border-t border-slate-100 dark:border-white/[0.06] divide-x divide-slate-100 dark:divide-white/[0.06]">
+                {([['Promedio', s.streakTp.avg, 'text-slate-700 dark:text-zinc-200'], ['Mejor', s.streakTp.best, 'text-emerald-600 dark:text-emerald-400'], ['Peor', s.streakTp.worst, 'text-slate-500 dark:text-zinc-400']] as [string, number, string][]).map(([label, value, color]) => (
+                  <div key={label} className="flex flex-col gap-0.5 px-2.5 py-2">
+                    <span className="text-[8px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{label}</span>
+                    <span className={`text-[13px] font-bold ${color}`}>{value.toFixed(value % 1 === 0 ? 0 : 1)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SL streak: Mejor = fewest SLs in a row (best case), Peor = most SLs */}
+            <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-white/[0.10] rounded-2xl shadow-sm dark:shadow-none overflow-hidden">
+              <div className="px-3 pt-2.5 pb-1.5 flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-rose-400 shrink-0">
+                  <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+                <p className="text-[9px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Racha máx. SL</p>
+              </div>
+              <div className="grid grid-cols-3 border-t border-slate-100 dark:border-white/[0.06] divide-x divide-slate-100 dark:divide-white/[0.06]">
+                {([['Promedio', s.streakSl.avg, 'text-rose-500 dark:text-rose-400'], ['Mejor', s.streakSl.best, 'text-slate-500 dark:text-zinc-400'], ['Peor', s.streakSl.worst, 'text-rose-500 dark:text-rose-400']] as [string, number, string][]).map(([label, value, color]) => (
+                  <div key={label} className="flex flex-col gap-0.5 px-2.5 py-2">
+                    <span className="text-[8px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{label}</span>
+                    <span className={`text-[13px] font-bold ${color}`}>{value.toFixed(value % 1 === 0 ? 0 : 1)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Probabilidad de ruina */}
+          <div className={`border rounded-2xl px-4 py-3.5 flex items-start gap-3 ${ruinBg}`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className={`mt-0.5 shrink-0 ${ruinColor}`}>
+              {s.ruinProbability === 0
+                ? <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>
+                : <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>
+              }
+            </svg>
+            <div>
+              <p className={`text-[12px] font-bold ${ruinColor}`}>Probabilidad de Ruina: {s.ruinProbability.toFixed(2)}%</p>
+              <p className={`text-[11px] mt-0.5 ${ruinColor} opacity-80`}>
+                {Math.round(s.ruinProbability / 100 * result.totalSims).toLocaleString()} de {result.totalSims.toLocaleString()} simulaciones terminaron en $0
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -4146,7 +4616,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         {/* KPI grid skeleton */}
         <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-2 px-3 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07]">
+            <div key={i} className="flex flex-col gap-2 px-3 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10]">
               <div className="h-2 w-16 bg-slate-100 dark:bg-zinc-800 rounded-full" />
               <div className="flex items-end justify-between mt-1">
                 <div className="h-7 w-12 bg-slate-100 dark:bg-zinc-800 rounded-lg" />
@@ -4156,12 +4626,12 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
           ))}
         </div>
         {/* Stats accordion skeleton */}
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07] px-4 py-3.5">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10] px-4 py-3.5">
           <div className="h-3 w-32 bg-slate-100 dark:bg-zinc-800 rounded-full" />
         </div>
         {/* Equity chart skeleton */}
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07] overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-white/[0.05] flex items-center justify-between">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10] overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between">
             <div className="h-3 w-20 bg-slate-100 dark:bg-zinc-800 rounded-full" />
             <div className="h-3 w-24 bg-slate-100 dark:bg-zinc-800 rounded-full" />
           </div>
@@ -4180,7 +4650,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         {/* Trade rows skeleton */}
         <div className="flex flex-col gap-2 px-3 pt-1">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.07]" />
+            <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10]" />
           ))}
         </div>
         </div>
@@ -4238,7 +4708,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
 
       {/* ── Advanced Stats (accordion) ─────────────────────── */}
       {dashTrades.length >= 5 && (
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.07] dark:shadow-none overflow-hidden">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
           <button
             onClick={() => setStatsOpen(o => !o)}
             className="w-full flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-white/[0.03]">
@@ -4255,7 +4725,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
             </svg>
           </button>
           {statsOpen && (
-            <div className="border-t border-slate-100 dark:border-white/[0.05] bg-slate-50/60 dark:bg-[#060e1a] py-2">
+            <div className="border-t border-slate-200 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#060e1a] py-2">
               <ProfitabilityVerdict trades={dashTrades} sessionType={session.type} />
               <ExpectancyDetail trades={dashTrades} sessionType={session.type} />
               <ZScoreCard trades={dashTrades} />
@@ -4288,12 +4758,12 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       />
 
       {/* ── Toolbar ────────────────────────────────────────────── */}
-      <div className="px-3 pt-3 pb-2 flex flex-col gap-2">
+      <div className="px-3 pt-3 pb-4 flex flex-col gap-2">
 
         {/* Row 1: Primary action */}
         <button
           onClick={() => { setEditTrade(null); setShowForm(true) }}
-          className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80">
+          className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80 mb-4">
           <IconPlus size={16} />
           Nuevo trade
         </button>
@@ -4350,7 +4820,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
             )}
           </button>
 
-          {/* View toggle */}
+          {/* View toggle: Tabla | Calendario | Montecarlo */}
           <div className="flex rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden shrink-0">
             <button onClick={() => setView('table')}
               className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
@@ -4364,6 +4834,23 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
                 view === 'calendar' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
               }`}>
               <IconCalendarView />
+            </button>
+            <div className="w-px bg-slate-200 dark:bg-white/[0.08]" />
+            <button onClick={() => setView('montecarlo')}
+              title="Simulador Montecarlo"
+              className={`flex items-center justify-center w-10 h-10 transition-colors cursor-pointer ${
+                view === 'montecarlo' ? 'accent-tab' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+              }`}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="1" y="10" width="12" height="12" rx="2"/>
+                <circle cx="5" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none"/>
+                <rect x="11" y="2" width="12" height="12" rx="2"/>
+                <circle cx="15" cy="6" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="19" cy="6" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="15" cy="10" r="1.1" fill="currentColor" stroke="none"/>
+                <circle cx="19" cy="10" r="1.1" fill="currentColor" stroke="none"/>
+              </svg>
             </button>
           </div>
 
@@ -4411,8 +4898,10 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         </div>
       )}
 
-      {/* ── Trade list ────────────────────────────────────────── */}
-      {trades.length === 0 ? (
+      {/* ── Trade list / Montecarlo ───────────────────────────── */}
+      {view === 'montecarlo' ? (
+        <MontecarloView trades={dashTrades} session={session} />
+      ) : trades.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
           <p className="text-[13px] text-slate-500 dark:text-zinc-400">
             Registra tu primer trade para comenzar.
