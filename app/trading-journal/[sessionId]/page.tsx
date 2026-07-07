@@ -4138,7 +4138,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white/90 dark:bg-zinc-950/90 backdrop-blur border-b border-slate-200/80 dark:border-zinc-800/60">
           <div className="h-4 w-20 bg-slate-100 dark:bg-zinc-800 rounded-full animate-pulse" />
         </header>
-        <div className="flex flex-col pt-4 pb-12 max-w-3xl mx-auto animate-pulse">
+        <div className="flex flex-col pt-4 pb-12 max-w-5xl mx-auto animate-pulse">
         {/* KPI grid skeleton */}
         <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -4212,7 +4212,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
         <SessionActions sessionId={session.id} sessionName={session.name} sessionType={session.type} />
       </header>
 
-    <div className="flex flex-col pt-4 pb-12 max-w-3xl mx-auto">
+    <div className="flex flex-col pt-4 pb-12 max-w-5xl mx-auto">
 
       {/* ── Nombre de sesión ──────────────────────────────────── */}
       <div className="px-4 pb-3">
