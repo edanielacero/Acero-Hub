@@ -37,6 +37,7 @@ interface Session {
   name: string
   instrument: string | null
   capital_initial: number | null
+  is_read_only: boolean
 }
 
 interface Variable {
@@ -67,6 +68,7 @@ interface Trade {
   capital_start: number | null
   capital_end: number | null
   custom_fields: Record<string, unknown>
+  source_session_name?: string | null
 }
 
 interface ActiveConnection { id: string; journalId: string; journalName: string }
@@ -77,6 +79,7 @@ interface PageData {
   variables: Variable[]
   trades: Trade[]
   activeConnections: ActiveConnection[]
+  mirrorSourceCount?: number
 }
 
 interface TradeFormState {
@@ -524,10 +527,175 @@ function VariableInput({ variable, value, onChange }: {
   return null
 }
 
+// ─── Mirror Badge (header) ────────────────────────────────────────────────────
+
+function MirrorBadge({ sessionId, sourceCount, isReadOnly }: { sessionId: string; sourceCount: number; isReadOnly: boolean }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label="Gestionar sesiones fusionadas"
+        className="flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-bold border transition-colors cursor-pointer bg-violet-50 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-500/30 hover:bg-violet-100 dark:hover:bg-violet-500/25">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/>
+          <rect x="9" y="15" width="6" height="6" rx="1"/>
+          <path d="M5 9v3a4 4 0 0 0 4 4h2M19 9v3a4 4 0 0 1-4 4h-2"/>
+        </svg>
+        {sourceCount} {sourceCount === 1 ? 'fuente' : 'fuentes'}
+      </button>
+
+      {open && (
+        <MirrorSourcesSheet
+          sessionId={sessionId}
+          isReadOnly={isReadOnly}
+          sourceCount={sourceCount}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+// ─── Mirror Sources Sheet ───────────────────────────────────────────────────────
+
+interface MirrorSource { id: string; name: string; type: string; trade_count: number }
+
+function MirrorSourcesSheet({ sessionId, isReadOnly, sourceCount, onClose }: { sessionId: string; isReadOnly: boolean; sourceCount: number; onClose: () => void }) {
+  const [sources, setSources]     = useState<MirrorSource[]>([])
+  const [available, setAvailable] = useState<{ id: string; name: string }[]>([])
+  const [busy, setBusy]           = useState<string | null>(null)
+  const [loading, setLoading]     = useState(true)
+
+  async function reload() {
+    const res = await fetch(`/api/trading-journal/sessions/${sessionId}/merged-sources`)
+    if (res.ok) {
+      const d = await res.json()
+      setSources(d.sources ?? [])
+      setAvailable(d.available ?? [])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    reload()
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', h)
+    document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', h); document.body.style.overflow = '' }
+  }, [onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addSource(sourceId: string) {
+    setBusy(sourceId)
+    await fetch(`/api/trading-journal/sessions/${sessionId}/merged-sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceSessionId: sourceId }),
+    })
+    await reload()
+    setBusy(null)
+  }
+
+  async function removeSource(sourceId: string) {
+    setBusy(sourceId)
+    await fetch(`/api/trading-journal/sessions/${sessionId}/merged-sources`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceSessionId: sourceId }),
+    })
+    await reload()
+    setBusy(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-[3px]" />
+      <div
+        className="relative w-full max-w-lg bg-white dark:bg-[#0c0c0c] border border-slate-200 dark:border-zinc-800 border-b-0 rounded-t-[32px] shadow-2xl max-h-[88vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-[3px] rounded-full bg-slate-200 dark:bg-zinc-700" />
+        </div>
+
+        <div className="flex items-center justify-between px-6 pt-2 pb-4 shrink-0">
+          <div>
+            <h2 className="text-[17px] font-bold text-slate-900 dark:text-white tracking-tight">Sesión fusionada</h2>
+            <p className="text-[12px] text-slate-500 dark:text-zinc-400 mt-0.5">
+              {isReadOnly ? 'Espejo · solo lectura' : 'Copia editable'} · {sourceCount} {sourceCount === 1 ? 'fuente' : 'fuentes'}
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div className="h-px bg-slate-100 dark:bg-zinc-800 mx-6 shrink-0" />
+
+        <div className="overflow-y-auto px-6 py-5 flex-1 flex flex-col gap-5">
+          {loading ? (
+            <div className="py-10 flex items-center justify-center">
+              <div className="w-5 h-5 border-2 border-slate-200 dark:border-zinc-800 accent-spin rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-3">
+                  Sesiones fuente · {sources.length}
+                </p>
+                {sources.length === 0 ? (
+                  <p className="text-[13px] text-slate-500 dark:text-zinc-400">Sin fuentes — añade sesiones abajo.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {sources.map(s => (
+                      <div key={s.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-slate-800 dark:text-zinc-100 truncate">{s.name}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">{s.trade_count} trades</p>
+                        </div>
+                        {isReadOnly && (
+                          <button onClick={() => removeSource(s.id)} disabled={busy === s.id}
+                            className="text-[11px] text-rose-500 dark:text-rose-400 px-3 min-h-[36px] rounded-xl hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer font-semibold disabled:opacity-40">
+                            Quitar
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {isReadOnly && available.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-3">
+                    Añadir sesión
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {available.map(a => (
+                      <button key={a.id} onClick={() => addSource(a.id)} disabled={busy === a.id}
+                        className="flex items-center justify-between px-4 min-h-[52px] rounded-2xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 accent-row transition-all duration-150 cursor-pointer text-left disabled:opacity-40">
+                        <span className="text-[13px] font-medium text-slate-800 dark:text-zinc-100">{a.name}</span>
+                        <span className="text-[11px] accent-txt font-bold shrink-0 ml-3">Añadir →</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Trade Card ────────────────────────────────────────────────────────────────
 
-function TradeCard({ trade, sessionType, onEdit, onDelete }: {
-  trade: Trade; sessionType: SessionType; onEdit: () => void; onDelete: () => void
+function TradeCard({ trade, sessionType, isReadOnly, onEdit, onDelete }: {
+  trade: Trade; sessionType: SessionType; isReadOnly?: boolean; onEdit: () => void; onDelete: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -592,8 +760,8 @@ function TradeCard({ trade, sessionType, onEdit, onDelete }: {
           )}
         </div>
 
-        {/* Row 2: result badge · risk% */}
-        <div className="flex items-center gap-2">
+        {/* Row 2: result badge · risk% · source */}
+        <div className="flex items-center gap-2 flex-wrap">
           {cfg && (
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${cfg.badge}`}>{cfg.label}</span>
           )}
@@ -603,33 +771,40 @@ function TradeCard({ trade, sessionType, onEdit, onDelete }: {
           {sessionType === 'backtesting' && rrLabel && trade.result !== 'tp' && trade.rr_exit && (
             <span className="text-[10px] text-slate-500 dark:text-zinc-400">{trade.rr_exit}R</span>
           )}
+          {trade.source_session_name && (
+            <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 truncate max-w-[120px]">
+              {trade.source_session_name}
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="relative shrink-0 self-center" ref={menuRef}>
-        <button onClick={() => setMenuOpen(o => !o)}
-          className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-300 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          aria-label="Opciones">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
-          </svg>
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-11 z-20 w-36 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-lg overflow-hidden">
-            <button
-              onClick={() => { setMenuOpen(false); onEdit() }}
-              className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
-              <IconEdit size={13} /> Editar
-            </button>
-            <div className="h-px bg-slate-100 dark:bg-zinc-800" />
-            <button
-              onClick={() => { setMenuOpen(false); onDelete() }}
-              className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer">
-              <IconTrash size={13} /> Eliminar
-            </button>
-          </div>
-        )}
-      </div>
+      {!isReadOnly && (
+        <div className="relative shrink-0 self-center" ref={menuRef}>
+          <button onClick={() => setMenuOpen(o => !o)}
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-300 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+            aria-label="Opciones">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-11 z-20 w-36 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-lg overflow-hidden">
+              <button
+                onClick={() => { setMenuOpen(false); onEdit() }}
+                className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+                <IconEdit size={13} /> Editar
+              </button>
+              <div className="h-px bg-slate-100 dark:bg-zinc-800" />
+              <button
+                onClick={() => { setMenuOpen(false); onDelete() }}
+                className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer">
+                <IconTrash size={13} /> Eliminar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1514,8 +1689,8 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
   interface DayPoint { date: string; cumValue: number; dayChange: number; tradeCount: number }
 
-  const { points, isPercent } = useMemo((): { points: DayPoint[]; isPercent: boolean } => {
-    if (sorted.length === 0) return { points: [], isPercent: false }
+  const { points, isPercent, isUSD } = useMemo((): { points: DayPoint[]; isPercent: boolean; isUSD: boolean } => {
+    if (sorted.length === 0) return { points: [], isPercent: false, isUSD: false }
     const byDay: Record<string, Trade[]> = {}
     for (const t of sorted) {
       const d = t.date_entry.slice(0, 10)
@@ -1529,22 +1704,35 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         ?? sorted.find(t => t.capital_start != null)?.capital_start
         ?? sorted.find(t => t.capital_end  != null)?.capital_end
         ?? null
-      if (!capStart) return { points: [], isPercent: true }
-      const pts: DayPoint[] = []
-      let prevCap = capStart
-      for (const day of days) {
-        const dayT = byDay[day].filter(t => t.capital_end != null)
-        if (dayT.length === 0) continue
-        const endCap = dayT[dayT.length - 1].capital_end!
-        pts.push({
-          date: day,
-          cumValue: ((endCap - capStart) / capStart) * 100,
-          dayChange: prevCap !== 0 ? ((endCap - prevCap) / Math.abs(prevCap)) * 100 : 0,
-          tradeCount: byDay[day].length,
-        })
-        prevCap = endCap
+      if (capStart) {
+        const pts: DayPoint[] = []
+        let prevCap = capStart
+        for (const day of days) {
+          const dayT = byDay[day].filter(t => t.capital_end != null)
+          if (dayT.length === 0) continue
+          const endCap = dayT[dayT.length - 1].capital_end!
+          pts.push({
+            date: day,
+            cumValue: ((endCap - capStart) / capStart) * 100,
+            dayChange: prevCap !== 0 ? ((endCap - prevCap) / Math.abs(prevCap)) * 100 : 0,
+            tradeCount: byDay[day].length,
+          })
+          prevCap = endCap
+        }
+        return { points: pts, isPercent: true, isUSD: false }
       }
-      return { points: pts, isPercent: true }
+      // Fallback: gráfico en $ cuando hay pnl_usd pero no datos de capital
+      if (sorted.some(t => t.pnl_usd != null)) {
+        let cumPnL = 0
+        const pts: DayPoint[] = []
+        for (const day of days) {
+          const dayStart = cumPnL
+          for (const t of byDay[day]) cumPnL += t.pnl_usd ?? 0
+          pts.push({ date: day, cumValue: cumPnL, dayChange: cumPnL - dayStart, tradeCount: byDay[day].length })
+        }
+        return { points: pts, isPercent: false, isUSD: true }
+      }
+      return { points: [], isPercent: true, isUSD: false }
     }
 
     let cumR = 0
@@ -1557,7 +1745,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
       }
       pts.push({ date: day, cumValue: cumR, dayChange: cumR - dayStart, tradeCount: byDay[day].length })
     }
-    return { points: pts, isPercent: false }
+    return { points: pts, isPercent: false, isUSD: false }
   }, [sorted, sessionType, capitalInitial])
 
   // Geometry — more padding so labels never clip
@@ -1596,7 +1784,14 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         Math.round(i * (points.length - 1) / Math.max(xTCount - 1, 1)))
 
   function fmtVal(v: number, signed = false) {
-    const s = signed ? (v >= 0 ? '+' : '') : ''
+    const s    = signed ? (v >= 0 ? '+' : '') : ''
+    if (isUSD) {
+      const sign = v < 0 ? '-' : s
+      const abs  = Math.abs(v)
+      if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+      if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`
+      return `${sign}$${abs.toFixed(0)}`
+    }
     return isPercent ? `${s}${v.toFixed(1)}%` : `${s}${fmtR(v)}R`
   }
   // "07 Jul 26" format as requested
@@ -1732,7 +1927,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                   x={PAD.left - 7} y={y0 + 4}
                   textAnchor="end" fontSize={fs(11)} fontFamily="monospace"
                   className="fill-slate-500 dark:fill-zinc-400 font-bold">
-                  {isPercent ? '0%' : '0R'}
+                  {isPercent ? '0%' : isUSD ? '$0' : '0R'}
                 </text>
               </g>
             )
@@ -1844,8 +2039,8 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         <div className="grid grid-cols-4 border-t border-slate-200 dark:border-white/[0.08] divide-x divide-slate-200 dark:divide-zinc-700/50">
           {([
             { label: 'Primer Trade', value: firstDate ? new Date(firstDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—', color: 'text-slate-700 dark:text-zinc-200' },
-            { label: 'Rent. Máxima', value: `${peakVal >= 0 ? '+' : ''}${fmtVal(peakVal)}`, color: peakVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
-            { label: 'Rent. Total',  value: `${lastVal >= 0 ? '+' : ''}${fmtVal(lastVal)}`,  color: lastVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+            { label: isUSD ? 'PnL Máx.'   : 'Rent. Máxima', value: fmtVal(peakVal, true), color: peakVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
+            { label: isUSD ? 'PnL Total'  : 'Rent. Total',  value: fmtVal(lastVal, true), color: lastVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
             { label: 'Último Trade', value: lastDate ? new Date(lastDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—', color: 'text-slate-700 dark:text-zinc-200' },
           ] as { label: string; value: string; color: string }[]).map(s => (
             <div key={s.label} className="flex flex-col gap-0.5 px-3 py-2.5">
@@ -1905,8 +2100,16 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
   const winners    = tl.filter(t => t.result === 'tp')
   const losers     = tl.filter(t => t.result === 'sl')
   const wr         = winners.length / N
-  const avgWin     = winners.length > 0 ? winners.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / winners.length : 0
-  const avgLoss    = losers.length  > 0 ? losers.reduce((s, t)  => s + (t.rr_exit ?? 0), 0) / losers.length  : 1
+  const isJournal  = sessionType === 'journal'
+  const hasUSD     = isJournal && trades.some(t => t.pnl_usd != null)
+  const avgWin     = winners.length > 0
+    ? (hasUSD ? winners.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / winners.length
+               : winners.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / winners.length)
+    : 0
+  const avgLoss    = losers.length > 0
+    ? (hasUSD ? Math.abs(losers.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / losers.length)
+               : losers.reduce((s, t) => s + (t.rr_exit ?? 0), 0) / losers.length)
+    : (hasUSD ? 0 : 1)
   const expectancy = (wr * avgWin) - ((1 - wr) * avgLoss)
 
   // Estado: calculando (faltan trades)
@@ -1934,7 +2137,7 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
             <div className="h-full rounded-full accent-bar transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>
           <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-2">
-            Break-even de esta estrategia: {(breakevenWR * 100).toFixed(1)}% WR · Expectativa actual: {expectancy >= 0 ? '+' : ''}{expectancy.toFixed(2)}R
+            Break-even de esta estrategia: {(breakevenWR * 100).toFixed(1)}% WR · Expectativa actual: {hasUSD ? (fmtPnL(expectancy) ?? '—') : `${expectancy >= 0 ? '+' : ''}${expectancy.toFixed(2)}R`}
           </p>
         </div>
       </div>
@@ -1980,7 +2183,7 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
         <div className="flex-1 min-w-0">
           <p className={`text-[18px] font-bold leading-tight ${verdictColor}`}>{verdict}</p>
           <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-            {expectancy >= 0 ? '+' : ''}{fmtR(expectancy, 3)}R por trade · WR {(wr * 100).toFixed(0)}% · break-even {(breakevenWR * 100).toFixed(1)}%
+            {hasUSD ? (fmtPnL(expectancy) ?? '—') : `${expectancy >= 0 ? '+' : ''}${fmtR(expectancy, 3)}R`} por trade · WR {(wr * 100).toFixed(0)}% · break-even {(breakevenWR * 100).toFixed(1)}%
           </p>
         </div>
         <div className={`shrink-0 text-right px-3 py-2 rounded-xl ${tierBg}`}>
@@ -2426,20 +2629,34 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
 // ─── Expectativa por mes ───────────────────────────────────────────────────────
 
 function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType: SessionType }) {
-  const N           = trades.length
-  const expectancy  = calcExpectancy(trades)
+  const N         = trades.length
+  const isJournal = sessionType === 'journal'
+  const hasUSD    = isJournal && trades.some(t => t.pnl_usd != null)
+
+  const expectancy = hasUSD ? (() => {
+    const rel = trades.filter(t => t.result === 'tp' || t.result === 'sl')
+    if (rel.length === 0) return null
+    const w = rel.filter(t => t.result === 'tp')
+    const l = rel.filter(t => t.result === 'sl')
+    const wr      = w.length / rel.length
+    const avgWin  = w.length > 0 ? w.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / w.length : 0
+    const avgLoss = Math.abs(l.length > 0 ? l.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / l.length : 0)
+    return (wr * avgWin) - ((1 - wr) * avgLoss)
+  })() : calcExpectancy(trades)
+
   const consistency = calcMonthlyConsistency(trades, sessionType)
   const epm         = (expectancy !== null && consistency !== null && consistency.total > 0)
     ? (N / consistency.total) * expectancy : null
   if (epm === null) return null
   const tradesPerMonth = consistency ? (N / consistency.total).toFixed(1) : '—'
+  const fmtEpm = hasUSD ? (fmtPnL(epm) ?? '—') : `${epm >= 0 ? '+' : ''}${fmtR(epm)}R`
   return (
     <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
       <div className="flex items-start justify-between">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por mes</span>
           <p className={`text-[28px] font-bold font-mono leading-none mt-0.5 ${epm > 0 ? 'text-emerald-600 dark:text-emerald-400' : epm < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-500'}`}>
-            {epm >= 0 ? '+' : ''}{fmtR(epm)}R
+            {fmtEpm}
           </p>
         </div>
         <div className="text-right">
@@ -3185,12 +3402,13 @@ function SortTh({ col, label, className = '', sortCol, sortDir, onSort }: {
 
 const PAGE_SIZE = 10
 
-function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, showInstrument, setShowInstrument, visibleVars, setVisibleVars }: {
+function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, showInstrument, setShowInstrument, visibleVars, setVisibleVars, isReadOnly }: {
   trades: Trade[]; sessionType: SessionType; variables: Variable[]
   sortCol: SortCol; sortDir: SortDir; onSort: (c: SortCol) => void
   onEdit: (t: Trade) => void; onDelete: (t: Trade) => void
   showInstrument: boolean; setShowInstrument: React.Dispatch<React.SetStateAction<boolean>>
   visibleVars: Set<string>; setVisibleVars: React.Dispatch<React.SetStateAction<Set<string>>>
+  isReadOnly?: boolean
 }) {
   const [showColPicker, setShowColPicker]   = useState(false)
   const [page, setPage]                     = useState(0)
@@ -3222,6 +3440,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
   const otherVars        = variables.filter(v => v.key !== 'instrument')
   const hasColumns       = hasInstrumentVar || otherVars.length > 0
   const showInstCol      = showInstrument && hasInstrumentVar
+  const hasSourceCol     = trades.some(t => t.source_session_name)
 
   return (
     <div>
@@ -3276,12 +3495,13 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
               <SortTh col="result"    label="Resultado" {...sortProps} />
               <SortTh col="rr"        label="RR"        {...sortProps} />
               {showInstCol && <SortTh col="instrument" label="Instrumento" {...sortProps} />}
+              {hasSourceCol && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Sesión</th>}
               {visibleVarKeys.map(key => {
                 const v = variables.find(x => x.key === key)!
                 return <SortTh key={key} col={key} label={v.label} {...sortProps} />
               })}
               <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Detalles</th>
-              <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap pr-4">Acciones</th>
+              {!isReadOnly && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap pr-4">Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -3351,6 +3571,14 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                       ) : <span className="text-zinc-300 dark:text-zinc-700 text-[12px]">—</span>}
                     </td>
                   )}
+                  {hasSourceCol && (
+                    <td className="px-2 py-3">
+                      {t.source_session_name
+                        ? <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 text-[11px] font-medium max-w-[120px] truncate">{t.source_session_name}</span>
+                        : <span className="text-zinc-300 dark:text-zinc-700 text-[12px]">—</span>
+                      }
+                    </td>
+                  )}
                   {visibleVarKeys.map(key => {
                     const varDef = variables.find(v => v.key === key)
                     const raw    = t.custom_fields[key]
@@ -3393,18 +3621,20 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                       )
                     })()}
                   </td>
-                  <td className="px-2 py-3 pr-4">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => onEdit(t)}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button onClick={() => onDelete(t)}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors cursor-pointer">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                      </button>
-                    </div>
-                  </td>
+                  {!isReadOnly && (
+                    <td className="px-2 py-3 pr-4">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => onEdit(t)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button onClick={() => onDelete(t)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors cursor-pointer">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               )
             })}
@@ -3425,17 +3655,15 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
               'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
             }`
           const pages: (number | '…')[] = []
-          if (totalPages <= 7) {
-            for (let i = 0; i < totalPages; i++) pages.push(i)
-          } else {
-            pages.push(0)
-            if (page > 2) pages.push('…')
-            const lo = Math.max(1, page - 1)
-            const hi = Math.min(totalPages - 2, page + 1)
-            for (let i = lo; i <= hi; i++) pages.push(i)
-            if (page < totalPages - 3) pages.push('…')
-            pages.push(totalPages - 1)
+          let lo = Math.max(0, page - 1)
+          let hi = Math.min(totalPages - 1, page + 1)
+          if (hi - lo < 2) {
+            if (lo === 0) hi = Math.min(totalPages - 1, 2)
+            else lo = Math.max(0, hi - 2)
           }
+          if (lo > 0) pages.push('…')
+          for (let i = lo; i <= hi; i++) pages.push(i)
+          if (hi < totalPages - 1) pages.push('…')
           return (
             <div className="flex items-center gap-1">
               <button onClick={() => setPage(0)} disabled={page === 0} className={btnCls(false, page === 0)}>
@@ -4694,7 +4922,14 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
             </h2>
           </div>
         </div>
-        <div className="shrink-0 pt-1">
+        <div className="shrink-0 pt-1 flex items-center gap-2">
+          {session.is_read_only && (
+            <MirrorBadge
+              sessionId={session.id}
+              sourceCount={data?.mirrorSourceCount ?? 0}
+              isReadOnly={session.is_read_only}
+            />
+          )}
           <SessionActions sessionId={session.id} sessionName={session.name} sessionType={session.type} />
         </div>
       </div>
@@ -4760,13 +4995,15 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       {/* ── Toolbar ────────────────────────────────────────────── */}
       <div className="px-3 pt-3 pb-4 flex flex-col gap-2">
 
-        {/* Row 1: Primary action */}
-        <button
-          onClick={() => { setEditTrade(null); setShowForm(true) }}
-          className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80 mb-4">
-          <IconPlus size={16} />
-          Nuevo trade
-        </button>
+        {/* Row 1: Primary action (hidden for read-only mirror) */}
+        {!session.is_read_only && (
+          <button
+            onClick={() => { setEditTrade(null); setShowForm(true) }}
+            className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80 mb-4">
+            <IconPlus size={16} />
+            Nuevo trade
+          </button>
+        )}
 
         {/* Row 2: Filters + controls */}
         <div className="flex items-center gap-2">
@@ -4904,7 +5141,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       ) : trades.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
           <p className="text-[13px] text-slate-500 dark:text-zinc-400">
-            Registra tu primer trade para comenzar.
+            {session.is_read_only ? 'Sin trades en las sesiones fuente.' : 'Registra tu primer trade para comenzar.'}
           </p>
         </div>
       ) : view === 'calendar' ? (
@@ -4926,6 +5163,7 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
           setShowInstrument={setShowInstrument}
           visibleVars={visibleVars}
           setVisibleVars={setVisibleVars}
+          isReadOnly={session.is_read_only}
         />
       )}
 

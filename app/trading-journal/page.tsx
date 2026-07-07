@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
 import VariablesContent from './variables-content'
 
@@ -34,6 +35,7 @@ interface Session {
   capital_initial: number | null
   is_archived: boolean
   is_favorite: boolean
+  is_read_only: boolean
   sync_paused: boolean
   created_at: string
   trade_count: number
@@ -176,6 +178,24 @@ function IconSettings({ size = 16 }: { size?: number }) {
   )
 }
 
+function IconShare({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5"  r="3"/><circle cx="6"  cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+      <line x1="15.41" y1="6.51" x2="8.59"  y2="10.49"/>
+    </svg>
+  )
+}
+
+function IconBell({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    </svg>
+  )
+}
+
 function IconSun({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -207,7 +227,239 @@ function IconVariables({ size = 14 }: { size?: number }) {
   )
 }
 
-function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables }: {
+// ─── Share Sheet ──────────────────────────────────────────────────────────────
+
+function ShareSessionSheet({ session, onClose }: { session: Session; onClose: () => void }) {
+  const [email, setEmail] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+
+  async function handleSend() {
+    const trimmed = email.trim()
+    if (!trimmed || !trimmed.includes('@')) { setErrorMsg('Ingresa un email válido'); return }
+    setStatus('loading')
+    setErrorMsg('')
+    try {
+      const res = await fetch('/api/trading-journal/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session.id, toEmail: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErrorMsg(data.error ?? 'Error al enviar'); setStatus('error') }
+      else setStatus('success')
+    } catch { setErrorMsg('Error de conexión'); setStatus('error') }
+  }
+
+  return (
+    <BottomSheet title="Compartir sesión" onClose={onClose}>
+      <div className="pb-2">
+        {status === 'success' ? (
+          <div className="text-center py-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-emerald-600 dark:text-emerald-400">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <p className="text-[15px] font-semibold text-slate-900 dark:text-white mb-1">¡Invitación enviada!</p>
+            <p className="text-[13px] text-slate-500 dark:text-zinc-400 mb-5">
+              El usuario recibirá una notificación para aceptar o rechazar la sesión.
+            </p>
+            <button onClick={onClose} className="w-full h-11 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer">
+              Cerrar
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-[13px] text-slate-500 dark:text-zinc-400 mb-1 truncate">
+              <span className="font-semibold text-slate-700 dark:text-zinc-200">&ldquo;{session.name}&rdquo;</span>
+            </p>
+            <p className="text-[13px] text-slate-600 dark:text-zinc-300 mb-4 mt-2">
+              El receptor recibirá una copia independiente con todos los trades.
+            </p>
+            <div className="flex flex-col gap-3">
+              <input
+                type="email"
+                autoFocus
+                value={email}
+                onChange={e => { setEmail(e.target.value); if (errorMsg) setErrorMsg('') }}
+                onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
+                placeholder="email@ejemplo.com"
+                className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[14px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
+              />
+              {errorMsg && <p className="text-[12px] text-rose-500 dark:text-rose-400 -mt-1">{errorMsg}</p>}
+              <button
+                onClick={handleSend}
+                disabled={status === 'loading'}
+                className="w-full h-11 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
+                {status === 'loading'
+                  ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <><IconShare size={14} /> Enviar sesión</>
+                }
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </BottomSheet>
+  )
+}
+
+function IconMerge({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/>
+      <rect x="9" y="15" width="6" height="6" rx="1"/>
+      <path d="M5 9v3a4 4 0 0 0 4 4h2M19 9v3a4 4 0 0 1-4 4h-2"/>
+    </svg>
+  )
+}
+
+// ─── Merge Sheet ──────────────────────────────────────────────────────────────
+
+function MergeSheet({ session, allSessions, onClose, onDone }: {
+  session: Session
+  allSessions: Session[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const candidates = allSessions.filter(s =>
+    s.id !== session.id && s.type === 'backtesting' && !s.is_read_only
+  )
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<'mirror' | 'copy'>('mirror')
+  const [name, setName] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const router = useRouter()
+
+  // Auto-generate name from selected sessions
+  useEffect(() => {
+    const names = [session.name, ...candidates.filter(s => selected.has(s.id)).map(s => s.name)]
+    if (names.length >= 2) setName(`Fusión — ${names.map(n => n.slice(0, 14)).join(' + ')}`)
+  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function handleCreate() {
+    if (selected.size === 0) { setErrorMsg('Selecciona al menos una sesión más'); return }
+    setStatus('loading')
+    setErrorMsg('')
+    const res = await fetch('/api/trading-journal/sessions/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name.trim() || `Fusión — ${session.name}`,
+        sourceSessionIds: [session.id, ...Array.from(selected)],
+        mode,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setErrorMsg(data.error ?? 'Error al crear'); setStatus('error'); return }
+    onDone()
+    router.push(`/trading-journal/${data.session.id}`)
+  }
+
+  return (
+    <BottomSheet title="Fusionar sesión" onClose={onClose}>
+      <div className="flex flex-col gap-5 pb-2">
+
+        {/* Mode */}
+        <div className="flex gap-2">
+          {([['mirror', 'Espejo (solo lectura)'], ['copy', 'Copia editable']] as const).map(([m, label]) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`flex-1 py-3 px-3 rounded-xl text-[12px] font-semibold border-2 transition-all cursor-pointer text-center ${
+                mode === m
+                  ? 'accent-btn border-transparent'
+                  : 'border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 bg-white dark:bg-zinc-900 hover:border-slate-300 dark:hover:border-zinc-600'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[12px] text-slate-500 dark:text-zinc-400 -mt-3">
+          {mode === 'mirror'
+            ? 'Refleja trades en tiempo real. No se pueden editar desde aquí.'
+            : 'Copia todos los trades ahora. Puedes editarlos libremente después.'}
+        </p>
+
+        {/* Session picker */}
+        <div>
+          <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2">
+            Sesión base (esta)
+          </p>
+          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 mb-3">
+            <div className="w-4 h-4 rounded-md accent-btn flex items-center justify-center shrink-0">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-100 truncate">{session.name}</span>
+          </div>
+
+          <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2">
+            Añadir sesiones · {selected.size} seleccionadas
+          </p>
+          {candidates.length === 0 ? (
+            <p className="text-[13px] text-slate-500 dark:text-zinc-400 py-2">No hay otras sesiones de backtesting.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {candidates.map(s => {
+                const on = selected.has(s.id)
+                return (
+                  <button key={s.id} onClick={() => toggle(s.id)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                      on
+                        ? 'accent-tint accent-border-lo'
+                        : 'bg-slate-50 dark:bg-zinc-900 border-slate-100 dark:border-zinc-800 hover:border-slate-200 dark:hover:border-zinc-700'
+                    }`}>
+                    <div className={`w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${on ? 'accent-btn border-transparent' : 'border-slate-300 dark:border-zinc-600'}`}>
+                      {on && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-slate-800 dark:text-zinc-100 truncate">{s.name}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">{s.trade_count} trades</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Name */}
+        <div>
+          <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2">Nombre de la sesión</p>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Ej. Fusión Mayo 2025"
+            className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[14px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
+          />
+        </div>
+
+        {errorMsg && <p className="text-[12px] text-rose-500 dark:text-rose-400 -mt-3">{errorMsg}</p>}
+
+        <button
+          onClick={handleCreate}
+          disabled={status === 'loading' || selected.size === 0}
+          className="w-full h-11 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer disabled:opacity-40 flex items-center justify-center gap-2">
+          {status === 'loading'
+            ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            : <><IconMerge size={14} /> Crear sesión fusionada</>
+          }
+        </button>
+      </div>
+    </BottomSheet>
+  )
+}
+
+function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables, onShare, onMerge }: {
   session: Session
   onEdit: () => void
   onDuplicate: () => void
@@ -216,6 +468,8 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
   onManageConnections: () => void
   onCreateJournal: () => void
   onVariables: () => void
+  onShare: () => void
+  onMerge: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -235,6 +489,10 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
       { icon: <IconLink />, label: 'Gestionar Journals', action: onManageConnections },
       { icon: <IconBook size={14} />, label: 'Crear Journal', action: onCreateJournal },
     ] : []),
+    ...(session.type === 'backtesting' && !session.is_read_only ? [
+      { icon: <IconMerge size={14} />, label: 'Fusionar', action: onMerge },
+    ] : []),
+    { icon: <IconShare />, label: 'Compartir', action: onShare },
     { icon: <IconArchive />, label: session.is_archived ? 'Desarchivar' : 'Archivar', action: onArchive },
     { icon: <IconTrash />, label: 'Eliminar', action: onDelete, danger: true },
   ]
@@ -273,7 +531,7 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
 
 // ─── Session Card ──────────────────────────────────────────────────────────────
 
-function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables }: {
+function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, onArchive, onDelete, onManageConnections, onCreateJournal, onVariables, onShare, onMerge }: {
   session: Session
   onClick: () => void
   onToggleFavorite: () => void
@@ -284,6 +542,8 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
   onManageConnections: () => void
   onCreateJournal: () => void
   onVariables: () => void
+  onShare: () => void
+  onMerge: () => void
 }) {
   const isBt = session.type === 'backtesting'
 
@@ -302,6 +562,11 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
             <span className="inline-flex items-center text-[10px] font-black uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg border accent-badge">
               {isBt ? 'Backtest' : 'Journal'}
             </span>
+            {session.is_read_only && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-violet-100 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 uppercase tracking-[0.1em]">
+                <IconMerge size={9} /> Espejo
+              </span>
+            )}
             {session.is_archived && (
               <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">archivado</span>
             )}
@@ -322,6 +587,8 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
               onManageConnections={onManageConnections}
               onCreateJournal={onCreateJournal}
               onVariables={onVariables}
+              onShare={onShare}
+              onMerge={onMerge}
             />
           </div>
         </div>
@@ -1138,6 +1405,33 @@ function TabBar({ tab, onTabChange, btCount, jnCount }: {
   )
 }
 
+// ─── Notifications Bell ───────────────────────────────────────────────────────
+
+function NotificationsBell() {
+  const [unread, setUnread] = useState(0)
+
+  useEffect(() => {
+    fetch('/api/trading-journal/notifications')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setUnread(d.unread ?? 0) })
+      .catch(() => {})
+  }, [])
+
+  return (
+    <Link
+      href="/trading-journal/notifications"
+      aria-label="Notificaciones"
+      className="relative min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors">
+      <IconBell size={17} />
+      {unread > 0 && (
+        <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 rounded-full accent-btn text-[9px] font-black flex items-center justify-center px-1 leading-none">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </Link>
+  )
+}
+
 // ─── Module-level sessions cache (TTL: 30s) ───────────────────────────────────
 let _sessionsCache: Session[] | null = null
 let _sessionsCacheTime = 0
@@ -1160,6 +1454,8 @@ export default function TradingJournalPage() {
   const [connectTarget, setConnectTarget] = useState<Session | null>(null)
   const [createJournalFrom, setCreateJournalFrom] = useState<Session | null>(null)
   const [variablesSession, setVariablesSession] = useState<Session | null>(null)
+  const [shareTarget, setShareTarget] = useState<Session | null>(null)
+  const [mergeTarget, setMergeTarget] = useState<Session | null>(null)
 
   const load = useCallback(async (invalidate = false) => {
     if (invalidate) _sessionsCacheTime = 0
@@ -1240,6 +1536,7 @@ export default function TradingJournalPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationsBell />
             <button
               onClick={() => setShowSettings(true)}
               aria-label="Ajustes"
@@ -1283,6 +1580,8 @@ export default function TradingJournalPage() {
                 onManageConnections={() => setConnectTarget(s)}
                 onCreateJournal={() => setCreateJournalFrom(s)}
                 onVariables={() => setVariablesSession(s)}
+                onShare={() => setShareTarget(s)}
+                onMerge={() => setMergeTarget(s)}
               />
             ))}
 
@@ -1315,6 +1614,8 @@ export default function TradingJournalPage() {
                         onManageConnections={() => setConnectTarget(s)}
                         onCreateJournal={() => setCreateJournalFrom(s)}
                         onVariables={() => setVariablesSession(s)}
+                        onShare={() => setShareTarget(s)}
+                        onMerge={() => setMergeTarget(s)}
                       />
                     ))}
                   </div>
@@ -1369,6 +1670,19 @@ export default function TradingJournalPage() {
           session={createJournalFrom}
           onClose={() => setCreateJournalFrom(null)}
           onRefresh={load}
+        />
+      )}
+
+      {shareTarget && (
+        <ShareSessionSheet session={shareTarget} onClose={() => setShareTarget(null)} />
+      )}
+
+      {mergeTarget && (
+        <MergeSheet
+          session={mergeTarget}
+          allSessions={sessions}
+          onClose={() => setMergeTarget(null)}
+          onDone={() => { setMergeTarget(null); load(true) }}
         />
       )}
 

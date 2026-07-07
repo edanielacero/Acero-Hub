@@ -38,6 +38,18 @@ export async function GET() {
     countMap[t.session_id] = (countMap[t.session_id] ?? 0) + 1
   }
 
+  // For mirror sessions, trade count comes from source sessions
+  const mirrorIds = (sessions ?? []).filter(s => s.is_read_only).map(s => s.id)
+  if (mirrorIds.length > 0) {
+    const { data: links } = await admin
+      .from('tj_merged_sessions')
+      .select('merged_session_id, source_session_id')
+      .in('merged_session_id', mirrorIds)
+    for (const link of links ?? []) {
+      countMap[link.merged_session_id] = (countMap[link.merged_session_id] ?? 0) + (countMap[link.source_session_id] ?? 0)
+    }
+  }
+
   // Enrich sessions with connections and trade count
   const relevantConnections = (connections ?? []).filter(
     c => sessionIds.includes(c.backtesting_id) || sessionIds.includes(c.journal_id)

@@ -7,7 +7,7 @@ async function getOwnedSession(sessionId: string, userId: string) {
   const admin = createAdminClient()
   const { data } = await admin
     .from('tj_sessions')
-    .select('id, type, name, instrument, capital_initial')
+    .select('id, type, name, instrument, capital_initial, is_read_only')
     .eq('id', sessionId)
     .eq('user_id', userId)
     .single()
@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const [sessionRes, variablesRes, tradesRes, connectionsRes] = await Promise.all([
     admin
       .from('tj_sessions')
-      .select('id, type, name, instrument, capital_initial')
+      .select('id, type, name, instrument, capital_initial, is_read_only')
       .eq('id', id)
       .eq('user_id', user.id)
       .single(),
@@ -67,11 +67,55 @@ export async function GET(_req: NextRequest, { params }: Params) {
     }))
   }
 
+  // For mirror (read-only) sessions: fetch trades and variables from all source sessions
+  let trades = tradesRes.data ?? []
+  let mirrorSourceCount = 0
+  let variables = variablesRes.data ?? []
+
+  if (session.is_read_only) {
+    const { data: links } = await admin
+      .from('tj_merged_sessions')
+      .select('source_session_id')
+      .eq('merged_session_id', id)
+
+    mirrorSourceCount = links?.length ?? 0
+
+    if (links && links.length > 0) {
+      const sourceIds = links.map(l => l.source_session_id)
+
+      const [{ data: sourceTrades }, { data: sourceSessions }, { data: sourceVarDefs }] = await Promise.all([
+        admin.from('tj_trades').select('*').in('session_id', sourceIds).order('date_entry', { ascending: false }),
+        admin.from('tj_sessions').select('id, name').in('id', sourceIds),
+        admin.from('tj_variable_definitions').select('id, key, label, type, options, is_required').in('session_id', sourceIds).eq('is_active', true).order('sort_order', { ascending: true }),
+      ])
+
+      const nameMap: Record<string, string> = {}
+      for (const s of sourceSessions ?? []) nameMap[s.id] = s.name
+
+      trades = (sourceTrades ?? []).map(t => ({
+        ...t,
+        source_session_name: nameMap[t.session_id] ?? null,
+      }))
+
+      // Union of variable defs from all sources, deduplicated by key
+      const seen = new Set<string>()
+      variables = (sourceVarDefs ?? []).filter(v => {
+        if (seen.has(v.key)) return false
+        seen.add(v.key)
+        return true
+      })
+    } else {
+      trades = []
+      variables = []
+    }
+  }
+
   return NextResponse.json({
     session,
-    variables: variablesRes.data ?? [],
-    trades: tradesRes.data ?? [],
+    variables,
+    trades,
     activeConnections,
+    mirrorSourceCount,
   })
 }
 
@@ -83,6 +127,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const session = await getOwnedSession(id, user.id)
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (session.is_read_only) return NextResponse.json({ error: 'Sesión de solo lectura' }, { status: 403 })
 
   const body = await req.json()
   const {
