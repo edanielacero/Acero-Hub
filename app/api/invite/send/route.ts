@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
   const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${token}`
 
-  await getResend().emails.send({
+  const { error: emailError } = await getResend().emails.send({
     from: process.env.RESEND_FROM!,
     to: email,
     subject: 'Te invitaron a Acero Hub',
@@ -50,6 +50,11 @@ export async function POST(request: Request) {
       </div>
     `,
   })
+
+  if (emailError) {
+    await admin.from('invitations').delete().eq('token', token)
+    return NextResponse.json({ error: `Error al enviar email: ${emailError.message}` }, { status: 500 })
+  }
 
   return NextResponse.json({ success: true })
 }

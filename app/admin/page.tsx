@@ -26,6 +26,7 @@ export default function AdminPage() {
   const [inviteProjects, setInviteProjects] = useState<string[]>([])
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState('')
+  const [inviteError, setInviteError] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -81,15 +82,19 @@ export default function AdminPage() {
     e.preventDefault()
     setInviteLoading(true)
     setInviteSuccess('')
+    setInviteError('')
     const res = await fetch('/api/invite/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: inviteEmail, name: inviteName, projectIds: inviteProjects }),
     })
+    const data = await res.json()
     if (res.ok) {
       setInviteSuccess(`Invitación enviada a ${inviteEmail}`)
       setInviteEmail(''); setInviteName(''); setInviteProjects([])
       setShowInvite(false)
+    } else {
+      setInviteError(data.error || 'Error al enviar la invitación')
     }
     setInviteLoading(false)
   }
@@ -143,8 +148,11 @@ export default function AdminPage() {
                 ))}
               </div>
             </div>
+            {inviteError && (
+              <p className="text-xs text-red-400 font-[family-name:var(--font-body)]">{inviteError}</p>
+            )}
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowInvite(false)} className="text-xs text-[#555] hover:text-[#888] px-4 py-2 transition-colors cursor-pointer font-[family-name:var(--font-body)]">Cancelar</button>
+              <button type="button" onClick={() => { setShowInvite(false); setInviteError('') }} className="text-xs text-[#555] hover:text-[#888] px-4 py-2 transition-colors cursor-pointer font-[family-name:var(--font-body)]">Cancelar</button>
               <button type="submit" disabled={inviteLoading} className="bg-[#f5f5f5] text-[#0a0a0a] font-semibold text-xs px-5 py-2 rounded-xl hover:bg-white transition-colors disabled:opacity-40 cursor-pointer">
                 {inviteLoading ? 'Enviando...' : 'Enviar invitación'}
               </button>
