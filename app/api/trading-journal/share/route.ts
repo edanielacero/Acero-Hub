@@ -12,15 +12,40 @@ export async function POST(req: NextRequest) {
 
   const email = String(toEmail).toLowerCase().trim()
 
-  const [{ data: session }, { data: receiver }, { data: senderProfile }] = await Promise.all([
+  const [{ data: session }, { data: senderProfile }, { data: project }] = await Promise.all([
     admin.from('tj_sessions').select('id, name').eq('id', sessionId).eq('user_id', user.id).single(),
-    admin.from('profiles').select('id, name').eq('email', email).single(),
     admin.from('profiles').select('name, email').eq('id', user.id).single(),
+    admin.from('projects').select('id').eq('slug', 'trading-journal').single(),
   ])
 
-  if (!session)   return NextResponse.json({ error: 'Sesión no encontrada' }, { status: 404 })
-  if (!receiver)  return NextResponse.json({ error: 'El email no está registrado en Acero Hub' }, { status: 404 })
+  if (!session) return NextResponse.json({ error: 'Sesión no encontrada' }, { status: 404 })
+
+  // Buscar receptor con comparación case-insensitive
+  const { data: receiver } = await admin
+    .from('profiles')
+    .select('id, name, role')
+    .ilike('email', email)
+    .maybeSingle()
+
+  if (!receiver) return NextResponse.json({ error: 'El correo no está registrado en Acero Hub' }, { status: 404 })
   if (receiver.id === user.id) return NextResponse.json({ error: 'No puedes compartir una sesión contigo mismo' }, { status: 400 })
+
+  // Verificar que el receptor tiene acceso a Trading Journal
+  if (receiver.role !== 'admin' && project) {
+    const { data: access } = await admin
+      .from('project_access')
+      .select('id')
+      .eq('user_id', receiver.id)
+      .eq('project_id', project.id)
+      .maybeSingle()
+
+    if (!access) {
+      return NextResponse.json(
+        { error: 'Este usuario no tiene permiso para usar Trading Journal' },
+        { status: 403 }
+      )
+    }
+  }
 
   const { data: existing } = await admin
     .from('tj_share_invitations')
@@ -45,10 +70,10 @@ export async function POST(req: NextRequest) {
     user_id: receiver.id,
     type: 'session_share',
     payload: {
-      invitationId:  invitation.id,
+      invitationId: invitation.id,
       fromName,
-      fromUserId:    user.id,
-      sessionName:   session.name,
+      fromUserId:   user.id,
+      sessionName:  session.name,
       sessionId,
     },
     read: false,

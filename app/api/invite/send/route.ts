@@ -11,8 +11,9 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Prohibido' }, { status: 403 })
 
-  const { email, name, projectIds } = await request.json()
-  if (!email) return NextResponse.json({ error: 'Email requerido' }, { status: 400 })
+  const { email: rawEmail, name, projectIds } = await request.json()
+  if (!rawEmail) return NextResponse.json({ error: 'Email requerido' }, { status: 400 })
+  const email = String(rawEmail).toLowerCase().trim()
 
   const token = randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()

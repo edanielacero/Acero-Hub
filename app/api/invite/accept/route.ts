@@ -28,10 +28,11 @@ export async function POST(request: Request) {
 
   const userId = authData.user.id
 
+  const storedEmail = String(invitation.email).toLowerCase().trim()
   await admin.from('profiles').upsert({
     id: userId,
-    email: invitation.email,
-    name: name || invitation.name || invitation.email.split('@')[0],
+    email: storedEmail,
+    name: name || invitation.name || storedEmail.split('@')[0],
     role: 'user',
   })
 
