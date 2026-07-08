@@ -9,7 +9,7 @@ interface ProjectCardProps {
   banner: ReactNode
 }
 
-export default function ProjectCard({ href, name, description, icon, banner }: ProjectCardProps) {
+export default function ProjectCard({ href, name, icon, banner }: ProjectCardProps) {
   return (
     <Link
       href={href}
@@ -31,11 +31,6 @@ export default function ProjectCard({ href, name, description, icon, banner }: P
         <h2 className="text-[17px] font-bold tracking-tight text-[#f5f5f5] leading-snug font-[family-name:var(--font-heading)]">
           {name}
         </h2>
-
-        {/* Description */}
-        <p className="text-[13px] font-normal leading-relaxed text-[#888] font-[family-name:var(--font-body)]">
-          {description}
-        </p>
       </div>
     </Link>
   )

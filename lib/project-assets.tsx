@@ -163,8 +163,4 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
     icon: <BallIcon />,
     banner: <MundialBanner />,
   },
-  'acero-ia': {
-    icon: <PrismaIcon />,
-    banner: <PrismaBanner />,
-  },
 }

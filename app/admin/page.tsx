@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
@@ -39,6 +40,7 @@ export default function AdminPage() {
     const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single()
     if (me?.role !== 'admin') { router.push('/'); return }
     setIsAdmin(true)
+    setCurrentUserId(user.id)
 
     const [{ data: profilesData }, { data: projectsData }, { data: accessData }] = await Promise.all([
       supabase.from('profiles').select('id, name, email, role').order('created_at'),
@@ -177,8 +179,8 @@ export default function AdminPage() {
                         <button
                           key={project.id}
                           onClick={() => toggleAccess(user.id, project.id, has)}
-                          disabled={user.role === 'admin'}
-                          className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors cursor-pointer disabled:cursor-default font-[family-name:var(--font-body)] ${
+                          disabled={user.id === currentUserId}
+                          className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors cursor-pointer disabled:cursor-default disabled:opacity-30 font-[family-name:var(--font-body)] ${
                             has
                               ? 'bg-[#f5f5f5] text-[#0a0a0a] border-[#f5f5f5] font-medium'
                               : 'bg-transparent text-[#444] border-[#1e1e1e] hover:border-[#333]'
