@@ -481,15 +481,18 @@ function ActionMenu({ session, onEdit, onDuplicate, onArchive, onDelete, onManag
     return () => document.removeEventListener('mousedown', h)
   }, [open])
 
-  const items = [
+  const items = session.is_read_only ? [
+    { icon: <IconEdit />, label: 'Editar', action: onEdit },
+    { icon: <IconShare />, label: 'Compartir', action: onShare },
+    { icon: <IconArchive />, label: session.is_archived ? 'Desarchivar' : 'Archivar', action: onArchive },
+    { icon: <IconTrash />, label: 'Eliminar', action: onDelete, danger: true },
+  ] : [
     { icon: <IconEdit />, label: 'Editar', action: onEdit },
     { icon: <IconCopy />, label: 'Duplicar', action: onDuplicate },
     { icon: <IconVariables />, label: 'Configurar variables', action: onVariables },
     ...(session.type === 'backtesting' ? [
       { icon: <IconLink />, label: 'Gestionar Journals', action: onManageConnections },
       { icon: <IconBook size={14} />, label: 'Crear Journal', action: onCreateJournal },
-    ] : []),
-    ...(session.type === 'backtesting' && !session.is_read_only ? [
       { icon: <IconMerge size={14} />, label: 'Fusionar', action: onMerge },
     ] : []),
     { icon: <IconShare />, label: 'Compartir', action: onShare },
@@ -548,27 +551,27 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
   const isBt = session.type === 'backtesting'
 
   return (
-    <div onClick={onClick} className={`relative flex rounded-2xl transition-all duration-150 ${
+    <div onClick={onClick} className={`relative rounded-2xl transition-all duration-150 ${
       session.is_archived ? 'opacity-40' : 'hover:bg-slate-50 dark:hover:bg-zinc-900'
     } bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700/60 hover:border-slate-300 dark:hover:border-zinc-600/60 shadow-sm dark:shadow-none cursor-pointer`}>
 
-      {/* Left accent line */}
-      <div className="w-[3px] shrink-0 self-stretch rounded-l-2xl accent-bar" />
+      {/* Left accent line — absolute so the card doesn't need overflow-hidden */}
+      <div className="absolute inset-y-0 left-0 w-[3px] rounded-l-2xl accent-bar" />
 
-      <div className="flex-1 px-4 py-4">
+      <div className="pl-[19px] pr-4 py-4">
         {/* Top row */}
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 min-w-0 mt-1">
-            <span className="inline-flex items-center text-[10px] font-black uppercase tracking-[0.15em] px-2.5 py-1 rounded-lg border accent-badge">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap mt-1">
+            <span className="inline-flex items-center text-[9px] font-black uppercase tracking-[0.16em] px-2.5 py-[3px] rounded-full border accent-badge">
               {isBt ? 'Backtest' : 'Journal'}
             </span>
             {session.is_read_only && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-violet-100 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 uppercase tracking-[0.1em]">
-                <IconMerge size={9} /> Espejo
+              <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-[3px] rounded-full bg-violet-100 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-500/30 uppercase tracking-[0.1em]">
+                <IconMerge size={8} /> Solo lectura
               </span>
             )}
             {session.is_archived && (
-              <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">archivado</span>
+              <span className="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]">archivado</span>
             )}
           </div>
           <div className="flex items-center shrink-0 -mr-1.5 -mt-1.5">
@@ -598,6 +601,11 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
           {session.name}
         </p>
 
+        {/* Description preview */}
+        {session.description && (
+          <p className="text-[12px] text-slate-500 dark:text-zinc-400 leading-relaxed mb-3 line-clamp-1">{session.description}</p>
+        )}
+
         {/* Connections */}
         {session.connections.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
@@ -615,23 +623,18 @@ function SessionCard({ session, onClick, onToggleFavorite, onEdit, onDuplicate, 
           </div>
         )}
 
-        {/* Description preview */}
-        {session.description && (
-          <p className="text-[12px] text-slate-500 dark:text-zinc-400 leading-relaxed mb-3 line-clamp-1">{session.description}</p>
-        )}
-
         {/* Footer meta */}
-        <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-zinc-700/50 mt-1">
-          <span className={`text-[11px] font-semibold tabular-nums ${
-            session.trade_count > 0
-              ? 'text-slate-500 dark:text-zinc-400'
-              : 'text-slate-500 dark:text-zinc-400'
-          }`}>
-            {session.trade_count === 0
-              ? 'Sin trades'
-              : `${session.trade_count} trade${session.trade_count !== 1 ? 's' : ''}`}
-          </span>
-          <span className="text-[11px] text-slate-500 dark:text-zinc-400 tabular-nums">{formatDate(session.created_at)}</span>
+        <div className="flex items-center pt-3 border-t border-slate-200 dark:border-zinc-700/50 mt-1">
+          <div className="flex items-center gap-2">
+            {session.trade_count > 0 && (
+              <div className="w-1.5 h-1.5 rounded-full accent-bar shrink-0" />
+            )}
+            <span className="text-[11px] font-semibold tabular-nums text-slate-500 dark:text-zinc-400">
+              {session.trade_count === 0
+                ? 'Sin trades'
+                : `${session.trade_count} trade${session.trade_count !== 1 ? 's' : ''}`}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -1344,22 +1347,17 @@ function EmptyState({ type, onCreate }: { type: Tab; onCreate: () => void }) {
 
 function SkeletonCard() {
   return (
-    <div className="flex rounded-2xl overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700/60/60 shadow-sm dark:shadow-none animate-pulse">
+    <div className="flex rounded-2xl overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-700/60 shadow-sm dark:shadow-none animate-pulse">
       <div className="w-[3px] shrink-0 self-stretch bg-slate-200 dark:bg-zinc-800 rounded-l-2xl" />
       <div className="flex-1 px-4 py-4">
-        {/* Top row: badge + star */}
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="h-[22px] w-20 bg-slate-100 dark:bg-zinc-800 rounded-lg mt-1" />
+          <div className="h-[20px] w-20 bg-slate-100 dark:bg-zinc-800 rounded-full mt-1" />
           <div className="w-9 h-9 bg-slate-100 dark:bg-zinc-800 rounded-xl shrink-0 -mr-1.5 -mt-1.5" />
         </div>
-        {/* Name */}
         <div className="h-[17px] w-2/3 bg-slate-100 dark:bg-zinc-800 rounded-lg mb-2" />
-        {/* Description */}
         <div className="h-3 w-2/5 bg-slate-50 dark:bg-zinc-900 rounded-lg mb-4" />
-        {/* Footer */}
-        <div className="flex justify-between pt-3 border-t border-slate-200 dark:border-zinc-700/50">
+        <div className="pt-3 border-t border-slate-200 dark:border-zinc-700/50">
           <div className="h-3 w-14 bg-slate-50 dark:bg-zinc-900 rounded" />
-          <div className="h-3 w-24 bg-slate-50 dark:bg-zinc-900 rounded" />
         </div>
       </div>
     </div>

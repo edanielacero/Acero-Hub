@@ -110,9 +110,42 @@ export async function GET(_req: NextRequest, { params }: Params) {
     }
   }
 
+  // For journal sessions: resolve source backtesting name for synced trades
+  if (session.type === 'journal') {
+    const linkedIds = trades.filter(t => t.linked_trade_id).map(t => t.linked_trade_id as string)
+    if (linkedIds.length > 0) {
+      const [{ data: linkedTrades }, ] = await Promise.all([
+        admin.from('tj_trades').select('id, session_id').in('id', linkedIds),
+      ])
+      const linkedSessionIds = [...new Set((linkedTrades ?? []).map(t => t.session_id))]
+      const { data: sourceSessions } = await admin
+        .from('tj_sessions').select('id, name').in('id', linkedSessionIds)
+
+      const tradeToSession: Record<string, string> = {}
+      for (const lt of linkedTrades ?? []) tradeToSession[lt.id] = lt.session_id
+      const sessionNameMap: Record<string, string> = {}
+      for (const s of sourceSessions ?? []) sessionNameMap[s.id] = s.name
+
+      trades = trades.map(t => ({
+        ...t,
+        source_session_name: t.linked_trade_id
+          ? (sessionNameMap[tradeToSession[t.linked_trade_id]] ?? null)
+          : null,
+      }))
+    }
+  }
+
+  // Always deduplicate variables by key before returning
+  const seenKeys = new Set<string>()
+  const uniqueVariables = variables.filter(v => {
+    if (seenKeys.has(v.key)) return false
+    seenKeys.add(v.key)
+    return true
+  })
+
   return NextResponse.json({
     session,
-    variables,
+    variables: uniqueVariables,
     trades,
     activeConnections,
     mirrorSourceCount,
