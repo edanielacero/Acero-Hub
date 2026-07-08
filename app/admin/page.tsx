@@ -13,13 +13,21 @@ interface UserAccess {
   role: string
   projectIds: string[]
 }
+interface PendingInvite {
+  id: string
+  email: string
+  name: string | null
+  created_at: string
+}
 
 export default function AdminPage() {
   const [users, setUsers] = useState<UserAccess[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
@@ -27,11 +35,15 @@ export default function AdminPage() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState('')
   const [inviteError, setInviteError] = useState('')
+
+  const [resending, setResending] = useState<string | null>(null)
+  const [notifying, setNotifying] = useState<string | null>(null)
+  const [actionFeedback, setActionFeedback] = useState<{ id: string; msg: string; ok: boolean } | null>(null)
+  const [deletingInvite, setDeletingInvite] = useState<string | null>(null)
+
   const router = useRouter()
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     const supabase = createClient()
@@ -43,17 +55,22 @@ export default function AdminPage() {
     setIsAdmin(true)
     setCurrentUserId(user.id)
 
-    const [{ data: profilesData }, { data: projectsData }, { data: accessData }] = await Promise.all([
+    const [{ data: profilesData }, { data: projectsData }, { data: accessData }, { data: invitesData }] = await Promise.all([
       supabase.from('profiles').select('id, name, email, role').order('created_at'),
       supabase.from('projects').select('id, name, slug').order('name'),
       supabase.from('project_access').select('user_id, project_id'),
+      supabase.from('invitations').select('id, email, name, created_at').is('used_at', null).order('created_at', { ascending: false }),
     ])
+
+    const profileEmails = new Set((profilesData || []).map(p => p.email))
 
     setProjects(projectsData || [])
     setUsers((profilesData || []).map(p => ({
       ...p,
       projectIds: (accessData || []).filter(a => a.user_id === p.id).map(a => a.project_id),
     })))
+    // Solo mostrar invitaciones de emails que aún no tienen cuenta
+    setPendingInvites((invitesData || []).filter(inv => !profileEmails.has(inv.email)))
     setLoading(false)
   }
 
@@ -78,25 +95,100 @@ export default function AdminPage() {
     if (res.ok) setUsers(prev => prev.filter(u => u.id !== userId))
   }
 
+  async function deleteInvite(id: string) {
+    setDeletingInvite(id)
+    try {
+      await fetch(`/api/invite/${id}`, { method: 'DELETE' })
+      setPendingInvites(prev => prev.filter(i => i.id !== id))
+    } finally {
+      setDeletingInvite(null)
+    }
+  }
+
   async function sendInvite(e: React.FormEvent) {
     e.preventDefault()
     setInviteLoading(true)
     setInviteSuccess('')
     setInviteError('')
-    const res = await fetch('/api/invite/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: inviteEmail, name: inviteName, projectIds: inviteProjects }),
-    })
-    const data = await res.json()
-    if (res.ok) {
-      setInviteSuccess(`Invitación enviada a ${inviteEmail}`)
-      setInviteEmail(''); setInviteName(''); setInviteProjects([])
-      setShowInvite(false)
-    } else {
-      setInviteError(data.error || 'Error al enviar la invitación')
+
+    const emailLower = inviteEmail.trim().toLowerCase()
+    if (users.some(u => u.email.toLowerCase() === emailLower)) {
+      setInviteError('Este correo ya tiene una cuenta registrada.')
+      setInviteLoading(false)
+      return
     }
-    setInviteLoading(false)
+    if (pendingInvites.some(i => i.email.toLowerCase() === emailLower)) {
+      setInviteError('Ya existe una invitación pendiente para este correo. Usa "Volver a Enviar" desde la lista.')
+      setInviteLoading(false)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/invite/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail, name: inviteName, projectIds: inviteProjects }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        const emailId = data.emailId ? ` (ID: ${data.emailId})` : ''
+        setInviteSuccess(`Invitación enviada a ${inviteEmail}${emailId}`)
+        setInviteEmail(''); setInviteName(''); setInviteProjects([])
+        setShowInvite(false)
+        await loadData()
+      } else {
+        setInviteError(data.error || 'Error al enviar la invitación')
+      }
+    } catch {
+      setInviteError('Error de red. Intenta de nuevo.')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  async function resendInvite(invite: PendingInvite) {
+    setResending(invite.id)
+    setActionFeedback(null)
+    try {
+      const res = await fetch('/api/invite/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: invite.email, name: invite.name, projectIds: [] }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setActionFeedback({ id: invite.id, msg: 'Invitación reenviada', ok: true })
+        await loadData()
+      } else {
+        setActionFeedback({ id: invite.id, msg: data.error || 'Error al reenviar', ok: false })
+      }
+    } catch {
+      setActionFeedback({ id: invite.id, msg: 'Error de red', ok: false })
+    } finally {
+      setResending(null)
+    }
+  }
+
+  async function notifyAccess(user: UserAccess) {
+    setNotifying(user.id)
+    setActionFeedback(null)
+    try {
+      const res = await fetch('/api/invite/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setActionFeedback({ id: user.id, msg: 'Acceso enviado', ok: true })
+      } else {
+        setActionFeedback({ id: user.id, msg: data.error || 'Error al enviar', ok: false })
+      }
+    } catch {
+      setActionFeedback({ id: user.id, msg: 'Error de red', ok: false })
+    } finally {
+      setNotifying(null)
+    }
   }
 
   if (loading) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><span className="text-[#333] text-sm">Cargando...</span></div>
@@ -119,7 +211,6 @@ export default function AdminPage() {
           </Link>
         </div>
 
-        {/* Invite success */}
         {inviteSuccess && (
           <p className="text-xs text-green-400 font-[family-name:var(--font-body)]">{inviteSuccess}</p>
         )}
@@ -153,8 +244,11 @@ export default function AdminPage() {
             )}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => { setShowInvite(false); setInviteError('') }} className="text-xs text-[#555] hover:text-[#888] px-4 py-2 transition-colors cursor-pointer font-[family-name:var(--font-body)]">Cancelar</button>
-              <button type="submit" disabled={inviteLoading} className="bg-[#f5f5f5] text-[#0a0a0a] font-semibold text-xs px-5 py-2 rounded-xl hover:bg-white transition-colors disabled:opacity-40 cursor-pointer">
-                {inviteLoading ? 'Enviando...' : 'Enviar invitación'}
+              <button type="submit" disabled={inviteLoading} className="flex items-center gap-2 bg-[#f5f5f5] text-[#0a0a0a] font-semibold text-xs px-5 py-2 rounded-xl hover:bg-white transition-colors disabled:opacity-40 cursor-pointer">
+                {inviteLoading
+                  ? <><span className="w-3 h-3 border border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin" />Enviando...</>
+                  : 'Enviar invitación'
+                }
               </button>
             </div>
           </form>
@@ -163,9 +257,14 @@ export default function AdminPage() {
         {/* Users table */}
         <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-[#1a1a1a]">
-            <span className="text-xs font-medium text-[#555] uppercase tracking-wider">Usuarios ({users.length})</span>
-            <button onClick={() => setShowInvite(true)} className="text-xs font-semibold text-[#f5f5f5] bg-[#1a1a1a] border border-[#2a2a2a] px-4 py-1.5 rounded-lg hover:bg-[#222] transition-colors cursor-pointer">
-              + Invitar
+            <span className="text-xs font-medium text-[#555] uppercase tracking-wider">
+              Usuarios ({users.length})
+            </span>
+            <button onClick={() => setShowInvite(true)} className="flex items-center gap-1.5 text-xs font-semibold text-[#f5f5f5] bg-[#1a1a1a] border border-[#2a2a2a] px-3.5 py-1.5 rounded-lg hover:bg-[#222] hover:border-[#333] transition-colors cursor-pointer">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Invitar
             </button>
           </div>
 
@@ -176,10 +275,10 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-semibold text-[#f5f5f5] truncate">{user.name}</span>
                     {user.role === 'admin' && (
-                      <span className="text-[10px] font-medium text-[#555] uppercase tracking-wider bg-[#1a1a1a] px-2 py-0.5 rounded">admin</span>
+                      <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider bg-[#222] px-2 py-0.5 rounded">admin</span>
                     )}
                   </div>
-                  <p className="text-xs text-[#555] font-[family-name:var(--font-body)] truncate mb-2">{user.email}</p>
+                  <p className="text-xs text-[#777] font-[family-name:var(--font-body)] truncate mb-2">{user.email}</p>
                   <div className="flex flex-wrap gap-2">
                     {projects.map(project => {
                       const has = user.projectIds.includes(project.id)
@@ -191,7 +290,7 @@ export default function AdminPage() {
                           className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors cursor-pointer disabled:cursor-default disabled:opacity-30 font-[family-name:var(--font-body)] ${
                             has
                               ? 'bg-[#f5f5f5] text-[#0a0a0a] border-[#f5f5f5] font-medium'
-                              : 'bg-transparent text-[#444] border-[#1e1e1e] hover:border-[#333]'
+                              : 'bg-transparent text-[#999] border-[#333] hover:border-[#555] hover:text-[#ccc]'
                           }`}
                         >
                           {project.name}
@@ -201,20 +300,100 @@ export default function AdminPage() {
                   </div>
                 </div>
                 {user.role !== 'admin' && (
-                  <button
-                    onClick={() => deleteUser(user.id)}
-                    className="text-[#333] hover:text-red-400 transition-colors cursor-pointer shrink-0 mt-0.5"
-                    aria-label="Eliminar usuario"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
-                    </svg>
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                    {actionFeedback?.id === user.id ? (
+                      <span className={`text-[11px] px-2.5 py-1.5 rounded-lg font-[family-name:var(--font-body)] ${actionFeedback.ok ? 'text-green-400 bg-green-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                        {actionFeedback.msg}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => notifyAccess(user)}
+                        disabled={notifying === user.id}
+                        className="flex items-center gap-1.5 text-[11px] text-[#aaa] border border-[#3a3a3a] hover:border-[#666] hover:text-[#f5f5f5] px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-40 font-[family-name:var(--font-body)] whitespace-nowrap"
+                      >
+                        {notifying === user.id ? (
+                          <span className="w-3 h-3 border border-[#888] border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                          </svg>
+                        )}
+                        Enviar Acceso
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteUser(user.id)}
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-[#666] border border-[#2a2a2a] hover:border-[#555] hover:text-red-400 hover:bg-red-400/5 transition-colors cursor-pointer"
+                      aria-label="Eliminar usuario"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
           </div>
         </div>
+
+        {/* Pending invites */}
+        {pendingInvites.length > 0 && (
+          <div className="bg-[#111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#1a1a1a]">
+              <span className="text-xs font-medium text-[#777] uppercase tracking-wider">
+                Invitaciones pendientes ({pendingInvites.length})
+              </span>
+            </div>
+            <div className="divide-y divide-[#1a1a1a]">
+              {pendingInvites.map(inv => (
+                <div key={inv.id} className="px-6 py-4 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-semibold text-[#f5f5f5] truncate">{inv.name || inv.email}</span>
+                      <span className="text-[10px] font-medium text-yellow-500/80 uppercase tracking-wider bg-yellow-500/10 px-2 py-0.5 rounded shrink-0">pendiente</span>
+                    </div>
+                    {inv.name && (
+                      <p className="text-xs text-[#777] font-[family-name:var(--font-body)] truncate">{inv.email}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {actionFeedback?.id === inv.id ? (
+                      <span className={`text-[11px] px-2.5 py-1.5 rounded-lg font-[family-name:var(--font-body)] ${actionFeedback.ok ? 'text-green-400 bg-green-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                        {actionFeedback.msg}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => resendInvite(inv)}
+                        disabled={resending === inv.id}
+                        className="flex items-center gap-1.5 text-[11px] text-[#aaa] border border-[#3a3a3a] hover:border-[#666] hover:text-[#f5f5f5] px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-40 font-[family-name:var(--font-body)] whitespace-nowrap"
+                      >
+                        {resending === inv.id ? (
+                          <span className="w-3 h-3 border border-[#888] border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 2H3v16h5v4l4-4h5l4-4V2z" />
+                          </svg>
+                        )}
+                        Reenviar
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteInvite(inv.id)}
+                      disabled={deletingInvite === inv.id}
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-[#666] border border-[#2a2a2a] hover:border-[#555] hover:text-red-400 hover:bg-red-400/5 transition-colors cursor-pointer disabled:opacity-40"
+                      aria-label="Eliminar invitación"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
