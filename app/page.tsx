@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import ProjectCard from '@/components/ProjectCard'
-import LogoutButton from '@/components/LogoutButton'
+import ProfileMenu from '@/components/ProfileMenu'
 import Link from 'next/link'
 
 // Map slug → static assets (icon + banner defined in code)
@@ -36,13 +36,13 @@ export default async function Home() {
     <main className="min-h-screen flex flex-col items-center px-6 py-16">
 
       {/* Top bar */}
-      <div className="w-full max-w-4xl flex justify-end gap-4 mb-12">
+      <div className="w-full max-w-4xl flex items-center justify-end gap-4 mb-12">
         {isAdmin && (
           <Link href="/admin" className="text-xs text-[#444] hover:text-[#888] transition-colors font-[family-name:var(--font-body)]">
             Admin
           </Link>
         )}
-        <LogoutButton />
+        <ProfileMenu name={profile?.name ?? ''} email={user.email ?? ''} />
       </div>
 
       {/* Hero */}
@@ -50,9 +50,6 @@ export default async function Home() {
         <h1 className="text-[clamp(40px,6vw,64px)] font-bold tracking-[-0.04em] leading-none text-[#f5f5f5]">
           Acero Hub
         </h1>
-        <p className="mt-4 text-[11px] text-[#333] font-[family-name:var(--font-body)] tracking-wider">
-          — Hecho por Daniel Acero
-        </p>
       </div>
 
       {/* Grid */}
