@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
 import VariablesContent from './variables-content'
+import { SessionDetail } from './[sessionId]/page'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1438,7 +1439,7 @@ const SESSIONS_TTL = 30_000
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TradingJournalPage() {
-  const router = useRouter()
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>(_sessionsCache ?? [])
   const [loading, setLoading] = useState(_sessionsCache === null)
   const [tab, setTab] = useState<Tab>('backtesting')
@@ -1521,6 +1522,10 @@ export default function TradingJournalPage() {
   const toggleArchive  = (s: Session) => updateSession(s.id, { is_archived: !s.is_archived })
   const openCreate = () => setShowCreate(true)
 
+  if (activeSessionId) {
+    return <SessionDetail sessionId={activeSessionId} onBack={() => setActiveSessionId(null)} />
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#080808]">
 
@@ -1569,7 +1574,7 @@ export default function TradingJournalPage() {
           <div className="flex flex-col gap-2.5">
             {activeOf(tab).map(s => (
               <SessionCard key={s.id} session={s}
-                onClick={() => router.push(`/trading-journal/${s.id}`)}
+                onClick={() => setActiveSessionId(s.id)}
                 onToggleFavorite={() => toggleFavorite(s)}
                 onEdit={() => setEditSession(s)}
                 onDuplicate={() => duplicate(s.id)}
@@ -1603,7 +1608,7 @@ export default function TradingJournalPage() {
                   <div className="flex flex-col gap-2.5">
                     {archivedOf(tab).map(s => (
                       <SessionCard key={s.id} session={s}
-                        onClick={() => router.push(`/trading-journal/${s.id}`)}
+                        onClick={() => setActiveSessionId(s.id)}
                         onToggleFavorite={() => toggleFavorite(s)}
                         onEdit={() => setEditSession(s)}
                         onDuplicate={() => duplicate(s.id)}

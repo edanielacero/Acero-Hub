@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { use } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { SessionActions } from './session-actions'
 import { parseCSV, coerceDate, coerceDirection, coerceResult } from '@/lib/trading/csv-parser'
 import {
@@ -4596,11 +4596,9 @@ function MontecarloView({ trades, session }: { trades: Trade[]; session: Session
 const _pageCache = new Map<string, { data: PageData; time: number }>()
 const PAGE_CACHE_TTL = 60_000
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
+// ─── Session Detail (SPA component) ───────────────────────────────────────────
 
-export default function SessionDashboardPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId } = use(params)
-
+export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
   const cached = _pageCache.get(sessionId)
   const [data, setData]       = useState<PageData | null>(cached?.data ?? null)
   const [loading, setLoading] = useState(cached == null)
@@ -4905,14 +4903,14 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
       {/* ── Nombre de sesión + navegación ─────────────────────── */}
       <div className="px-4 pb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <Link
-            href="/trading-journal"
-            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/60 dark:hover:bg-white/[0.07] transition-colors"
+          <button
+            onClick={onBack}
+            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/60 dark:hover:bg-white/[0.07] transition-colors cursor-pointer"
             aria-label="Volver">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6"/>
             </svg>
-          </Link>
+          </button>
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.15em] accent-txt mb-0.5">
               {session.type === 'backtesting' ? 'Backtesting' : 'Journal'}
@@ -5221,4 +5219,12 @@ export default function SessionDashboardPage({ params }: { params: Promise<{ ses
     </div>
     </div>
   )
+}
+
+// ─── Page wrapper (URL-based routing) ─────────────────────────────────────────
+
+export default function SessionDashboardPage({ params }: { params: Promise<{ sessionId: string }> }) {
+  const router = useRouter()
+  const { sessionId } = use(params)
+  return <SessionDetail sessionId={sessionId} onBack={() => router.push('/trading-journal')} />
 }
