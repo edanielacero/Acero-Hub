@@ -729,7 +729,7 @@ function TradeCard({ trade, sessionType, isReadOnly, onEdit, onDelete }: {
     : 'text-zinc-400 dark:text-zinc-500'
 
   return (
-    <div className="flex gap-3 pl-3 pr-2 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none min-h-[62px] items-stretch transition-all duration-150 hover:bg-slate-50 dark:hover:bg-zinc-900 hover:border-slate-200 dark:hover:border-zinc-700/60">
+    <div className="flex gap-3 pl-3 pr-2 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none min-h-[62px] items-stretch transition-all duration-150 hover:bg-slate-50 dark:hover:bg-zinc-900 hover:border-slate-200 dark:hover:border-zinc-700/60">
       <div className={`w-[3px] rounded-full shrink-0 self-stretch ${cfg?.bar ?? 'bg-zinc-200 dark:bg-zinc-700'}`} />
 
       <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
@@ -873,7 +873,7 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
 
   function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
     return (
-      <div className={`flex flex-col gap-1.5 px-3.5 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none ${className}`}>
+      <div className={`flex flex-col gap-1.5 px-3.5 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none ${className}`}>
         {children}
       </div>
     )
@@ -977,9 +977,8 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
             bg={!empty && maxWin > 0 ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-slate-100 dark:bg-zinc-800/60'}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C9.5 6.5 6 11 6 15a6 6 0 0 0 12 0c0-4-3.5-8.5-6-13z" opacity="0.3"/>
-              <path d="M15 7c-.7 2.5-2 4.5-2 6.5a2 2 0 0 0 4 0c0-2.5-1-4.5-2-6.5z" opacity="0.55"/>
-              <path d="M12 10c-.9 2-2.5 3.5-2.5 5a2.5 2.5 0 0 0 5 0c0-1.5-1.6-3-2.5-5z"/>
+              <path d="M12 1.5c-.5 1.8-1.5 3-2.8 4.2C8 7 7 8.5 7 10.5c0 .6.1 1.2.3 1.8C6.5 11.5 6.2 10.5 6.2 9.5c-1 1.3-1.7 3-1.7 4.8C4.5 18.2 7.9 22 12 22s7.5-3.8 7.5-7.7c0-1.8-.6-3.4-1.6-4.8 0 1-.3 2-.8 2.8C17 11.5 17 10.5 17 10c0-2.5-1.5-4.8-3-6.5-.5-.6-1.3-1.4-2-2z"/>
+              <path d="M12 14c-.3.8-.8 1.5-1.5 2 .3-.8.3-1.6 0-2.3-.7.7-1 1.6-1 2.5 0 1.4 1.1 2.5 2.5 2.5s2.5-1.1 2.5-2.5c0-.9-.4-1.8-1-2.5-.3.7-.3 1.5-.5 2.3-.6-.5-1-1.2-1-2z" opacity="0.7"/>
             </svg>
           </Icon>
         </div>
@@ -1016,7 +1015,7 @@ function DeleteConfirmSheet({ onConfirm, onClose, loading }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-sm bg-white dark:bg-[#0e1729] rounded-3xl shadow-2xl border border-slate-200 dark:border-white/[0.09] p-6 flex flex-col gap-5"
+        className="relative w-full max-w-sm bg-white dark:bg-[#09101d] rounded-3xl shadow-2xl border border-slate-200 dark:border-white/[0.09] p-6 flex flex-col gap-5"
         onClick={e => e.stopPropagation()}>
         <div className="flex justify-center">
           <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-500/15 flex items-center justify-center">
@@ -1848,7 +1847,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     : 0
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
@@ -1951,7 +1950,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                   className="text-slate-900 dark:text-white" />
                 <circle cx={cx.toFixed(1)} cy={cy.toFixed(1)}
                   r="5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2.5"
-                  className="dark:fill-[#0e1729]" />
+                  className="dark:fill-[#09101d]" />
                 <text x={cx.toFixed(1)} y={H - 10} textAnchor="middle" fontSize={fs(11)}
                   className="fill-slate-500 dark:fill-zinc-400">
                   {fmtAxisDate(points[0].date)}
@@ -1996,7 +1995,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
               <circle
                 cx={xs(hoverIdx).toFixed(1)} cy={ys(hovered.cumValue).toFixed(1)}
                 r="4.5" fill="white" stroke="rgb(var(--a5))" strokeWidth="2.5"
-                className="dark:fill-[#0e1729]"
+                className="dark:fill-[#09101d]"
               />
             </g>
           )}
@@ -2117,7 +2116,7 @@ function ProfitabilityVerdict({ trades, sessionType }: { trades: Trade[]; sessio
     const faltanTrades = nMin - N
     const progress = Math.min((N / nMin) * 100, 99)
     return (
-      <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+      <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
         <div className="px-4 pt-4 pb-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
@@ -2219,7 +2218,7 @@ function ConfidenceBar({ trades }: { trades: Trade[] }) {
   else if (total >= 30) { color = 'rgb(var(--a5) / 0.40)'; msg = `Métricas básicas disponibles — se necesitan ${MAX} trades para el veredicto` }
 
   return (
-    <div className="mx-4 mb-3 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none">
+    <div className="mx-4 mb-3 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Muestra para veredicto</span>
         <span className={`text-[10px] font-mono font-bold ${done ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-zinc-400'}`}>{total} / {MAX}</span>
@@ -2267,7 +2266,7 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
   const fmtExpct = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${v >= 0 ? '+' : ''}${fmtR(Math.abs(v))}R`
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-3">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-3">
       <div className="flex items-start justify-between mb-3">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por trade</span>
@@ -2333,7 +2332,7 @@ function ZScoreCard({ trades }: { trades: Trade[] }) {
   }
 
   return (
-    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
+    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isNeutral && reliable ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
           {isNeutral && reliable
@@ -2401,7 +2400,7 @@ function PValueCard({ trades }: { trades: Trade[] }) {
     : 'text-rose-500 dark:text-rose-400'
 
   return (
-    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
+    <div className="mx-4 mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${iconBg}`}>
           {hasEdge
@@ -2472,7 +2471,7 @@ function StdDevCard({ trades, sessionType }: { trades: Trade[]; sessionType: Ses
     : (stdDevRR === null ? '—' : `${fmtR(stdDevRR)}R`)
 
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">
@@ -2547,7 +2546,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
   return (
     <div className="mx-4 mb-1.5 flex flex-col gap-1.5">
       {/* Meses Perdedores explanation row */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 py-4">
         <div className="flex items-start gap-3">
           <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${beatExpected ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-rose-100 dark:bg-rose-900/40'}`}>
             {beatExpected
@@ -2575,7 +2574,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
       </div>
 
       {/* Month-by-month table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
         <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between">
           <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Mes a mes</p>
           {consistency && (
@@ -2651,7 +2650,7 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
   const tradesPerMonth = consistency ? (N / consistency.total).toFixed(1) : '—'
   const fmtEpm = hasUSD ? (fmtPnL(epm) ?? '—') : `${epm >= 0 ? '+' : ''}${fmtR(epm)}R`
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none px-4 pt-4 pb-4">
       <div className="flex items-start justify-between">
         <div>
           <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Expectativa por mes</span>
@@ -2748,7 +2747,7 @@ function SweetSpotChart({ trades }: { trades: Trade[] }) {
     ? (PAD.left + (hoverIdx / Math.max(points.length - 1, 1)) * iW) / W : 0
   const realY = hasData ? ys(realTotalRR) : H / 2
   return (
-    <div className="mx-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+    <div className="mx-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3.5 pb-1">
         <span className="text-[12px] font-bold text-slate-800 dark:text-white">RR simulado por nivel de salida</span>
         <div className="flex items-center gap-3 text-[10px] font-mono">
@@ -2888,7 +2887,7 @@ function SweetSpotTable({ trades }: { trades: Trade[] }) {
   if (points.length === 0) return null
   const sorted = [...points].sort((a, b) => b.totalRR - a.totalRR).slice(0, 12)
   return (
-    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+    <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
       <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/[0.08]">
         <p className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.12em]">Top niveles de salida</p>
       </div>
@@ -3695,7 +3694,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
           onClick={() => setNotesModal(null)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div
-            className="relative w-full max-w-sm bg-white dark:bg-[#0e1729] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-2xl overflow-hidden"
+            className="relative w-full max-w-sm bg-white dark:bg-[#09101d] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-2xl overflow-hidden"
             onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100 dark:border-white/[0.06]">
@@ -3752,7 +3751,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     const ro = new ResizeObserver(([e]) => setChartSvgW(e.contentRect.width))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [month, year])
 
   const byDay = useMemo(() => {
     const map: Record<string, Trade[]> = {}
@@ -3901,7 +3900,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         </div>
 
         {/* Stats row */}
-        <div className="bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.10] rounded-2xl px-4 py-3 mb-3 grid grid-cols-3 divide-x divide-slate-100 dark:divide-white/[0.05]">
+        <div className="bg-white dark:bg-[#09101d] border border-slate-200 dark:border-white/[0.10] rounded-2xl px-4 py-3 mb-3 grid grid-cols-3 divide-x divide-slate-100 dark:divide-white/[0.05]">
           {[
             { label: 'Trades',   value: String(N),  color: 'text-slate-900 dark:text-white' },
             { label: 'Winrate',  value: wr !== null ? `${wr.toFixed(1)}%` : '—', color: wr !== null && wr >= 50 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
@@ -3962,7 +3961,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                 disabled={!hasTrades}
                 className={`flex flex-col min-h-[62px] rounded-xl border p-1.5 text-left w-full transition-all ${cellStyle} ${
                   hasTrades ? 'cursor-pointer hover:brightness-110 active:scale-95' : 'cursor-default'
-                } ${isToday && !hasTrades ? 'ring-1 ring-offset-1 dark:ring-offset-[#080d1a] ring-offset-slate-50 ring-amber-400/60' : ''}`}>
+                } ${isToday && !hasTrades ? 'ring-1 ring-offset-1 dark:ring-offset-[#05090f] ring-offset-slate-50 ring-amber-400/60' : ''}`}>
                 <span className={`text-[11px] font-bold leading-none ${isToday ? 'text-amber-500' : dayNumColor}`}>
                   {day}
                 </span>
@@ -4016,7 +4015,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
         ) : (
           <>
             {/* SVG Chart */}
-            <div className="relative select-none">
+            <div key={monthKey} className="relative select-none">
               <svg ref={chartRef} viewBox={`0 0 ${CW} ${CH}`} className="w-full touch-none"
                 onMouseMove={hasChart ? handleChartMouseMove : undefined}
                 onMouseLeave={() => setHoverDay(null)}
@@ -4101,7 +4100,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                       <line x1={hx.toFixed(1)} y1={CP.top - 4} x2={hx.toFixed(1)} y2={CH - CP.bottom + 2}
                         stroke="#3b82f6" strokeOpacity="0.4" strokeWidth="1" />
                       <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="3.5"
-                        fill="white" stroke="#3b82f6" strokeWidth="2" className="dark:fill-[#080d1a]" />
+                        fill="white" stroke="#3b82f6" strokeWidth="2" className="dark:fill-[#05090f]" />
                     </g>
                   )
                 })()}
@@ -4118,7 +4117,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
                 return (
                   <div className="absolute top-2 pointer-events-none z-10"
                     style={{ left: `${frac * 100}%`, transform: frac > 0.6 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)' }}>
-                    <div className="bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.1] rounded-xl px-3 py-2 shadow-lg min-w-[100px]">
+                    <div className="bg-white dark:bg-[#09101d] border border-slate-200 dark:border-white/[0.1] rounded-xl px-3 py-2 shadow-lg min-w-[100px]">
                       <p className="text-[10px] text-slate-500 dark:text-zinc-400 mb-1">{new Date(year, month, hoverDay).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</p>
                       <p className={`text-[13px] font-bold font-mono ${pt.cum >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{fmtNet(pt.cum)}</p>
                       {dayT.length > 0 && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">{dayT.length} trade{dayT.length !== 1 ? 's' : ''}</p>}
@@ -4829,7 +4828,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#05090f]">
         <div className="flex flex-col pt-5 pb-12 max-w-5xl mx-auto animate-pulse">
         {/* Title skeleton */}
         <div className="px-4 pb-3 flex items-center gap-2.5">
@@ -4842,7 +4841,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         {/* KPI grid skeleton */}
         <div className="mx-3 mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-2 px-3 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10]">
+            <div key={i} className="flex flex-col gap-2 px-3 pt-3 pb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#09101d] dark:border-white/[0.10]">
               <div className="h-2 w-16 bg-slate-100 dark:bg-zinc-800 rounded-full" />
               <div className="flex items-end justify-between mt-1">
                 <div className="h-7 w-12 bg-slate-100 dark:bg-zinc-800 rounded-lg" />
@@ -4852,11 +4851,11 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           ))}
         </div>
         {/* Stats accordion skeleton */}
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10] px-4 py-3.5">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#09101d] dark:border-white/[0.10] px-4 py-3.5">
           <div className="h-3 w-32 bg-slate-100 dark:bg-zinc-800 rounded-full" />
         </div>
         {/* Equity chart skeleton */}
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10] overflow-hidden">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl dark:bg-[#09101d] dark:border-white/[0.10] overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between">
             <div className="h-3 w-20 bg-slate-100 dark:bg-zinc-800 rounded-full" />
             <div className="h-3 w-24 bg-slate-100 dark:bg-zinc-800 rounded-full" />
@@ -4876,7 +4875,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         {/* Trade rows skeleton */}
         <div className="flex flex-col gap-2 px-3 pt-1">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#0e1729] dark:border-white/[0.10]" />
+            <div key={i} className="h-[62px] bg-white border border-slate-200 rounded-2xl dark:bg-[#09101d] dark:border-white/[0.10]" />
           ))}
         </div>
         </div>
@@ -4896,7 +4895,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   const nFilters = activeFilterCount(filter)
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#05090f]">
 
     <div className="flex flex-col pt-5 pb-12 max-w-5xl mx-auto">
 
@@ -4941,7 +4940,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
       {/* ── Advanced Stats (accordion) ─────────────────────── */}
       {dashTrades.length >= 5 && (
-        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#0e1729] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
+        <div className="mx-4 mb-3 bg-white border border-slate-200 rounded-2xl shadow-sm dark:bg-[#09101d] dark:border-white/[0.10] dark:shadow-none overflow-hidden">
           <button
             onClick={() => setStatsOpen(o => !o)}
             className="w-full flex items-center justify-between px-4 py-3.5 cursor-pointer transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-white/[0.03]">
@@ -4958,7 +4957,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
             </svg>
           </button>
           {statsOpen && (
-            <div className="border-t border-slate-200 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#060e1a] py-2">
+            <div className="border-t border-slate-200 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#040c16] py-2">
               <ProfitabilityVerdict trades={dashTrades} sessionType={session.type} />
               <ExpectancyDetail trades={dashTrades} sessionType={session.type} />
               <ZScoreCard trades={dashTrades} />
@@ -5099,7 +5098,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
               </svg>
             </button>
             {showCsvMenu && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-20 w-44 bg-white dark:bg-[#0e1729] border border-slate-200 dark:border-white/[0.09] rounded-2xl shadow-xl overflow-hidden">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-20 w-44 bg-white dark:bg-[#09101d] border border-slate-200 dark:border-white/[0.09] rounded-2xl shadow-xl overflow-hidden">
                 <button onClick={() => { setShowImport(true); setShowCsvMenu(false) }}
                   className="flex items-center gap-2.5 w-full px-4 py-3 text-[13px] text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
                   <IconUpload size={14} />

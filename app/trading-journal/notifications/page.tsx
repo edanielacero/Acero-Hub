@@ -100,11 +100,11 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#080d1a]">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#05090f]">
       <div className="max-w-lg mx-auto">
 
         {/* Header */}
-        <div className="sticky top-0 z-20 bg-slate-50/90 dark:bg-[#080d1a]/90 backdrop-blur-sm">
+        <div className="sticky top-0 z-20 bg-slate-50/90 dark:bg-[#05090f]/90 backdrop-blur-sm">
           <div className="flex items-center gap-3 px-4 pt-5 pb-4">
             <Link
               href="/trading-journal"
@@ -178,8 +178,8 @@ function NotificationCard({ notification: n, busy, onAccept, onReject }: {
   return (
     <div className={`rounded-2xl border transition-all duration-150 ${
       isPending
-        ? 'bg-white dark:bg-[#0e1729] border-slate-200 dark:border-white/[0.10] shadow-sm'
-        : 'bg-slate-50 dark:bg-[#080d1a] border-slate-100 dark:border-zinc-800/60'
+        ? 'bg-white dark:bg-[#09101d] border-slate-200 dark:border-white/[0.10] shadow-sm'
+        : 'bg-slate-50 dark:bg-[#05090f] border-slate-100 dark:border-zinc-800/60'
     }`}>
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-start gap-3">

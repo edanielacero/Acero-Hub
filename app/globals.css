@@ -143,3 +143,17 @@ html, body {
 [data-mode="light"] .accent-input:focus { border-color: rgb(var(--a6) / 0.55); }
 [data-mode="light"] .accent-spin       { border-top-color: rgb(var(--a6)); }
 [data-mode="light"] .accent-toggle-on  { background-color: rgb(var(--a6)) !important; border-color: rgb(var(--a5)) !important; }
+
+/* ─── P&L colors in dark mode ───────────────────────────────────────────────── */
+/* Green: shift palette one step darker so emerald-400 renders as #10b981        */
+/* (the emerald-500 shade used in the Esmeralda accent theme — not the lighter   */
+/* #34d399 which reads as turquoise on dark backgrounds).                        */
+/* Red: hue 22° (true red, away from the pinkish 13° default).                  */
+#tj-root[data-mode="dark"] {
+  --color-emerald-300: oklch(80% 0.177 163);
+  --color-emerald-400: oklch(73% 0.172 163);
+  --color-emerald-500: oklch(64% 0.154 163);
+  --color-rose-300: oklch(82% 0.15 22);
+  --color-rose-400: oklch(67% 0.19 22);
+  --color-rose-500: oklch(60% 0.19 22);
+}

@@ -1215,107 +1215,6 @@ function DeleteSheet({ session, onConfirm, onClose }: {
   )
 }
 
-// ─── Settings Sheet ───────────────────────────────────────────────────────────
-
-const ACCENT_OPTIONS: { key: Accent; label: string; color: string }[] = [
-  { key: 'blue',    label: 'Azul',      color: '#3b82f6' },
-  { key: 'violet',  label: 'Violeta',   color: '#8b5cf6' },
-  { key: 'emerald', label: 'Esmeralda', color: '#10b981' },
-  { key: 'amber',   label: 'Ámbar',     color: '#f59e0b' },
-  { key: 'rose',    label: 'Rosa',      color: '#f43f5e' },
-  { key: 'red',     label: 'Rojo',      color: '#ef4444' },
-]
-
-function SettingsSheet({ onClose }: { onClose: () => void }) {
-  const [accent, setAccent] = useState<Accent>('blue')
-  const [mode, setMode] = useState<Mode>('dark')
-
-  const tjRoot = () => document.getElementById('tj-root')
-
-  useEffect(() => {
-    const root = tjRoot()
-    setAccent((root?.getAttribute('data-accent') ?? 'blue') as Accent)
-    setMode((root?.getAttribute('data-mode') ?? 'dark') as Mode)
-  }, [])
-
-  const applyAccent = async (color: Accent) => {
-    setAccent(color)
-    tjRoot()?.setAttribute('data-accent', color)
-    await hubApi('/preferences', { method: 'PATCH', body: JSON.stringify({ accent_color: color }) })
-  }
-
-  const applyMode = async (m: Mode) => {
-    setMode(m)
-    tjRoot()?.setAttribute('data-mode', m)
-    await hubApi('/preferences', { method: 'PATCH', body: JSON.stringify({ color_mode: m }) })
-  }
-
-  return (
-    <BottomSheet title="Apariencia" onClose={onClose}>
-      <div className="flex flex-col gap-6">
-
-        {/* Mode */}
-        <div>
-          <p className={fieldLabel}>Modo</p>
-          <div className="grid grid-cols-2 gap-2.5">
-            {([
-              { key: 'dark'  as Mode, label: 'Oscuro', icon: <IconMoon size={17} /> },
-              { key: 'light' as Mode, label: 'Claro',  icon: <IconSun  size={17} /> },
-            ]).map(opt => {
-              const active = mode === opt.key
-              return (
-                <button
-                  key={opt.key}
-                  onClick={() => applyMode(opt.key)}
-                  className={`flex items-center justify-center gap-2.5 min-h-[54px] rounded-2xl text-[14px] font-bold border-2 transition-all duration-150 cursor-pointer ${
-                    active
-                      ? 'accent-btn border-transparent'
-                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:border-slate-300 dark:hover:border-zinc-500 hover:bg-slate-50 dark:hover:bg-zinc-800'
-                  }`}>
-                  {opt.icon}
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Accent color */}
-        <div>
-          <p className={fieldLabel}>Color de acento</p>
-          <div className="grid grid-cols-3 gap-2">
-            {ACCENT_OPTIONS.map(opt => {
-              const active = accent === opt.key
-              return (
-                <button
-                  key={opt.key}
-                  onClick={() => applyAccent(opt.key)}
-                  className={`flex items-center gap-2.5 px-3 min-h-[50px] rounded-xl text-[13px] font-semibold border-2 transition-all duration-150 cursor-pointer ${
-                    active
-                      ? 'border-transparent text-white'
-                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:border-slate-300 dark:hover:border-zinc-600 hover:bg-slate-50 dark:hover:bg-zinc-800'
-                  }`}
-                  style={active ? { backgroundColor: opt.color } : undefined}>
-                  <span
-                    className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
-                    style={{ backgroundColor: active ? 'rgba(255,255,255,0.28)' : opt.color }}>
-                    {active && (
-                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    )}
-                  </span>
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-      </div>
-    </BottomSheet>
-  )
-}
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -1470,6 +1369,11 @@ export default function TradingJournalPage() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    const saved = sessionStorage.getItem('tj_active_session')
+    if (saved) setActiveSessionId(saved)
+  }, [])
+
   const byType     = (t: Tab) => sessions.filter(s => s.type === t)
   const activeOf   = (t: Tab) => {
     const active = byType(t).filter(s => !s.is_archived)
@@ -1523,7 +1427,7 @@ export default function TradingJournalPage() {
   const openCreate = () => setShowCreate(true)
 
   if (activeSessionId) {
-    return <SessionDetail sessionId={activeSessionId} onBack={() => setActiveSessionId(null)} />
+    return <SessionDetail sessionId={activeSessionId} onBack={() => { setActiveSessionId(null); sessionStorage.removeItem('tj_active_session') }} />
   }
 
   return (
@@ -1540,12 +1444,6 @@ export default function TradingJournalPage() {
           </div>
           <div className="flex items-center gap-2">
             <NotificationsBell />
-            <button
-              onClick={() => setShowSettings(true)}
-              aria-label="Ajustes"
-              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
-              <IconSettings size={18} />
-            </button>
             <button
               onClick={openCreate}
               className="flex items-center gap-2 px-4 min-h-[42px] rounded-xl text-[13px] font-bold transition-all duration-200 cursor-pointer accent-btn accent-btn-shadow">
@@ -1574,7 +1472,7 @@ export default function TradingJournalPage() {
           <div className="flex flex-col gap-2.5">
             {activeOf(tab).map(s => (
               <SessionCard key={s.id} session={s}
-                onClick={() => setActiveSessionId(s.id)}
+                onClick={() => { setActiveSessionId(s.id); sessionStorage.setItem('tj_active_session', s.id) }}
                 onToggleFavorite={() => toggleFavorite(s)}
                 onEdit={() => setEditSession(s)}
                 onDuplicate={() => duplicate(s.id)}
@@ -1608,7 +1506,7 @@ export default function TradingJournalPage() {
                   <div className="flex flex-col gap-2.5">
                     {archivedOf(tab).map(s => (
                       <SessionCard key={s.id} session={s}
-                        onClick={() => setActiveSessionId(s.id)}
+                        onClick={() => { setActiveSessionId(s.id); sessionStorage.setItem('tj_active_session', s.id) }}
                         onToggleFavorite={() => toggleFavorite(s)}
                         onEdit={() => setEditSession(s)}
                         onDuplicate={() => duplicate(s.id)}
@@ -1689,7 +1587,6 @@ export default function TradingJournalPage() {
         />
       )}
 
-      {showSettings && <SettingsSheet onClose={() => setShowSettings(false)} />}
 
       {variablesSession && (
         <BottomSheet title={`Variables · ${variablesSession.name}`} onClose={() => setVariablesSession(null)}>
