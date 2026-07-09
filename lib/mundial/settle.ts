@@ -85,9 +85,11 @@ export async function settleDebts(): Promise<number> {
       .in('id', cuotasToConfirm)
 
     for (const u of offsetUpdates) {
+      const win = winningBets.find(w => w.betId === u.betId)!
+      const fullyPaid = u.newOffset >= win.prize
       await admin
         .from('mundial_bets')
-        .update({ debt_offset: u.newOffset })
+        .update({ debt_offset: u.newOffset, ...(fullyPaid ? { prize_paid: true } : {}) })
         .eq('id', u.betId)
     }
 

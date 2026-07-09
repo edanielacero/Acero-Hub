@@ -4,7 +4,7 @@ import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  const { token, matchId, homeScore, awayScore, paymentConfirmed, payWithSaldo, receiptUrl } = await request.json()
+  const { token, matchId, homeScore, awayScore, payWithSaldo, receiptUrl } = await request.json()
 
   if (!token || matchId == null || homeScore == null || awayScore == null)
     return NextResponse.json({ error: 'Datos incompletos' }, { status: 400 })
@@ -29,11 +29,17 @@ export async function POST(request: Request) {
     away_score_bet: awayScore,
     updated_at: new Date().toISOString(),
   }
+  // Kept outside if-block so the debt_offset section below can reuse it
+  let saldoPotMap: Record<number, number> = {}
+  let saldoCarryoverPW: Record<number, number> = {}
+  let saldoAllBets: { match_id: number; home_score_bet: number; away_score_bet: number }[] = []
+  let saldoBetAmount = match.bet_amount ?? 5
+
   if (payWithSaldo) {
     // Server-side saldo validation: compute actual available saldo before accepting
     const { data: settings } = await admin.from('mundial_settings').select('bet_amount').eq('id', 1).single()
     const globalBetAmount = (settings as { bet_amount: number } | null)?.bet_amount ?? 5
-    const thisBetAmount = match.bet_amount ?? globalBetAmount
+    saldoBetAmount = match.bet_amount ?? globalBetAmount
 
     const [{ data: allMatches }, { data: allBets }, { data: profileBetsForSaldo }] = await Promise.all([
       admin.from('mundial_matches').select('id, match_date, status, home_score, away_score, bet_amount'),
@@ -42,6 +48,10 @@ export async function POST(request: Request) {
     ])
 
     const { potMap, carryoverPerWinnerMap } = computePots(allMatches ?? [], allBets ?? [], globalBetAmount)
+    saldoPotMap = potMap
+    saldoCarryoverPW = carryoverPerWinnerMap
+    saldoAllBets = allBets ?? []
+
     const finishedMatches = (allMatches ?? []).filter(m => m.status === 'FINISHED')
 
     let totalPrize = 0
@@ -61,14 +71,17 @@ export async function POST(request: Request) {
     }
     const availableSaldo = Math.max(0, totalPrize - totalDebtOffset - unpaidFees)
 
-    if (availableSaldo < thisBetAmount) {
-      return NextResponse.json({ error: `Saldo insuficiente (disponible: Bs ${availableSaldo}, necesario: Bs ${thisBetAmount})` }, { status: 400 })
+    if (availableSaldo < saldoBetAmount) {
+      return NextResponse.json({ error: `Saldo insuficiente (disponible: Bs ${availableSaldo}, necesario: Bs ${saldoBetAmount})` }, { status: 400 })
     }
 
     upsertData.payment_confirmed = true
     upsertData.paid_with_saldo = true
-  } else if (paymentConfirmed !== undefined) upsertData.payment_confirmed = paymentConfirmed
-  if (receiptUrl) upsertData.receipt_url = receiptUrl
+  } else if (receiptUrl) {
+    upsertData.receipt_url = receiptUrl
+    upsertData.payment_confirmed = true
+  }
+  // No payWithSaldo and no receiptUrl → payment_confirmed stays false (debt)
 
   const { error } = await admin.from('mundial_bets').upsert(upsertData, { onConflict: 'profile_id,match_id' })
 
@@ -76,9 +89,6 @@ export async function POST(request: Request) {
 
   // When paying with saldo: increment debt_offset on the oldest unpaid winning bet
   if (payWithSaldo) {
-    const { data: settings } = await admin.from('mundial_settings').select('bet_amount').eq('id', 1).single()
-    const amount = match.bet_amount ?? (settings as { bet_amount: number } | null)?.bet_amount ?? 5
-
     const { data: profileBets } = await admin
       .from('mundial_bets')
       .select('id, match_id, home_score_bet, away_score_bet, debt_offset')
@@ -99,8 +109,14 @@ export async function POST(request: Request) {
           b.match_id === fm.id && b.home_score_bet === fm.home_score && b.away_score_bet === fm.away_score
         )
         if (winBet) {
+          const newOffset = (winBet.debt_offset ?? 0) + saldoBetAmount
+          const winners = saldoAllBets.filter(b =>
+            b.match_id === fm.id && b.home_score_bet === fm.home_score && b.away_score_bet === fm.away_score
+          ).length
+          const prize = prizeForMatch(fm.id, winners, saldoPotMap, saldoCarryoverPW)
+          const fullyPaid = newOffset >= prize
           await admin.from('mundial_bets')
-            .update({ debt_offset: (winBet.debt_offset ?? 0) + amount })
+            .update({ debt_offset: newOffset, ...(fullyPaid ? { prize_paid: true } : {}) })
             .eq('id', winBet.id)
           break
         }

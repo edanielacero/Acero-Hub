@@ -171,12 +171,11 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
   const betsForMatch = allBets.filter(b => b.match_id === match.id)
   const scoresReady = home !== '' && away !== ''
 
-  const handleBet = async (paymentConfirmed?: boolean, payWithSaldo?: boolean) => {
+  const handleBet = async (payWithSaldo?: boolean) => {
     if (home === '' || away === '') return
     setLoading(true); setError('')
     const body: Record<string, unknown> = { token, matchId: match.id, homeScore: Number(home), awayScore: Number(away) }
-    if (payWithSaldo) { body.paymentConfirmed = true; body.payWithSaldo = true }
-    else if (paymentConfirmed !== undefined) body.paymentConfirmed = paymentConfirmed
+    if (payWithSaldo) body.payWithSaldo = true
     const res = await fetch('/api/mundial/bets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -375,7 +374,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                   {winners.map(w => {
                     const prof = profiles.find(p => p.id === w.profile_id)
                     if (!prof) return null
-                    const offset = w.debt_offset ?? 0
+                    const offset = Math.min(w.debt_offset ?? 0, prize)
                     const debt = w.prize_paid ? 0 : (debtMap[w.profile_id] ?? 0)
                     const totalDeduction = offset + debt
                     const saldo = Math.max(0, prize - totalDeduction)
@@ -481,7 +480,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                 {scoresReady && (
                   <div className="flex gap-2">
                     {(saldo ?? 0) >= betAmount ? (
-                      <button onClick={() => handleBet(undefined, true)} disabled={loading}
+                      <button onClick={() => handleBet(true)} disabled={loading}
                         className="flex-1 text-xs font-bold bg-amber-400 text-[#0a0a0a] px-3 py-2 rounded-xl hover:bg-amber-300 transition-colors cursor-pointer disabled:opacity-40">
                         {loading ? '...' : 'Pagar con Saldo'}
                       </button>
@@ -493,7 +492,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                             Pagar con QR
                           </button>
                         )}
-                        <button onClick={() => handleBet(false)} disabled={loading}
+                        <button onClick={() => handleBet()} disabled={loading}
                           className="flex-1 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] hover:text-[#f5f5f5] hover:border-[#444] px-3 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-40">
                           {loading ? '...' : 'Pagar Después'}
                         </button>
@@ -551,7 +550,7 @@ function MatchCard({ match, myBet, allBets, profiles, token, qrUrl, betAmount, p
                         const res = await fetch('/api/mundial/bets', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ token, matchId: match.id, homeScore: Number(home), awayScore: Number(away), paymentConfirmed: true, receiptUrl }),
+                          body: JSON.stringify({ token, matchId: match.id, homeScore: Number(home), awayScore: Number(away), receiptUrl }),
                         })
                         const data = await res.json()
                         if (!res.ok) { setError(data.error ?? 'Error al registrar'); return }
@@ -952,8 +951,9 @@ export default function MundialPage() {
       if (!bet || bet.prize_paid) continue
       if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
       const wBets = allBets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-      totalPendingPrize += prizeForMatch(m.id, wBets.length, potMap, prizeCarryoverPerWinnerMap)
-      totalDebtOffset += bet.debt_offset ?? 0
+      const prize = prizeForMatch(m.id, wBets.length, potMap, prizeCarryoverPerWinnerMap)
+      totalPendingPrize += prize
+      totalDebtOffset += Math.min(bet.debt_offset ?? 0, prize)
     }
     saldoMap[prof.id] = Math.max(0, totalPendingPrize - totalDebtOffset - (debtMap[prof.id] ?? 0) + (prof.saldo_adjustment ?? 0))
   }
@@ -1566,7 +1566,7 @@ export default function MundialPage() {
               const pot = potMap[m.id] ?? 0
               const carryoverPW = prizeCarryoverPerWinnerMap[m.id] ?? 0
               const prize = Math.floor(pot / winningBets.length) + carryoverPW
-              const offset = myBet.debt_offset ?? 0
+              const offset = Math.min(myBet.debt_offset ?? 0, prize)
               return [{ match: m, prize, prizePaid: myBet.prize_paid, coWinners: winningBets.length, offset }]
             })
             const totalPrize = wins.reduce((s, w) => s + w.prize, 0)

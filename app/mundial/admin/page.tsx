@@ -316,8 +316,9 @@ export default function AdminMundial() {
       if (!bet || bet.prize_paid) continue
       if (bet.home_score_bet !== m.home_score || bet.away_score_bet !== m.away_score) continue
       const wBets = bets.filter(b => b.match_id === m.id && b.home_score_bet === m.home_score && b.away_score_bet === m.away_score)
-      totalPendingPrize += prizeForMatch(m.id, wBets.length, potMapAdmin, carryoverPWAdmin)
-      totalDebtOffset += bet.debt_offset ?? 0
+      const prize = prizeForMatch(m.id, wBets.length, potMapAdmin, carryoverPWAdmin)
+      totalPendingPrize += prize
+      totalDebtOffset += Math.min(bet.debt_offset ?? 0, prize)
     }
     const debt = debtMapAdmin[prof.id] ?? 0
     const netCoverage = totalPendingPrize - totalDebtOffset + (prof.saldo_adjustment ?? 0)
@@ -1025,7 +1026,7 @@ export default function AdminMundial() {
                               {hasWinner && winningBets.map(wb => {
                                 const prof = profiles.find(p => p.id === wb.profile_id)
                                 if (!prof) return null
-                                const offset = wb.debt_offset ?? 0
+                                const offset = Math.min(wb.debt_offset ?? 0, prizePerWinner)
                                 const debt = wb.prize_paid ? 0 : (effectiveMatchDebtAdmin[match.id]?.[wb.profile_id] ?? 0)
                                 const totalDeduction = offset + debt
                                 const saldo = Math.max(0, prizePerWinner - totalDeduction)
