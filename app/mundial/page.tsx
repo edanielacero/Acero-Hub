@@ -1566,8 +1566,7 @@ export default function MundialPage() {
               const pot = potMap[m.id] ?? 0
               const carryoverPW = prizeCarryoverPerWinnerMap[m.id] ?? 0
               const prize = Math.floor(pot / winningBets.length) + carryoverPW
-              const offset = Math.min(myBet.debt_offset ?? 0, prize)
-              return [{ match: m, prize, prizePaid: myBet.prize_paid, coWinners: winningBets.length, offset }]
+              return [{ match: m, prize, coWinners: winningBets.length }]
             })
             const totalPrize = wins.reduce((s, w) => s + w.prize, 0)
             return { profile: prof, wins, totalPrize }
@@ -1617,18 +1616,11 @@ export default function MundialPage() {
                         </div>
                         <div className="flex flex-col items-end shrink-0">
                           <span className="text-xl font-black tabular-nums text-green-400">Bs {totalPrize}</span>
-                          {(saldoMap[prof.id] ?? 0) > 0 && (
-                            <span className="text-[10px] text-amber-400 font-bold tabular-nums font-[family-name:var(--font-body)]">
-                              Saldo: Bs {saldoMap[prof.id]}
-                            </span>
-                          )}
                         </div>
                       </div>
                       {/* Winning matches */}
                       <div className="divide-y divide-[#1a1a1a]">
-                        {wins.map(({ match: m, prize, prizePaid, coWinners, offset }) => {
-                          const saldo = Math.max(0, prize - offset)
-                          return (
+                        {wins.map(({ match: m, prize, coWinners }) => (
                             <div key={m.id} className="px-5 py-2.5 flex items-center gap-3">
                               <div className="flex items-center gap-1.5 flex-1 min-w-0">
                                 {m.home_crest && <img src={m.home_crest} alt="" className="w-4 h-4 object-contain shrink-0" />}
@@ -1643,23 +1635,9 @@ export default function MundialPage() {
                               {coWinners > 1 && (
                                 <span className="text-[9px] text-[#444] font-[family-name:var(--font-body)] shrink-0">{coWinners}×</span>
                               )}
-                              <div className="flex flex-col items-end shrink-0 min-w-[52px]">
-                                {offset > 0 ? (
-                                  <>
-                                    <span className="text-[10px] tabular-nums text-[#666] font-[family-name:var(--font-body)] line-through">Bs {prize}</span>
-                                    <span className="text-xs font-bold tabular-nums text-green-400">Bs {saldo}</span>
-                                    <span className="text-[8px] text-amber-600 font-[family-name:var(--font-body)]">−Bs {offset} cuotas</span>
-                                  </>
-                                ) : (
-                                  <span className="text-xs font-bold tabular-nums text-green-400">Bs {prize}</span>
-                                )}
-                                <span className={`text-[9px] font-medium font-[family-name:var(--font-body)] ${prizePaid ? 'text-green-700' : 'text-amber-500'}`}>
-                                  {prizePaid ? '✓ cobrado' : 'saldo'}
-                                </span>
-                              </div>
+                              <span className="text-xs font-bold tabular-nums text-green-400 shrink-0">Bs {prize}</span>
                             </div>
-                          )
-                        })}
+                          ))}
                       </div>
                     </div>
                   ))}

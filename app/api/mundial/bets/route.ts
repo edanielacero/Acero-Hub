@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase-server'
 import { isClosed } from '@/lib/mundial/football-api'
 import { computePots, prizeForMatch } from '@/lib/mundial/pot'
 import { NextResponse } from 'next/server'
+import { Resend } from 'resend'
 
 export async function POST(request: Request) {
   const { token, matchId, homeScore, awayScore, payWithSaldo, receiptUrl } = await request.json()
@@ -12,11 +13,11 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
 
   const { data: profile } = await admin
-    .from('mundial_profiles').select('id').eq('token', token).single()
+    .from('mundial_profiles').select('id, name').eq('token', token).single()
   if (!profile) return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
 
   const { data: match } = await admin
-    .from('mundial_matches').select('match_date, status, bet_amount').eq('id', matchId).single()
+    .from('mundial_matches').select('match_date, status, bet_amount, home_team, away_team').eq('id', matchId).single()
   if (!match) return NextResponse.json({ error: 'Partido no encontrado' }, { status: 404 })
 
   if (isClosed(match.match_date))
@@ -86,6 +87,47 @@ export async function POST(request: Request) {
   const { error } = await admin.from('mundial_bets').upsert(upsertData, { onConflict: 'profile_id,match_id' })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Email admin when a QR receipt is uploaded
+  if (receiptUrl) {
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY)
+      const from = process.env.RESEND_FROM ?? 'noreply@acrosoftlabs.com'
+      const matchDate = new Date(match.match_date).toLocaleString('es-BO', {
+        timeZone: 'America/La_Paz', day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit',
+      })
+      const { data: settings } = await admin.from('mundial_settings').select('bet_amount').eq('id', 1).single()
+      const betAmt = match.bet_amount ?? (settings as { bet_amount: number } | null)?.bet_amount ?? 5
+
+      // Fetch receipt image to attach it
+      let attachments: { filename: string; content: Buffer }[] = []
+      try {
+        const imgRes = await fetch(receiptUrl)
+        if (imgRes.ok) {
+          const buf = Buffer.from(await imgRes.arrayBuffer())
+          const ext = receiptUrl.split('.').pop()?.split('?')[0] ?? 'jpg'
+          attachments = [{ filename: `comprobante-${profile.name}.${ext}`, content: buf }]
+        }
+      } catch { /* skip attachment if fetch fails */ }
+
+      await resend.emails.send({
+        from,
+        to: 'e.daniel.acero.r@gmail.com',
+        subject: `Comprobante de pago — ${profile.name} · ${match.home_team} vs ${match.away_team}`,
+        html: `
+          <h2>Nuevo comprobante de pago</h2>
+          <p><strong>Jugador:</strong> ${profile.name}</p>
+          <p><strong>Partido:</strong> ${match.home_team} vs ${match.away_team}</p>
+          <p><strong>Fecha:</strong> ${matchDate} (hora Bolivia)</p>
+          <p><strong>Predicción:</strong> ${homeScore} – ${awayScore}</p>
+          <p><strong>Monto:</strong> Bs ${betAmt}</p>
+          <p><strong>Comprobante:</strong> <a href="${receiptUrl}">Ver imagen</a></p>
+        `,
+        attachments,
+      })
+    } catch { /* email is best-effort, don't fail the bet */ }
+  }
 
   // When paying with saldo: increment debt_offset on the oldest unpaid winning bet
   if (payWithSaldo) {
