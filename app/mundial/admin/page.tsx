@@ -28,6 +28,7 @@ export default function AdminMundial() {
   const [newColor, setNewColor] = useState(COLORS[0])
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
+  const [reloading, setReloading] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [qrUrl, setQrUrl] = useState('')
   const [qrFile, setQrFile] = useState<File | null>(null)
@@ -119,6 +120,12 @@ export default function AdminMundial() {
     setSyncMsg(res.ok ? `✓ ${d.synced} partidos sincronizados` : `Error: ${d.error}`)
     setSyncing(false)
     await loadData()
+  }
+
+  async function forceReload() {
+    setReloading(true)
+    await fetch('/api/mundial/admin/reload', { method: 'POST' })
+    setReloading(false)
   }
 
   async function saveSettings() {
@@ -552,10 +559,16 @@ export default function AdminMundial() {
               <h2 className="text-sm font-semibold text-[#f5f5f5]">Partidos ({matches.length})</h2>
               <p className="text-xs text-[#666] mt-0.5 font-[family-name:var(--font-body)]">Se sincroniza automáticamente una vez al día</p>
             </div>
-            <button onClick={syncMatches} disabled={syncing}
-              className="text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] px-4 py-1.5 rounded-xl hover:bg-[#222] transition-colors disabled:opacity-40 cursor-pointer">
-              {syncing ? 'Sincronizando...' : '↻ Forzar sync'}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={forceReload} disabled={reloading}
+                className="text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#f59e0b] px-4 py-1.5 rounded-xl hover:bg-[#222] transition-colors disabled:opacity-40 cursor-pointer">
+                {reloading ? 'Enviando...' : '⟳ Forzar actualización'}
+              </button>
+              <button onClick={syncMatches} disabled={syncing}
+                className="text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] text-[#aaa] px-4 py-1.5 rounded-xl hover:bg-[#222] transition-colors disabled:opacity-40 cursor-pointer">
+                {syncing ? 'Sincronizando...' : '↻ Forzar sync'}
+              </button>
+            </div>
           </div>
           {syncMsg && <p className="text-xs font-[family-name:var(--font-body)]" style={{ color: syncMsg.startsWith('✓') ? '#22c55e' : '#ef4444' }}>{syncMsg}</p>}
         </section>

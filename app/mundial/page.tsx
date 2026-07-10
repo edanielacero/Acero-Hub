@@ -658,6 +658,20 @@ export default function MundialPage() {
 
   useEffect(() => { init() }, [])
 
+  useEffect(() => {
+    const supabase = createClient()
+    let baseline: string | null = null
+    const check = async () => {
+      const { data } = await supabase.from('mundial_settings').select('updated_at').eq('id', 1).single()
+      if (!data) return
+      if (baseline === null) { baseline = data.updated_at; return }
+      if (data.updated_at !== baseline) window.location.reload()
+    }
+    check()
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   async function init() {
     const supabase = createClient()
     const { data: profs } = await supabase.from('mundial_profiles').select('*').order('created_at')
@@ -1614,8 +1628,11 @@ export default function MundialPage() {
                             {wins.length} acierto{wins.length !== 1 ? 's' : ''}
                           </p>
                         </div>
-                        <div className="flex flex-col items-end shrink-0">
+                        <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-xl font-black tabular-nums text-green-400">Bs {totalPrize}</span>
+                          <span className="text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            Saldo Bs {saldoMap[prof.id] ?? 0}
+                          </span>
                         </div>
                       </div>
                       {/* Winning matches */}
