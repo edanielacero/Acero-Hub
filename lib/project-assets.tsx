@@ -154,6 +154,50 @@ const PrismaIcon = () => (
   </svg>
 )
 
+const DailyBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-daily" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#0b0b0b" />
+        <stop offset="100%" stopColor="#080808" />
+      </linearGradient>
+      <radialGradient id="glow-daily" cx="50%" cy="45%" r="42%">
+        <stop offset="0%" stopColor="#d4d4d4" stopOpacity="0.06" />
+        <stop offset="100%" stopColor="#d4d4d4" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-daily)" />
+    <rect width="400" height="120" fill="url(#glow-daily)" />
+    {/* Document body */}
+    <rect x="163" y="16" width="74" height="90" rx="5" fill="#0f0f0f" stroke="#1e1e1e" strokeWidth="1" />
+    {/* Clip tab */}
+    <rect x="185" y="10" width="30" height="11" rx="2.5" fill="#111" stroke="#1e1e1e" strokeWidth="1" />
+    {/* Header line */}
+    <line x1="175" y1="36" x2="225" y2="36" stroke="#2c2c2c" strokeWidth="1.5" strokeLinecap="round" />
+    {/* Body lines */}
+    <line x1="175" y1="46" x2="220" y2="46" stroke="#222" strokeWidth="1" strokeLinecap="round" />
+    <line x1="175" y1="54" x2="215" y2="54" stroke="#1d1d1d" strokeWidth="1" strokeLinecap="round" />
+    {/* Divider */}
+    <line x1="175" y1="64" x2="225" y2="64" stroke="#2c2c2c" strokeWidth="1.5" strokeLinecap="round" />
+    {/* Check rows */}
+    <polyline points="175,74 178,77 184,71" fill="none" stroke="#e0e0e0" strokeWidth="1.1" strokeOpacity="0.4" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="188" y1="74" x2="220" y2="74" stroke="#242424" strokeWidth="1" strokeLinecap="round" />
+    <polyline points="175,84 178,87 184,81" fill="none" stroke="#666" strokeWidth="1" strokeOpacity="0.35" strokeLinecap="round" strokeLinejoin="round" />
+    <line x1="188" y1="84" x2="217" y2="84" stroke="#1e1e1e" strokeWidth="1" strokeLinecap="round" />
+    {/* Label strip */}
+    <rect x="152" y="96" width="96" height="14" rx="3" fill="#111" />
+    <text x="200" y="106" textAnchor="middle" fill="#333" fontSize="7.5" fontFamily="monospace" fontWeight="600" letterSpacing="3">DAILY</text>
+  </svg>
+)
+
+const DailyIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+    <rect x="9" y="3" width="6" height="4" rx="1" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
@@ -162,5 +206,9 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'mundial': {
     icon: <BallIcon />,
     banner: <MundialBanner />,
+  },
+  'daily': {
+    icon: <DailyIcon />,
+    banner: <DailyBanner />,
   },
 }
