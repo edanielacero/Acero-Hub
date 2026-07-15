@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
-type Category = 'EDIT' | 'MU_CREATED'
+type Category = 'EDIT' | 'MU_CREATED' | 'CHECKING_COMPONENTS' | 'ARTWORK_UPLOADED'
 
 interface FileEntry { id: string; name: string }
 interface Bullet { id: string; text: string }
@@ -27,6 +27,8 @@ function todayLabel(): string {
 function generateReport(
   edits: FileEntry[],
   muCreated: FileEntry[],
+  checkingComponents: FileEntry[],
+  artworkUploaded: FileEntry[],
   tomorrowBullets: Bullet[],
   blockerBullets: Bullet[]
 ): string {
@@ -46,6 +48,16 @@ function generateReport(
     if (didLines.length > 0) didLines.push('')
     didLines.push('MU CREATED')
     muCreated.forEach(f => didLines.push(`\t• ${f.name}`))
+  }
+  if (checkingComponents.length > 0) {
+    if (didLines.length > 0) didLines.push('')
+    didLines.push('CHECKING COMPONENT CODES')
+    checkingComponents.forEach(f => didLines.push(`\t• ${f.name}`))
+  }
+  if (artworkUploaded.length > 0) {
+    if (didLines.length > 0) didLines.push('')
+    didLines.push('ARTWORK UPLOADED')
+    artworkUploaded.forEach(f => didLines.push(`\t• ${f.name}`))
   }
   if (didLines.length > 0) {
     lines.push(...didLines)
@@ -71,17 +83,17 @@ function BulletSection({ label, bullets, onUpdate, onRemove, onAdd }: {
 }) {
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-[11px] font-bold text-[#555] tracking-wide">{label}</p>
+      <p className="text-[11px] font-bold text-[#888] tracking-wide">{label}</p>
       <div className="flex flex-col gap-1.5">
         {bullets.map(b => (
           <div key={b.id} className="daily-in flex items-center gap-2">
-            <span className="text-[#2a2a2a] text-sm shrink-0 select-none">•</span>
+            <span className="text-[#666] text-sm shrink-0 select-none">•</span>
             <input
               type="text" value={b.text} onChange={e => onUpdate(b.id, e.target.value)}
-              className="flex-1 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-3 py-2 text-sm text-[#ccc] placeholder-[#252525] outline-none focus:border-[#2e2e2e] transition-colors"
+              className="flex-1 bg-[#0f0f0f] border border-[#2a2a2a] rounded-xl px-3 py-2 text-sm text-[#ddd] placeholder-[#333] outline-none focus:border-[#444] transition-colors"
               placeholder="Escribe aquí..."
             />
-            <button onClick={() => onRemove(b.id)} className="text-[#282828] hover:text-[#666] transition-colors cursor-pointer shrink-0">
+            <button onClick={() => onRemove(b.id)} className="text-[#555] hover:text-[#999] transition-colors cursor-pointer shrink-0">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
@@ -89,7 +101,7 @@ function BulletSection({ label, bullets, onUpdate, onRemove, onAdd }: {
           </div>
         ))}
       </div>
-      <button onClick={onAdd} className="self-start flex items-center gap-1.5 text-[11px] text-[#2a2a2a] hover:text-[#666] transition-colors cursor-pointer px-1">
+      <button onClick={onAdd} className="self-start flex items-center gap-1.5 text-[11px] text-[#666] hover:text-[#aaa] transition-colors cursor-pointer px-1">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
@@ -99,28 +111,29 @@ function BulletSection({ label, bullets, onUpdate, onRemove, onAdd }: {
   )
 }
 
-// Compact view rendered inside the Document PiP window via React portal
+const CATEGORY_META: Record<Category, { label: string; abbr: string }> = {
+  EDIT:                 { label: 'EDITS',                   abbr: 'E' },
+  MU_CREATED:           { label: 'MU CREATED',              abbr: 'M' },
+  CHECKING_COMPONENTS:  { label: 'CHECKING COMPONENT CODES', abbr: 'C' },
+  ARTWORK_UPLOADED:     { label: 'ARTWORK UPLOADED',         abbr: 'A' },
+}
+
 function DailyPipView({
-  edits,
-  muCreated,
+  edits, muCreated, checkingComponents, artworkUploaded,
   removingFileIds,
-  onRemoveEdit,
-  onRemoveMu,
-  pendingBatch,
-  onFilesDropped,
-  onConfirmCategory,
-  onCancelBatch,
-  onCopy,
-  copied,
-  minimized,
-  onMinimize,
-  onRestore,
+  onRemoveEdit, onRemoveMu, onRemoveChecking, onRemoveArtwork,
+  pendingBatch, onFilesDropped, onConfirmCategory, onCancelBatch,
+  onCopy, copied, minimized, onMinimize, onRestore,
 }: {
   edits: FileEntry[]
   muCreated: FileEntry[]
+  checkingComponents: FileEntry[]
+  artworkUploaded: FileEntry[]
   removingFileIds: Set<string>
   onRemoveEdit: (id: string) => void
   onRemoveMu: (id: string) => void
+  onRemoveChecking: (id: string) => void
+  onRemoveArtwork: (id: string) => void
   pendingBatch: PendingBatch | null
   onFilesDropped: (files: FileList) => void
   onConfirmCategory: (cat: Category) => void
@@ -133,10 +146,17 @@ function DailyPipView({
 }) {
   const [isDragging, setIsDragging] = useState(false)
 
-  const hasFiles = edits.length > 0 || muCreated.length > 0
+  const hasFiles = edits.length > 0 || muCreated.length > 0 || checkingComponents.length > 0 || artworkUploaded.length > 0
 
-  // Minimized pill — accepts drag and auto-expands on drop
+  const allCategories: { cat: Category; files: FileEntry[]; onRemove: (id: string) => void }[] = [
+    { cat: 'EDIT',                files: edits,               onRemove: onRemoveEdit },
+    { cat: 'MU_CREATED',          files: muCreated,           onRemove: onRemoveMu },
+    { cat: 'CHECKING_COMPONENTS', files: checkingComponents,  onRemove: onRemoveChecking },
+    { cat: 'ARTWORK_UPLOADED',    files: artworkUploaded,     onRemove: onRemoveArtwork },
+  ]
+
   if (minimized) {
+    const counts = allCategories.filter(c => c.files.length > 0)
     return (
       <div
         onDrop={e => {
@@ -156,7 +176,6 @@ function DailyPipView({
         }
       >
         {isDragging ? (
-          /* Drag-receiving state: animated icon + label */
           <>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#60a5fa] shrink-0">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -166,21 +185,20 @@ function DailyPipView({
             <span className="text-[11px] font-black text-[#93c5fd] tracking-wide shrink-0">Suelta aquí</span>
           </>
         ) : (
-          /* Normal minimized state */
           <>
-            <span className="text-[11px] font-black text-[#555] tracking-wide shrink-0">Daily</span>
+            <span className="text-[11px] font-black text-[#888] tracking-wide shrink-0">Daily</span>
             {hasFiles && (
-              <div className="flex items-center gap-1 text-[10px] text-[#333] font-mono shrink-0">
-                {edits.length > 0 && <span>{edits.length}E</span>}
-                {edits.length > 0 && muCreated.length > 0 && <span className="text-[#222]">·</span>}
-                {muCreated.length > 0 && <span>{muCreated.length}M</span>}
+              <div className="flex items-center gap-1 text-[10px] text-[#666] font-mono shrink-0">
+                {counts.map((c, i) => (
+                  <span key={c.cat}>{i > 0 && <span className="text-[#444] mr-1">·</span>}{c.files.length}{CATEGORY_META[c.cat].abbr}</span>
+                ))}
               </div>
             )}
           </>
         )}
         <button
           onClick={onRestore}
-          className="ml-auto text-[#444] hover:text-[#888] border border-[#222] hover:border-[#333] bg-[#141414] hover:bg-[#1a1a1a] rounded-md px-2 py-1 transition-all cursor-pointer shrink-0"
+          className="ml-auto text-[#777] hover:text-[#bbb] border border-[#333] hover:border-[#444] bg-[#141414] hover:bg-[#1a1a1a] rounded-md px-2 py-1 transition-all cursor-pointer shrink-0"
           title="Restaurar"
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -196,10 +214,10 @@ function DailyPipView({
 
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
-        <span className="text-[9px] font-black uppercase tracking-[0.25em] text-[#2a2a2a]">Daily</span>
+        <span className="text-[9px] font-black uppercase tracking-[0.25em] text-[#777]">Daily</span>
         <button
           onClick={onMinimize}
-          className="flex items-center gap-1.5 text-[10px] text-[#444] hover:text-[#888] border border-[#1e1e1e] hover:border-[#2e2e2e] bg-[#0f0f0f] hover:bg-[#141414] rounded-md px-2 py-1 transition-all cursor-pointer shrink-0"
+          className="flex items-center gap-1.5 text-[10px] text-[#888] hover:text-[#ccc] border border-[#2e2e2e] hover:border-[#444] bg-[#0f0f0f] hover:bg-[#141414] rounded-md px-2 py-1 transition-all cursor-pointer shrink-0"
           title="Minimizar"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -209,7 +227,7 @@ function DailyPipView({
         </button>
       </div>
 
-      {/* Drop zone — smaller when files exist, full when empty */}
+      {/* Drop zone */}
       <div
         onDrop={e => {
           e.preventDefault()
@@ -222,29 +240,29 @@ function DailyPipView({
         }}
         className={`shrink-0 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-all duration-200 select-none ${
           hasFiles ? 'h-20' : 'flex-1'
-        } ${isDragging ? 'border-[#444] bg-[#111]' : 'border-[#1e1e1e] bg-[#0d0d0d]'}`}
+        } ${isDragging ? 'border-[#555] bg-[#111]' : 'border-[#2a2a2a] bg-[#0d0d0d]'}`}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          className={`transition-colors duration-200 ${isDragging ? 'text-[#666]' : 'text-[#252525]'}`}>
+          className={`transition-colors duration-200 ${isDragging ? 'text-[#888]' : 'text-[#444]'}`}>
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
-        <p className={`text-[11px] font-medium transition-colors duration-200 ${isDragging ? 'text-[#999]' : 'text-[#333]'}`}>
+        <p className={`text-[11px] font-medium transition-colors duration-200 ${isDragging ? 'text-[#bbb]' : 'text-[#666]'}`}>
           {isDragging ? 'Suelta aquí' : 'Arrastra archivos'}
         </p>
       </div>
 
-      {/* File list with delete buttons — only when files exist */}
+      {/* File list */}
       {hasFiles && (
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-2.5">
-          {edits.length > 0 && (
-            <div className="flex flex-col gap-0.5">
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#333] shrink-0 mb-1">Edits</p>
-              {edits.map(f => (
+          {allCategories.map(({ cat, files, onRemove }) => files.length > 0 && (
+            <div key={cat} className="flex flex-col gap-0.5">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#777] shrink-0 mb-1">{CATEGORY_META[cat].label}</p>
+              {files.map(f => (
                 <div key={f.id} className={`${removingFileIds.has(f.id) ? 'daily-out' : 'daily-in'} flex items-center gap-1.5`}>
-                  <span className="flex-1 text-[11px] text-[#555] font-mono truncate">• {f.name}</span>
-                  <button onClick={() => onRemoveEdit(f.id)} className="text-[#2a2a2a] hover:text-[#777] transition-colors cursor-pointer shrink-0">
+                  <span className="flex-1 text-[11px] text-[#aaa] font-mono truncate">• {f.name}</span>
+                  <button onClick={() => onRemove(f.id)} className="text-[#555] hover:text-[#999] transition-colors cursor-pointer shrink-0">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M18 6 6 18M6 6l12 12" />
                     </svg>
@@ -252,22 +270,7 @@ function DailyPipView({
                 </div>
               ))}
             </div>
-          )}
-          {muCreated.length > 0 && (
-            <div className="flex flex-col gap-0.5">
-              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#333] shrink-0 mb-1">MU Created</p>
-              {muCreated.map(f => (
-                <div key={f.id} className={`${removingFileIds.has(f.id) ? 'daily-out' : 'daily-in'} flex items-center gap-1.5`}>
-                  <span className="flex-1 text-[11px] text-[#555] font-mono truncate">• {f.name}</span>
-                  <button onClick={() => onRemoveMu(f.id)} className="text-[#2a2a2a] hover:text-[#777] transition-colors cursor-pointer shrink-0">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 6 6 18M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          ))}
         </div>
       )}
 
@@ -283,37 +286,34 @@ function DailyPipView({
         {copied ? '✓  Copiado' : 'Copy Daily'}
       </button>
 
-      {/* Category modal — fixed inside the PiP window's viewport */}
+      {/* Category modal */}
       {pendingBatch && (
         <div
-          className="daily-overlay fixed inset-0 bg-black/80 flex items-end justify-center z-50 p-4"
+          className="daily-overlay fixed inset-0 bg-black/80 flex items-end justify-center z-50 p-3"
           onClick={onCancelBatch}
         >
           <div
-            className="daily-modal bg-[#111] border border-[#1e1e1e] rounded-2xl p-5 w-full flex flex-col gap-4"
+            className="daily-modal bg-[#111] border border-[#2a2a2a] rounded-2xl p-4 w-full flex flex-col gap-3"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex flex-col gap-0.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#3a3a3a]">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#777]">
                 {pendingBatch.files.length} archivo{pendingBatch.files.length !== 1 ? 's' : ''}
               </p>
               <h2 className="text-base font-black text-[#f0f0f0]">¿Qué tipo?</h2>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={() => onConfirmCategory('EDIT')}
-                className="w-full py-3 rounded-xl bg-[#161616] border border-[#222] hover:border-[#333] hover:bg-[#1a1a1a] active:scale-[0.99] transition-all cursor-pointer text-left px-3"
-              >
-                <span className="text-sm font-black text-[#d0d0d0]">EDIT</span>
-              </button>
-              <button
-                onClick={() => onConfirmCategory('MU_CREATED')}
-                className="w-full py-3 rounded-xl bg-[#161616] border border-[#222] hover:border-[#333] hover:bg-[#1a1a1a] active:scale-[0.99] transition-all cursor-pointer text-left px-3"
-              >
-                <span className="text-sm font-black text-[#d0d0d0]">MU CREATED</span>
-              </button>
+            <div className="flex flex-col gap-1">
+              {(Object.keys(CATEGORY_META) as Category[]).map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => onConfirmCategory(cat)}
+                  className="w-full py-2.5 rounded-xl bg-[#161616] border border-[#2a2a2a] hover:border-[#444] hover:bg-[#1e1e1e] active:scale-[0.99] transition-all cursor-pointer text-left px-3"
+                >
+                  <span className="text-xs font-black text-[#e0e0e0]">{CATEGORY_META[cat].label}</span>
+                </button>
+              ))}
             </div>
-            <button onClick={onCancelBatch} className="text-xs text-[#2a2a2a] hover:text-[#666] transition-colors cursor-pointer text-center">
+            <button onClick={onCancelBatch} className="text-xs text-[#666] hover:text-[#aaa] transition-colors cursor-pointer text-center">
               Cancelar
             </button>
           </div>
@@ -324,13 +324,11 @@ function DailyPipView({
 }
 
 function copyStylesToWindow(target: Window) {
-  // Extract all CSS rules from every loaded stylesheet (catches Turbopack/HMR injected styles)
   const allCss: string[] = []
   ;[...document.styleSheets].forEach(sheet => {
     try {
       ;[...sheet.cssRules].forEach(rule => allCss.push(rule.cssText))
     } catch {
-      // Cross-origin sheet — copy as <link> instead
       if (sheet.href) {
         const link = target.document.createElement('link')
         link.rel = 'stylesheet'
@@ -344,7 +342,6 @@ function copyStylesToWindow(target: Window) {
     style.textContent = allCss.join('\n')
     target.document.head.appendChild(style)
   }
-  // Dark background immediately to prevent white flash before styles parse
   target.document.documentElement.style.cssText = 'background:#080808'
   target.document.body.style.cssText = 'background:#080808;margin:0;height:100%'
 }
@@ -354,6 +351,8 @@ const STORAGE_KEY = 'daily_files'
 export default function DailyPage() {
   const [edits, setEdits] = useState<FileEntry[]>([])
   const [muCreated, setMuCreated] = useState<FileEntry[]>([])
+  const [checkingComponents, setCheckingComponents] = useState<FileEntry[]>([])
+  const [artworkUploaded, setArtworkUploaded] = useState<FileEntry[]>([])
   const [removingFileIds, setRemovingFileIds] = useState<Set<string>>(new Set())
   const [pendingBatch, setPendingBatch] = useState<PendingBatch | null>(null)
   const [pendingBatchSource, setPendingBatchSource] = useState<'main' | 'pip'>('main')
@@ -369,6 +368,7 @@ export default function DailyPage() {
   const [pipActive, setPipActive] = useState(false)
   const [pipContainer, setPipContainer] = useState<Element | null>(null)
   const [pipMinimized, setPipMinimized] = useState(false)
+  const [editedReport, setEditedReport] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -384,6 +384,8 @@ export default function DailyPage() {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed.edits)) setEdits(parsed.edits)
         if (Array.isArray(parsed.muCreated)) setMuCreated(parsed.muCreated)
+        if (Array.isArray(parsed.checkingComponents)) setCheckingComponents(parsed.checkingComponents)
+        if (Array.isArray(parsed.artworkUploaded)) setArtworkUploaded(parsed.artworkUploaded)
       }
     } catch {}
   }, [])
@@ -394,19 +396,25 @@ export default function DailyPage() {
       return
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ edits, muCreated }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ edits, muCreated, checkingComponents, artworkUploaded }))
     } catch {}
-  }, [edits, muCreated])
+  }, [edits, muCreated, checkingComponents, artworkUploaded])
 
-  // Close PiP window on unmount
   useEffect(() => {
     return () => { pipWindowRef.current?.close() }
   }, [])
 
   const reportText = useMemo(
-    () => generateReport(edits, muCreated, tomorrowBullets, blockerBullets),
-    [edits, muCreated, tomorrowBullets, blockerBullets]
+    () => generateReport(edits, muCreated, checkingComponents, artworkUploaded, tomorrowBullets, blockerBullets),
+    [edits, muCreated, checkingComponents, artworkUploaded, tomorrowBullets, blockerBullets]
   )
+
+  // Reset manual edits when the generated report changes (new files / bullet updates)
+  useEffect(() => {
+    setEditedReport(null)
+  }, [reportText])
+
+  const displayText = editedReport ?? reportText
 
   const handleFiles = useCallback((files: FileList | File[], source: 'main' | 'pip' = 'main') => {
     const names = Array.from(files).map(f => f.name)
@@ -440,11 +448,10 @@ export default function DailyPage() {
   const confirmCategory = (category: Category) => {
     if (!pendingBatch) return
     const entries = pendingBatch.files.map(makeEntry)
-    if (category === 'EDIT') {
-      setEdits(prev => [...prev, ...entries])
-    } else {
-      setMuCreated(prev => [...prev, ...entries])
-    }
+    if (category === 'EDIT') setEdits(prev => [...prev, ...entries])
+    else if (category === 'MU_CREATED') setMuCreated(prev => [...prev, ...entries])
+    else if (category === 'CHECKING_COMPONENTS') setCheckingComponents(prev => [...prev, ...entries])
+    else if (category === 'ARTWORK_UPLOADED') setArtworkUploaded(prev => [...prev, ...entries])
     setPendingBatch(null)
   }
 
@@ -462,21 +469,25 @@ export default function DailyPage() {
 
   const removeEdit = (id: string) => removeFileWithAnimation(id, setEdits)
   const removeMu = (id: string) => removeFileWithAnimation(id, setMuCreated)
+  const removeChecking = (id: string) => removeFileWithAnimation(id, setCheckingComponents)
+  const removeArtwork = (id: string) => removeFileWithAnimation(id, setArtworkUploaded)
 
   const handleClear = () => {
     setEdits([])
     setMuCreated([])
+    setCheckingComponents([])
+    setArtworkUploaded([])
     setRemovingFileIds(new Set())
   }
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(reportText).then(() => {
+    navigator.clipboard.writeText(displayText).then(() => {
       setCopied(true)
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     }).catch(() => {
       const el = document.createElement('textarea')
-      el.value = reportText
+      el.value = displayText
       el.style.position = 'fixed'
       el.style.opacity = '0'
       document.body.appendChild(el)
@@ -487,7 +498,7 @@ export default function DailyPage() {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     })
-  }, [reportText])
+  }, [displayText])
 
   const openPip = async () => {
     if (pipActive) {
@@ -522,7 +533,7 @@ export default function DailyPage() {
   }
 
   const restorePip = () => {
-    pipWindowRef.current?.resizeTo(260, 340)
+    pipWindowRef.current?.resizeTo(260, 420)
     setPipMinimized(false)
   }
 
@@ -540,7 +551,14 @@ export default function DailyPage() {
   const addBlocker = () =>
     setBlockerBullets(prev => [...prev, makeBullet('')])
 
-  const hasFiles = edits.length > 0 || muCreated.length > 0
+  const hasFiles = edits.length > 0 || muCreated.length > 0 || checkingComponents.length > 0 || artworkUploaded.length > 0
+
+  const allCategories: { cat: Category; files: FileEntry[]; onRemove: (id: string) => void }[] = [
+    { cat: 'EDIT',                files: edits,               onRemove: removeEdit },
+    { cat: 'MU_CREATED',          files: muCreated,           onRemove: removeMu },
+    { cat: 'CHECKING_COMPONENTS', files: checkingComponents,  onRemove: removeChecking },
+    { cat: 'ARTWORK_UPLOADED',    files: artworkUploaded,     onRemove: removeArtwork },
+  ]
 
   return (
     <div className="min-h-screen bg-[#080808] px-4 py-10 pb-20">
@@ -549,27 +567,26 @@ export default function DailyPage() {
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <p className="text-[10px] font-bold tracking-[0.4em] uppercase text-[#3a3a3a]">Acero Hub</p>
+            <p className="text-[10px] font-bold tracking-[0.4em] uppercase text-[#666]">Acero Hub</p>
             <h1 className="text-3xl font-black tracking-tight text-[#f0f0f0]">Daily</h1>
-            <p className="text-sm text-[#3a3a3a]">Genera tu reporte de actividad diaria</p>
+            <p className="text-sm text-[#666]">Genera tu reporte de actividad diaria</p>
           </div>
           <div className="flex items-center gap-2 mt-1 shrink-0">
             {hasFiles && (
               <button
                 onClick={handleClear}
-                className="text-[11px] font-semibold text-[#666] hover:text-red-400 border border-[#222] hover:border-red-500/30 bg-[#0f0f0f] hover:bg-red-500/5 rounded-lg px-3 py-1.5 transition-all duration-200 cursor-pointer"
+                className="text-[11px] font-semibold text-[#888] hover:text-red-400 border border-[#2a2a2a] hover:border-red-500/30 bg-[#0f0f0f] hover:bg-red-500/5 rounded-lg px-3 py-1.5 transition-all duration-200 cursor-pointer"
               >
                 Limpiar
               </button>
             )}
-            {/* Picture-in-Picture toggle */}
             <button
               onClick={openPip}
               title={pipActive ? 'Cerrar ventana flotante' : 'Abrir ventana flotante'}
               className={`p-1.5 rounded-lg border transition-all duration-200 cursor-pointer ${
                 pipActive
-                  ? 'text-[#ccc] border-[#333] bg-[#1a1a1a]'
-                  : 'text-[#444] border-[#1e1e1e] bg-[#0d0d0d] hover:text-[#888] hover:border-[#2a2a2a] hover:bg-[#111]'
+                  ? 'text-[#ccc] border-[#444] bg-[#1a1a1a]'
+                  : 'text-[#777] border-[#2a2a2a] bg-[#0d0d0d] hover:text-[#bbb] hover:border-[#3a3a3a] hover:bg-[#111]'
               }`}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -588,24 +605,24 @@ export default function DailyPage() {
           onClick={() => fileInputRef.current?.click()}
           className={`cursor-pointer rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-3 py-10 sm:py-14 px-8 transition-all duration-200 select-none ${
             isDragging
-              ? 'border-[#444] bg-[#111]'
-              : 'border-[#1e1e1e] bg-[#0d0d0d] hover:border-[#2a2a2a] hover:bg-[#101010]'
+              ? 'border-[#555] bg-[#111]'
+              : 'border-[#2a2a2a] bg-[#0d0d0d] hover:border-[#3a3a3a] hover:bg-[#101010]'
           }`}
         >
           <svg
             width="28" height="28" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-            className={`transition-colors duration-200 ${isDragging ? 'text-[#666]' : 'text-[#252525]'}`}
+            className={`transition-colors duration-200 ${isDragging ? 'text-[#888]' : 'text-[#444]'}`}
           >
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
           <div className="text-center flex flex-col gap-1">
-            <p className={`text-sm font-medium transition-colors duration-200 ${isDragging ? 'text-[#aaa]' : 'text-[#3a3a3a]'}`}>
+            <p className={`text-sm font-medium transition-colors duration-200 ${isDragging ? 'text-[#ccc]' : 'text-[#777]'}`}>
               {isDragging ? 'Suelta los archivos aquí' : 'Arrastra archivos o haz clic para seleccionar'}
             </p>
-            <p className="text-xs text-[#222]">Cualquier tipo · Múltiples a la vez</p>
+            <p className="text-xs text-[#444]">Cualquier tipo · Múltiples a la vez</p>
           </div>
           <input
             ref={fileInputRef}
@@ -619,20 +636,20 @@ export default function DailyPage() {
         {/* File lists or empty state */}
         {hasFiles ? (
           <div className="flex flex-col gap-6">
-            {edits.length > 0 && (
-              <div className="flex flex-col gap-3">
+            {allCategories.map(({ cat, files, onRemove }) => files.length > 0 && (
+              <div key={cat} className="flex flex-col gap-3">
                 <div className="flex items-center gap-2.5">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#444]">EDITS</p>
-                  <span className="text-[10px] text-[#252525] tabular-nums">{edits.length}</span>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#888]">{CATEGORY_META[cat].label}</p>
+                  <span className="text-[10px] text-[#555] tabular-nums">{files.length}</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {edits.map(f => (
+                  {files.map(f => (
                     <div
                       key={f.id}
-                      className={`${removingFileIds.has(f.id) ? 'daily-out' : 'daily-in'} flex items-center gap-3 bg-[#0d0d0d] border border-[#191919] rounded-xl px-4 py-2.5 hover:border-[#222] transition-colors`}
+                      className={`${removingFileIds.has(f.id) ? 'daily-out' : 'daily-in'} flex items-center gap-3 bg-[#0d0d0d] border border-[#222] rounded-xl px-4 py-2.5 hover:border-[#2e2e2e] transition-colors`}
                     >
-                      <span className="flex-1 text-sm text-[#888] truncate font-mono">{f.name}</span>
-                      <button onClick={() => removeEdit(f.id)} className="text-[#2e2e2e] hover:text-[#777] transition-colors cursor-pointer shrink-0">
+                      <span className="flex-1 text-sm text-[#bbb] truncate font-mono">{f.name}</span>
+                      <button onClick={() => onRemove(f.id)} className="text-[#555] hover:text-[#999] transition-colors cursor-pointer shrink-0">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M18 6 6 18M6 6l12 12" />
                         </svg>
@@ -641,46 +658,22 @@ export default function DailyPage() {
                   ))}
                 </div>
               </div>
-            )}
-
-            {muCreated.length > 0 && (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2.5">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#444]">MU CREATED</p>
-                  <span className="text-[10px] text-[#252525] tabular-nums">{muCreated.length}</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {muCreated.map(f => (
-                    <div
-                      key={f.id}
-                      className={`${removingFileIds.has(f.id) ? 'daily-out' : 'daily-in'} flex items-center gap-3 bg-[#0d0d0d] border border-[#191919] rounded-xl px-4 py-2.5 hover:border-[#222] transition-colors`}
-                    >
-                      <span className="flex-1 text-sm text-[#888] truncate font-mono">{f.name}</span>
-                      <button onClick={() => removeMu(f.id)} className="text-[#2e2e2e] hover:text-[#777] transition-colors cursor-pointer shrink-0">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 6 6 18M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            ))}
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2.5 py-6">
-            <div className="w-9 h-9 rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] flex items-center justify-center shrink-0">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#252525]">
+            <div className="w-9 h-9 rounded-xl bg-[#0d0d0d] border border-[#222] flex items-center justify-center shrink-0">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#444]">
                 <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
                 <polyline points="13 2 13 9 20 9" />
               </svg>
             </div>
-            <p className="text-xs text-[#252525] text-center">Los archivos subidos aparecerán aquí</p>
+            <p className="text-xs text-[#555] text-center">Los archivos subidos aparecerán aquí</p>
           </div>
         )}
 
         {/* Divider */}
-        <div className="border-t border-[#141414]" />
+        <div className="border-t border-[#1e1e1e]" />
 
         {/* Editable sections */}
         <div className="flex flex-col gap-7">
@@ -701,12 +694,36 @@ export default function DailyPage() {
         </div>
 
         {/* Divider */}
-        <div className="border-t border-[#141414]" />
+        <div className="border-t border-[#1e1e1e]" />
 
         {/* Text output + Copy */}
         <div className="flex flex-col gap-3">
-          <p className="text-[11px] text-[#3a3a3a] font-mono px-1">{todayLabel()}</p>
-          <pre className="text-sm text-[#555] font-mono bg-[#090909] border border-[#141414] rounded-2xl px-5 py-5 whitespace-pre overflow-x-auto leading-relaxed">{reportText}</pre>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 bg-[#0f0f0f] border border-[#2a2a2a] rounded-xl px-3.5 py-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#888] shrink-0">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span className="text-sm font-semibold text-[#ccc] tracking-wide">{todayLabel()}</span>
+            </div>
+            {editedReport !== null && (
+              <button
+                onClick={() => setEditedReport(null)}
+                className="text-[10px] text-[#666] hover:text-[#aaa] transition-colors cursor-pointer"
+              >
+                Restaurar generado
+              </button>
+            )}
+          </div>
+          <textarea
+            value={displayText}
+            onChange={e => setEditedReport(e.target.value)}
+            spellCheck={false}
+            className="text-sm text-[#ccc] font-mono bg-[#090909] border border-[#222] rounded-2xl px-5 py-5 whitespace-pre leading-relaxed resize-none outline-none focus:border-[#333] transition-colors w-full"
+            style={{ minHeight: '12rem', height: `${(displayText.split('\n').length + 1) * 1.625}rem` }}
+          />
           <button
             onClick={handleCopy}
             className={`w-full py-3.5 rounded-xl font-black text-sm tracking-wide transition-all duration-300 cursor-pointer ${
@@ -715,58 +732,72 @@ export default function DailyPage() {
                 : 'bg-[#f0f0f0] text-[#0a0a0a] hover:bg-white active:scale-[0.99]'
             }`}
           >
-            {copied ? '✓  Copiado' : 'Copy'}
+            {copied ? '✓  Copiado' : 'Copiar Daily'}
           </button>
         </div>
 
       </div>
 
-      {/* Category Modal (main page — only when drop happened here) */}
+      {/* Category Modal (main page) */}
       {pendingBatch && pendingBatchSource === 'main' && (
         <div
           className="daily-overlay fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 px-4 pb-6 sm:pb-0"
           onClick={() => setPendingBatch(null)}
         >
           <div
-            className="daily-modal bg-[#111] border border-[#1e1e1e] rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5"
+            className="daily-modal bg-[#111] border border-[#2a2a2a] rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex flex-col gap-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#3a3a3a]">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#777]">
                 {pendingBatch.files.length} archivo{pendingBatch.files.length !== 1 ? 's' : ''} seleccionado{pendingBatch.files.length !== 1 ? 's' : ''}
               </p>
               <h2 className="text-lg font-black text-[#f0f0f0]">¿Qué tipo de trabajo?</h2>
             </div>
 
-            <div className="flex flex-col gap-1 bg-[#0d0d0d] rounded-xl px-4 py-3 border border-[#191919]">
+            <div className="flex flex-col gap-1 bg-[#0d0d0d] rounded-xl px-4 py-3 border border-[#222]">
               {pendingBatch.files.slice(0, 5).map((name, i) => (
-                <p key={i} className="text-[11px] text-[#444] font-mono truncate">• {name}</p>
+                <p key={i} className="text-[11px] text-[#888] font-mono truncate">• {name}</p>
               ))}
               {pendingBatch.files.length > 5 && (
-                <p className="text-[11px] text-[#2a2a2a] mt-0.5">+ {pendingBatch.files.length - 5} más</p>
+                <p className="text-[11px] text-[#666] mt-0.5">+ {pendingBatch.files.length - 5} más</p>
               )}
             </div>
 
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => confirmCategory('EDIT')}
-                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#222] hover:border-[#333] hover:bg-[#1a1a1a] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
+                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#2a2a2a] hover:border-[#444] hover:bg-[#1e1e1e] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
               >
-                <span className="block text-sm font-black text-[#d0d0d0] group-hover:text-[#f0f0f0] transition-colors">EDIT</span>
-                <span className="block text-[11px] text-[#3a3a3a] mt-0.5">Archivo que ya existía · se estuvo trabajando</span>
+                <span className="block text-sm font-black text-[#e0e0e0] group-hover:text-[#f0f0f0] transition-colors">EDIT</span>
+                <span className="block text-[11px] text-[#666] mt-0.5">Archivo que ya existía · se estuvo trabajando</span>
               </button>
               <button
                 onClick={() => confirmCategory('MU_CREATED')}
-                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#222] hover:border-[#333] hover:bg-[#1a1a1a] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
+                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#2a2a2a] hover:border-[#444] hover:bg-[#1e1e1e] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
               >
-                <span className="block text-sm font-black text-[#d0d0d0] group-hover:text-[#f0f0f0] transition-colors">MU CREATED</span>
-                <span className="block text-[11px] text-[#3a3a3a] mt-0.5">Archivo nuevo · creado desde cero</span>
+                <span className="block text-sm font-black text-[#e0e0e0] group-hover:text-[#f0f0f0] transition-colors">MU CREATED</span>
+                <span className="block text-[11px] text-[#666] mt-0.5">Archivo nuevo · creado desde cero</span>
+              </button>
+              <button
+                onClick={() => confirmCategory('CHECKING_COMPONENTS')}
+                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#2a2a2a] hover:border-[#444] hover:bg-[#1e1e1e] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
+              >
+                <span className="block text-sm font-black text-[#e0e0e0] group-hover:text-[#f0f0f0] transition-colors">CHECKING COMPONENT CODES</span>
+                <span className="block text-[11px] text-[#666] mt-0.5">Revisión de códigos de componente</span>
+              </button>
+              <button
+                onClick={() => confirmCategory('ARTWORK_UPLOADED')}
+                className="w-full py-3.5 rounded-xl bg-[#161616] border border-[#2a2a2a] hover:border-[#444] hover:bg-[#1e1e1e] active:scale-[0.99] transition-all cursor-pointer text-left px-4 group"
+              >
+                <span className="block text-sm font-black text-[#e0e0e0] group-hover:text-[#f0f0f0] transition-colors">ARTWORK UPLOADED</span>
+                <span className="block text-[11px] text-[#666] mt-0.5">Arte subido al sistema</span>
               </button>
             </div>
 
             <button
               onClick={() => setPendingBatch(null)}
-              className="text-xs text-[#2a2a2a] hover:text-[#666] transition-colors cursor-pointer text-center py-1"
+              className="text-xs text-[#666] hover:text-[#aaa] transition-colors cursor-pointer text-center py-1"
             >
               Cancelar
             </button>
@@ -774,14 +805,18 @@ export default function DailyPage() {
         </div>
       )}
 
-      {/* PiP portal — renders DailyPipView into the floating window's document */}
+      {/* PiP portal */}
       {pipContainer && createPortal(
         <DailyPipView
           edits={edits}
           muCreated={muCreated}
+          checkingComponents={checkingComponents}
+          artworkUploaded={artworkUploaded}
           removingFileIds={removingFileIds}
           onRemoveEdit={removeEdit}
           onRemoveMu={removeMu}
+          onRemoveChecking={removeChecking}
+          onRemoveArtwork={removeArtwork}
           pendingBatch={pendingBatchSource === 'pip' ? pendingBatch : null}
           onFilesDropped={files => handleFiles(files, 'pip')}
           onConfirmCategory={confirmCategory}
