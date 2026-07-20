@@ -158,6 +158,44 @@ const DailyIcon = () => (
   </svg>
 )
 
+const GetLeadsBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-gl" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#090d14" />
+        <stop offset="100%" stopColor="#080808" />
+      </linearGradient>
+      <radialGradient id="glow-gl" cx="50%" cy="55%" r="45%">
+        <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.1" />
+        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-gl)" />
+    <rect width="400" height="120" fill="url(#glow-gl)" />
+    {/* Funnel rings */}
+    <ellipse cx="200" cy="38" rx="70" ry="10" fill="none" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.25" />
+    <ellipse cx="200" cy="62" rx="48" ry="7"  fill="none" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.18" />
+    <ellipse cx="200" cy="82" rx="26" ry="5"  fill="none" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.12" />
+    {/* Funnel body */}
+    <path d="M130,38 L174,82 L226,82 L270,38 Z" fill="#3b82f6" fillOpacity="0.05" stroke="#3b82f6" strokeWidth="0.6" strokeOpacity="0.2" />
+    {/* Lead dots falling in */}
+    <circle cx="170" cy="28" r="3" fill="#3b82f6" fillOpacity="0.4" />
+    <circle cx="200" cy="22" r="3.5" fill="#3b82f6" fillOpacity="0.5" />
+    <circle cx="230" cy="28" r="3" fill="#3b82f6" fillOpacity="0.4" />
+    <circle cx="155" cy="20" r="2" fill="#3b82f6" fillOpacity="0.25" />
+    <circle cx="245" cy="22" r="2" fill="#3b82f6" fillOpacity="0.25" />
+    {/* Output dot */}
+    <circle cx="200" cy="96" r="5" fill="#3b82f6" fillOpacity="0.6" />
+    <circle cx="200" cy="96" r="9" fill="none" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.2" />
+  </svg>
+)
+
+const LeadsIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
@@ -166,5 +204,9 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'daily': {
     icon: <DailyIcon />,
     banner: <DailyBanner />,
+  },
+  'get-leads': {
+    icon: <LeadsIcon />,
+    banner: <GetLeadsBanner />,
   },
 }
