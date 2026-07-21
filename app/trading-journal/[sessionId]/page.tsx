@@ -852,7 +852,11 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
     if (last?.capital_end != null) returnPct = ((last.capital_end - capitalInitial) / capitalInitial) * 100
   }
 
-  const rentLabel = sessionType === 'backtesting' ? 'Rentabilidad' : 'Rentabilidad (%)'
+  const hasPnLData = trades.some(t => t.pnl_usd != null)
+  const rentLabel = sessionType === 'backtesting' ? 'Rentabilidad'
+    : (returnPct !== null || hasPctData) ? 'Rentabilidad (%)'
+    : hasPnLData ? 'PnL Total'
+    : 'Rentabilidad'
   const rentValue = empty ? '—'
     : sessionType === 'backtesting'
       ? `${totalRR >= 0 ? '+' : ''}${fmtR(totalRR)}R`
@@ -860,7 +864,10 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
       ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%`
     : hasPctData
       ? `${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(1)}%`
-    : (fmtPnL(totalPnL) ?? '—')
+    : hasPnLData
+      ? (fmtPnL(totalPnL) ?? '—')
+    : '—'
+  const hasRentData = sessionType === 'backtesting' || returnPct !== null || hasPctData || hasPnLData
   const rentPos = sessionType === 'backtesting' ? totalRR >= 0 : (returnPct ?? (hasPctData ? totalPct : totalPnL)) >= 0
 
   const circ = 2 * Math.PI * 14
@@ -926,19 +933,19 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
         <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">{rentLabel}</span>
         <div className="flex items-end justify-between mt-0.5">
           <div>
-            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-600'}`}>
+            <span className={`text-[26px] font-bold leading-none tabular-nums ${!empty && hasRentData && rentPos ? 'text-emerald-500 dark:text-emerald-400' : !empty && hasRentData ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-zinc-600'}`}>
               {rentValue}
             </span>
             {!empty && sessionType === 'backtesting' && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
-            {!empty && sessionType === 'journal' && totalPnL !== 0 && (
+            {!empty && sessionType === 'journal' && hasPnLData && (
               <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">
-                {W > 0 ? `+${fmtPnL(trades.filter(t => t.result === 'tp').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / W)}` : ''}{W > 0 && L > 0 ? ' / ' : ''}{L > 0 ? `${fmtPnL(trades.filter(t => t.result === 'sl').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / L)}` : ''}
+                {W > 0 ? `${fmtPnL(trades.filter(t => t.result === 'tp').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / W)}` : ''}{W > 0 && L > 0 ? ' / ' : ''}{L > 0 ? `${fmtPnL(trades.filter(t => t.result === 'sl').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / L)}` : ''}
               </p>
             )}
           </div>
           <Icon
-            cls={!empty ? (rentPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
-            bg={!empty ? (rentPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
+            cls={!empty && hasRentData ? (rentPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
+            bg={!empty && hasRentData ? (rentPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           </Icon>
@@ -2306,7 +2313,9 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
   const expectancy = (wr * avgWin) - ((1 - wr) * avgLoss)
   const pos = expectancy >= 0
 
-  const fmtVal   = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${fmtR(Math.abs(v))}R`
+  const fmtVal   = (v: number) => hasUSD
+    ? `$${Math.abs(v).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+    : `${fmtR(Math.abs(v))}R`
   const fmtExpct = (v: number) => hasUSD ? (fmtPnL(v) ?? '—') : `${v >= 0 ? '+' : ''}${fmtR(Math.abs(v))}R`
 
   return (
@@ -2511,7 +2520,7 @@ function StdDevCard({ trades, sessionType }: { trades: Trade[]; sessionType: Ses
     : (stdDevRR && stdDevRR > 0 && expectancyRR !== null ? expectancyRR / stdDevRR : null)
 
   const stdDevDisplay = hasUSD
-    ? (stdDevUSD === null ? '—' : (fmtPnL(stdDevUSD) ?? '—'))
+    ? (stdDevUSD === null ? '—' : `$${stdDevUSD.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`)
     : (stdDevRR === null ? '—' : `${fmtR(stdDevRR)}R`)
 
   return (
@@ -2639,7 +2648,7 @@ function ConsistencySection({ trades, sessionType }: { trades: Trade[]; sessionT
                   {row.tp}TP · {row.sl}SL{row.be > 0 ? ` · ${row.be}BE` : ''}
                 </span>
                 <span className={`text-[12px] font-bold font-mono ${pos ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-slate-500 dark:text-zinc-400'}`}>
-                  {net >= 0 ? '+' : ''}{sessionType === 'backtesting' ? `${fmtR(net)}R` : `$${net.toFixed(0)}`}
+                  {sessionType === 'backtesting' ? `${net >= 0 ? '+' : ''}${fmtR(net)}R` : `${net >= 0 ? '+' : '-'}$${Math.abs(net).toFixed(0)}`}
                 </span>
               </div>
             )
