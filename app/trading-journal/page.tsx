@@ -1562,7 +1562,7 @@ export default function TradingJournalPage() {
         <ConnectionsSheet
           session={connectTarget}
           onClose={() => setConnectTarget(null)}
-          onRefresh={load}
+          onRefresh={() => load(true)}
         />
       )}
 
@@ -1570,7 +1570,7 @@ export default function TradingJournalPage() {
         <CreateJournalSheet
           session={createJournalFrom}
           onClose={() => setCreateJournalFrom(null)}
-          onRefresh={load}
+          onRefresh={() => load(true)}
         />
       )}
 

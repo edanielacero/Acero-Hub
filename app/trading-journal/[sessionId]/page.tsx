@@ -174,7 +174,7 @@ function fmtDate(iso: string) {
 
 function fmtPnL(val: number | null) {
   if (val == null) return null
-  const sign = val >= 0 ? '+' : ''
+  const sign = val >= 0 ? '+' : '-'
   return `${sign}$${Math.abs(val).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
@@ -1059,7 +1059,38 @@ function SyncModal({ synced, btTrade, onDone }: {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
 
   function setField(tid: string, field: keyof JF, val: string) {
-    setForms(prev => ({ ...prev, [tid]: { ...prev[tid], [field]: val } }))
+    setForms(prev => {
+      const f = { ...prev[tid], [field]: val }
+
+      if (['risk_percent', 'capital_start'].includes(field)) {
+        const cs = n(f.capital_start)
+        const rp = n(f.risk_percent)
+        if (cs != null && rp != null) {
+          if (btTrade.result === 'tp' && btTrade.rr_exit != null) {
+            const pnl = cs * (rp / 100) * btTrade.rr_exit
+            f.pnl_usd = pnl.toFixed(2)
+            f.capital_end = (cs + pnl).toFixed(2)
+          } else if (btTrade.result === 'sl') {
+            const pnl = -(cs * rp / 100)
+            f.pnl_usd = pnl.toFixed(2)
+            f.capital_end = (cs + pnl).toFixed(2)
+          } else if (btTrade.result === 'be') {
+            f.pnl_usd = '0'
+            f.capital_end = cs.toFixed(2)
+          }
+        }
+      }
+
+      if (field === 'pnl_usd') {
+        const cs = n(f.capital_start)
+        const pnl = n(f.pnl_usd)
+        if (cs != null && pnl != null) {
+          f.capital_end = (cs + pnl).toFixed(2)
+        }
+      }
+
+      return { ...prev, [tid]: f }
+    })
   }
 
   async function save(s: SyncedJournal) {
@@ -1379,20 +1410,41 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
       if (key === 'result' && val === 'be') next.be_moved = true
       if (key === 'result' && val === 'sl' && !prev.rr_exit) next.rr_exit = '1'
       if (key === 'result' && val === 'be') next.rr_exit = ''
+
+      // Auto-calc PnL + capital_end when any capital/result field changes
+      if (['risk_percent', 'capital_start', 'result', 'rr_exit'].includes(key as string)) {
+        const cs = n(next.capital_start)
+        const rp = n(next.risk_percent)
+        const re = n(next.rr_exit)
+        if (cs != null && rp != null) {
+          if (next.result === 'tp' && re != null) {
+            const pnl = cs * (rp / 100) * re
+            next.pnl_usd = pnl.toFixed(2)
+            next.capital_end = (cs + pnl).toFixed(2)
+          } else if (next.result === 'sl') {
+            const pnl = -(cs * rp / 100)
+            next.pnl_usd = pnl.toFixed(2)
+            next.capital_end = (cs + pnl).toFixed(2)
+          } else if (next.result === 'be') {
+            next.pnl_usd = '0'
+            next.capital_end = cs.toFixed(2)
+          }
+        }
+      }
+
+      // Auto-update capital_end when pnl_usd changes manually
+      if (key === 'pnl_usd') {
+        const cs = n(next.capital_start)
+        const pnl = n(next.pnl_usd)
+        if (cs != null && pnl != null) {
+          next.capital_end = (cs + pnl).toFixed(2)
+        }
+      }
+
       return next
     })
   }
 
-  const calcHint = (() => {
-    const cs = n(f.capital_start)
-    const rp = n(f.risk_percent)
-    const re = n(f.rr_exit)
-    if (!cs || !rp) return null
-    if (f.result === 'tp' && re) return { pnl: cs * (rp / 100) * re, ce: cs + cs * (rp / 100) * re }
-    if (f.result === 'sl')       return { pnl: -(cs * rp / 100),     ce: cs - cs * rp / 100       }
-    if (f.result === 'be')       return { pnl: 0,                     ce: cs                       }
-    return null
-  })()
 
   async function handleSave() {
     if (!f.date_entry) { setError('La fecha de entrada es requerida'); return }
@@ -1600,14 +1652,6 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
                   </div>
                 ))}
               </div>
-              {calcHint && (
-                <button type="button"
-                  onClick={() => { upd('pnl_usd', calcHint.pnl.toFixed(2)); upd('capital_end', calcHint.ce.toFixed(2)) }}
-                  className="mt-2 w-full text-[12px] accent-txt py-2 px-3 rounded-lg border accent-border-lo accent-subtle hover:accent-tint transition-colors cursor-pointer text-left">
-                  Calcular: PnL ≈ {fmtPnL(calcHint.pnl)} · Capital fin ≈ ${calcHint.ce.toFixed(0)}
-                  <span className="ml-1 opacity-60">→ Aplicar</span>
-                </button>
-              )}
             </div>
           </>
         )}
