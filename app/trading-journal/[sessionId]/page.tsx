@@ -847,10 +847,16 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
   const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `${fmtR(avgRRLoss)}:${fmtR(avgRRWin)}` : '—'
 
   let returnPct: number | null = null
+  let lastCapitalEnd: number | null = null
   if (sessionType === 'journal' && capitalInitial) {
     const last = [...sorted].reverse().find(t => t.capital_end != null)
-    if (last?.capital_end != null) returnPct = ((last.capital_end - capitalInitial) / capitalInitial) * 100
+    if (last?.capital_end != null) {
+      returnPct = ((last.capital_end - capitalInitial) / capitalInitial) * 100
+      lastCapitalEnd = last.capital_end
+    }
   }
+  const capitalDiff = lastCapitalEnd != null && capitalInitial != null ? lastCapitalEnd - capitalInitial : null
+  const capitalDiffPos = capitalDiff != null && capitalDiff >= 0
 
   const hasPnLData = trades.some(t => t.pnl_usd != null)
   const rentLabel = sessionType === 'backtesting' ? 'Rentabilidad'
@@ -1009,6 +1015,46 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
           </Icon>
         </div>
       </Card>
+
+      {/* Capital Inicial — journal only */}
+      {sessionType === 'journal' && capitalInitial != null && (
+        <Card>
+          <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Capital Inicial</span>
+          <div className="flex items-end justify-between mt-0.5">
+            <span className="text-[22px] font-bold text-slate-900 dark:text-white leading-none tabular-nums">
+              ${capitalInitial.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            </span>
+            <Icon>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </Icon>
+          </div>
+        </Card>
+      )}
+
+      {/* Capital Actual — journal only */}
+      {sessionType === 'journal' && capitalInitial != null && (
+        <Card>
+          <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Capital Actual</span>
+          <div className="flex items-end justify-between mt-0.5">
+            <div>
+              <span className={`text-[22px] font-bold leading-none tabular-nums ${lastCapitalEnd != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-600'}`}>
+                {lastCapitalEnd != null ? `$${lastCapitalEnd.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
+              </span>
+              {capitalDiff != null && (
+                <p className={`text-[10px] mt-1 font-mono tabular-nums ${capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                  {fmtPnL(capitalDiff)}
+                </p>
+              )}
+            </div>
+            <Icon
+              cls={lastCapitalEnd != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
+              bg={lastCapitalEnd != null ? (capitalDiffPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </Icon>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
@@ -1737,7 +1783,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     [trades],
   )
 
-  interface DayPoint { date: string; cumValue: number; dayChange: number; tradeCount: number }
+  interface DayPoint { date: string; cumValue: number; dayChange: number; tradeCount: number; absValue: number | null }
 
   const { points, isPercent, isUSD } = useMemo((): { points: DayPoint[]; isPercent: boolean; isUSD: boolean } => {
     if (sorted.length === 0) return { points: [], isPercent: false, isUSD: false }
@@ -1766,6 +1812,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
             cumValue: ((endCap - capStart) / capStart) * 100,
             dayChange: prevCap !== 0 ? ((endCap - prevCap) / Math.abs(prevCap)) * 100 : 0,
             tradeCount: byDay[day].length,
+            absValue: endCap,
           })
           prevCap = endCap
         }
@@ -1778,7 +1825,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         for (const day of days) {
           const dayStart = cumPnL
           for (const t of byDay[day]) cumPnL += t.pnl_usd ?? 0
-          pts.push({ date: day, cumValue: cumPnL, dayChange: cumPnL - dayStart, tradeCount: byDay[day].length })
+          pts.push({ date: day, cumValue: cumPnL, dayChange: cumPnL - dayStart, tradeCount: byDay[day].length, absValue: null })
         }
         return { points: pts, isPercent: false, isUSD: true }
       }
@@ -1793,7 +1840,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         if (t.result === 'tp' && t.rr_exit) cumR += t.rr_exit
         else if (t.result === 'sl' && t.rr_exit) cumR -= t.rr_exit
       }
-      pts.push({ date: day, cumValue: cumR, dayChange: cumR - dayStart, tradeCount: byDay[day].length })
+      pts.push({ date: day, cumValue: cumR, dayChange: cumR - dayStart, tradeCount: byDay[day].length, absValue: null })
     }
     return { points: pts, isPercent: false, isUSD: false }
   }, [sorted, sessionType, capitalInitial])
@@ -1890,6 +1937,9 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
 
   const lastVal   = points[points.length - 1]?.cumValue ?? 0
   const peakVal   = vals.length > 0 ? Math.max(...vals) : 0
+  const peakIdx   = vals.length > 0 ? vals.indexOf(peakVal) : -1
+  const peakAbsValue  = peakIdx >= 0 ? (points[peakIdx]?.absValue ?? null) : null
+  const lastAbsValue  = points[points.length - 1]?.absValue ?? null
   const firstDate = sorted[0]?.date_entry
   const lastDate  = sorted[sorted.length - 1]?.date_entry
   const hovered   = hoverIdx != null ? points[hoverIdx] : null
@@ -2072,6 +2122,11 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                   {fmtVal(hovered.cumValue, true)}
                 </span>
               </p>
+              {isPercent && hovered.absValue != null && (
+                <p className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono tabular-nums">
+                  ${hovered.absValue.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </p>
+              )}
               <p className="text-[11px] text-slate-500 dark:text-zinc-400">
                 {'Día: '}
                 <span className={`font-bold ${hovered.dayChange >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
@@ -2087,17 +2142,36 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
       {/* Footer stats */}
       {points.length > 0 && (
         <div className="grid grid-cols-4 border-t border-slate-200 dark:border-white/[0.08] divide-x divide-slate-200 dark:divide-zinc-700/50">
-          {([
-            { label: 'Primer Trade', value: firstDate ? new Date(firstDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—', color: 'text-slate-700 dark:text-zinc-200' },
-            { label: isUSD ? 'PnL Máx.'   : 'Rent. Máxima', value: fmtVal(peakVal, true), color: peakVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
-            { label: isUSD ? 'PnL Total'  : 'Rent. Total',  value: fmtVal(lastVal, true), color: lastVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400' },
-            { label: 'Último Trade', value: lastDate ? new Date(lastDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—', color: 'text-slate-700 dark:text-zinc-200' },
-          ] as { label: string; value: string; color: string }[]).map(s => (
-            <div key={s.label} className="flex flex-col gap-0.5 px-3 py-2.5">
-              <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{s.label}</span>
-              <span className={`text-[11px] font-bold ${s.color}`}>{s.value}</span>
-            </div>
-          ))}
+            <div className="flex flex-col gap-0.5 px-3 py-2.5">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Primer Trade</span>
+            <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-200">
+              {firstDate ? new Date(firstDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0.5 px-3 py-2.5">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{isUSD ? 'PnL Máx.' : 'Rent. Máxima'}</span>
+            <span className={`text-[11px] font-bold ${peakVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>{fmtVal(peakVal, true)}</span>
+            {isPercent && peakAbsValue != null && (
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono tabular-nums">
+                ${peakAbsValue.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5 px-3 py-2.5">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">{isUSD ? 'PnL Total' : 'Rent. Total'}</span>
+            <span className={`text-[11px] font-bold ${lastVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>{fmtVal(lastVal, true)}</span>
+            {isPercent && lastAbsValue != null && (
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono tabular-nums">
+                ${lastAbsValue.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5 px-3 py-2.5">
+            <span className="text-[8.5px] text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em]">Último Trade</span>
+            <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-200">
+              {lastDate ? new Date(lastDate).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+            </span>
+          </div>
         </div>
       )}
     </div>
@@ -3552,6 +3626,9 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                 const v = variables.find(x => x.key === key)!
                 return <SortTh key={key} col={key} label={v.label} {...sortProps} />
               })}
+              {sessionType === 'journal' && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Cap. Inicial</th>}
+              {sessionType === 'journal' && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Cap. Final</th>}
+              {sessionType === 'journal' && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">PnL</th>}
               <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Detalles</th>
               {!isReadOnly && <th className="px-3 py-3 text-left text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-zinc-400 whitespace-nowrap pr-4">Acciones</th>}
             </tr>
@@ -3648,6 +3725,27 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
                       </td>
                     )
                   })}
+                  {sessionType === 'journal' && (
+                    <td className="px-2 py-3">
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 tabular-nums">
+                        {t.capital_start != null ? `$${t.capital_start.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
+                      </span>
+                    </td>
+                  )}
+                  {sessionType === 'journal' && (
+                    <td className="px-2 py-3">
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 tabular-nums">
+                        {t.capital_end != null ? `$${t.capital_end.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
+                      </span>
+                    </td>
+                  )}
+                  {sessionType === 'journal' && (
+                    <td className="px-2 py-3">
+                      <span className={`text-[11px] font-mono tabular-nums ${t.pnl_usd != null ? (t.pnl_usd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-300 dark:text-zinc-700'}`}>
+                        {t.pnl_usd != null ? fmtPnL(t.pnl_usd) : '—'}
+                      </span>
+                    </td>
+                  )}
                   <td className="px-2 py-3">
                     {(() => {
                       const hasNotes = !!t.notes && !t.notes.startsWith('http')
