@@ -226,16 +226,23 @@ export function buildResultsArray(
         return 0 // be
       })
   }
-  // journal: use pnl_usd/capital_start as % if available, else rr_exit * risk_percent
+  // journal: derive the actual RR multiple so the simulation can apply risk × RR correctly
   return trades
     .filter(t => t.result)
     .map(t => {
-      if (t.pnl_usd != null && t.capital_start != null && t.capital_start > 0) {
-        return t.pnl_usd / t.capital_start  // normalized ratio (applied × risk later)
+      // Best: actual RR = pnl / riskAmount (reflects slippage, fees, etc.)
+      if (t.pnl_usd != null && t.capital_start != null && t.capital_start > 0 && t.risk_percent != null && t.risk_percent > 0) {
+        const riskAmount = (t.capital_start * t.risk_percent) / 100
+        return t.pnl_usd / riskAmount
       }
+      // Fallback: use rr_exit (theoretical exit ratio)
       if (t.rr_exit != null) {
         if (t.result === 'tp') return t.rr_exit
         if (t.result === 'sl') return -(t.rr_exit ?? 1)
+      }
+      // Last resort: treat % return as RR-equivalent at 1% risk
+      if (t.pnl_usd != null && t.capital_start != null && t.capital_start > 0) {
+        return (t.pnl_usd / t.capital_start) * 100
       }
       return t.result === 'tp' ? 1 : t.result === 'sl' ? -1 : 0
     })

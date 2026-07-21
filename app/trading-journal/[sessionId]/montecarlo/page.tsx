@@ -489,7 +489,7 @@ function ConfigCard({
             </div>
             <p className="text-[10.5px] text-slate-500 dark:text-zinc-400">
               Con riesgo base de {riskPct}%, límite de ±{dalembertLimit}x:{' '}
-              el riesgo variará entre <strong className="text-slate-700 dark:text-zinc-300">{(riskPct * 0.1).toFixed(1)}%</strong> y{' '}
+              el riesgo variará entre <strong className="text-slate-700 dark:text-zinc-300">{riskPct.toFixed(1)}%</strong> y{' '}
               <strong className="text-slate-700 dark:text-zinc-300">{(riskPct * dalembertLimit).toFixed(1)}%</strong> del capital inicial.
             </p>
           </div>
