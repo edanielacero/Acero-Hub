@@ -72,7 +72,7 @@ interface Trade {
 }
 
 interface ActiveConnection { id: string; journalId: string; journalName: string }
-interface SyncedJournal { journalId: string; journalName: string; tradeId: string }
+interface SyncedJournal { journalId: string; journalName: string; tradeId: string; lastCapital: number | null }
 
 interface PageData {
   session: Session
@@ -1106,7 +1106,12 @@ function SyncModal({ synced, btTrade, onDone }: {
 }) {
   type JF = { risk_percent: string; capital_start: string; capital_end: string; pnl_usd: string }
   const [forms, setForms]   = useState<Record<string, JF>>(
-    Object.fromEntries(synced.map(s => [s.tradeId, { risk_percent: '', capital_start: '', capital_end: '', pnl_usd: '' }]))
+    Object.fromEntries(synced.map(s => [s.tradeId, {
+      risk_percent: '',
+      capital_start: s.lastCapital != null ? String(s.lastCapital) : '',
+      capital_end: '',
+      pnl_usd: '',
+    }]))
   )
   const [saved, setSaved]   = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
@@ -1187,10 +1192,10 @@ function SyncModal({ synced, btTrade, onDone }: {
                 <>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     {[
-                      { key: 'capital_start' as keyof JF, label: 'Capital inicio', ph: '10 000' },
-                      { key: 'risk_percent'  as keyof JF, label: '% Riesgo',       ph: '1'      },
-                      { key: 'pnl_usd'       as keyof JF, label: 'PnL USD',         ph: '0'      },
-                      { key: 'capital_end'   as keyof JF, label: 'Capital fin',     ph: '10 100' },
+                      { key: 'capital_start' as keyof JF, label: 'Capital antes del trade',    ph: '10 000' },
+                      { key: 'risk_percent'  as keyof JF, label: '% Riesgo',                    ph: '1'      },
+                      { key: 'pnl_usd'       as keyof JF, label: 'PnL USD',                     ph: '0'      },
+                      { key: 'capital_end'   as keyof JF, label: 'Capital después del trade',   ph: '10 100' },
                     ].map(({ key, label, ph }) => (
                       <div key={key}>
                         <label className={fieldLabel}>{label}</label>

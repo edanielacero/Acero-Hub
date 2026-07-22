@@ -203,7 +203,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const synced: { journalId: string; journalName: string; tradeId: string }[] = []
+  const synced: { journalId: string; journalName: string; tradeId: string; lastCapital: number | null }[] = []
 
   if (session.type === 'backtesting') {
     const { data: connections } = await admin
@@ -214,13 +214,32 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (connections?.length) {
       const journalIds = connections.map(c => c.journal_id)
-      const { data: journals } = await admin
-        .from('tj_sessions')
-        .select('id, name')
-        .in('id', journalIds)
+      const [{ data: journals }, { data: journalTrades }] = await Promise.all([
+        admin
+          .from('tj_sessions')
+          .select('id, name, capital_initial')
+          .in('id', journalIds),
+        admin
+          .from('tj_trades')
+          .select('session_id, date_entry, capital_end')
+          .in('session_id', journalIds)
+          .not('capital_end', 'is', null)
+          .order('date_entry', { ascending: false }),
+      ])
+
+      // For each journal, the most recent trade's capital_end (falling back to
+      // the journal's own starting capital if it has no trades yet)
+      const lastCapitalFromTrades: Record<string, number> = {}
+      for (const t of journalTrades ?? []) {
+        if (!(t.session_id in lastCapitalFromTrades)) {
+          lastCapitalFromTrades[t.session_id] = t.capital_end
+        }
+      }
 
       for (const conn of connections) {
-        const journalName = journals?.find(j => j.id === conn.journal_id)?.name ?? 'Journal'
+        const journal = journals?.find(j => j.id === conn.journal_id)
+        const journalName = journal?.name ?? 'Journal'
+        const lastCapital = lastCapitalFromTrades[conn.journal_id] ?? journal?.capital_initial ?? null
 
         const { data: copy } = await admin
           .from('tj_trades')
@@ -237,7 +256,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           .single()
 
         if (copy) {
-          synced.push({ journalId: conn.journal_id, journalName, tradeId: copy.id })
+          synced.push({ journalId: conn.journal_id, journalName, tradeId: copy.id, lastCapital })
         }
       }
     }
