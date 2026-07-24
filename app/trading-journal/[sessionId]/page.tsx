@@ -478,7 +478,7 @@ function BottomSheet({ title, onClose, children }: {
           </button>
         </div>
         <div className="h-px bg-slate-100 dark:bg-zinc-800 mx-6 shrink-0" />
-        <div className="overflow-y-auto px-6 py-5 flex-1">{children}</div>
+        <div className="overflow-y-auto overflow-x-hidden px-6 py-5 flex-1">{children}</div>
       </div>
     </div>
   )
@@ -684,7 +684,7 @@ function MirrorSourcesSheet({ sessionId, isReadOnly, sourceCount, onClose }: { s
         </div>
         <div className="h-px bg-slate-100 dark:bg-zinc-800 mx-6 shrink-0" />
 
-        <div className="overflow-y-auto px-6 py-5 flex-1 flex flex-col gap-5">
+        <div className="overflow-y-auto overflow-x-hidden px-6 py-5 flex-1 flex flex-col gap-5">
           {loading ? (
             <div className="py-10 flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-slate-200 dark:border-zinc-800 accent-spin rounded-full animate-spin" />
@@ -1088,9 +1088,9 @@ function BasicMetrics({ trades, sessionType, capitalInitial, capitalTransactions
               <span className={`text-[22px] font-bold leading-none tabular-nums ${capitalActual != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-600'}`}>
                 {capitalActual != null ? `$${capitalActual.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
               </span>
-              {capitalDiff != null && (
-                <p className={`text-[10px] mt-1 font-mono tabular-nums ${capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                  {fmtPnL(capitalDiff)}
+              {hasPnLData && (
+                <p className={`text-[10px] mt-1 font-mono tabular-nums ${totalPnL >= 0 ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                  PnL de Trades: {fmtPnL(totalPnL)}
                 </p>
               )}
             </div>
@@ -1205,9 +1205,9 @@ function DepositWithdrawalModal({ sessionId, type, initial, onClose, onSaved }: 
           <input type="number" step="any" min="0" placeholder="500" className={inp} autoFocus
             value={amount} onChange={e => setAmount(e.target.value)} />
         </div>
-        <div>
+        <div className="min-w-0">
           <label className={fieldLabel}>Fecha <span className="text-rose-500">*</span></label>
-          <input type="date" className={inp} value={date} onChange={e => setDate(e.target.value)} />
+          <input type="date" className={`${inp} max-w-full`} value={date} onChange={e => setDate(e.target.value)} />
         </div>
         <div>
           <label className={fieldLabel}>Nota (opcional)</label>
@@ -1682,9 +1682,9 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
       <div className="flex flex-col gap-4">
 
         {/* Fecha */}
-        <div>
+        <div className="min-w-0">
           <label className={fieldLabel}>Fecha <span className="text-rose-500">*</span></label>
-          <input type="date" value={f.date_entry} onChange={e => upd('date_entry', e.target.value)} className={inp} />
+          <input type="date" value={f.date_entry} onChange={e => upd('date_entry', e.target.value)} className={`${inp} max-w-full`} />
         </div>
 
         {/* Instrumento — solo si está configurado como variable */}
@@ -4232,7 +4232,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
     if (sessionType === 'backtesting') return `${net >= 0 ? '+' : ''}${fmtR(net)}R`
     const abs = Math.abs(net)
     const s   = net >= 0 ? '+' : '-'
-    return abs >= 1000 ? `${s}${(abs / 1000).toFixed(1)}k` : `${s}${Math.round(abs)}`
+    return abs >= 1000 ? `${s}$${(abs / 1000).toFixed(1)}k` : `${s}$${Math.round(abs)}`
   }
 
   // ─ Cumulative chart data: one point per calendar day ─
