@@ -71,6 +71,10 @@ create table if not exists tj_trades (
   -- Variables opcionales y personalizadas
   custom_fields   jsonb default '{}'::jsonb,
 
+  -- Borrador: copia sincronizada desde backtesting sin capital completado aún.
+  -- Excluido de estadísticas/cálculos del journal hasta que se complete.
+  is_draft        boolean not null default false,
+
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );
@@ -104,6 +108,17 @@ create table if not exists tj_ai_analyses (
   created_at  timestamptz default now()
 );
 
+-- CAPITAL TRANSACTIONS (depósitos/retiros en journals; no afectan % de rentabilidad)
+create table if not exists tj_capital_transactions (
+  id          uuid default gen_random_uuid() primary key,
+  session_id  uuid references tj_sessions(id) on delete cascade not null,
+  type        text not null check (type in ('deposit', 'withdrawal')),
+  amount      numeric not null check (amount > 0),
+  date        timestamptz not null,
+  note        text,
+  created_at  timestamptz default now()
+);
+
 -- ============================================
 -- ÍNDICES
 -- ============================================
@@ -115,6 +130,8 @@ create index if not exists tj_notifications_user_id   on tj_notifications(user_i
 create index if not exists tj_trades_custom_fields    on tj_trades using gin(custom_fields);
 create index if not exists tj_connections_bt_id       on tj_session_connections(backtesting_id);
 create index if not exists tj_connections_journal_id  on tj_session_connections(journal_id);
+create index if not exists tj_capital_transactions_session_id on tj_capital_transactions(session_id, date);
+create index if not exists tj_trades_is_draft on tj_trades(session_id, is_draft) where is_draft = true;
 
 -- ============================================
 -- RLS
@@ -126,6 +143,7 @@ alter table tj_trades               enable row level security;
 alter table tj_share_invitations    enable row level security;
 alter table tj_notifications        enable row level security;
 alter table tj_ai_analyses          enable row level security;
+alter table tj_capital_transactions enable row level security;
 
 -- tj_sessions: cada usuario ve solo las suyas
 create policy "tj: leer propias sesiones" on tj_sessions for select
@@ -163,6 +181,12 @@ create policy "tj: leer propias notificaciones" on tj_notifications for select
 
 -- tj_ai_analyses: si el usuario es dueño de la sesión
 create policy "tj: leer propios análisis IA" on tj_ai_analyses for select
+  using (
+    exists (select 1 from tj_sessions where id = session_id and user_id = auth.uid())
+  );
+
+-- tj_capital_transactions: si el usuario es dueño de la sesión
+create policy "tj: leer propios movimientos de capital" on tj_capital_transactions for select
   using (
     exists (select 1 from tj_sessions where id = session_id and user_id = auth.uid())
   );

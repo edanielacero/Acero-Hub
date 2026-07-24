@@ -12,6 +12,9 @@ import {
 } from '@/lib/trading/metrics'
 import { calcSweetSpot } from '@/lib/trading/sweetspot'
 import { runMontecarlo, buildResultsArray, buildManualResults, MontecarloMode, MontecarloResult } from '@/lib/trading/montecarlo'
+import { isRequirableVariableType, isVariableValueEmpty, findMissingExecutionField } from '@/lib/trading/required-fields'
+import { compareTradesChrono } from '@/lib/trading/chrono'
+import { getCapitalActual, getRentabilidadPct } from '@/lib/trading/capital'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,10 +72,21 @@ interface Trade {
   capital_end: number | null
   custom_fields: Record<string, unknown>
   source_session_name?: string | null
+  created_at: string
+  is_draft: boolean
 }
 
 interface ActiveConnection { id: string; journalId: string; journalName: string }
 interface SyncedJournal { journalId: string; journalName: string; tradeId: string; lastCapital: number | null }
+
+interface CapitalTransaction {
+  id:         string
+  type:       'deposit' | 'withdrawal'
+  amount:     number
+  date:       string
+  note:       string | null
+  created_at: string
+}
 
 interface PageData {
   session: Session
@@ -80,6 +94,7 @@ interface PageData {
   trades: Trade[]
   activeConnections: ActiveConnection[]
   mirrorSourceCount?: number
+  capitalTransactions: CapitalTransaction[]
 }
 
 interface TradeFormState {
@@ -165,6 +180,33 @@ function api(path: string, opts?: RequestInit) {
 function n(v: string): number | null {
   const x = parseFloat(v)
   return isNaN(x) ? null : x
+}
+
+function applyTradeFilters(trades: Trade[], filter: FilterState): Trade[] {
+  let ts = [...trades]
+  if (filter.months.length) {
+    ts = ts.filter(t => filter.months.includes(t.date_entry.slice(0, 7)))
+  } else {
+    if (filter.dateFrom) ts = ts.filter(t => t.date_entry.slice(0, 10) >= filter.dateFrom)
+    if (filter.dateTo)   ts = ts.filter(t => t.date_entry.slice(0, 10) <= filter.dateTo)
+  }
+  if (filter.results.length)    ts = ts.filter(t => t.result    && filter.results.includes(t.result))
+  if (filter.directions.length) ts = ts.filter(t => t.direction && filter.directions.includes(t.direction))
+  if (filter.instruments.length) ts = ts.filter(t => {
+    const v = t.instrument ?? (t.custom_fields?.instrument as string | undefined)
+    return v ? filter.instruments.includes(v) : false
+  })
+  if (filter.vars) {
+    for (const [key, vals] of Object.entries(filter.vars)) {
+      if (vals.length === 0) continue
+      ts = ts.filter(t => {
+        const v = (t.custom_fields as Record<string, unknown>)[key]
+        if (Array.isArray(v)) return (v as string[]).some(x => vals.includes(x))
+        return v != null && vals.includes(String(v))
+      })
+    }
+  }
+  return ts
 }
 
 function fmtDate(iso: string) {
@@ -285,6 +327,13 @@ function IconPlus({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  )
+}
+function IconMinus({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <line x1="5" y1="12" x2="19" y2="12"/>
     </svg>
   )
 }
@@ -811,15 +860,15 @@ function TradeCard({ trade, sessionType, isReadOnly, onEdit, onDelete }: {
 
 // ─── Stats Bar ─────────────────────────────────────────────────────────────────
 
-function BasicMetrics({ trades, sessionType, capitalInitial }: {
-  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null
+function BasicMetrics({ trades, sessionType, capitalInitial, capitalTransactions }: {
+  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null; capitalTransactions: CapitalTransaction[]
 }) {
   const empty  = trades.length === 0
   const W      = trades.filter(t => t.result === 'tp').length
   const L      = trades.filter(t => t.result === 'sl').length
   const BE     = trades.filter(t => t.result === 'be').length
   const N      = W + L
-  const sorted = useMemo(() => [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry)), [trades])
+  const sorted = useMemo(() => [...trades].sort(compareTradesChrono), [trades])
 
   const wr = !empty && N > 0 ? (W / N) * 100 : null
   const pfactor = calcProfitFactor(trades, sessionType)
@@ -846,19 +895,18 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
   const avgRRLoss = L > 0 ? trades.filter(t => t.result === 'sl' && t.rr_exit).reduce((s, t) => s + t.rr_exit!, 0) / L : 0
   const avgRR = avgRRWin > 0 && avgRRLoss > 0 ? `${fmtR(avgRRLoss)}:${fmtR(avgRRWin)}` : '—'
 
-  let returnPct: number | null = null
-  let lastCapitalEnd: number | null = null
-  if (sessionType === 'journal' && capitalInitial) {
-    const last = [...sorted].reverse().find(t => t.capital_end != null)
-    if (last?.capital_end != null) {
-      returnPct = ((last.capital_end - capitalInitial) / capitalInitial) * 100
-      lastCapitalEnd = last.capital_end
-    }
-  }
-  const capitalDiff = lastCapitalEnd != null && capitalInitial != null ? lastCapitalEnd - capitalInitial : null
-  const capitalDiffPos = capitalDiff != null && capitalDiff >= 0
-
   const hasPnLData = trades.some(t => t.pnl_usd != null)
+
+  // Rentabilidad = solo el resultado de los trades sobre el capital inicial (nunca la mueven
+  // depósitos/retiros). Capital actual = ese mismo capital inicial + trading + movimientos de capital.
+  let returnPct: number | null = null
+  let capitalActual: number | null = null
+  if (sessionType === 'journal' && capitalInitial && hasPnLData) {
+    returnPct = getRentabilidadPct(capitalInitial, trades)
+    capitalActual = getCapitalActual(capitalInitial, trades, capitalTransactions)
+  }
+  const capitalDiff = capitalActual != null && capitalInitial != null ? capitalActual - capitalInitial : null
+  const capitalDiffPos = capitalDiff != null && capitalDiff >= 0
   const rentLabel = sessionType === 'backtesting' ? 'Rentabilidad'
     : (returnPct !== null || hasPctData) ? 'Rentabilidad (%)'
     : hasPnLData ? 'PnL Total'
@@ -943,9 +991,9 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
               {rentValue}
             </span>
             {!empty && sessionType === 'backtesting' && <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">RR Promedio {avgRR}</p>}
-            {!empty && sessionType === 'journal' && hasPnLData && (
+            {!empty && sessionType === 'journal' && trades.some(t => t.rr_exit != null) && (
               <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1">
-                {W > 0 ? `${fmtPnL(trades.filter(t => t.result === 'tp').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / W)}` : ''}{W > 0 && L > 0 ? ' / ' : ''}{L > 0 ? `${fmtPnL(trades.filter(t => t.result === 'sl').reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / L)}` : ''}
+                Rentabilidad en R: <span className={totalRR >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>{totalRR >= 0 ? '+' : ''}{fmtR(totalRR)}R</span>
               </p>
             )}
           </div>
@@ -1037,8 +1085,8 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
           <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Capital Actual</span>
           <div className="flex items-end justify-between mt-0.5">
             <div>
-              <span className={`text-[22px] font-bold leading-none tabular-nums ${lastCapitalEnd != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-600'}`}>
-                {lastCapitalEnd != null ? `$${lastCapitalEnd.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
+              <span className={`text-[22px] font-bold leading-none tabular-nums ${capitalActual != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-600'}`}>
+                {capitalActual != null ? `$${capitalActual.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—'}
               </span>
               {capitalDiff != null && (
                 <p className={`text-[10px] mt-1 font-mono tabular-nums ${capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
@@ -1047,8 +1095,8 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
               )}
             </div>
             <Icon
-              cls={lastCapitalEnd != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
-              bg={lastCapitalEnd != null ? (capitalDiffPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
+              cls={capitalActual != null ? (capitalDiffPos ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400') : 'text-slate-400 dark:text-zinc-500'}
+              bg={capitalActual != null ? (capitalDiffPos ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-rose-50 dark:bg-rose-500/10') : 'bg-slate-100 dark:bg-zinc-800/60'}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </Icon>
@@ -1061,8 +1109,9 @@ function BasicMetrics({ trades, sessionType, capitalInitial }: {
 
 // ─── Delete Confirm Sheet ──────────────────────────────────────────────────────
 
-function DeleteConfirmSheet({ onConfirm, onClose, loading }: {
+function DeleteConfirmSheet({ onConfirm, onClose, loading, title = 'Eliminar trade', message = 'Esta acción no se puede deshacer.', error }: {
   onConfirm: () => void; onClose: () => void; loading: boolean
+  title?: string; message?: string; error?: string | null
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6" onClick={onClose}>
@@ -1081,9 +1130,10 @@ function DeleteConfirmSheet({ onConfirm, onClose, loading }: {
           </div>
         </div>
         <div className="text-center">
-          <p className="text-[16px] font-bold text-slate-900 dark:text-white mb-1.5">Eliminar trade</p>
-          <p className="text-[13px] text-slate-500 dark:text-zinc-400">Esta acción no se puede deshacer.</p>
+          <p className="text-[16px] font-bold text-slate-900 dark:text-white mb-1.5">{title}</p>
+          <p className="text-[13px] text-slate-500 dark:text-zinc-400">{message}</p>
         </div>
+        {error && <p className="text-[13px] text-rose-500 text-center -mt-2">{error}</p>}
         <div className="flex gap-3">
           <button onClick={onClose}
             className="flex-1 min-h-[48px] rounded-2xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 font-semibold text-[14px] hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
@@ -1096,6 +1146,85 @@ function DeleteConfirmSheet({ onConfirm, onClose, loading }: {
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Deposit/Withdrawal Modal ──────────────────────────────────────────────────
+
+function DepositWithdrawalModal({ sessionId, type, initial, onClose, onSaved }: {
+  sessionId: string; type: 'deposit' | 'withdrawal'; initial?: CapitalTransaction | null
+  onClose: () => void
+  onSaved: (tx: CapitalTransaction) => void
+}) {
+  const isEdit    = Boolean(initial)
+  const isDeposit = type === 'deposit'
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
+  const [date, setDate]     = useState(initial ? initial.date.slice(0, 10) : todayStr)
+  const [note, setNote]     = useState(initial?.note ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState<string | null>(null)
+
+  async function handleSave() {
+    const amountNum = n(amount)
+    if (amountNum == null || amountNum <= 0) { setError('El monto debe ser mayor a 0'); return }
+    if (!date) { setError('La fecha es requerida'); return }
+    setError(null)
+    setSaving(true)
+    try {
+      const res = await api(
+        isEdit ? `/capital-transactions/${initial!.id}` : `/sessions/${sessionId}/capital-transactions`,
+        {
+          method: isEdit ? 'PATCH' : 'POST',
+          body: JSON.stringify(
+            isEdit
+              ? { amount: amountNum, date, note: note || null }
+              : { type, amount: amountNum, date, note: note || null }
+          ),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Error al guardar'); return }
+      onSaved(data.transaction)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const title = isEdit
+    ? (isDeposit ? 'Editar depósito' : 'Editar retiro')
+    : (isDeposit ? 'Nuevo depósito' : 'Nuevo retiro')
+
+  return (
+    <BottomSheet title={title} onClose={onClose}>
+      <div className="flex flex-col gap-4 px-6 pb-6">
+        <div>
+          <label className={fieldLabel}>Monto ($) <span className="text-rose-500">*</span></label>
+          <input type="number" step="any" min="0" placeholder="500" className={inp} autoFocus
+            value={amount} onChange={e => setAmount(e.target.value)} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Fecha <span className="text-rose-500">*</span></label>
+          <input type="date" className={inp} value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Nota (opcional)</label>
+          <input type="text" placeholder={isDeposit ? 'Aporte extra' : 'Retiro de ganancias'} className={inp}
+            value={note} onChange={e => setNote(e.target.value)} />
+        </div>
+
+        {error && <p className="text-[13px] text-rose-500 text-center">{error}</p>}
+
+        <button onClick={handleSave} disabled={saving}
+          className={`w-full min-h-[52px] rounded-2xl text-white font-bold text-[15px] disabled:opacity-50 cursor-pointer transition-colors mt-2 ${
+            isDeposit ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-rose-500 hover:bg-rose-600'
+          }`}>
+          {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : isDeposit ? 'Guardar depósito' : 'Guardar retiro'}
+        </button>
+      </div>
+    </BottomSheet>
   )
 }
 
@@ -1506,6 +1635,12 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
 
   async function handleSave() {
     if (!f.date_entry) { setError('La fecha de entrada es requerida'); return }
+    const missingExecutionField = findMissingExecutionField({ direction: f.direction, result: f.result, rr_exit: n(f.rr_exit) })
+    if (missingExecutionField) { setError(`El campo "${missingExecutionField}" es obligatorio`); return }
+    const missingVar = variables.find(v =>
+      v.is_required && isRequirableVariableType(v.type) && isVariableValueEmpty(v.type, cf[v.key])
+    )
+    if (missingVar) { setError(`El campo "${missingVar.label}" es obligatorio`); return }
     setError(null)
     setSaving(true)
     try {
@@ -1765,8 +1900,8 @@ function TradeFormSheet({ session, variables, initial, onClose, onSave }: {
 
 // ─── Equity Card (gráfica interactiva de progreso) ────────────────────────────
 
-function EquityCard({ trades, sessionType, capitalInitial }: {
-  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null
+function EquityCard({ trades, sessionType, capitalInitial, capitalTransactions }: {
+  trades: Trade[]; sessionType: SessionType; capitalInitial: number | null; capitalTransactions: CapitalTransaction[]
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [svgW, setSvgW] = useState(600)
@@ -1784,21 +1919,29 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
   const fs = (px: number) => ((px * W) / Math.max(svgW, 1)).toFixed(2)
 
   const sorted = useMemo(
-    () => [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry)),
+    () => [...trades].sort(compareTradesChrono),
     [trades],
   )
 
-  interface DayPoint { date: string; cumValue: number; dayChange: number; tradeCount: number; absValue: number | null }
+  interface TxEvent { type: 'deposit' | 'withdrawal'; amount: number }
+  interface DayPoint { date: string; cumValue: number; dayChange: number; tradeCount: number; absValue: number | null; txEvents: TxEvent[] }
 
   const { points, isPercent, isUSD } = useMemo((): { points: DayPoint[]; isPercent: boolean; isUSD: boolean } => {
-    if (sorted.length === 0) return { points: [], isPercent: false, isUSD: false }
+    if (sorted.length === 0 && capitalTransactions.length === 0) return { points: [], isPercent: false, isUSD: false }
     const byDay: Record<string, Trade[]> = {}
     for (const t of sorted) {
       const d = t.date_entry.slice(0, 10)
       if (!byDay[d]) byDay[d] = []
       byDay[d].push(t)
     }
-    const days = Object.keys(byDay).sort()
+    const txByDay: Record<string, TxEvent[]> = {}
+    for (const tx of capitalTransactions) {
+      const d = tx.date.slice(0, 10)
+      if (!txByDay[d]) txByDay[d] = []
+      txByDay[d].push({ type: tx.type, amount: tx.amount })
+    }
+    // Días con trades + días con depósitos/retiros (aunque no haya trade ese día)
+    const days = [...new Set([...Object.keys(byDay), ...Object.keys(txByDay)])].sort()
 
     if (sessionType === 'journal') {
       const capStart = capitalInitial
@@ -1806,20 +1949,26 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         ?? sorted.find(t => t.capital_end  != null)?.capital_end
         ?? null
       if (capStart) {
+        // Rentabilidad = solo PnL de trades sobre capStart (nunca la mueven los depósitos/retiros).
+        // absValue = capital real, incluyendo depósitos/retiros — para mostrarlo bajo el %.
         const pts: DayPoint[] = []
-        let prevCap = capStart
+        let cumPnl = 0
+        let cumTx = 0
         for (const day of days) {
-          const dayT = byDay[day].filter(t => t.capital_end != null)
-          if (dayT.length === 0) continue
-          const endCap = dayT[dayT.length - 1].capital_end!
+          const dayTrades = byDay[day] ?? []
+          const txEvents  = txByDay[day] ?? []
+          if (dayTrades.length === 0 && txEvents.length === 0) continue
+          const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl_usd ?? 0), 0)
+          cumPnl += dayPnl
+          for (const e of txEvents) cumTx += e.type === 'deposit' ? e.amount : -e.amount
           pts.push({
             date: day,
-            cumValue: ((endCap - capStart) / capStart) * 100,
-            dayChange: prevCap !== 0 ? ((endCap - prevCap) / Math.abs(prevCap)) * 100 : 0,
-            tradeCount: byDay[day].length,
-            absValue: endCap,
+            cumValue: (cumPnl / capStart) * 100,
+            dayChange: (dayPnl / capStart) * 100,
+            tradeCount: dayTrades.length,
+            absValue: capStart + cumPnl + cumTx,
+            txEvents,
           })
-          prevCap = endCap
         }
         return { points: pts, isPercent: true, isUSD: false }
       }
@@ -1829,8 +1978,11 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
         const pts: DayPoint[] = []
         for (const day of days) {
           const dayStart = cumPnL
-          for (const t of byDay[day]) cumPnL += t.pnl_usd ?? 0
-          pts.push({ date: day, cumValue: cumPnL, dayChange: cumPnL - dayStart, tradeCount: byDay[day].length, absValue: null })
+          for (const t of byDay[day] ?? []) cumPnL += t.pnl_usd ?? 0
+          pts.push({
+            date: day, cumValue: cumPnL, dayChange: cumPnL - dayStart,
+            tradeCount: (byDay[day] ?? []).length, absValue: null, txEvents: txByDay[day] ?? [],
+          })
         }
         return { points: pts, isPercent: false, isUSD: true }
       }
@@ -1841,14 +1993,17 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
     const pts: DayPoint[] = []
     for (const day of days) {
       const dayStart = cumR
-      for (const t of byDay[day]) {
+      for (const t of byDay[day] ?? []) {
         if (t.result === 'tp' && t.rr_exit) cumR += t.rr_exit
         else if (t.result === 'sl' && t.rr_exit) cumR -= t.rr_exit
       }
-      pts.push({ date: day, cumValue: cumR, dayChange: cumR - dayStart, tradeCount: byDay[day].length, absValue: null })
+      pts.push({
+        date: day, cumValue: cumR, dayChange: cumR - dayStart,
+        tradeCount: (byDay[day] ?? []).length, absValue: null, txEvents: txByDay[day] ?? [],
+      })
     }
     return { points: pts, isPercent: false, isUSD: false }
-  }, [sorted, sessionType, capitalInitial])
+  }, [sorted, sessionType, capitalInitial, capitalTransactions])
 
   // Geometry — more padding so labels never clip
   const W = 600, H = 210
@@ -1859,6 +2014,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
   const vals          = points.map(p => p.cumValue)
   const hasData       = points.length >= 1
   const isSinglePoint = points.length === 1
+  const tradeDaysCount = points.filter(p => p.tradeCount > 0).length
   const minV  = points.length === 0 ? -3 : isSinglePoint ? Math.min(0, vals[0]) : Math.min(...vals)
   const maxV  = points.length === 0 ? 12 : isSinglePoint ? Math.max(0, vals[0]) : Math.max(...vals)
   const vRange = maxV - minV || 1
@@ -1969,7 +2125,7 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
           <span className="text-[13px] font-bold text-slate-800 dark:text-white">Progreso Total</span>
         </div>
         <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
-          {points.length} día{points.length !== 1 ? 's' : ''} con trades
+          {tradeDaysCount} día{tradeDaysCount !== 1 ? 's' : ''} con trades
         </span>
       </div>
 
@@ -2038,6 +2194,31 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
             )
           })()}
 
+          {/* Depósitos/retiros — línea tenue al 0% con puntos en los días con movimiento */}
+          {hasData && !isSinglePoint && capitalTransactions.length > 0 && (() => {
+            const y0 = ys(0)
+            if (y0 < PAD.top || y0 > H - PAD.bottom) return null
+            return (
+              <g>
+                <line
+                  x1={xs(0).toFixed(1)} y1={y0.toFixed(1)}
+                  x2={xs(points.length - 1).toFixed(1)} y2={y0.toFixed(1)}
+                  stroke="currentColor" strokeOpacity="0.25" strokeWidth="0.75"
+                  className="text-slate-400 dark:text-zinc-500"
+                />
+                {points.map((p, i) => p.txEvents.map((e, j) => (
+                  <circle
+                    key={`${i}-${j}`}
+                    cx={(xs(i) + (j - (p.txEvents.length - 1) / 2) * 3).toFixed(1)}
+                    cy={y0.toFixed(1)}
+                    r="2.5"
+                    className={e.type === 'deposit' ? 'fill-emerald-500' : 'fill-rose-500'}
+                  />
+                )))}
+              </g>
+            )
+          })()}
+
           {/* Area + line */}
           {!isSinglePoint && areaD && <path d={areaD} fill="url(#eq-area-g)" />}
           {!isSinglePoint && pathD && (
@@ -2061,6 +2242,20 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                   className="fill-slate-500 dark:fill-zinc-400">
                   {fmtAxisDate(points[0].date)}
                 </text>
+                {points[0].txEvents.map((e, j) => {
+                  const tx = (j - (points[0].txEvents.length - 1) / 2) * 14
+                  const y0 = ys(0)
+                  return (
+                    <g key={j}>
+                      <circle cx={(cx + tx).toFixed(1)} cy={y0.toFixed(1)} r="3"
+                        className={e.type === 'deposit' ? 'fill-emerald-500' : 'fill-rose-500'} />
+                      <text x={(cx + tx).toFixed(1)} y={y0 - 8} textAnchor="middle" fontSize={fs(9.5)}
+                        className={e.type === 'deposit' ? 'fill-emerald-600 dark:fill-emerald-400' : 'fill-rose-500 dark:fill-rose-400'}>
+                        {e.type === 'deposit' ? '+' : '-'}${e.amount.toLocaleString('es-ES', { maximumFractionDigits: 0 })}
+                      </text>
+                    </g>
+                  )
+                })}
               </g>
             )
           })()}
@@ -2139,6 +2334,17 @@ function EquityCard({ trades, sessionType, capitalInitial }: {
                 </span>
                 <span className="text-slate-400 dark:text-zinc-500"> · {hovered.tradeCount} trade{hovered.tradeCount !== 1 ? 's' : ''}</span>
               </p>
+              {hovered.txEvents.map((e, i) => (
+                <p key={i} className="text-[11px] mt-1 pt-1 border-t border-slate-100 dark:border-zinc-800">
+                  <span className={e.type === 'deposit' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}>
+                    {e.type === 'deposit' ? '↑ Depósito' : '↓ Retiro'}
+                  </span>
+                  {': '}
+                  <span className="font-bold text-slate-700 dark:text-zinc-200">
+                    ${e.amount.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  </span>
+                </p>
+              ))}
             </div>
           </div>
         )}
@@ -2438,7 +2644,7 @@ function ExpectancyDetail({ trades, sessionType }: { trades: Trade[]; sessionTyp
 // ─── Z-Score card (runs test — independencia entre trades) ────────────────────
 
 function ZScoreCard({ trades }: { trades: Trade[] }) {
-  const sorted = useMemo(() => [...trades].sort((a, b) => a.date_entry.localeCompare(b.date_entry)), [trades])
+  const sorted = useMemo(() => [...trades].sort(compareTradesChrono), [trades])
   const result = calcZScore(sorted)
   const N = trades.filter(t => t.result === 'tp' || t.result === 'sl').length
   const z = result?.z ?? null
@@ -3533,10 +3739,11 @@ function SortTh({ col, label, className = '', sortCol, sortDir, onSort }: {
 
 const PAGE_SIZE = 10
 
-function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, showInstrument, setShowInstrument, visibleVars, setVisibleVars, isReadOnly }: {
-  trades: Trade[]; sessionType: SessionType; variables: Variable[]
+function TableView({ trades, capitalTransactions, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, onEditTx, onDeleteTx, showInstrument, setShowInstrument, visibleVars, setVisibleVars, isReadOnly }: {
+  trades: Trade[]; capitalTransactions: CapitalTransaction[]; sessionType: SessionType; variables: Variable[]
   sortCol: SortCol; sortDir: SortDir; onSort: (c: SortCol) => void
   onEdit: (t: Trade) => void; onDelete: (t: Trade) => void
+  onEditTx: (tx: CapitalTransaction) => void; onDeleteTx: (tx: CapitalTransaction) => void
   showInstrument: boolean; setShowInstrument: React.Dispatch<React.SetStateAction<boolean>>
   visibleVars: Set<string>; setVisibleVars: React.Dispatch<React.SetStateAction<Set<string>>>
   isReadOnly?: boolean
@@ -3544,9 +3751,27 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
   const [showColPicker, setShowColPicker]   = useState(false)
   const [page, setPage]                     = useState(0)
   const [notesModal, setNotesModal]         = useState<{ notes: string; url?: string } | null>(null)
+
+  // Fecha/hora/creación en un solo eje: intercala depósitos/retiros con los trades cuando
+  // se está ordenando por fecha (fuera de ese caso, un movimiento de capital no tiene un
+  // lugar natural en, por ej., un orden por riesgo o por instrumento).
+  type Row = { kind: 'trade'; trade: Trade } | { kind: 'tx'; tx: CapitalTransaction }
+  const rows: Row[] = useMemo(() => {
+    if (sessionType !== 'journal' || sortCol !== 'date' || capitalTransactions.length === 0) {
+      return trades.map((trade): Row => ({ kind: 'trade', trade }))
+    }
+    const merged = [
+      ...trades.map(trade => ({ kind: 'trade' as const, trade, chrono: { date_entry: trade.date_entry, custom_fields: trade.custom_fields, created_at: trade.created_at } })),
+      ...capitalTransactions.map(tx => ({ kind: 'tx' as const, tx, chrono: { date_entry: tx.date, custom_fields: null, created_at: tx.created_at } })),
+    ].sort((a, b) => {
+      const cmp = compareTradesChrono(a.chrono, b.chrono)
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return merged.map((r): Row => r.kind === 'trade' ? { kind: 'trade', trade: r.trade } : { kind: 'tx', tx: r.tx })
+  }, [trades, capitalTransactions, sessionType, sortCol, sortDir])
   const colPickerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setPage(0) }, [trades])
+  useEffect(() => { setPage(0) }, [trades, capitalTransactions, sortCol])
 
   useEffect(() => {
     if (!showColPicker) return
@@ -3555,7 +3780,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
     return () => document.removeEventListener('mousedown', h)
   }, [showColPicker])
 
-  if (trades.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center px-6">
         <p className="text-[13px] text-slate-500 dark:text-zinc-400">Sin trades con los filtros aplicados</p>
@@ -3565,13 +3790,15 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
 
   const sortProps        = { sortCol, sortDir, onSort }
   const visibleVarKeys   = Array.from(visibleVars).filter(k => variables.some(v => v.key === k))
-  const totalPages       = Math.ceil(trades.length / PAGE_SIZE)
-  const paginated        = trades.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const totalPages       = Math.ceil(rows.length / PAGE_SIZE)
+  const paginated        = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const hasInstrumentVar = variables.some(v => v.key === 'instrument')
   const otherVars        = variables.filter(v => v.key !== 'instrument')
   const hasColumns       = hasInstrumentVar || otherVars.length > 0
   const showInstCol      = showInstrument && hasInstrumentVar
   const hasSourceCol     = trades.some(t => t.source_session_name)
+  const totalCols        = 4 + (showInstCol ? 1 : 0) + (hasSourceCol ? 1 : 0) + visibleVarKeys.length
+    + (sessionType === 'journal' ? 3 : 0) + 1 + (!isReadOnly ? 1 : 0)
 
   return (
     <div>
@@ -3639,7 +3866,47 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
             </tr>
           </thead>
           <tbody>
-            {paginated.map(t => {
+            {paginated.map(row => {
+              if (row.kind === 'tx') {
+                const tx = row.tx
+                const isDeposit = tx.type === 'deposit'
+                const middleColSpan = totalCols - 1 - (!isReadOnly ? 1 : 0)
+                return (
+                  <tr key={`tx-${tx.id}`} className="border-b border-slate-50 dark:border-zinc-800/40 bg-slate-50/60 dark:bg-white/[0.02]">
+                    <td className="px-2 py-3 pl-4 whitespace-nowrap">
+                      <span className="text-[11px] text-slate-600 dark:text-zinc-400 font-mono">
+                        {fmtDateShort(tx.date)}
+                      </span>
+                    </td>
+                    <td colSpan={middleColSpan} className="px-2 py-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${isDeposit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                          {isDeposit ? '↑ Depósito' : '↓ Retiro'}
+                        </span>
+                        <span className={`text-[11px] font-mono font-bold tabular-nums ${isDeposit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                          {isDeposit ? '+' : '-'}${tx.amount.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                        {tx.note && <span className="text-[11px] text-slate-400 dark:text-zinc-500 italic truncate">"{tx.note}"</span>}
+                      </div>
+                    </td>
+                    {!isReadOnly && (
+                      <td className="px-2 py-3 pr-4">
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => onEditTx(tx)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button onClick={() => onDeleteTx(tx)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors cursor-pointer">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                )
+              }
+              const t = row.trade
               const cfg    = t.result ? RESULT_CFG[t.result] : null
               const rrStr  = t.rr_exit != null ? `1:${t.rr_exit}` : '—'
               const resultDisplay = (() => {
@@ -3666,11 +3933,20 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
               const detailUrl = tvUrl ?? notesUrl
 
               return (
-                <tr key={t.id} className="border-b border-slate-50 dark:border-zinc-800/40 hover:bg-slate-50 dark:hover:bg-zinc-900/50 transition-colors">
+                <tr key={t.id} className={`border-b border-slate-50 dark:border-zinc-800/40 transition-colors ${
+                  t.is_draft ? 'bg-amber-50/60 dark:bg-amber-500/[0.06] hover:bg-amber-50 dark:hover:bg-amber-500/10' : 'hover:bg-slate-50 dark:hover:bg-zinc-900/50'
+                }`}>
                   <td className="px-2 py-3 pl-4 whitespace-nowrap">
-                    <span className="text-[11px] text-slate-600 dark:text-zinc-400 font-mono">
-                      {fmtDateShort(t.date_entry)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-600 dark:text-zinc-400 font-mono">
+                        {fmtDateShort(t.date_entry)}
+                      </span>
+                      {t.is_draft && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[9px] font-bold uppercase tracking-wide">
+                          Borrador
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-2 py-3">
                     {t.direction ? (
@@ -3800,7 +4076,7 @@ function TableView({ trades, sessionType, variables, sortCol, sortDir, onSort, o
       {/* Pagination */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-white/[0.08]">
         <span className="text-[11px] text-slate-500 dark:text-zinc-400">
-          Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, trades.length)} de {trades.length} trades
+          Mostrando {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, rows.length)} de {rows.length} {capitalTransactions.length > 0 && sortCol === 'date' ? 'registros' : 'trades'}
         </span>
         {totalPages > 1 && (() => {
           const btnCls = (active: boolean, disabled?: boolean) =>
@@ -3911,7 +4187,7 @@ function CalendarView({ trades, sessionType }: { trades: Trade[]; sessionType: S
 
   const byDay = useMemo(() => {
     const map: Record<string, Trade[]> = {}
-    for (const t of trades) {
+    for (const t of [...trades].sort(compareTradesChrono)) {
       const k = t.date_entry.slice(0, 10)
       if (!map[k]) map[k] = []
       map[k].push(t)
@@ -4761,6 +5037,10 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   const [editTrade, setEditTrade]   = useState<Trade | null>(null)
   const [delTrade, setDelTrade]     = useState<Trade | null>(null)
   const [syncInfo, setSyncInfo]     = useState<{ synced: SyncedJournal[]; btTrade: Trade } | null>(null)
+  const [txModal, setTxModal] = useState<{ type: 'deposit' | 'withdrawal'; initial: CapitalTransaction | null } | null>(null)
+  const [delTx, setDelTx]           = useState<CapitalTransaction | null>(null)
+  const [delTxLoading, setDelTxLoading] = useState(false)
+  const [delTxError, setDelTxError]     = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [showCsvMenu, setShowCsvMenu] = useState(false)
   const csvMenuRef = useRef<HTMLDivElement>(null)
@@ -4834,8 +5114,13 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     setData(prev => {
       if (!prev) return prev
       const exists = prev.trades.find(t => t.id === trade.id)
+      // El PATCH devuelve la fila cruda de tj_trades — source_session_name es un campo
+      // calculado que solo arma el GET (join por linked_trade_id). Como editar un trade
+      // nunca cambia su linked_trade_id, se conserva el valor que ya teníamos para que
+      // la etiqueta de sesión de origen no desaparezca de la tabla hasta el próximo refetch.
+      const merged = exists ? { ...trade, source_session_name: trade.source_session_name ?? exists.source_session_name } : trade
       const trades = exists
-        ? prev.trades.map(t => t.id === trade.id ? trade : t)
+        ? prev.trades.map(t => t.id === trade.id ? merged : t)
         : [trade, ...prev.trades]
       const next = { ...prev, trades }
       _pageCache.set(sessionId, { data: next, time: Date.now() })
@@ -4867,6 +5152,40 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     }
   }
 
+  function handleTxSaved(tx: CapitalTransaction) {
+    setTxModal(null)
+    setData(prev => {
+      if (!prev) return prev
+      const exists = prev.capitalTransactions.find(t => t.id === tx.id)
+      const capitalTransactions = exists
+        ? prev.capitalTransactions.map(t => t.id === tx.id ? tx : t)
+        : [tx, ...prev.capitalTransactions]
+      const next = { ...prev, capitalTransactions }
+      _pageCache.set(sessionId, { data: next, time: Date.now() })
+      return next
+    })
+  }
+
+  async function handleDeleteTx() {
+    if (!delTx) return
+    setDelTxLoading(true)
+    setDelTxError(null)
+    const res = await api(`/capital-transactions/${delTx.id}`, { method: 'DELETE' })
+    setDelTxLoading(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setDelTxError(d.error ?? 'Error al eliminar')
+      return
+    }
+    setData(prev => {
+      if (!prev) return prev
+      const next = { ...prev, capitalTransactions: prev.capitalTransactions.filter(t => t.id !== delTx.id) }
+      _pageCache.set(sessionId, { data: next, time: Date.now() })
+      return next
+    })
+    setDelTx(null)
+  }
+
   useEffect(() => {
     if (!showCsvMenu) return
     const h = (e: MouseEvent) => { if (!csvMenuRef.current?.contains(e.target as Node)) setShowCsvMenu(false) }
@@ -4876,7 +5195,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   function exportCSV() {
     if (!data) return
-    const ts = data.trades
+    const ts = data.trades.filter(t => !t.is_draft).sort(compareTradesChrono)
     const headers = ['fecha','instrumento','direccion','resultado','rr_objetivo','rr_maximo','rr_salida','notas','link_analisis']
     const journalExtra = session.type === 'journal' ? ['riesgo_%','pnl_usd','capital_inicio','capital_fin'] : []
     const varKeys = data.variables.map(v => v.key)
@@ -4916,45 +5235,44 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
     else { setSortCol(col); setSortDir('desc') }
   }
 
-  // All structured filters applied (no text search, no sort) — drives the entire session view
-  const dashTrades = useMemo(() => {
+  // All structured filters applied (no text search, no sort) — drives the entire session view.
+  // Excluye borradores (trades sincronizados desde backtesting sin capital completado):
+  // no deben afectar ninguna estadística/gráfico del journal todavía.
+  const dashTrades = useMemo(
+    () => data ? applyTradeFilters(data.trades.filter(t => !t.is_draft), filter) : [],
+    [data, filter],
+  )
+
+  // Igual que dashTrades pero SÍ incluye los borradores — solo para la tabla principal,
+  // que debe mostrarlos (marcados) para que se puedan retomar y completar.
+  const dashTradesForTable = useMemo(
+    () => data ? applyTradeFilters(data.trades, filter) : [],
+    [data, filter],
+  )
+
+  // Depósitos/retiros filtrados por el mismo rango de fecha que dashTrades
+  const dashCapitalTransactions = useMemo(() => {
     if (!data) return []
-    let ts = [...data.trades]
+    let ts = [...data.capitalTransactions]
     if (filter.months.length) {
-      ts = ts.filter(t => filter.months.includes(t.date_entry.slice(0, 7)))
+      ts = ts.filter(t => filter.months.includes(t.date.slice(0, 7)))
     } else {
-      if (filter.dateFrom) ts = ts.filter(t => t.date_entry.slice(0, 10) >= filter.dateFrom)
-      if (filter.dateTo)   ts = ts.filter(t => t.date_entry.slice(0, 10) <= filter.dateTo)
-    }
-    if (filter.results.length)    ts = ts.filter(t => t.result    && filter.results.includes(t.result))
-    if (filter.directions.length) ts = ts.filter(t => t.direction && filter.directions.includes(t.direction))
-    if (filter.instruments.length) ts = ts.filter(t => {
-      const v = t.instrument ?? (t.custom_fields?.instrument as string | undefined)
-      return v ? filter.instruments.includes(v) : false
-    })
-    if (filter.vars) {
-      for (const [key, vals] of Object.entries(filter.vars)) {
-        if (vals.length === 0) continue
-        ts = ts.filter(t => {
-          const v = (t.custom_fields as Record<string, unknown>)[key]
-          if (Array.isArray(v)) return (v as string[]).some(x => vals.includes(x))
-          return v != null && vals.includes(String(v))
-        })
-      }
+      if (filter.dateFrom) ts = ts.filter(t => t.date.slice(0, 10) >= filter.dateFrom)
+      if (filter.dateTo)   ts = ts.filter(t => t.date.slice(0, 10) <= filter.dateTo)
     }
     return ts
   }, [data, filter])
 
-  // Table view: dashTrades + text search + sort
+  // Table view: dashTradesForTable (incluye borradores) + text search + sort
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const sessionType = data?.session.type
-    let ts = [...dashTrades]
+    let ts = [...dashTradesForTable]
     if (q) ts = ts.filter(t => t.notes?.toLowerCase().includes(q) || t.instrument?.toLowerCase().includes(q))
     ts.sort((a, b) => {
       let cmp = 0
       switch (sortCol) {
-        case 'date':       cmp = a.date_entry.localeCompare(b.date_entry); break
+        case 'date':       cmp = compareTradesChrono(a, b); break
         case 'result':     cmp = (a.result ?? '').localeCompare(b.result ?? ''); break
         case 'direction':  cmp = (a.direction ?? '').localeCompare(b.direction ?? ''); break
         case 'instrument': cmp = (a.instrument ?? '').localeCompare(b.instrument ?? ''); break
@@ -4970,7 +5288,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
       return sortDir === 'asc' ? cmp : -cmp
     })
     return ts
-  }, [dashTrades, data, search, sortCol, sortDir])
+  }, [dashTradesForTable, data, search, sortCol, sortDir])
 
   const instrumentOptions = useMemo(() => {
     if (!data) return []
@@ -5092,7 +5410,29 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         trades={dashTrades}
         sessionType={session.type}
         capitalInitial={session.capital_initial}
+        capitalTransactions={dashCapitalTransactions}
       />
+
+      {/* ── Depósito / Retiro ──────────────────────────────────── */}
+      {session.type === 'journal' && !session.is_read_only && (
+        <div className="mx-4 mb-3">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-[0.1em] mb-2">
+            Registrar movimiento
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setTxModal({ type: 'deposit', initial: null })}
+              className="w-full flex items-center justify-center gap-2 h-11 rounded-xl accent-btn accent-btn-shadow font-semibold text-[14px] cursor-pointer transition-colors active:opacity-80">
+              <IconPlus size={16} />
+              Depósito
+            </button>
+            <button onClick={() => setTxModal({ type: 'withdrawal', initial: null })}
+              className="w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 font-semibold text-[14px] cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800 active:opacity-80">
+              <IconMinus size={16} />
+              Retiro
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Advanced Stats (accordion) ─────────────────────── */}
       {dashTrades.length >= 5 && (
@@ -5143,6 +5483,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
         trades={dashTrades}
         sessionType={session.type}
         capitalInitial={session.capital_initial}
+        capitalTransactions={dashCapitalTransactions}
       />
 
       {/* ── Toolbar ────────────────────────────────────────────── */}
@@ -5291,7 +5632,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
       {/* ── Trade list / Montecarlo ───────────────────────────── */}
       {view === 'montecarlo' ? (
         <MontecarloView trades={dashTrades} session={session} />
-      ) : trades.length === 0 ? (
+      ) : trades.length === 0 && data.capitalTransactions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
           <p className="text-[13px] text-slate-500 dark:text-zinc-400">
             {session.is_read_only ? 'Sin trades en las sesiones fuente.' : 'Registra tu primer trade para comenzar.'}
@@ -5305,6 +5646,7 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
       ) : (
         <TableView
           trades={filtered}
+          capitalTransactions={dashCapitalTransactions}
           sessionType={session.type}
           variables={variables}
           sortCol={sortCol}
@@ -5312,6 +5654,8 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           onSort={handleSort}
           onEdit={t => { setEditTrade(t); setShowForm(true) }}
           onDelete={t => setDelTrade(t)}
+          onEditTx={tx => setTxModal({ type: tx.type, initial: tx })}
+          onDeleteTx={tx => { setDelTx(tx); setDelTxError(null) }}
           showInstrument={showInstrument}
           setShowInstrument={setShowInstrument}
           visibleVars={visibleVars}
@@ -5361,6 +5705,26 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           synced={syncInfo.synced}
           btTrade={syncInfo.btTrade}
           onDone={() => setSyncInfo(null)}
+        />
+      )}
+      {txModal && (
+        <DepositWithdrawalModal
+          key={txModal.initial?.id ?? txModal.type}
+          sessionId={session.id}
+          type={txModal.type}
+          initial={txModal.initial}
+          onClose={() => setTxModal(null)}
+          onSaved={handleTxSaved}
+        />
+      )}
+      {delTx && (
+        <DeleteConfirmSheet
+          title={delTx.type === 'deposit' ? 'Eliminar depósito' : 'Eliminar retiro'}
+          message="Esta acción no se puede deshacer."
+          error={delTxError}
+          onConfirm={handleDeleteTx}
+          onClose={() => { setDelTx(null); setDelTxError(null) }}
+          loading={delTxLoading}
         />
       )}
       {showImport && (

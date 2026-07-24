@@ -1,5 +1,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
+import { findMissingRequiredVariable } from '@/lib/trading/required-fields.server'
+import { findMissingExecutionField, isCapitalComplete } from '@/lib/trading/required-fields'
 
 interface Params { params: Promise<{ tradeId: string }> }
 
@@ -46,6 +48,30 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const key of allowed) {
     if (key in body) updates[key] = body[key]
+  }
+
+  if ('custom_fields' in updates) {
+    const missingVar = await findMissingRequiredVariable(
+      admin, owned.trade.session_id, (updates.custom_fields as Record<string, unknown>) ?? {}
+    )
+    if (missingVar) {
+      return NextResponse.json({ error: `El campo "${missingVar}" es obligatorio` }, { status: 400 })
+    }
+  }
+
+  // Vista resultante del trade después de aplicar este PATCH (parcial) — se usa tanto
+  // para validar los datos de ejecución como para recalcular si sigue siendo borrador.
+  const merged = { ...owned.trade, ...updates }
+
+  const missingExecutionField = findMissingExecutionField(merged)
+  if (missingExecutionField) {
+    return NextResponse.json({ error: `El campo "${missingExecutionField}" es obligatorio` }, { status: 400 })
+  }
+
+  // El capital de journal nunca bloquea el guardado: mientras falte, el trade se
+  // mantiene/vuelve borrador (fuera de estadísticas); en cuanto se completa, deja de serlo.
+  if (owned.sessionType === 'journal') {
+    updates.is_draft = !isCapitalComplete(merged)
   }
 
   const { data: trade, error } = await admin

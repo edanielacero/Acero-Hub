@@ -1,5 +1,8 @@
 import { createClient, createAdminClient } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
+import { findMissingRequiredVariable } from '@/lib/trading/required-fields.server'
+import { findMissingExecutionField, isCapitalComplete } from '@/lib/trading/required-fields'
+import { getCapitalActual } from '@/lib/trading/capital'
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -23,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const admin = createAdminClient()
 
   // Fan-out all queries in parallel — ownership check included
-  const [sessionRes, variablesRes, tradesRes, connectionsRes] = await Promise.all([
+  const [sessionRes, variablesRes, tradesRes, connectionsRes, capitalTransactionsRes] = await Promise.all([
     admin
       .from('tj_sessions')
       .select('id, type, name, instrument, capital_initial, is_read_only')
@@ -46,6 +49,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
       .select('id, journal_id')
       .eq('backtesting_id', id)
       .eq('sync_paused', false),
+    admin
+      .from('tj_capital_transactions')
+      .select('*')
+      .eq('session_id', id)
+      .order('date', { ascending: false }),
   ])
 
   const session = sessionRes.data
@@ -149,6 +157,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     trades,
     activeConnections,
     mirrorSourceCount,
+    capitalTransactions: capitalTransactionsRes.data ?? [],
   })
 }
 
@@ -174,6 +183,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'date_entry requerido' }, { status: 400 })
   }
 
+  const missingExecutionField = findMissingExecutionField({ direction, result, rr_exit })
+  if (missingExecutionField) {
+    return NextResponse.json({ error: `El campo "${missingExecutionField}" es obligatorio` }, { status: 400 })
+  }
+
   const admin = createAdminClient()
 
   const payload = {
@@ -193,6 +207,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     capital_start: capital_start ?? null,
     capital_end: capital_end ?? null,
     custom_fields: custom_fields ?? {},
+    // El capital de journal nunca bloquea el guardado: si falta, el trade se guarda
+    // como borrador (fuera de estadísticas) hasta que se complete.
+    is_draft: session.type === 'journal' && !isCapitalComplete({ capital_start, capital_end, risk_percent, pnl_usd }),
+  }
+
+  const missingVar = await findMissingRequiredVariable(admin, id, payload.custom_fields)
+  if (missingVar) {
+    return NextResponse.json({ error: `El campo "${missingVar}" es obligatorio` }, { status: 400 })
   }
 
   const { data: trade, error } = await admin
@@ -214,32 +236,39 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (connections?.length) {
       const journalIds = connections.map(c => c.journal_id)
-      const [{ data: journals }, { data: journalTrades }] = await Promise.all([
+      const [{ data: journals }, { data: journalTrades }, { data: journalTx }] = await Promise.all([
         admin
           .from('tj_sessions')
           .select('id, name, capital_initial')
           .in('id', journalIds),
         admin
           .from('tj_trades')
-          .select('session_id, date_entry, capital_end')
-          .in('session_id', journalIds)
-          .not('capital_end', 'is', null)
-          .order('date_entry', { ascending: false }),
+          .select('session_id, pnl_usd')
+          .in('session_id', journalIds),
+        admin
+          .from('tj_capital_transactions')
+          .select('session_id, type, amount')
+          .in('session_id', journalIds),
       ])
 
-      // For each journal, the most recent trade's capital_end (falling back to
-      // the journal's own starting capital if it has no trades yet)
-      const lastCapitalFromTrades: Record<string, number> = {}
+      // Capital actual de cada journal = capital inicial + pnl de sus trades + depósitos − retiros
+      const tradesByJournal: Record<string, { pnl_usd: number | null }[]> = {}
       for (const t of journalTrades ?? []) {
-        if (!(t.session_id in lastCapitalFromTrades)) {
-          lastCapitalFromTrades[t.session_id] = t.capital_end
-        }
+        (tradesByJournal[t.session_id] ??= []).push({ pnl_usd: t.pnl_usd })
+      }
+      const txByJournal: Record<string, { type: 'deposit' | 'withdrawal'; amount: number }[]> = {}
+      for (const tx of journalTx ?? []) {
+        (txByJournal[tx.session_id] ??= []).push({ type: tx.type, amount: tx.amount })
       }
 
       for (const conn of connections) {
         const journal = journals?.find(j => j.id === conn.journal_id)
         const journalName = journal?.name ?? 'Journal'
-        const lastCapital = lastCapitalFromTrades[conn.journal_id] ?? journal?.capital_initial ?? null
+        const lastCapital = getCapitalActual(
+          journal?.capital_initial ?? 0,
+          tradesByJournal[conn.journal_id] ?? [],
+          txByJournal[conn.journal_id] ?? [],
+        )
 
         const { data: copy } = await admin
           .from('tj_trades')
@@ -251,6 +280,7 @@ export async function POST(req: NextRequest, { params }: Params) {
             pnl_usd: null,
             capital_start: null,
             capital_end: null,
+            is_draft: true,
           })
           .select('id')
           .single()
