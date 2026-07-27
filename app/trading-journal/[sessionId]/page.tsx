@@ -14,7 +14,7 @@ import { calcSweetSpot } from '@/lib/trading/sweetspot'
 import { runMontecarlo, buildResultsArray, buildManualResults, MontecarloMode, MontecarloResult } from '@/lib/trading/montecarlo'
 import { isRequirableVariableType, isVariableValueEmpty, findMissingExecutionField } from '@/lib/trading/required-fields'
 import { compareTradesChrono } from '@/lib/trading/chrono'
-import { getCapitalActual, getRentabilidadPct } from '@/lib/trading/capital'
+import { getCapitalActual, getRentabilidadPct, buildCapitalTimeline } from '@/lib/trading/capital'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -901,9 +901,15 @@ function BasicMetrics({ trades, sessionType, capitalInitial, capitalTransactions
   // depósitos/retiros). Capital actual = ese mismo capital inicial + trading + movimientos de capital.
   let returnPct: number | null = null
   let capitalActual: number | null = null
+  let capitalMax: number | null = null
+  let capitalMin: number | null = null
   if (sessionType === 'journal' && capitalInitial && hasPnLData) {
     returnPct = getRentabilidadPct(capitalInitial, trades)
     capitalActual = getCapitalActual(capitalInitial, trades, capitalTransactions)
+    const timeline = buildCapitalTimeline(capitalInitial, trades, capitalTransactions)
+    const capitalPoints = [capitalInitial, ...timeline.map(p => p.capitalAfter)]
+    capitalMax = Math.max(...capitalPoints)
+    capitalMin = Math.min(...capitalPoints)
   }
   const capitalDiff = capitalActual != null && capitalInitial != null ? capitalActual - capitalInitial : null
   const capitalDiffPos = capitalDiff != null && capitalDiff >= 0
@@ -1069,9 +1075,17 @@ function BasicMetrics({ trades, sessionType, capitalInitial, capitalTransactions
         <Card>
           <span className="text-[9px] font-medium text-slate-500 dark:text-zinc-400 uppercase tracking-[0.07em]">Capital Inicial</span>
           <div className="flex items-end justify-between mt-0.5">
-            <span className="text-[22px] font-bold text-slate-900 dark:text-white leading-none tabular-nums">
-              ${capitalInitial.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-            </span>
+            <div>
+              <span className="text-[22px] font-bold text-slate-900 dark:text-white leading-none tabular-nums">
+                ${capitalInitial.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              </span>
+              {capitalMax != null && capitalMin != null && (
+                <p className="text-[10px] mt-1 font-mono tabular-nums text-slate-500 dark:text-zinc-400">
+                  Máx: <span className="text-emerald-500 dark:text-emerald-400">${capitalMax.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                  {' · '}Mín: <span className="text-rose-500 dark:text-rose-400">${capitalMin.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                </p>
+              )}
+            </div>
             <Icon>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </Icon>
