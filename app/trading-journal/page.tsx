@@ -286,7 +286,7 @@ function ShareSessionSheet({ session, onClose }: { session: Session; onClose: ()
                 onChange={e => { setEmail(e.target.value); if (errorMsg) setErrorMsg('') }}
                 onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
                 placeholder="email@ejemplo.com"
-                className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[14px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
+                className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[16px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
               />
               {errorMsg && <p className="text-[12px] text-rose-500 dark:text-rose-400 -mt-1">{errorMsg}</p>}
               <button
@@ -440,7 +440,7 @@ function MergeSheet({ session, allSessions, onClose, onDone }: {
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="Ej. Fusión Mayo 2025"
-            className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[14px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
+            className="w-full h-12 px-4 rounded-xl border bg-white dark:bg-zinc-900 text-[16px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-colors border-slate-200 dark:border-zinc-700 focus:border-[rgb(var(--a5))] dark:focus:border-[rgb(var(--a5))]"
           />
         </div>
 
@@ -694,7 +694,7 @@ function BottomSheet({ title, onClose, children }: {
 const inp = [
   'w-full bg-slate-50 dark:bg-zinc-900',
   'border border-slate-200 dark:border-zinc-700/60 rounded-xl',
-  'px-4 py-3 text-[14px] text-slate-900 dark:text-white',
+  'px-4 py-3 text-[16px] text-slate-900 dark:text-white',
   'placeholder-slate-400 dark:placeholder-zinc-600',
   'outline-none accent-input transition-colors duration-150',
   'min-h-[48px]',
@@ -754,7 +754,7 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
       <select
         value={type}
         onChange={e => { setType(e.target.value as VarType); setOptions([]) }}
-        className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 rounded-xl px-4 py-3 text-[13px] font-semibold text-slate-700 dark:text-zinc-300 outline-none accent-input transition-colors duration-150 min-h-[48px] cursor-pointer appearance-none">
+        className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 rounded-xl px-4 py-3 text-[16px] font-semibold text-slate-700 dark:text-zinc-300 outline-none accent-input transition-colors duration-150 min-h-[48px] cursor-pointer appearance-none">
         {(Object.keys(VAR_TYPE_LABELS) as VarType[]).map(t => (
           <option key={t} value={t}>{VAR_TYPE_LABELS[t]}</option>
         ))}
@@ -785,7 +785,7 @@ function CustomVarMiniForm({ onAdd }: { onAdd: (v: CustomVarDraft) => void }) {
           ))}
           <div className="flex gap-2">
             <input
-              className={inp + ' flex-1 text-[13px]'}
+              className={inp + ' flex-1'}
               placeholder="Agregar opción..."
               value={optionDraft}
               onChange={e => setOptionDraft(e.target.value)}

@@ -438,7 +438,7 @@ function IconColumns() {
 const inp = [
   'w-full bg-slate-50 dark:bg-zinc-900',
   'border border-slate-200 dark:border-zinc-700/60 rounded-xl',
-  'px-4 py-3 text-[14px] text-slate-900 dark:text-white',
+  'px-4 py-3 text-[16px] text-slate-900 dark:text-white',
   'placeholder-slate-400 dark:placeholder-zinc-600',
   'outline-none transition-colors duration-150',
   'min-h-[48px]',
@@ -1490,7 +1490,7 @@ function ImportSheet({ session, variables, onClose, onImported }: {
                 </span>
                 <select value={mapping[field.key] ?? ''}
                   onChange={e => setMapping(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-[12px] text-slate-800 dark:text-zinc-100 outline-none">
+                  className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-[16px] text-slate-800 dark:text-zinc-100 outline-none">
                   <option value="">— No mapear —</option>
                   {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
@@ -1508,7 +1508,7 @@ function ImportSheet({ session, variables, onClose, onImported }: {
                     <span className="text-[12px] text-slate-600 dark:text-zinc-400 w-36 shrink-0">{v.label}</span>
                     <select value={mapping[v.key] ?? ''}
                       onChange={e => setMapping(prev => ({ ...prev, [v.key]: e.target.value }))}
-                      className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-[12px] text-slate-800 dark:text-zinc-100 outline-none">
+                      className="flex-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-[16px] text-slate-800 dark:text-zinc-100 outline-none">
                       <option value="">— No mapear —</option>
                       {csvData.headers.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
@@ -4816,7 +4816,7 @@ function MontecarloView({ trades, session }: { trades: Trade[]; session: Session
           disabled={opts.disabled}
           min={opts.min} max={opts.max} step={opts.step}
           onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onChange(v) }}
-          className={`h-9 px-2.5 rounded-lg border text-[12px] font-mono focus:outline-none transition-colors ${
+          className={`h-9 px-2.5 rounded-lg border text-[16px] font-mono focus:outline-none transition-colors ${
             opts.disabled
               ? 'border-slate-100 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-400 dark:text-zinc-600 cursor-not-allowed'
               : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 accent-input'

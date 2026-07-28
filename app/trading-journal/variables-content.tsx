@@ -106,7 +106,7 @@ function IconLock({ size = 12 }: { size?: number }) {
 const inp = [
   'w-full bg-slate-50 dark:bg-zinc-900',
   'border border-slate-200 dark:border-zinc-700/60 rounded-xl',
-  'px-4 py-3 text-[14px] text-slate-900 dark:text-white',
+  'px-4 py-3 text-[16px] text-slate-900 dark:text-white',
   'placeholder-slate-400 dark:placeholder-zinc-600',
   'outline-none accent-input transition-colors duration-150',
   'min-h-[48px]',

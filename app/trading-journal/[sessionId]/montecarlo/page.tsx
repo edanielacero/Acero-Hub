@@ -342,7 +342,7 @@ function NumInput({ label, value, onChange, min, max, step = 1, suffix }: {
             const v = parseFloat(e.target.value)
             if (!isNaN(v)) onChange(v)
           }}
-          className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 text-[13px] font-mono accent-input focus:outline-none transition-colors"
+          className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 text-[16px] font-mono accent-input focus:outline-none transition-colors"
         />
         {suffix && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-zinc-500 pointer-events-none">
