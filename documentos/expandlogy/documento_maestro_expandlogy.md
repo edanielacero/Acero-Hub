@@ -3,269 +3,186 @@
 ## Qué es
 
 Dashboard de organización de clientes para una agencia de marketing. Permite
-hacer el onboarding de clientes (dejar toda su información en un solo lugar,
-compartida entre el equipo con acceso a ese cliente), generar creativos y
-copys con IA usando esa información, y — a futuro — revisar el estado diario
-de las cuentas publicitarias conectadas.
+hacer el onboarding de clientes (dejar toda su información en un solo lugar),
+ver el avance del proceso de onboarding por integrante del equipo, y — a
+futuro — generar creativos/copys con IA y revisar el estado diario de las
+cuentas publicitarias conectadas.
+
+**Estado actual: MVP hardcodeado, sin base de datos.** Se decidió (2026-07-29)
+que por ahora Expandlogy es un prototipo visual: todos los datos son mockup,
+viven en memoria del navegador (React Context) y se pierden al recargar la
+página. No hay tablas propias, ni API routes, ni persistencia real. Cuando se
+decida construir la versión con datos reales, hay que rediseñar el modelo
+(ver "De MVP a versión real" al final).
 
 ## Proyecto individual dentro del Hub
 
 Mini-app **privada**: requiere login y que un admin le dé acceso a la mini-app
-desde `/admin` (patrón idéntico a Trading Journal / Acero IA). Dentro de la
-mini-app hay una capa de acceso adicional, granular por cliente (ver
-"Decisiones de arquitectura").
+desde `/admin` (patrón idéntico a Trading Journal). Esta parte **sí** es real
+y usa las tablas compartidas del Hub (`profiles`, `projects`, `project_access`)
+— es el único punto de contacto de Expandlogy con Supabase. Todo lo que pasa
+*dentro* de la mini-app (clientes, checklist, accesos por cliente) es mockup.
 
 - Slug: `expandlogy`
 - Ruta: `/expandlogy`
-- Prefijo de tablas: `exp_`
+- Tablas usadas: ninguna propia — solo el gate genérico del Hub (`projects`/`project_access`)
 
 ## Decisiones de arquitectura
 
-**Datos compartidos, no tiempo real.** Cuando alguien guarda/edita un cliente,
-el cambio queda disponible para todos los que tengan acceso a ese cliente la
-próxima vez que carguen esa pantalla (fetch normal, sin websockets/Supabase
-Realtime). Más simple de construir y mantener; se puede sumar Realtime más
-adelante si hace falta.
+**Todo hardcodeado, sin backend propio.** No hay `app/api/expandlogy/*` ni
+tablas `exp_*`. El estado (clientes, checklist de proceso, accesos por
+cliente) vive en un React Context (`MockDataProvider`, ver
+`app/expandlogy/components/mock-store.tsx`) montado en el layout de la
+mini-app. Se comparte entre las 3 pestañas y el detalle de cliente durante la
+sesión del navegador, pero se reinicia por completo al recargar — no hay
+persistencia ni sincronización entre usuarios.
 
-**Acceso por cliente, no solo por mini-app.** Además del gate general del Hub
-(login + `project_access` para poder entrar a `/expandlogy`), cada **cliente**
-tiene su propia lista de usuarios con acceso (tabla `exp_client_access`). Un
-usuario con acceso a Expandlogy puede agregar o quitar compañeros de un
-cliente puntual — no hace falta pasar por un admin cada vez. Un cliente que
-creás te da acceso automático a vos como creador.
+**3 pestañas.** `/expandlogy` (Onboardings), `/expandlogy/ad-generator`
+(Ad Generator) y `/expandlogy/campanas` (Campañas), con una barra de tabs
+compartida (`components/tab-nav.tsx`). Onboardings es la única con
+funcionalidad real (dentro del mockup); las otras dos son cascarones
+visuales "en construcción".
 
-Los clientes a los que no tenés acceso ni siquiera aparecen en tu lista — no
-es "acceso de solo lectura oculto", es invisible.
+**Onboarding con un solo campo de texto libre.** En vez de un formulario con
+muchos campos estructurados (industria, audiencia, contacto, etc.), el alta
+de cliente pide solo **"Nombre del negocio"** e **"Información"** — un
+textarea libre donde se pega/escribe todo el detalle del onboarding tal como
+lo manda el cliente. Las URLs sueltas dentro de ese texto se detectan y se
+muestran como links clicables (`linkify()` en `components/ui.tsx`).
 
-**IA con contexto de texto, no de Drive (v1).** El link de Drive con material
-(fotos/videos) se guarda y se muestra, pero por ahora es solo referencia
-humana — la IA no lo lee ni lo analiza. Creativos y Copys usan los campos de
-texto del onboarding (industria, marca, audiencia, objetivos, etc.) como
-contexto. Leer/analizar los archivos del Drive queda documentado como fase
-futura (ver "Fuera de alcance").
+**Sección "Proceso" por cliente.** Cada cliente tiene una checklist de pasos
+de onboarding, una copia independiente por integrante del equipo (hoy:
+**Daniel** y **Luis**, hardcodeados en `mock-data.ts`). Cada checklist tiene
+su propia barra de progreso, más una barra de progreso total combinando
+ambas. Es puramente visual — tildar un ítem no llama a ninguna API.
 
-**Generación de imágenes con OpenAI.** Para "Creativos": OpenAI `gpt-image-2`
-(`openai` SDK, `OPENAI_API_KEY` ya configurada en el Hub) + subida del
-resultado a Supabase Storage (bucket propio de Expandlogy) + URL firmada para
-mostrarlo. Enfoque ya probado en este Hub, autocontenido dentro de la propia
-mini-app (sin depender de código de otra mini-app).
+**Acceso por cliente, simplificado.** En vez de buscar/invitar usuarios
+reales, "dar acceso a un cliente" es elegir entre los mismos dos nombres
+hardcodeados (Daniel/Luis) — no hay tabla de accesos ni verificación real de
+permisos dentro de la mini-app.
 
-**Copys con Claude.** Generación de texto (copys para Facebook Ads) vía
-Anthropic (`ANTHROPIC_API_KEY`, ya configurada en el Hub) — mismo proveedor
-que ya usa el resto del Hub para tareas de texto.
+**IA y Facebook MCP: sin implementar todavía.** Las pestañas "Ad Generator" y
+"Campañas" son solo UI de marcador de posición. La idea original (Creativos
+con OpenAI `gpt-image-2`, Copys con Claude, integración con Meta Business
+API) sigue siendo el plan a futuro, pero no se programa hasta decidir pasar
+del prototipo a la versión funcional.
 
-**"Revisión Campañas" — solo UI por ahora.** Esta pestaña se construye como
-cascarón visual (con estado vacío), sin tabla de datos ni integración real.
-La integración con el MCP de Facebook (estado de cuentas publicitarias, cron
-diario ~8am revisando errores de pago, cercanía al límite de gasto, gasto del
-día anterior) es trabajo futuro, fuera de este plan.
-
-## Estructura de archivos
+## Estructura de archivos (actual)
 
 ```
 app/expandlogy/
   layout.tsx                    — auth + acceso a la mini-app (gate del Hub) + tema propio
-  page.tsx                      — "Clientes": lista de clientes con acceso, buscar, + Nuevo cliente
-  clients/
-    [clientId]/
-      page.tsx                  — Detalle del cliente: datos de onboarding, link de Drive,
-                                   gestión de acceso (compañeros con acceso a este cliente)
-  anuncios/
-    page.tsx                    — Selector de cliente → tabs Creativos / Copys
+                                   + monta <MockDataProvider>
+  page.tsx                      — Tab "Onboardings": lista de clientes mockup, buscador,
+                                   + Nuevo cliente
+  ad-generator/
+    page.tsx                    — Tab "Ad Generator" (placeholder, en construcción)
   campanas/
-    page.tsx                    — Revisión Campañas (solo UI, estado vacío)
-  components/
-    client-form.tsx             — Formulario de alta/edición de cliente (onboarding)
-    client-access.tsx           — UI de agregar/quitar compañeros de un cliente
-    creative-generator.tsx       — UI de generación de creativos
-    copy-generator.tsx           — UI de generación de copys
-
-app/api/expandlogy/
+    page.tsx                    — Tab "Campañas" (placeholder, en construcción)
   clients/
-    route.ts                    — GET (lista con acceso), POST (crear)
     [clientId]/
-      route.ts                  — GET, PATCH, DELETE
-      access/
-        route.ts                — GET (quién tiene acceso), POST (otorgar), DELETE (quitar)
-  creatives/
-    route.ts                    — POST (generar imagen), GET (historial por cliente)
-  copies/
-    route.ts                    — POST (generar copy), GET (historial por cliente)
-
-lib/expandlogy/
-  access.ts                     — helpers de chequeo de acceso a un cliente (server-side)
+      page.tsx                  — Detalle del cliente: Proceso (checklist), Información,
+                                   Acceso al cliente
+  components/
+    tab-nav.tsx                 — Barra de las 3 pestañas
+    ui.tsx                      — BottomSheet, estilos de input compartidos, linkify()
+    client-form.tsx             — Alta/edición: Nombre del negocio + Información (+ Estado al editar)
+    client-access.tsx           — Dar/quitar acceso (Daniel/Luis) a un cliente
+    client-process.tsx          — Checklist de proceso por usuario + barras de progreso
+    mock-store.tsx              — Context con todo el estado mockup (clientes, accesos)
+  mock-data.ts                  — Seed: cliente "Lulos" + lista de integrantes del equipo
+  status.ts                     — Labels/colores de estado del cliente (onboarding/activo/pausado/archivado)
+  types.ts                      — type Client = { id, name, info, status }
 ```
 
-## Base de datos
+No existen `app/api/expandlogy/*` ni `lib/expandlogy/*` — se eliminaron junto
+con las tablas al pasar a mockup (ver "Historial" al final).
 
-### `exp_clients`
-```sql
-id                uuid PK
-name              text not null                 -- nombre del cliente/empresa
-industry          text                          -- rubro/industria
-description       text                          -- descripción del negocio
-target_audience   text                          -- público objetivo
-brand_voice       text                          -- tono/voz de marca
-goals             text                          -- objetivos de marketing
-contact_name      text
-contact_email     text
-contact_phone     text
-drive_link        text                          -- URL de la carpeta de Drive (material)
-status            text default 'onboarding'     -- 'onboarding' | 'active' | 'paused' | 'archived'
-notes             text
-created_by        uuid FK → profiles(id)
-created_at        timestamptz
-updated_at        timestamptz
+## Modelo de datos (mockup, en memoria)
+
+```ts
+type ClientStatus = 'onboarding' | 'active' | 'paused' | 'archived'
+
+interface Client {
+  id: string
+  name: string      // "Nombre del negocio", ej. "Lulos"
+  info: string      // Texto libre con todo el detalle de onboarding
+  status: ClientStatus
+}
 ```
 
-> Lista de campos de onboarding propuesta — confirmá o ajustá antes de
-> programar (agregar/quitar campos es barato ahora, más caro después de
-> tener datos reales cargados).
+Equipo hardcodeado (`TEAM_MEMBERS` en `mock-data.ts`): `['Daniel', 'Luis']`.
+Usado tanto para la checklist de Proceso como para el picker de acceso por
+cliente.
 
-### `exp_client_access`
-```sql
-id           uuid PK
-client_id    uuid FK → exp_clients(id) ON DELETE CASCADE
-user_id      uuid FK → profiles(id) ON DELETE CASCADE
-granted_by   uuid FK → profiles(id)
-created_at   timestamptz
-unique(client_id, user_id)
-```
+Cliente semilla: **Lulos** (Lulos Painting & Home Restoration, Atlanta/Duluth
+GA) — datos personales, del negocio, del servicio y accesos (Drive, Sheets,
+dominio) cargados de ejemplo en el campo "Información".
 
-### `exp_creatives` (Creativos generados)
-```sql
-id            uuid PK
-client_id     uuid FK → exp_clients(id) ON DELETE CASCADE
-user_id       uuid FK → profiles(id)          -- quién lo generó
-prompt        text not null
-storage_path  text not null                    -- ruta en el bucket de Storage propio de Expandlogy
-size          text                             -- '1024x1024' | '1792x1024' | '1024x1792'
-quality       text                             -- 'low' | 'medium' | 'high'
-cost_usd      numeric
-created_at    timestamptz
-```
+## Flujo: Onboarding de un cliente (mockup)
 
-### `exp_copies` (Copys generados)
-```sql
-id           uuid PK
-client_id    uuid FK → exp_clients(id) ON DELETE CASCADE
-user_id      uuid FK → profiles(id)
-prompt       text not null                     -- brief/instrucciones dadas
-content      text not null                     -- copy generado
-platform     text default 'facebook_ads'
-created_at   timestamptz
-```
-
-### RLS
-
-Mismo patrón que el resto del Hub (policies de SELECT para el dueño de los
-datos vía `exp_client_access`; los INSERT/UPDATE/DELETE pasan por las rutas
-de API con `createAdminClient()`, no directo desde el cliente):
-
-```sql
--- exp_clients: visible solo si tenés acceso a ese cliente
-create policy "exp: leer clientes con acceso" on exp_clients for select
-  using (
-    exists (select 1 from exp_client_access where client_id = id and user_id = auth.uid())
-  );
-
--- exp_client_access: podés ver quién tiene acceso a un cliente si vos también lo tenés
-create policy "exp: leer accesos de mis clientes" on exp_client_access for select
-  using (
-    exists (select 1 from exp_client_access a2 where a2.client_id = client_id and a2.user_id = auth.uid())
-  );
-
--- exp_creatives / exp_copies: visibles si tenés acceso al cliente dueño
-create policy "exp: leer creativos de mis clientes" on exp_creatives for select
-  using (
-    exists (select 1 from exp_client_access where client_id = exp_creatives.client_id and user_id = auth.uid())
-  );
-create policy "exp: leer copys de mis clientes" on exp_copies for select
-  using (
-    exists (select 1 from exp_client_access where client_id = exp_copies.client_id and user_id = auth.uid())
-  );
-```
-
-## Flujo: Onboarding de un cliente
-
-1. Usuario con acceso a Expandlogy entra a `/expandlogy`, click "+ Nuevo cliente".
-2. Llena el formulario de onboarding (nombre, industria, descripción, audiencia,
-   voz de marca, objetivos, contacto, link de Drive).
-3. Al guardar: se crea la fila en `exp_clients` + una fila en `exp_client_access`
-   dándole acceso automático al creador.
-4. Desde el detalle del cliente, agrega a compañeros de equipo (busca por
-   nombre/email entre los usuarios que ya tienen acceso a Expandlogy) →
-   se crean más filas en `exp_client_access`.
-5. Cualquiera con acceso puede editar los datos — el próximo que entre a esa
-   pantalla ve los cambios.
-
-## Flujo: Anuncios (Creativos / Copys)
-
-1. Usuario entra a la pestaña "Anuncios", selecciona un cliente (de los que
-   tiene acceso).
-2. Elige "Creativos" o "Copys".
-3. **Creativos**: escribe un prompt/brief adicional (opcional); el sistema arma
-   el prompt final combinando ese texto + los campos del cliente (industria,
-   marca, audiencia, objetivos) → `POST /api/expandlogy/creatives` → OpenAI
-   `gpt-image-2` → imagen sube a Storage → se muestra + queda en el historial
-   del cliente.
-4. **Copys**: mismo esquema, pero el resultado es texto (copy para Facebook
-   Ads) generado con Claude → `POST /api/expandlogy/copies` → se guarda y se
-   muestra, con opción de copiar al portapapeles.
+1. Usuario entra a `/expandlogy` (tab Onboardings), click "+ Nuevo cliente".
+2. Llena solo "Nombre del negocio" e "Información" (texto libre).
+3. Al guardar, el cliente se agrega al estado del `MockDataProvider` — visible
+   de inmediato en la lista, pero solo para esta sesión del navegador.
+4. Desde el detalle del cliente: tilda ítems de la checklist de Proceso (por
+   Daniel y por Luis), edita el estado (Onboarding/Activo/Pausado/Archivado)
+   y da/quita acceso al cliente entre Daniel y Luis.
+5. Nada de esto sobrevive a un refresh de página.
 
 ## Fuera de alcance (por ahora)
 
-- **Lectura/análisis de archivos de Drive por la IA** — requeriría integrar la
-  API de Google Drive (OAuth o cuenta de servicio con acceso a carpetas
-  compartidas por cada cliente) más un paso de análisis de imagen. Se deja
-  para una fase posterior.
-- **Integración real con Meta/Facebook Ads (MCP)** — estado de cuentas
-  publicitarias, detección de errores de pago, alerta de límite de gasto,
-  verificación de gasto diario, cron ~8am. La pestaña "Revisión Campañas" es
-  solo UI por ahora; esto exige acceso a la Business API de Meta (proceso de
-  autorización aparte) y no se implementa en este plan.
-- **Supabase Realtime** — decidido explícitamente que no hace falta para v1.
-- **Multi-plataforma en Copys** — hoy es Facebook Ads únicamente (aunque el
-  campo `platform` queda listo por si se agrega Instagram/Google Ads después).
+- **Persistencia real** — es justamente el punto del MVP actual: validar la
+  UX/flujo antes de invertir en backend.
+- **Generación de Creativos/Copys con IA** — pestaña "Ad Generator" es solo UI.
+- **Integración real con Meta/Facebook Ads (MCP)** — pestaña "Campañas" es
+  solo UI.
+- **Multiusuario real / sincronización entre personas** — hoy Daniel y Luis
+  son solo etiquetas de texto, no usuarios del Hub con sesión propia dentro
+  de la mini-app.
 
-## Sprint 0 — Fundación y DB
+## De MVP a versión real (para cuando se decida)
 
-- Migración: tablas `exp_clients`, `exp_client_access`, `exp_creatives`,
-  `exp_copies` + RLS.
-- Registro en `projects` (`insert into projects ... slug = 'expandlogy'`).
-- Ícono + banner en `lib/project-assets.tsx` (si falta, la tarjeta no aparece
-  en el Hub).
-- `app/expandlogy/layout.tsx` con el gate de auth + `project_access` (mismo
-  patrón que Trading Journal/Acero IA).
+Si más adelante se quiere pasar de prototipo a producto funcional, esto es
+lo que hay que reconstruir (no antes, para no invertir en algo que puede
+cambiar mientras se valida el prototipo):
 
-## Sprint 1 — Clientes
-
-- Lista de clientes con acceso (`/expandlogy`), buscador.
-- Formulario de alta/edición (onboarding).
-- Detalle del cliente + gestión de acceso (agregar/quitar compañeros).
-
-## Sprint 2 — Anuncios
-
-- Selector de cliente + tabs Creativos/Copys.
-- Generación de creativos (reutilizando el patrón de Acero IA).
-- Generación de copys (Claude).
-- Historial de generados por cliente.
-
-## Sprint 3 — Revisión Campañas (UI)
-
-- Cascarón visual: lista de cuentas publicitarias (estado vacío por ahora),
-  tarjetas de estado (errores de pago / cerca del límite / gasto de ayer)
-  sin datos reales todavía.
+- Tablas reales (`exp_clients`, accesos, etc.) + RLS + rutas API — el diseño
+  original de este documento (antes del pivot a mockup) es un buen punto de
+  partida, ajustado a lo aprendido con el prototipo (ej. el campo único
+  "Información" en vez de muchos campos estructurados, si se valida que
+  funciona mejor así).
+- Persistencia de la checklist de Proceso por cliente y por usuario real
+  (hoy Daniel/Luis son hardcodeados; en la versión real serían usuarios reales
+  del Hub con `project_access` a Expandlogy).
+- Recién ahí conectar Ad Generator (OpenAI `gpt-image-2` + Claude) y Campañas
+  (Meta Business API).
 
 ## Variables de entorno necesarias
 
-Ninguna nueva — reutiliza `OPENAI_API_KEY` y `ANTHROPIC_API_KEY`, ya
-configuradas en el Hub.
+Ninguna por ahora — el MVP no llama a ninguna API externa. `OPENAI_API_KEY` y
+`ANTHROPIC_API_KEY` (ya configuradas en el Hub) se retomarán cuando se
+implemente Ad Generator de verdad.
+
+## Historial
+
+- **Sprint 0** (completado, luego revertido parcialmente): fundación con
+  tablas `exp_*` + RLS + registro en `projects`. El registro en `projects`
+  se conservó; las tablas se eliminaron al pivotar a mockup.
+- **Sprint 1** (completado, luego reconstruido como mockup): lista de
+  clientes, formulario, detalle, acceso por cliente — primero contra
+  Supabase real, después reescrito 100% hardcodeado por decisión explícita
+  del 2026-07-29.
+- **2026-07-29**: pivot a MVP hardcodeado. Se agregaron las 3 pestañas
+  (Onboardings/Ad Generator/Campañas), la sección "Proceso" (checklist +
+  progreso por Daniel/Luis), se simplificó el onboarding a un solo campo
+  "Información", se cargó el cliente semilla "Lulos", y se eliminaron las
+  tablas `exp_*` + rutas API + `lib/expandlogy/access.ts` por quedar sin uso.
 
 ## Notas para el desarrollo
 
-- Nada de esto se programa todavía — este documento es el plan a confirmar
-  antes de tocar código, siguiendo el mismo formato que
-  `documentos/trading_journal/documento_maestro_trading.md`.
-- Cada sprint se implementa y se verifica contra la base real antes de pasar
-  al siguiente (mismo criterio de rigor que se usó en Trading Journal).
+- Mientras siga siendo MVP: no agregar backend/DB para Expandlogy sin que se
+  pida explícitamente — el punto es iterar rápido sobre la UI/UX con datos
+  de mentira.
+- Si se agregan más clientes de ejemplo o más integrantes del equipo, van en
+  `app/expandlogy/mock-data.ts`.

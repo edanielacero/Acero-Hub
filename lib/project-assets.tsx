@@ -105,6 +105,51 @@ const DailyIcon = () => (
   </svg>
 )
 
+const ExpandlogyBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-exp" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#081014" />
+        <stop offset="100%" stopColor="#0a1620" />
+      </linearGradient>
+      <radialGradient id="glow-exp" cx="70%" cy="35%" r="45%">
+        <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.10" />
+        <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+      </radialGradient>
+      <linearGradient id="line-exp" x1="0" y1="1" x2="1" y2="0">
+        <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.1" />
+        <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.9" />
+      </linearGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-exp)" />
+    <rect width="400" height="120" fill="url(#glow-exp)" />
+    {/* Red de clientes convergiendo hacia un hub que expande */}
+    <line x1="60" y1="90" x2="220" y2="40" stroke="url(#line-exp)" strokeWidth="1" />
+    <line x1="90" y1="70" x2="220" y2="40" stroke="url(#line-exp)" strokeWidth="1" />
+    <line x1="80" y1="100" x2="220" y2="40" stroke="url(#line-exp)" strokeWidth="1" />
+    <line x1="220" y1="40" x2="300" y2="55" stroke="#22d3ee" strokeOpacity="0.5" strokeWidth="1" />
+    <line x1="220" y1="40" x2="290" y2="25" stroke="#22d3ee" strokeOpacity="0.5" strokeWidth="1" />
+    <circle cx="60" cy="90" r="3" fill="#22d3ee" fillOpacity="0.35" />
+    <circle cx="90" cy="70" r="3" fill="#22d3ee" fillOpacity="0.35" />
+    <circle cx="80" cy="100" r="3" fill="#22d3ee" fillOpacity="0.35" />
+    <circle cx="220" cy="40" r="5" fill="#22d3ee" fillOpacity="0.85" />
+    <circle cx="300" cy="55" r="3" fill="#22d3ee" fillOpacity="0.5" />
+    <circle cx="290" cy="25" r="3" fill="#22d3ee" fillOpacity="0.5" />
+    <rect x="150" y="90" width="100" height="16" rx="3" fill="#22d3ee" fillOpacity="0.06" />
+    <text x="200" y="101" textAnchor="middle" fill="#22d3ee" fontSize="8" fontFamily="system-ui" fontWeight="600" opacity="0.6" letterSpacing="3">EXPANDLOGY</text>
+  </svg>
+)
+
+const ExpandlogyIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="6" cy="18" r="2.3" />
+    <circle cx="18" cy="6" r="2.3" />
+    <circle cx="19" cy="17" r="1.6" opacity="0.5" />
+    <line x1="8" y1="16" x2="16" y2="8" />
+    <line x1="18" y1="8.5" x2="18.6" y2="14.5" opacity="0.5" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
@@ -113,5 +158,9 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'daily': {
     icon: <DailyIcon />,
     banner: <DailyBanner />,
+  },
+  'expandlogy': {
+    icon: <ExpandlogyIcon />,
+    banner: <ExpandlogyBanner />,
   },
 }
