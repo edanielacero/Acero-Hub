@@ -3753,7 +3753,7 @@ function SortTh({ col, label, className = '', sortCol, sortDir, onSort }: {
 
 const PAGE_SIZE = 10
 
-function TableView({ trades, capitalTransactions, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, onEditTx, onDeleteTx, showInstrument, setShowInstrument, visibleVars, setVisibleVars, isReadOnly }: {
+function TableView({ trades, capitalTransactions, sessionType, variables, sortCol, sortDir, onSort, onEdit, onDelete, onEditTx, onDeleteTx, showInstrument, setShowInstrument, visibleVars, setVisibleVars, isReadOnly, page: pageProp, setPage }: {
   trades: Trade[]; capitalTransactions: CapitalTransaction[]; sessionType: SessionType; variables: Variable[]
   sortCol: SortCol; sortDir: SortDir; onSort: (c: SortCol) => void
   onEdit: (t: Trade) => void; onDelete: (t: Trade) => void
@@ -3761,9 +3761,9 @@ function TableView({ trades, capitalTransactions, sessionType, variables, sortCo
   showInstrument: boolean; setShowInstrument: React.Dispatch<React.SetStateAction<boolean>>
   visibleVars: Set<string>; setVisibleVars: React.Dispatch<React.SetStateAction<Set<string>>>
   isReadOnly?: boolean
+  page: number; setPage: React.Dispatch<React.SetStateAction<number>>
 }) {
   const [showColPicker, setShowColPicker]   = useState(false)
-  const [page, setPage]                     = useState(0)
   const [notesModal, setNotesModal]         = useState<{ notes: string; url?: string } | null>(null)
 
   // Fecha/hora/creación en un solo eje: intercala depósitos/retiros con los trades cuando
@@ -3785,8 +3785,6 @@ function TableView({ trades, capitalTransactions, sessionType, variables, sortCo
   }, [trades, capitalTransactions, sessionType, sortCol, sortDir])
   const colPickerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setPage(0) }, [trades, capitalTransactions, sortCol])
-
   useEffect(() => {
     if (!showColPicker) return
     const h = (e: MouseEvent) => { if (!colPickerRef.current?.contains(e.target as Node)) setShowColPicker(false) }
@@ -3804,7 +3802,9 @@ function TableView({ trades, capitalTransactions, sessionType, variables, sortCo
 
   const sortProps        = { sortCol, sortDir, onSort }
   const visibleVarKeys   = Array.from(visibleVars).filter(k => variables.some(v => v.key === k))
-  const totalPages       = Math.ceil(rows.length / PAGE_SIZE)
+  const totalPages       = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  // La página guardada puede quedar fuera de rango si los filtros redujeron los resultados
+  const page             = Math.min(pageProp, totalPages - 1)
   const paginated        = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const hasInstrumentVar = variables.some(v => v.key === 'instrument')
   const otherVars        = variables.filter(v => v.key !== 'instrument')
@@ -4108,7 +4108,11 @@ function TableView({ trades, capitalTransactions, sessionType, variables, sortCo
           }
           if (lo > 0) pages.push('…')
           for (let i = lo; i <= hi; i++) pages.push(i)
-          if (hi < totalPages - 1) pages.push('…')
+          // La última página siempre queda visible, aunque quede fuera de la ventana
+          if (hi < totalPages - 1) {
+            if (hi < totalPages - 2) pages.push('…')
+            pages.push(totalPages - 1)
+          }
           return (
             <div className="flex items-center gap-1">
               <button onClick={() => setPage(0)} disabled={page === 0} className={btnCls(false, page === 0)}>
@@ -5070,6 +5074,9 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   const [colsLoaded, setColsLoaded]       = useState(false)
   const [showInstrument, setShowInstrument] = useState(true)
   const [visibleVars, setVisibleVars]       = useState<Set<string>>(new Set())
+  const [page, setPage]                   = useState(0)
+  const [pageLoaded, setPageLoaded]       = useState(false)
+  const skipPageReset = useRef(true)
 
   async function load(invalidate = false) {
     if (invalidate) _pageCache.delete(sessionId)
@@ -5121,6 +5128,32 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
       }))
     } catch {}
   }, [sessionId, showInstrument, visibleVars, colsLoaded])
+
+  // Restaura la página de la tabla al entrar a la sesión (sobrevive recarga y cambio de vista)
+  useEffect(() => {
+    setPageLoaded(false)
+    skipPageReset.current = true
+    try {
+      const saved = localStorage.getItem(`tj_page_${sessionId}`)
+      const n = saved != null ? parseInt(saved, 10) : NaN
+      setPage(Number.isFinite(n) && n >= 0 ? n : 0)
+    } catch {
+      setPage(0)
+    }
+    setPageLoaded(true)
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!pageLoaded) return
+    try { localStorage.setItem(`tj_page_${sessionId}`, String(page)) } catch {}
+  }, [sessionId, page, pageLoaded])
+
+  // Vuelve a la página 1 cuando el usuario cambia filtros, búsqueda u orden (no al recargar
+  // ni al alternar entre tabla/calendario, que restauran la página guardada de arriba)
+  useEffect(() => {
+    if (skipPageReset.current) { skipPageReset.current = false; return }
+    setPage(0)
+  }, [search, sortCol, filter])
 
   function handleSave(trade: Trade, synced: SyncedJournal[]) {
     setShowForm(false)
@@ -5675,6 +5708,8 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
           visibleVars={visibleVars}
           setVisibleVars={setVisibleVars}
           isReadOnly={session.is_read_only}
+          page={page}
+          setPage={setPage}
         />
       )}
 
