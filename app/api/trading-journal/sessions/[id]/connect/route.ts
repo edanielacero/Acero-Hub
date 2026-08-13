@@ -1,20 +1,17 @@
-import { createClient } from '@/lib/supabase-server'
-import { createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const admin = createAdminClient()
 
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id, type')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
   if (!session) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
@@ -22,21 +19,21 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const otherField = session.type === 'backtesting' ? 'journal_id' : 'backtesting_id'
   const otherType = session.type === 'backtesting' ? 'journal' : 'backtesting'
 
-  const { data: connections } = await admin
+  const { data: connections } = await supabase
     .from('tj_session_connections')
     .select('id, backtesting_id, journal_id, sync_paused')
     .eq(field, id)
 
   const otherIds = (connections ?? []).map(c => c[otherField as keyof typeof c] as string)
   const { data: otherSessions } = otherIds.length > 0
-    ? await admin.from('tj_sessions').select('id, name, type').in('id', otherIds)
+    ? await supabase.from('tj_sessions').select('id, name, type').in('id', otherIds)
     : { data: [] }
 
   // Available sessions to connect (same user, correct type, not already connected)
-  let availableQuery = admin
+  let availableQuery = supabase
     .from('tj_sessions')
     .select('id, name')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .eq('type', otherType)
     .eq('is_archived', false)
   if (otherIds.length > 0) {
@@ -53,18 +50,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const admin = createAdminClient()
 
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id, type, name')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
   if (!session) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
   if (session.type !== 'backtesting') return NextResponse.json({ error: 'Solo sesiones de backtesting pueden iniciar conexiones' }, { status: 400 })
@@ -73,16 +68,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Option A: connect to existing journal
   if (body.journalId) {
-    const { data: journal } = await admin
+    const { data: journal } = await supabase
       .from('tj_sessions')
       .select('id')
       .eq('id', body.journalId)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('type', 'journal')
       .single()
     if (!journal) return NextResponse.json({ error: 'Journal no encontrado' }, { status: 404 })
 
-    const { data: connection, error } = await admin
+    const { data: connection, error } = await supabase
       .from('tj_session_connections')
       .insert({ backtesting_id: id, journal_id: body.journalId })
       .select()
@@ -95,10 +90,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (body.createJournal) {
     const journalName = body.name?.trim() || `Journal — ${session.name}`
 
-    const { data: newJournal, error: journalError } = await admin
+    const { data: newJournal, error: journalError } = await supabase
       .from('tj_sessions')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         type: 'journal',
         name: journalName,
         description: body.description?.trim() || null,
@@ -111,7 +106,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (journalError || !newJournal) return NextResponse.json({ error: journalError?.message ?? 'Error al crear journal' }, { status: 500 })
 
     // Copy variable definitions from the backtesting session
-    const { data: varDefs } = await admin
+    const { data: varDefs } = await supabase
       .from('tj_variable_definitions')
       .select('*')
       .eq('session_id', id)
@@ -121,13 +116,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         ...rest,
         session_id: newJournal.id,
       }))
-      await admin.from('tj_variable_definitions').insert(copies)
+      await supabase.from('tj_variable_definitions').insert(copies)
     }
 
     // Connect if requested (default: true)
     let connection = null
     if (body.connect !== false) {
-      const { data: conn } = await admin
+      const { data: conn } = await supabase
         .from('tj_session_connections')
         .insert({ backtesting_id: id, journal_id: newJournal.id })
         .select()
@@ -142,18 +137,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const admin = createAdminClient()
 
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
   if (!session) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
@@ -161,7 +154,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!connectionId) return NextResponse.json({ error: 'connectionId requerido' }, { status: 400 })
   if (typeof syncPaused !== 'boolean') return NextResponse.json({ error: 'syncPaused debe ser booleano' }, { status: 400 })
 
-  const { data: connection, error } = await admin
+  const { data: connection, error } = await supabase
     .from('tj_session_connections')
     .update({ sync_paused: syncPaused })
     .eq('id', connectionId)
@@ -174,25 +167,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const admin = createAdminClient()
 
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
   if (!session) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
   const { connectionId } = await request.json()
   if (!connectionId) return NextResponse.json({ error: 'connectionId requerido' }, { status: 400 })
 
-  const { error, count } = await admin
+  const { error, count } = await supabase
     .from('tj_session_connections')
     .delete({ count: 'exact' })
     .eq('id', connectionId)

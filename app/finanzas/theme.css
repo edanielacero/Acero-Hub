@@ -1,0 +1,397 @@
+/* ============================================================
+   Finanzas — sistema de diseño propio (independiente del Hub).
+   Paleta fija pedida por el usuario: fondo negro, cards blancas
+   (no depende de prefers-color-scheme). Íconos Tabler.
+   Solo se importa en app/finanzas/layout.tsx.
+   ============================================================ */
+
+.fz-app {
+  /* ─── Superficies ──────────────────────────────────────────── */
+  --surface-2:      #000000;   /* fondo de página */
+  --surface-1:      #FFFFFF;   /* cards */
+  --fill-primary:   #1E1F25;   /* superficie "hero" (sidebar, card protagonista) — distinta del negro puro */
+  --on-primary:     #FFFFFF;
+
+  /* ─── Texto — por defecto pensado para texto DIRECTO sobre el fondo
+     negro de la página (títulos, labels de sección, tab bar). Dentro de
+     una superficie clara (.fz-card, .fz-sheet, etc.) se redefine oscuro
+     más abajo — así el mismo var(--text-primary) sirve en los dos
+     contextos sin tocar los estilos inline de cada componente. ────── */
+  --text-primary:   #F5F5F7;
+  --text-secondary: #A0A3AD;
+  --text-muted:     #6C6F79;
+  --text-accent:    #5B6EF5;
+  --text-success:   #17A768;
+  --text-danger:    #E5484D;
+  --text-warning:   #F0A020;
+
+  /* ─── Fills sólidos (barras de progreso, íconos) ─────────────── */
+  --fill-success:   #17A768;
+  --fill-danger:    #E5484D;
+  --fill-warning:   #F0A020;
+  --fill-accent:    #5B6EF5;
+
+  /* ─── Fondos tenues (chips, círculos de ícono) ───────────────── */
+  --bg-success:     rgba(23, 167, 104, 0.14);
+  --bg-danger:      rgba(229, 72, 77, 0.14);
+  --bg-warning:     rgba(240, 160, 32, 0.16);
+  --bg-accent:      rgba(91, 110, 245, 0.14);
+
+  /* ─── Bordes (pensados para superficies claras) ──────────────── */
+  --border:         rgba(15, 15, 20, 0.08);
+  --border-strong:  rgba(15, 15, 20, 0.14);
+  /* Borde para usar directo sobre el fondo negro (ej. separación del sidebar) */
+  --border-on-dark: rgba(255, 255, 255, 0.10);
+
+  --radius:     10px;
+  --radius-md:  14px;
+  --radius-lg:  20px;
+  --font-body:  -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+/* Superficies claras: cualquier cosa con fondo blanco necesita texto oscuro.
+   Al redefinir los tokens acá, todo lo de adentro (inline styles incluidos,
+   por cómo cascadean las custom properties de CSS) lee el valor correcto
+   sin tener que tocar cada componente. */
+.fz-card,
+.fz-sheet,
+.fz-icon-btn,
+.fz-pill,
+.fz-on-light {
+  --text-primary:   #16171C;
+  --text-secondary: #5B5E68;
+  --text-muted:     #93959F;
+}
+/* Aplicar el color (no solo redefinir la variable) para que cualquier texto
+   de adentro herede correctamente aunque no referencie var(--text-primary)
+   por su cuenta — cubre cualquier caso, no solo los que ya lo hacen explícito. */
+.fz-card, .fz-sheet { color: var(--text-primary); }
+
+/* ─── Tipografía ──────────────────────────────────────────────── */
+.fz-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+.fz-subtitle { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+.fz-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+.fz-voice { font-family: var(--font-voice, var(--font-body)); font-variant-numeric: tabular-nums; }
+
+/* ─── Cards / listas ──────────────────────────────────────────── */
+.fz-card {
+  background: var(--surface-1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.fz-hero {
+  background: var(--fill-primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+.fz-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  min-height: 44px;
+  position: relative;
+}
+.fz-row + .fz-row::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 14px; right: 0;
+  height: 1px;
+  background: var(--border);
+  transform: scaleY(0.5);
+}
+.fz-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ─── Botones ─────────────────────────────────────────────────── */
+.fz-btn {
+  background: var(--fill-primary);
+  color: var(--on-primary);
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fz-btn:active { opacity: 0.75; }
+.fz-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.fz-btn-text {
+  color: var(--text-accent);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.fz-btn-text:active { opacity: 0.5; }
+
+.fz-icon-btn {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.fz-fab {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--fill-primary);
+  color: var(--on-primary);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+.fz-fab:active { opacity: 0.85; }
+
+/* ─── Chips / pills ───────────────────────────────────────────── */
+.fz-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-accent);
+  color: var(--text-accent);
+}
+.fz-pill-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.fz-pill-scroll::-webkit-scrollbar { display: none; }
+.fz-pill {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--surface-1);
+  border: 0.5px solid var(--border);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.fz-pill-active {
+  background: var(--fill-primary);
+  color: var(--on-primary);
+  border-color: transparent;
+}
+
+/* ─── Filas de formulario ─────────────────────────────────────── */
+.fz-field-label { font-size: 14px; color: var(--text-primary); flex-shrink: 0; }
+.fz-field-input {
+  flex: 1;
+  text-align: right;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  min-width: 0;
+}
+.fz-field-input::placeholder { color: var(--text-muted); }
+.fz-field-select {
+  text-align: right;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+  direction: rtl;
+}
+
+/* ─── Barra de progreso (dentro de fz-hero, sobre fondo oscuro) ── */
+.fz-progress-track {
+  height: 5px;
+  background: hsl(0 0% 100% / 0.16);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.fz-progress-fill { height: 100%; border-radius: 3px; }
+
+/* ─── Layout de escritorio: sidebar + contenido ──────────────────── */
+.fz-shell {
+  display: flex;
+  min-height: 100dvh;
+}
+.fz-sidebar {
+  display: none;
+}
+.fz-main {
+  flex: 1;
+  min-width: 0;
+}
+@media (min-width: 1024px) {
+  .fz-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--fill-primary);
+    color: var(--on-primary);
+    padding: 20px 14px;
+    border-right: 0.5px solid var(--border-on-dark);
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+  }
+}
+
+/* ─── Tab bar (mobile) — efecto "Liquid Glass" estilo iOS 26: panel
+   flotante, traslúcido, con blur+saturación fuerte y un filo de luz
+   arriba simulando el borde de un vidrio. Texto/íconos CLAROS (no
+   entra en el grupo de superficies claras — es vidrio, no una card
+   blanca opaca). ────────────────────────────────────────────────── */
+.fz-tabbar {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+  padding: 8px;
+  z-index: 40;
+}
+/* Un solo pill compartido, absoluto, que se desliza en X hacia la pestaña
+   activa — en vez de que cada pestaña prenda/apague su propio fondo. */
+.fz-tab-pill {
+  position: absolute;
+  /* El contenedor de posicionamiento de un position:absolute es el padding
+     box de .fz-tabbar, no su content box — con top:0 quedaba pegado arriba
+     del padding en vez de centrado con los tabs (que sí están corridos por
+     el padding, al ser flex children normales). top:50% + translateY(-50%)
+     lo centra sin depender del valor exacto del padding. */
+  top: 50%;
+  left: 0;
+  width: 46px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.14);
+  transition: transform 0.4s cubic-bezier(0.32, 1.2, 0.4, 1), opacity 0.2s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+.fz-tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 40px;
+  border-radius: 999px;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.fz-tab-active { color: #FFFFFF; }
+.fz-tab-action {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+}
+.fz-tab-action-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fill-accent);
+  color: #FFFFFF;
+}
+.fz-tabbar-spacer { height: calc(72px + env(safe-area-inset-bottom)); }
+
+@media (min-width: 1024px) {
+  .fz-tabbar, .fz-tabbar-spacer { display: none; }
+}
+
+/* ─── Sheet (modal inferior) ────────────────────────────────────── */
+.fz-sheet-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.fz-sheet {
+  background: var(--surface-1);
+  width: 100%;
+  max-width: 560px;
+  max-height: 88dvh;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  overflow-y: auto;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+  animation: fz-sheet-up 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@media (min-width: 640px) {
+  .fz-sheet { border-radius: var(--radius-lg); margin-bottom: 24px; max-height: 80dvh; }
+}
+.fz-sheet-handle {
+  width: 36px; height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  margin: 8px auto 4px;
+}
+@keyframes fz-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fz-sheet { animation: none; }
+}
+
+/* ─── Utilidades ──────────────────────────────────────────────── */
+.fz-safe-top { padding-top: env(safe-area-inset-top); }
+.fz-tabular { font-variant-numeric: tabular-nums; }
+.fz-icon-circle {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}

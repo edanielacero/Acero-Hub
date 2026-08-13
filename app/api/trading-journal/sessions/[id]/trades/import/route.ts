@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { findMissingExecutionField, isCapitalComplete } from '@/lib/trading/required-fields'
 
@@ -8,17 +8,14 @@ const MAX_IMPORT = 500
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
-
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id, type, instrument')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -88,7 +85,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ inserted: 0, errors }, { status: 422 })
   }
 
-  const { error } = await admin.from('tj_trades').insert(valid)
+  const { error } = await supabase.from('tj_trades').insert(valid)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

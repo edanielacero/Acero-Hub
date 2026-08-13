@@ -1,19 +1,15 @@
-import { createClient } from '@/lib/supabase-server'
-import { createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const admin = createAdminClient()
-
-  const { data: sessions } = await admin
+  const { data: sessions } = await supabase
     .from('tj_sessions')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
 
   const sessionIds = (sessions ?? []).map(s => s.id)
@@ -23,11 +19,11 @@ export async function GET() {
   }
 
   const [{ data: connections }, { data: trades }] = await Promise.all([
-    admin
+    supabase
       .from('tj_session_connections')
       .select('id, backtesting_id, journal_id, sync_paused')
       .or(`backtesting_id.in.(${sessionIds.join(',')}),journal_id.in.(${sessionIds.join(',')})`),
-    admin
+    supabase
       .from('tj_trades')
       .select('session_id')
       .in('session_id', sessionIds),
@@ -41,7 +37,7 @@ export async function GET() {
   // For mirror sessions, trade count comes from source sessions
   const mirrorIds = (sessions ?? []).filter(s => s.is_read_only).map(s => s.id)
   if (mirrorIds.length > 0) {
-    const { data: links } = await admin
+    const { data: links } = await supabase
       .from('tj_merged_sessions')
       .select('merged_session_id, source_session_id')
       .in('merged_session_id', mirrorIds)
@@ -63,7 +59,7 @@ export async function GET() {
 
   let otherSessions: { id: string; name: string; type: string }[] = []
   if (connectedIds.length > 0) {
-    const { data: other } = await admin
+    const { data: other } = await supabase
       .from('tj_sessions')
       .select('id, name, type')
       .in('id', connectedIds)
@@ -106,9 +102,8 @@ function slugify(label: string): string {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json()
   const { name, type, description, instrument, capital_initial, preset_keys, custom_variables } = body
@@ -116,12 +111,10 @@ export async function POST(request: Request) {
   if (!name?.trim()) return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
   if (!['backtesting', 'journal'].includes(type)) return NextResponse.json({ error: 'Tipo inválido' }, { status: 400 })
 
-  const admin = createAdminClient()
-
-  const { data: session, error } = await admin
+  const { data: session, error } = await supabase
     .from('tj_sessions')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       name: name.trim(),
       type,
       description: description?.trim() || null,
@@ -183,7 +176,7 @@ export async function POST(request: Request) {
   }
 
   if (variableDefs.length > 0) {
-    await admin.from('tj_variable_definitions').insert(variableDefs)
+    await supabase.from('tj_variable_definitions').insert(variableDefs)
   }
 
   return NextResponse.json({ session }, { status: 201 })

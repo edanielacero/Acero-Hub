@@ -1,14 +1,14 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { buildCapitalTimeline, type CapitalTrade, type CapitalTransaction } from '@/lib/trading/capital'
 
 interface Params { params: Promise<{ id: string }> }
 
-type AdminClient = ReturnType<typeof createAdminClient>
+type QueryClient = Awaited<ReturnType<typeof requireUser>>['supabase']
 
 // Single JOIN query — avoids 2 serial round-trips for ownership check
-async function getOwnedTransaction(id: string, userId: string, admin: AdminClient) {
-  const { data } = await admin
+async function getOwnedTransaction(id: string, userId: string, supabase: QueryClient) {
+  const { data } = await supabase
     .from('tj_capital_transactions')
     .select('id, session_id, type, amount, date, tj_sessions!inner(user_id, capital_initial)')
     .eq('id', id)
@@ -27,15 +27,15 @@ async function getOwnedTransaction(id: string, userId: string, admin: AdminClien
 // Recalcula el historial completo con la nueva fecha/monto ya aplicados —
 // mismo chequeo que al borrar: ningún punto puede quedar en negativo.
 async function wouldGoNegative(
-  admin: AdminClient, sessionId: string, capitalInitial: number,
+  supabase: QueryClient, sessionId: string, capitalInitial: number,
   txId: string, newAmount: number, newDate: string,
 ): Promise<boolean> {
   const [{ data: trades }, { data: transactions }] = await Promise.all([
-    admin
+    supabase
       .from('tj_trades')
       .select('id, date_entry, custom_fields, created_at, pnl_usd')
       .eq('session_id', sessionId),
-    admin
+    supabase
       .from('tj_capital_transactions')
       .select('id, type, amount, date, created_at')
       .eq('session_id', sessionId),
@@ -63,13 +63,11 @@ async function wouldGoNegative(
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
   const [owned, body] = await Promise.all([
-    getOwnedTransaction(id, user.id, admin),
+    getOwnedTransaction(id, userId, supabase),
     req.json(),
   ])
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -110,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (amount !== undefined || date !== undefined) {
     const negative = await wouldGoNegative(
-      admin, owned.transaction.session_id, owned.capitalInitial, id, newAmount, newDate,
+      supabase, owned.transaction.session_id, owned.capitalInitial, id, newAmount, newDate,
     )
     if (negative) {
       return NextResponse.json(
@@ -120,10 +118,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
   }
 
-  const { data: transaction, error } = await admin
+  const { data: transaction, error } = await supabase
     .from('tj_capital_transactions')
     .update(updates)
     .eq('id', id)
+    .eq('session_id', owned.transaction.session_id)
     .select()
     .single()
 
@@ -134,23 +133,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
-  const owned = await getOwnedTransaction(id, user.id, admin)
+  const owned = await getOwnedTransaction(id, userId, supabase)
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Recalcular el historial sin este movimiento — si algún punto queda en negativo,
   // borrarlo dejaría un retiro posterior sin respaldo (ej. borrar un depósito del que
   // dependía un retiro ya registrado).
   const [{ data: trades }, { data: transactions }] = await Promise.all([
-    admin
+    supabase
       .from('tj_trades')
       .select('id, date_entry, custom_fields, created_at, pnl_usd')
       .eq('session_id', owned.transaction.session_id),
-    admin
+    supabase
       .from('tj_capital_transactions')
       .select('id, type, amount, date, created_at')
       .eq('session_id', owned.transaction.session_id)
@@ -169,10 +166,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     )
   }
 
-  const { error } = await admin
+  const { error } = await supabase
     .from('tj_capital_transactions')
     .delete()
     .eq('id', id)
+    .eq('session_id', owned.transaction.session_id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

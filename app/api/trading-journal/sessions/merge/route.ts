@@ -1,12 +1,10 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const admin = createAdminClient()
   const { name, sourceSessionIds, mode } = await req.json() as {
     name: string
     sourceSessionIds: string[]
@@ -18,11 +16,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Validate all source sessions belong to user and are backtesting type
-  const { data: sources } = await admin
+  const { data: sources } = await supabase
     .from('tj_sessions')
     .select('id, type, name, is_read_only')
     .in('id', sourceSessionIds)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
 
   if (!sources || sources.length !== sourceSessionIds.length) {
     return NextResponse.json({ error: 'Una o más sesiones no encontradas' }, { status: 404 })
@@ -33,10 +31,10 @@ export async function POST(req: NextRequest) {
 
   if (mode === 'mirror') {
     // Create a read-only mirror session
-    const { data: merged, error } = await admin
+    const { data: merged, error } = await supabase
       .from('tj_sessions')
       .insert({
-        user_id:      user.id,
+        user_id:      userId,
         type:         'backtesting',
         name:         name.trim(),
         is_read_only: true,
@@ -48,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     if (error || !merged) return NextResponse.json({ error: 'Error al crear espejo' }, { status: 500 })
 
-    await admin.from('tj_merged_sessions').insert(
+    await supabase.from('tj_merged_sessions').insert(
       sourceSessionIds.map(sid => ({ merged_session_id: merged.id, source_session_id: sid }))
     )
 
@@ -56,10 +54,10 @@ export async function POST(req: NextRequest) {
   }
 
   // mode === 'copy': create an editable copy with all trades merged
-  const { data: merged, error: sessionErr } = await admin
+  const { data: merged, error: sessionErr } = await supabase
     .from('tj_sessions')
     .insert({
-      user_id:      user.id,
+      user_id:      userId,
       type:         'backtesting',
       name:         name.trim(),
       is_read_only: false,
@@ -72,7 +70,7 @@ export async function POST(req: NextRequest) {
   if (sessionErr || !merged) return NextResponse.json({ error: 'Error al crear sesión' }, { status: 500 })
 
   // Union of variable definitions (deduplicate by key)
-  const { data: allVarDefs } = await admin
+  const { data: allVarDefs } = await supabase
     .from('tj_variable_definitions')
     .select('*')
     .in('session_id', sourceSessionIds)
@@ -85,11 +83,11 @@ export async function POST(req: NextRequest) {
         ...rest,
         session_id: merged.id,
       }))
-    if (uniqueVars.length > 0) await admin.from('tj_variable_definitions').insert(uniqueVars)
+    if (uniqueVars.length > 0) await supabase.from('tj_variable_definitions').insert(uniqueVars)
   }
 
   // Copy all trades from all sources
-  const { data: allTrades } = await admin
+  const { data: allTrades } = await supabase
     .from('tj_trades')
     .select('*')
     .in('session_id', sourceSessionIds)
@@ -98,7 +96,7 @@ export async function POST(req: NextRequest) {
     const tradeCopies = allTrades.map(({
       id: _id, created_at: _ca, session_id: _sid, linked_trade_id: _lt, ...rest
     }) => ({ ...rest, session_id: merged.id, linked_trade_id: null }))
-    await admin.from('tj_trades').insert(tradeCopies)
+    await supabase.from('tj_trades').insert(tradeCopies)
   }
 
   return NextResponse.json({ session: merged }, { status: 201 })

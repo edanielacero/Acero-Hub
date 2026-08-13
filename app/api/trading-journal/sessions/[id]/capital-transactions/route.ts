@@ -1,11 +1,11 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCapitalUpTo, type CapitalTrade, type CapitalTransaction } from '@/lib/trading/capital'
 
 interface Params { params: Promise<{ id: string }> }
 
-async function getOwnedSession(sessionId: string, userId: string, admin: ReturnType<typeof createAdminClient>) {
-  const { data } = await admin
+async function getOwnedSession(sessionId: string, userId: string, supabase: Awaited<ReturnType<typeof requireUser>>['supabase']) {
+  const { data } = await supabase
     .from('tj_sessions')
     .select('id, type, capital_initial, is_read_only')
     .eq('id', sessionId)
@@ -16,13 +16,11 @@ async function getOwnedSession(sessionId: string, userId: string, admin: ReturnT
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
   const [session, body] = await Promise.all([
-    getOwnedSession(id, user.id, admin),
+    getOwnedSession(id, userId, supabase),
     req.json(),
   ])
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -51,11 +49,11 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (type === 'withdrawal') {
     const [{ data: trades }, { data: transactions }] = await Promise.all([
-      admin
+      supabase
         .from('tj_trades')
         .select('id, date_entry, custom_fields, created_at, pnl_usd')
         .eq('session_id', id),
-      admin
+      supabase
         .from('tj_capital_transactions')
         .select('id, type, amount, date, created_at')
         .eq('session_id', id),
@@ -76,7 +74,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
   }
 
-  const { data: transaction, error } = await admin
+  const { data: transaction, error } = await supabase
     .from('tj_capital_transactions')
     .insert({ session_id: id, type, amount: amountNum, date, note: note || null })
     .select()

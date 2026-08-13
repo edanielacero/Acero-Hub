@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/mundial/sync",
-      "schedule": "0 8 * * *"
+      "path": "/api/finanzas/exchange-rates/refresh",
+      "schedule": "0 0,12 * * *"
     }
   ]
 }

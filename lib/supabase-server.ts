@@ -29,3 +29,14 @@ export function createAdminClient() {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 }
+
+// Identidad vía getClaims() (verifica el JWT, gratis en round-trips desde que
+// el proyecto firma con clave asimétrica) en vez de getUser() (siempre pega
+// la red). El cliente devuelto respeta RLS — pensado para rutas que ya no
+// necesitan createAdminClient() para sus queries de datos.
+export async function requireUser() {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getClaims()
+  if (!data) return { supabase, userId: null as string | null, claims: null }
+  return { supabase, userId: data.claims.sub, claims: data.claims }
+}

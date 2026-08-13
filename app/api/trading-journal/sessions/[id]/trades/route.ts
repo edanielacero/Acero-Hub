@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { findMissingRequiredVariable } from '@/lib/trading/required-fields.server'
 import { findMissingExecutionField, isCapitalComplete } from '@/lib/trading/required-fields'
@@ -6,9 +6,8 @@ import { getCapitalActual } from '@/lib/trading/capital'
 
 interface Params { params: Promise<{ id: string }> }
 
-async function getOwnedSession(sessionId: string, userId: string) {
-  const admin = createAdminClient()
-  const { data } = await admin
+async function getOwnedSession(supabase: Awaited<ReturnType<typeof requireUser>>['supabase'], sessionId: string, userId: string) {
+  const { data } = await supabase
     .from('tj_sessions')
     .select('id, type, name, instrument, capital_initial, is_read_only')
     .eq('id', sessionId)
@@ -19,37 +18,34 @@ async function getOwnedSession(sessionId: string, userId: string) {
 
 export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createAdminClient()
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Fan-out all queries in parallel — ownership check included
   const [sessionRes, variablesRes, tradesRes, connectionsRes, capitalTransactionsRes] = await Promise.all([
-    admin
+    supabase
       .from('tj_sessions')
       .select('id, type, name, instrument, capital_initial, is_read_only')
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .single(),
-    admin
+    supabase
       .from('tj_variable_definitions')
       .select('id, key, label, type, options, is_required')
       .eq('session_id', id)
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
-    admin
+    supabase
       .from('tj_trades')
       .select('*')
       .eq('session_id', id)
       .order('date_entry', { ascending: false }),
-    admin
+    supabase
       .from('tj_session_connections')
       .select('id, journal_id')
       .eq('backtesting_id', id)
       .eq('sync_paused', false),
-    admin
+    supabase
       .from('tj_capital_transactions')
       .select('*')
       .eq('session_id', id)
@@ -63,7 +59,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   if (session.type === 'backtesting' && connectionsRes.data?.length) {
     const journalIds = connectionsRes.data.map(c => c.journal_id)
-    const { data: journals } = await admin
+    const { data: journals } = await supabase
       .from('tj_sessions')
       .select('id, name')
       .in('id', journalIds)
@@ -81,7 +77,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   let variables = variablesRes.data ?? []
 
   if (session.is_read_only) {
-    const { data: links } = await admin
+    const { data: links } = await supabase
       .from('tj_merged_sessions')
       .select('source_session_id')
       .eq('merged_session_id', id)
@@ -92,9 +88,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       const sourceIds = links.map(l => l.source_session_id)
 
       const [{ data: sourceTrades }, { data: sourceSessions }, { data: sourceVarDefs }] = await Promise.all([
-        admin.from('tj_trades').select('*').in('session_id', sourceIds).order('date_entry', { ascending: false }),
-        admin.from('tj_sessions').select('id, name').in('id', sourceIds),
-        admin.from('tj_variable_definitions').select('id, key, label, type, options, is_required').in('session_id', sourceIds).eq('is_active', true).order('sort_order', { ascending: true }),
+        supabase.from('tj_trades').select('*').in('session_id', sourceIds).order('date_entry', { ascending: false }),
+        supabase.from('tj_sessions').select('id, name').in('id', sourceIds),
+        supabase.from('tj_variable_definitions').select('id, key, label, type, options, is_required').in('session_id', sourceIds).eq('is_active', true).order('sort_order', { ascending: true }),
       ])
 
       const nameMap: Record<string, string> = {}
@@ -123,10 +119,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const linkedIds = trades.filter(t => t.linked_trade_id).map(t => t.linked_trade_id as string)
     if (linkedIds.length > 0) {
       const [{ data: linkedTrades }, ] = await Promise.all([
-        admin.from('tj_trades').select('id, session_id').in('id', linkedIds),
+        supabase.from('tj_trades').select('id, session_id').in('id', linkedIds),
       ])
       const linkedSessionIds = [...new Set((linkedTrades ?? []).map(t => t.session_id))]
-      const { data: sourceSessions } = await admin
+      const { data: sourceSessions } = await supabase
         .from('tj_sessions').select('id, name').in('id', linkedSessionIds)
 
       const tradeToSession: Record<string, string> = {}
@@ -163,11 +159,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const session = await getOwnedSession(id, user.id)
+  const session = await getOwnedSession(supabase, id, userId)
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (session.is_read_only) return NextResponse.json({ error: 'Sesión de solo lectura' }, { status: 403 })
 
@@ -187,8 +182,6 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (missingExecutionField) {
     return NextResponse.json({ error: `El campo "${missingExecutionField}" es obligatorio` }, { status: 400 })
   }
-
-  const admin = createAdminClient()
 
   const payload = {
     session_id: id,
@@ -212,12 +205,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     is_draft: session.type === 'journal' && !isCapitalComplete({ capital_start, capital_end, risk_percent, pnl_usd }),
   }
 
-  const missingVar = await findMissingRequiredVariable(admin, id, payload.custom_fields)
+  const missingVar = await findMissingRequiredVariable(supabase, id, payload.custom_fields)
   if (missingVar) {
     return NextResponse.json({ error: `El campo "${missingVar}" es obligatorio` }, { status: 400 })
   }
 
-  const { data: trade, error } = await admin
+  const { data: trade, error } = await supabase
     .from('tj_trades')
     .insert(payload)
     .select()
@@ -228,7 +221,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const synced: { journalId: string; journalName: string; tradeId: string; lastCapital: number | null }[] = []
 
   if (session.type === 'backtesting') {
-    const { data: connections } = await admin
+    const { data: connections } = await supabase
       .from('tj_session_connections')
       .select('id, journal_id')
       .eq('backtesting_id', id)
@@ -237,15 +230,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (connections?.length) {
       const journalIds = connections.map(c => c.journal_id)
       const [{ data: journals }, { data: journalTrades }, { data: journalTx }] = await Promise.all([
-        admin
+        supabase
           .from('tj_sessions')
           .select('id, name, capital_initial')
           .in('id', journalIds),
-        admin
+        supabase
           .from('tj_trades')
           .select('session_id, pnl_usd')
           .in('session_id', journalIds),
-        admin
+        supabase
           .from('tj_capital_transactions')
           .select('session_id, type, amount')
           .in('session_id', journalIds),
@@ -270,7 +263,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           txByJournal[conn.journal_id] ?? [],
         )
 
-        const { data: copy } = await admin
+        const { data: copy } = await supabase
           .from('tj_trades')
           .insert({
             ...payload,

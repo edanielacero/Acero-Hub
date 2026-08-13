@@ -1,9 +1,8 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
-async function getOwnedVariable(userId: string, sessionId: string, varId: string) {
-  const admin = createAdminClient()
-  const { data: session } = await admin
+async function getOwnedVariable(supabase: Awaited<ReturnType<typeof requireUser>>['supabase'], userId: string, sessionId: string, varId: string) {
+  const { data: session } = await supabase
     .from('tj_sessions')
     .select('id')
     .eq('id', sessionId)
@@ -11,7 +10,7 @@ async function getOwnedVariable(userId: string, sessionId: string, varId: string
     .single()
   if (!session) return null
 
-  const { data: variable } = await admin
+  const { data: variable } = await supabase
     .from('tj_variable_definitions')
     .select('*')
     .eq('id', varId)
@@ -21,12 +20,11 @@ async function getOwnedVariable(userId: string, sessionId: string, varId: string
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; varId: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id, varId } = await params
-  const variable = await getOwnedVariable(user.id, id, varId)
+  const variable = await getOwnedVariable(supabase, userId, id, varId)
   if (!variable) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
   const body = await req.json()
@@ -44,11 +42,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Sin cambios' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-  const { data: updated, error } = await admin
+  const { data: updated, error } = await supabase
     .from('tj_variable_definitions')
     .update(updates)
     .eq('id', varId)
+    .eq('session_id', id)
     .select()
     .single()
 
@@ -57,18 +55,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; varId: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id, varId } = await params
-  const variable = await getOwnedVariable(user.id, id, varId)
+  const variable = await getOwnedVariable(supabase, userId, id, varId)
   if (!variable) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
-  const admin = createAdminClient()
-
   // Remove this key from custom_fields in all trades of this session
-  const { data: trades } = await admin
+  const { data: trades } = await supabase
     .from('tj_trades')
     .select('id, custom_fields')
     .eq('session_id', id)
@@ -80,13 +75,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       await Promise.all(
         toUpdate.map(t => {
           const { [variable.key]: _removed, ...rest } = t.custom_fields
-          return admin.from('tj_trades').update({ custom_fields: rest }).eq('id', t.id)
+          return supabase.from('tj_trades').update({ custom_fields: rest }).eq('id', t.id)
         })
       )
     }
   }
 
-  const { error } = await admin.from('tj_variable_definitions').delete().eq('id', varId)
+  const { error } = await supabase.from('tj_variable_definitions').delete().eq('id', varId).eq('session_id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   return NextResponse.json({ ok: true })

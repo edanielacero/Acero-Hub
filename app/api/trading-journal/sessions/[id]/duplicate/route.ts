@@ -1,28 +1,25 @@
-import { createClient } from '@/lib/supabase-server'
-import { createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const admin = createAdminClient()
 
-  const { data: original } = await admin
+  const { data: original } = await supabase
     .from('tj_sessions')
     .select('*')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
 
   if (!original) return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
 
-  const { data: copy, error: sessionError } = await admin
+  const { data: copy, error: sessionError } = await supabase
     .from('tj_sessions')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       type: original.type,
       name: `Copia — ${original.name}`,
       description: original.description,
@@ -37,7 +34,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (sessionError || !copy) return NextResponse.json({ error: sessionError?.message ?? 'Error al duplicar' }, { status: 500 })
 
   // Copy variable definitions
-  const { data: varDefs } = await admin
+  const { data: varDefs } = await supabase
     .from('tj_variable_definitions')
     .select('*')
     .eq('session_id', id)
@@ -47,11 +44,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       ...rest,
       session_id: copy.id,
     }))
-    await admin.from('tj_variable_definitions').insert(copies)
+    await supabase.from('tj_variable_definitions').insert(copies)
   }
 
   // Copy trades
-  const { data: trades } = await admin
+  const { data: trades } = await supabase
     .from('tj_trades')
     .select('*')
     .eq('session_id', id)
@@ -64,7 +61,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       session_id: copy.id,
       linked_trade_id: null,
     }))
-    await admin.from('tj_trades').insert(tradeCopies)
+    await supabase.from('tj_trades').insert(tradeCopies)
   }
 
   return NextResponse.json({ session: copy }, { status: 201 })

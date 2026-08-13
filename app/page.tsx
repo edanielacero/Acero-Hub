@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { PROJECT_ASSETS } from '@/lib/project-assets'
 
 // Slugs visibles sin login
-const PUBLIC_SLUGS = ['daily']
+const PUBLIC_SLUGS: string[] = []
 
 export default async function Home() {
   const supabase = await createClient()

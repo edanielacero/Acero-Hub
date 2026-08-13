@@ -1,16 +1,14 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { createClient, createAdminClient, requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const admin = createAdminClient()
-  const { data: notifications } = await admin
+  const { data: notifications } = await supabase
     .from('tj_notifications')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -18,6 +16,10 @@ export async function GET() {
   return NextResponse.json({ notifications: notifications ?? [], unread })
 }
 
+// PATCH se queda con el cliente admin a propósito: la rama "accept" copia
+// datos de una sesión de OTRO usuario (ver Contexto en
+// 20260813030000_trading_journal_write_policies.sql), algo que ninguna
+// policy de RLS por ownership puede autorizar.
 export async function PATCH(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

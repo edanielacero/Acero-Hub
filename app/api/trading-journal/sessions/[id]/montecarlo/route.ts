@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { runMontecarlo, buildResultsArray, buildManualResults, MontecarloMode } from '@/lib/trading/montecarlo'
 
@@ -6,15 +6,12 @@ interface Params { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createAdminClient()
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const [sessionRes, tradesRes] = await Promise.all([
-    admin.from('tj_sessions').select('id, type, name').eq('id', id).eq('user_id', user.id).single(),
-    admin.from('tj_trades').select('result, rr_exit, risk_percent, pnl_usd, capital_start').eq('session_id', id),
+    supabase.from('tj_sessions').select('id, type, name').eq('id', id).eq('user_id', userId).single(),
+    supabase.from('tj_trades').select('result, rr_exit, risk_percent, pnl_usd, capital_start').eq('session_id', id),
   ])
 
   if (!sessionRes.data) return NextResponse.json({ error: 'Not found' }, { status: 404 })

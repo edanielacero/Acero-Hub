@@ -1,15 +1,15 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 import { findMissingRequiredVariable } from '@/lib/trading/required-fields.server'
 import { findMissingExecutionField, isCapitalComplete } from '@/lib/trading/required-fields'
 
 interface Params { params: Promise<{ tradeId: string }> }
 
-type AdminClient = ReturnType<typeof createAdminClient>
+type QueryClient = Awaited<ReturnType<typeof requireUser>>['supabase']
 
 // Single JOIN query — avoids 2 serial round-trips for ownership check
-async function getOwnedTrade(tradeId: string, userId: string, admin: AdminClient) {
-  const { data } = await admin
+async function getOwnedTrade(tradeId: string, userId: string, supabase: QueryClient) {
+  const { data } = await supabase
     .from('tj_trades')
     .select('*, tj_sessions!inner(user_id, type)')
     .eq('id', tradeId)
@@ -27,13 +27,11 @@ async function getOwnedTrade(tradeId: string, userId: string, admin: AdminClient
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { tradeId } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
   const [owned, body] = await Promise.all([
-    getOwnedTrade(tradeId, user.id, admin),
+    getOwnedTrade(tradeId, userId, supabase),
     req.json(),
   ])
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -52,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if ('custom_fields' in updates) {
     const missingVar = await findMissingRequiredVariable(
-      admin, owned.trade.session_id, (updates.custom_fields as Record<string, unknown>) ?? {}
+      supabase, owned.trade.session_id, (updates.custom_fields as Record<string, unknown>) ?? {}
     )
     if (missingVar) {
       return NextResponse.json({ error: `El campo "${missingVar}" es obligatorio` }, { status: 400 })
@@ -74,10 +72,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     updates.is_draft = !isCapitalComplete(merged)
   }
 
-  const { data: trade, error } = await admin
+  const { data: trade, error } = await supabase
     .from('tj_trades')
     .update(updates)
     .eq('id', tradeId)
+    .eq('session_id', owned.trade.session_id)
     .select()
     .single()
 
@@ -88,18 +87,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { tradeId } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { supabase, userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
-  const owned = await getOwnedTrade(tradeId, user.id, admin)
+  const owned = await getOwnedTrade(tradeId, userId, supabase)
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { error } = await admin
+  const { error } = await supabase
     .from('tj_trades')
     .delete()
     .eq('id', tradeId)
+    .eq('session_id', owned.trade.session_id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

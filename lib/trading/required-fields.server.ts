@@ -1,13 +1,13 @@
-import { createAdminClient } from '@/lib/supabase-server'
+import { requireUser } from '@/lib/supabase-server'
 import { isRequirableVariableType, isVariableValueEmpty } from './required-fields'
 
-type AdminClient = ReturnType<typeof createAdminClient>
+type QueryClient = Awaited<ReturnType<typeof requireUser>>['supabase']
 
 // Devuelve el label de la primera variable obligatoria sin valor, o null si todas están completas.
 export async function findMissingRequiredVariable(
-  admin: AdminClient, sessionId: string, customFields: Record<string, unknown>,
+  supabase: QueryClient, sessionId: string, customFields: Record<string, unknown>,
 ): Promise<string | null> {
-  const { data: required } = await admin
+  const { data: required } = await supabase
     .from('tj_variable_definitions')
     .select('key, label, type')
     .eq('session_id', sessionId)
