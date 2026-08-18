@@ -1,6 +1,9 @@
 import { ReactNode } from 'react'
 
 interface ProjectAssets {
+  /** Título de la tarjeta en el Hub. */
+  name: string
+  description: string
   icon: ReactNode
   banner: ReactNode
 }
@@ -150,16 +153,31 @@ const FinanzasIcon = () => (
   </svg>
 )
 
+/**
+ * Catálogo de mini-apps tal como se muestran en el Hub.
+ *
+ * El nombre y la descripción viven acá y no en la tabla `projects` para que el
+ * home pueda servirse estático: son texto fijo que solo cambia cuando se
+ * despliega código. `projects` sigue siendo la fuente de verdad del CONTROL DE
+ * ACCESO — es lo que lee el custom access token hook para armar los permisos
+ * del token, así que una mini-app nueva sigue necesitando su fila ahí.
+ */
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
+    name: 'Trading Journal',
+    description: 'Registro y análisis de operaciones. Estadísticas de rendimiento, gestión de riesgo y bitácora de decisiones.',
     icon: <CandlestickIcon />,
     banner: <TradingBanner />,
   },
   'expandlogy': {
+    name: 'Expandlogy',
+    description: 'Organización de clientes, onboarding y generación de creativos/copys con IA',
     icon: <ExpandlogyIcon />,
     banner: <ExpandlogyBanner />,
   },
   'finanzas': {
+    name: 'Finanzas',
+    description: 'Finanzas personales',
     icon: <FinanzasIcon />,
     banner: <FinanzasBanner />,
   },

@@ -1,71 +1,77 @@
-import { createAdminClient, requireUser } from '@/lib/supabase-server'
-import { listProjects, type ProjectRow } from '@/lib/access'
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase'
 import ProjectCard from '@/components/ProjectCard'
 import ProfileMenu from '@/components/ProfileMenu'
-import Link from 'next/link'
 import { PROJECT_ASSETS } from '@/lib/project-assets'
 
-// Slugs visibles sin login
-const PUBLIC_SLUGS: string[] = []
+/**
+ * Portada del Hub. Es un componente de cliente para que la ruta se sirva
+ * estática: así entrar y volver desde una mini-app es instantáneo, sin viaje al
+ * servidor. Todo lo que necesita pintar (nombre, rol y mini-apps permitidas)
+ * viaja firmado dentro del token, así que resolverlo no cuesta ninguna query
+ * — solo verificar la firma del JWT, que es local.
+ *
+ * El acceso real lo sigue imponiendo proxy.ts en el servidor, y los datos de
+ * cada mini-app sus propias rutas de /api con RLS.
+ */
+type Session = {
+  name: string
+  email: string
+  isAdmin: boolean
+  slugs: string[]
+}
 
-export default async function Home() {
-  const { userId, claims, role: claimRole } = await requireUser()
+export default function Home() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [ready, setReady] = useState(false)
 
-  // Todo lo que sigue sale de una sola tanda en paralelo. Antes eran cuatro
-  // queries en serie detrás de un getUser(): cada una esperaba a la anterior.
-  const admin = createAdminClient()
-  const [profileRes, projects, accessRes] = await Promise.all([
-    userId
-      ? admin.from('profiles').select('name, role').eq('id', userId).single()
-      : null,
-    listProjects(),
-    // Solo se saltea si el JWT ya confirmó que es admin: en ese caso ve todo y
-    // la tabla de accesos no aporta nada.
-    userId && claimRole !== 'admin'
-      ? admin.from('project_access').select('project_id').eq('user_id', userId)
-      : null,
-  ])
+  useEffect(() => {
+    void (async () => {
+      const { data } = await createClient().auth.getClaims()
+      const claims = data?.claims as
+        | { email?: string; app_metadata?: { role?: string; name?: string; projects?: string[] } }
+        | undefined
 
-  const profile = profileRes?.data ?? null
-  const isAdmin = (claimRole ?? profile?.role) === 'admin'
+      if (claims) {
+        const meta = claims.app_metadata ?? {}
+        setSession({
+          name: meta.name ?? '',
+          email: claims.email ?? '',
+          isAdmin: meta.role === 'admin',
+          slugs: meta.projects ?? [],
+        })
+      }
+      setReady(true)
+    })()
+  }, [])
 
-  const publicProjects = PUBLIC_SLUGS.length
-    ? projects.filter(p => PUBLIC_SLUGS.includes(p.slug))
-    : []
-
-  let privateProjects: ProjectRow[] = []
-  if (userId) {
-    if (isAdmin) {
-      privateProjects = projects.filter(p => !PUBLIC_SLUGS.includes(p.slug))
-    } else {
-      const ids = new Set((accessRes?.data ?? []).map(a => a.project_id))
-      privateProjects = projects.filter(p => ids.has(p.id) && !PUBLIC_SLUGS.includes(p.slug))
-    }
-  }
-
-  const allProjects = [...publicProjects, ...privateProjects]
-  const user = userId ? { email: claims?.email ?? '' } : null
+  // Solo se muestran las mini-apps que además tienen su tarjeta definida en el
+  // código: una fila en `projects` sin assets todavía no se puede pintar.
+  const projects = (session?.slugs ?? []).filter(slug => PROJECT_ASSETS[slug])
 
   return (
     <main className="min-h-screen flex flex-col items-center px-6 py-16">
 
       {/* Top bar */}
-      <div className="w-full max-w-4xl flex items-center justify-end gap-4 mb-12">
-        {isAdmin && (
+      <div className="w-full max-w-4xl flex items-center justify-end gap-4 mb-12 min-h-[34px]">
+        {session?.isAdmin && (
           <Link href="/admin" className="text-xs text-[#444] hover:text-[#888] transition-colors font-[family-name:var(--font-body)]">
             Admin
           </Link>
         )}
-        {user && profile ? (
-          <ProfileMenu name={profile.name ?? ''} email={user.email ?? ''} />
-        ) : (
+        {session ? (
+          <ProfileMenu name={session.name} email={session.email} />
+        ) : ready ? (
           <Link
             href="/login"
             className="text-xs font-semibold text-[#666] hover:text-[#f0f0f0] border border-[#222] hover:border-[#444] bg-[#0f0f0f] hover:bg-[#141414] rounded-lg px-3 py-1.5 transition-all"
           >
             Iniciar sesión
           </Link>
-        )}
+        ) : null}
       </div>
 
       {/* Hero */}
@@ -77,15 +83,14 @@ export default async function Home() {
 
       {/* Grid */}
       <div className="w-full max-w-4xl grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-        {allProjects.map(project => {
-          const assets = PROJECT_ASSETS[project.slug]
-          if (!assets) return null
+        {projects.map(slug => {
+          const assets = PROJECT_ASSETS[slug]
           return (
             <ProjectCard
-              key={project.id}
-              href={`/${project.slug}`}
-              name={project.name}
-              description={project.description}
+              key={slug}
+              href={`/${slug}`}
+              name={assets.name}
+              description={assets.description}
               icon={assets.icon}
               banner={assets.banner}
             />
@@ -94,7 +99,7 @@ export default async function Home() {
       </div>
 
       {/* CTA para usuarios sin sesión */}
-      {!user && (
+      {ready && !session && (
         <p className="mt-14 text-xs text-[#333]">
           <Link href="/login" className="hover:text-[#666] transition-colors underline underline-offset-2">
             Inicia sesión

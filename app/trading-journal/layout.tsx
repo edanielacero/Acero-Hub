@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import { requireProjectAccess } from '@/lib/access'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -13,18 +12,17 @@ export const metadata: Metadata = {
   description: 'Registro y análisis de operaciones de trading',
 }
 
-export default async function TradingLayout({ children }: { children: React.ReactNode }) {
-  // El tema sale de `profiles`, así que acá la consulta no se puede evitar —
-  // pero el gate ya no cuesta un getUser() ni una query a `projects` aparte.
-  const { profile } = await requireProjectAccess('trading-journal', {
-    profileFields: ['accent_color', 'color_mode'],
-  })
+// Tema fijo: la elección de acento/modo por perfil se discontinuó, y nadie
+// escribe ya esas columnas. El CSS de globals.css sigue resolviendo las
+// variables desde [data-accent]/[data-mode], así que los valores quedan como
+// constantes en vez de costar una consulta a `profiles` por request.
+const ACCENT = 'blue'
+const MODE = 'dark'
 
-  const accent = profile?.accent_color ?? 'blue'
-  const mode   = profile?.color_mode   ?? 'dark'
-
+// El gate vive en proxy.ts. Sin consultas acá, la ruta se sirve estática.
+export default function TradingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div id="tj-root" data-accent={accent} data-mode={mode} className={`${inter.variable} font-[family-name:var(--font-tj)] min-h-screen`}>
+    <div id="tj-root" data-accent={ACCENT} data-mode={MODE} className={`${inter.variable} font-[family-name:var(--font-tj)] min-h-screen`}>
       {children}
     </div>
   )

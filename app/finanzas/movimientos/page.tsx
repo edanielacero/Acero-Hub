@@ -139,12 +139,12 @@ function TotalBox({ label, value, tone, hidden }: {
 }) {
   return (
     <div
-      className="rounded-[var(--fz-r-tile)] p-4"
+      className="min-w-0 rounded-[var(--fz-r-tile)] p-4"
       style={{ background: `var(--fz-${tone}-tint)` }}
     >
-      <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">{label}</p>
+      <p className="text-[13px] font-medium text-[var(--fz-ink-2)] truncate">{label}</p>
       <p
-        className="text-[22px] font-bold tracking-[-0.01em] fz-num"
+        className="text-[19px] min-[400px]:text-[22px] font-bold tracking-[-0.01em] fz-num truncate"
         style={{ color: `var(--fz-${tone}-text)` }}
       >
         {hidden ? HIDDEN : formatUSD(value)}

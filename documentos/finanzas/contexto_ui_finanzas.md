@@ -494,6 +494,29 @@ y al pie la **tarjeta de tipo de cambio** — el slot que en la referencia 3 ocu
 - Acá sí hay hover: fila resaltada con `--fz-surface-sunk` y acciones de editar
   y borrar que aparecen a la derecha.
 
+### Regla anti-desborde (mobile first)
+
+El desborde horizontal en móvil no es cosmético: la página gana scroll lateral y
+el tab bar —que es `position: fixed` contra el viewport— **se desincroniza del
+contenido** al desplazarse. Se ve como si la barra cambiara de tamaño y saltara.
+
+La causa casi siempre es la misma: **los hijos de un grid o de un flex tienen
+`min-width: auto` por defecto**, así que no encogen por debajo de su contenido y
+estiran al contenedor. Tres reglas:
+
+1. **Todo hijo de grid/flex que contenga texto lleva `min-w-0`.** Sin eso,
+   `truncate` no hace nada: el elemento nunca llega a estar apretado.
+2. **Los montos grandes bajan de cuerpo en pantallas angostas**
+   (`text-[21px] min-[400px]:text-[26px]`) además de truncar. Un monto cortado
+   con elipsis es peor que uno chico: `$1,04…` no se puede leer.
+3. **Los campos llevan `min-w-0` en su clase base.** Un `<select>` se dimensiona
+   por su opción más larga; como hijo directo de un grid estiraba la columna
+   entera.
+
+Como red de seguridad, el contenedor del contenido lleva `overflow-x: clip`. Va
+ahí y no en `#fz-root` porque `<TabBar>` es **hermano** de ese contenedor, no
+descendiente: recortar ahí nunca puede afectar su posicionamiento fijo.
+
 ### Breakpoints
 
 | Rango | Modo |

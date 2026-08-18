@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import { requireProjectAccess } from '@/lib/access'
 import { MockDataProvider } from './components/mock-store'
 
 export const metadata: Metadata = {
@@ -13,9 +12,9 @@ export const metadata: Metadata = {
 const ACCENT = 'blue'
 const MODE = 'dark'
 
-export default async function ExpandlogyLayout({ children }: { children: React.ReactNode }) {
-  await requireProjectAccess('expandlogy')
-
+// El gate vive en proxy.ts. Este layout no toca la base para que la ruta pueda
+// servirse estática y navegar no cueste un viaje al servidor.
+export default function ExpandlogyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="exp-root" data-accent={ACCENT} data-mode={MODE} className="min-h-screen">
       <MockDataProvider>{children}</MockDataProvider>

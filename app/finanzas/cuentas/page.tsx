@@ -135,7 +135,7 @@ export default function CuentasPage() {
       <div className="flex flex-col gap-4">
         <div className="rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
           <p className="text-[13px] font-medium text-white/60">Patrimonio total</p>
-          <p className="mt-1 text-[34px] font-bold tracking-[-0.02em] leading-none fz-num">
+          <p className="mt-1 text-[30px] min-[400px]:text-[34px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
             {hidden ? HIDDEN : formatUSD(totalUsd)}
           </p>
         </div>

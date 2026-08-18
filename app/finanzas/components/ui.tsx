@@ -113,7 +113,10 @@ export function Label({ children }: { children: ReactNode }) {
  * select y textarea de la mini-app tiene que quedarse en 16 o más.
  */
 const fieldClass =
-  'w-full px-4 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] ' +
+  // `min-w-0`: un <select> se dimensiona por su opción más larga, y como hijo
+  // directo de un grid (los filtros de Movimientos) estiraba la columna y con
+  // ella la página entera.
+  'w-full min-w-0 px-4 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] ' +
   'border border-[var(--fz-hairline)] text-[16px] font-medium text-[var(--fz-ink)] ' +
   'placeholder:text-[var(--fz-ink-3)] outline-none focus:border-[var(--fz-accent)]'
 

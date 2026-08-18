@@ -72,7 +72,7 @@ export default function HomePage() {
           {/* Hero: el único bloque oscuro de la pantalla. */}
           <div className="rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
             <p className="text-[13px] font-medium text-white/60">Patrimonio total</p>
-            <p className="mt-1 text-[40px] font-bold tracking-[-0.02em] leading-none fz-num">
+            <p className="mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
               {hidden ? HIDDEN : formatUSD(totalUsd)}
             </p>
             <p className="mt-2 text-[13px] text-white/50">
@@ -123,7 +123,7 @@ export default function HomePage() {
         </div>
 
         {/* Rail derecho en dashboard completo; en móvil y tablet baja al flujo. */}
-        <Panel className="min-[1280px]:sticky min-[1280px]:top-5">
+        <Panel className="min-w-0 min-[1280px]:sticky min-[1280px]:top-5">
           <SectionTitle
             action={
               <Link href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
@@ -165,8 +165,13 @@ function StatTile({ tint, icon, label, value }: {
   tint: 'mint' | 'peach'; icon: React.ReactNode; label: string; value: number
 }) {
   return (
+    /*
+      `min-w-0` no es opcional acá: los hijos de un grid tienen `min-width: auto`
+      por defecto, así que no encogen y estiran la página entera. Un monto de
+      26px no entra en los ~133px que le tocan a media columna en un iPhone.
+    */
     <div
-      className="rounded-[var(--fz-r-tile)] p-4"
+      className="min-w-0 rounded-[var(--fz-r-tile)] p-4"
       style={{ background: `var(--fz-tint-${tint})` }}
     >
       <span
@@ -176,8 +181,9 @@ function StatTile({ tint, icon, label, value }: {
       >
         {icon}
       </span>
-      <p className="mt-3 text-[13px] font-medium text-[var(--fz-ink-2)]">{label}</p>
-      <p className="text-[26px] font-bold tracking-[-0.01em] fz-num">
+      <p className="mt-3 text-[13px] font-medium text-[var(--fz-ink-2)] truncate">{label}</p>
+      {/* Baja de cuerpo en pantallas angostas en vez de desbordar. */}
+      <p className="text-[21px] min-[400px]:text-[26px] font-bold tracking-[-0.01em] fz-num truncate">
         <AmountUSD value={value} />
       </p>
     </div>

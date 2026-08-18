@@ -41,7 +41,7 @@ export type Claims = {
  * `role` sale del custom access token hook (ver
  * 20260813010000_custom_access_token_hook.sql). Si el hook todavía no está
  * registrado en el Dashboard el claim no viene y devuelve null — quien lo
- * necesite tiene que caer a consultar `profiles`. Ver requireProjectAccess().
+ * necesite tiene que caer a consultar `profiles`. Ver requireApiAdmin().
  *
  * El cliente devuelto respeta RLS.
  */
