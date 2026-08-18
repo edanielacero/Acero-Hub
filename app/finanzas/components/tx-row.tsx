@@ -1,8 +1,10 @@
 'use client'
 
 import { ReactNode } from 'react'
-import { IconArrowsExchange } from '@tabler/icons-react'
+import { IconArrowsExchange, IconReceiptRefund, IconUsersGroup } from '@tabler/icons-react'
 import type { AccountWithBalance, Category, Transaction } from '@/lib/finanzas/types'
+import { myShare } from '@/lib/finanzas/splits'
+import { formatAmount } from '@/lib/finanzas/money'
 import { SignedAmount } from './amount'
 import { IconChip, tintFor } from './ui'
 
@@ -39,14 +41,23 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   const category = categories.find(c => c.id === tx.category_id)
 
   const isTransfer = tx.type === 'transferencia'
+  // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
+  // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
+  const isReembolso = tx.type === 'ingreso' && tx.flow_type === 'movimiento'
+  const splits = tx.splits ?? []
+  const compartido = splits.length > 0
+
   const title = isTransfer
     ? `${account?.name ?? 'Cuenta'} → ${toAccount?.name ?? 'Cuenta'}`
     : (tx.description || category?.name || 'Sin categoría')
   const subtitle = isTransfer
     ? (tx.description || 'Transferencia')
-    : [category?.name, account?.name].filter(Boolean).join(' · ')
+    : isReembolso
+      ? ['Reembolso', account?.name].filter(Boolean).join(' · ')
+      : [category?.name, account?.name].filter(Boolean).join(' · ')
 
   const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
+  const miParte = compartido ? myShare(tx.amount, splits, tx.currency) : 0
 
   return (
     <button
@@ -56,12 +67,25 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
     >
       {isTransfer ? (
         <IconChip tint="slate"><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+      ) : isReembolso ? (
+        <IconChip tint="mint"><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
       ) : (
         <IconChip tint={tintFor(label)}>{category?.emoji ?? '•'}</IconChip>
       )}
 
       <span className="flex-1 min-w-0">
-        <span className="block text-[15px] font-semibold truncate">{title}</span>
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[15px] font-semibold truncate">{title}</span>
+          {compartido && (
+            <span
+              className="shrink-0 inline-flex items-center gap-0.5 h-[18px] px-1.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold"
+              title={`Compartido con ${splits.length} ${splits.length === 1 ? 'persona' : 'personas'}`}
+            >
+              <IconUsersGroup size={11} stroke={2.2} />
+              {splits.length}
+            </span>
+          )}
+        </span>
         <span className="block text-[13px] text-[var(--fz-ink-2)] truncate">{subtitle}</span>
       </span>
 
@@ -72,11 +96,15 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           type={tx.type}
           className="block text-[15px]"
         />
-        {tx.currency !== 'USD' && (
+        {compartido ? (
+          <span className="block text-[12px] text-[var(--fz-ink-3)] fz-num">
+            tu parte {formatAmount(miParte, tx.currency)}
+          </span>
+        ) : tx.currency !== 'USD' ? (
           <span className="block text-[12px] text-[var(--fz-ink-3)] fz-num">
             ≈ ${tx.amount_usd.toFixed(2)}
           </span>
-        )}
+        ) : null}
       </span>
     </button>
   )

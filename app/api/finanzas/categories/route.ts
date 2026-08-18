@@ -1,6 +1,7 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
+import { loadCategories } from '@/lib/finanzas/load'
 import type { CategoryKind } from '@/lib/finanzas/types'
 
 const CATEGORY_COLS = 'id, name, kind, emoji, sort_order, archived'
@@ -10,15 +11,7 @@ export async function GET() {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const { data } = await supabase
-    .from('fin_categories')
-    .select(CATEGORY_COLS)
-    .eq('user_id', userId)
-    .order('kind')
-    .order('sort_order')
-    .order('name')
-
-  return NextResponse.json({ categories: data ?? [] })
+  return NextResponse.json({ categories: await loadCategories(supabase, userId) })
 }
 
 export async function POST(request: Request) {

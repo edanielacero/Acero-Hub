@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { IconPlus } from '@tabler/icons-react'
+import { IconPlus, IconUsersGroup } from '@tabler/icons-react'
 import type { Transaction, TxType } from '@/lib/finanzas/types'
 import { groupByDay, lastMonths, monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
-import { useFinanzas, useTransactions } from '../components/data-context'
+import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, SelectField } from '../components/ui'
@@ -23,23 +23,26 @@ export default function MovimientosPage() {
   const [type, setType] = useState<TypeFilter>('todos')
   const [accountId, setAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [soloCompartidos, setSoloCompartidos] = useState(false)
 
   const range = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
     return monthRange(new Date(y, m - 1, 1))
   }, [month])
 
+  // `monthQuery` y no un objeto propio: sin filtros, esta consulta tiene que dar
+  // exactamente la misma clave que la de la Home para reusar lo que ya se trajo.
   const { data, loading } = useTransactions({
-    from: range.from,
-    to: range.to,
+    ...monthQuery(range),
     type: type === 'todos' ? undefined : type,
     account_id: accountId || undefined,
     category_id: categoryId || undefined,
-    limit: '500',
+    shared: soloCompartidos ? '1' : undefined,
   })
 
   const txs = data.transactions
   const totals = { gasto: data.total_gasto_usd, ingreso: data.total_ingreso_usd }
+  const hayReparto = data.total_repartido_usd > 0
 
   const days = useMemo(() => groupByDay(txs), [txs])
   const today = todayISO()
@@ -86,9 +89,35 @@ export default function MovimientosPage() {
             </SelectField>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setSoloCompartidos(v => !v)}
+            aria-pressed={soloCompartidos}
+            className={`mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold transition-colors ${
+              soloCompartidos
+                ? 'bg-[var(--fz-accent)] text-white'
+                : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+            }`}
+          >
+            <IconUsersGroup size={15} stroke={2} />
+            Solo compartidos
+          </button>
+
           <div className="grid grid-cols-2 gap-3 mt-4">
             <TotalBox label="Ingresado" value={totals.ingreso} tone="in" hidden={hidden} />
-            <TotalBox label="Gastado" value={totals.gasto} tone="out" hidden={hidden} />
+            <TotalBox
+              label="Gastado"
+              value={totals.gasto}
+              tone="out"
+              hidden={hidden}
+              foot={
+                hayReparto
+                  ? data.total_gasto_real_usd < 0
+                    ? `a favor ${formatUSD(Math.abs(data.total_gasto_real_usd))}`
+                    : `real ${formatUSD(data.total_gasto_real_usd)}`
+                  : undefined
+              }
+            />
           </div>
         </Panel>
 
@@ -134,8 +163,8 @@ export default function MovimientosPage() {
   )
 }
 
-function TotalBox({ label, value, tone, hidden }: {
-  label: string; value: number; tone: 'in' | 'out'; hidden: boolean
+function TotalBox({ label, value, tone, hidden, foot }: {
+  label: string; value: number; tone: 'in' | 'out'; hidden: boolean; foot?: string
 }) {
   return (
     <div
@@ -149,6 +178,11 @@ function TotalBox({ label, value, tone, hidden }: {
       >
         {hidden ? HIDDEN : formatUSD(value)}
       </p>
+      {foot && (
+        <p className="text-[12px] font-medium text-[var(--fz-ink-2)] fz-num truncate">
+          {hidden ? HIDDEN : foot}
+        </p>
+      )}
     </div>
   )
 }

@@ -247,6 +247,314 @@ async function run() {
     ok('y el movimiento sobrevive', !!orphan.id)
   }
 
+
+  /* ════════════════════════════════════════════════════════════════════════
+     SPRINT 2 · Compartidos y reembolsos
+     ════════════════════════════════════════════════════════════════════════ */
+
+  section('SPRINT 2 · flow_type')
+  {
+    // El backfill de la migración: las transferencias ya existentes tienen que
+    // haber quedado marcadas como movimiento financiero.
+    const transferencias = await rows('fin_transactions', '&type=eq.transferencia')
+    ok('el backfill marcó las transferencias viejas como movimiento',
+       transferencias.length > 0 && transferencias.every(t => t.flow_type === 'movimiento'),
+       JSON.stringify(transferencias.map(t => t.flow_type)))
+
+    const gastoDefault = await rows('fin_transactions', `&id=eq.${gasto.id}`)
+    eq('un gasto nace en consumo por default', gastoDefault[0].flow_type, 'consumo')
+
+    // Que una transferencia sea movimiento no es una decisión de quien escribe:
+    // el trigger la corrige en vez de rechazar el insert con un error de
+    // constraint ilegible.
+    const trConsumo = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'transferencia', flow_type: 'consumo', date: '2026-08-18',
+      account_id: airtm.id, to_account_id: broker.id, amount: 5, currency: 'USD',
+      exchange_rate: 1, amount_usd: 5,
+    }).then(r => r.json()))[0]
+    eq('el trigger corrige una transferencia marcada como consumo', trConsumo.flow_type, 'movimiento')
+
+    await as(`/fin_transactions?id=eq.${trConsumo.id}`, {
+      method: 'PATCH', body: JSON.stringify({ flow_type: 'consumo' }),
+    })
+    const trasUpdate = (await rows('fin_transactions', `&id=eq.${trConsumo.id}`))[0]
+    eq('y también la corrige en un update', trasUpdate.flow_type, 'movimiento')
+    await as(`/fin_transactions?id=eq.${trConsumo.id}`, { method: 'DELETE' })
+
+    const reembolsoConCategoria = await post('fin_transactions', {
+      user_id: USER_ID, type: 'ingreso', flow_type: 'movimiento', date: '2026-08-18',
+      account_id: airtm.id, category_id: comida.id, amount: 3, currency: 'USD',
+      exchange_rate: 1, amount_usd: 3,
+    })
+    ok('un reembolso no puede llevar categoría', reembolsoConCategoria.status >= 400,
+       `HTTP ${reembolsoConCategoria.status}`)
+
+    const flowRaro = await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', flow_type: 'inversion', date: '2026-08-18',
+      account_id: airtm.id, amount: 5, currency: 'USD', exchange_rate: 1, amount_usd: 5,
+    })
+    ok('rechaza un flow_type fuera del enum', flowRaro.status >= 400, `HTTP ${flowRaro.status}`)
+  }
+
+  section('SPRINT 2 · fin_people')
+  let ana, juan
+  {
+    const anon = await fetch(`${URL_}/rest/v1/fin_people?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve personas', anon, [])
+
+    ana = (await post('fin_people', { user_id: USER_ID, name: 'Ana', emoji: '🌿' }).then(r => r.json()))[0]
+    juan = (await post('fin_people', { user_id: USER_ID, name: 'Juan' }).then(r => r.json()))[0]
+    ok('crea personas', !!ana?.id && !!juan?.id)
+
+    const dup = await post('fin_people', { user_id: USER_ID, name: 'ana' })
+    ok('el índice único bloquea "ana" contra "Ana"', dup.status >= 400, `HTTP ${dup.status}`)
+
+    // El índice es parcial (where not archived): archivar libera el nombre.
+    const temp = (await post('fin_people', { user_id: USER_ID, name: 'Temporal' }).then(r => r.json()))[0]
+    await as(`/fin_people?id=eq.${temp.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    const reusa = await post('fin_people', { user_id: USER_ID, name: 'Temporal' })
+    ok('archivar libera el nombre para volver a usarlo', reusa.status < 400, `HTTP ${reusa.status}`)
+
+    const ajena = await post('fin_people', { user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajena' })
+    ok('RLS impide crear una persona a nombre de otro', ajena.status >= 400, `HTTP ${ajena.status}`)
+  }
+
+  section('SPRINT 2 · fin_splits')
+  let splitAna, splitJuan
+  {
+    const anon = await fetch(`${URL_}/rest/v1/fin_splits?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve repartos', anon, [])
+
+    splitAna = (await post('fin_splits', {
+      user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
+      amount: 11.66, currency: 'BOB', amount_usd: 1.68,
+    }).then(r => r.json()))[0]
+    splitJuan = (await post('fin_splits', {
+      user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
+      amount: 11.66, currency: 'BOB', amount_usd: 1.68,
+    }).then(r => r.json()))[0]
+    ok('crea repartos', !!splitAna?.id && !!splitJuan?.id)
+
+    const dup = await post('fin_splits', {
+      user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
+      amount: 5, currency: 'BOB', amount_usd: 0.72,
+    })
+    ok('unique (transaction_id, person_id) bloquea a la misma persona dos veces',
+       dup.status >= 400, `HTTP ${dup.status}`)
+
+    const cero = await post('fin_splits', {
+      user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
+      amount: 0, currency: 'BOB', amount_usd: 0,
+    })
+    ok('rechaza una parte en cero', cero.status >= 400, `HTTP ${cero.status}`)
+
+    const monedaMala = await post('fin_splits', {
+      user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
+      amount: 5, currency: 'EUR', amount_usd: 5,
+    })
+    ok('rechaza una moneda fuera del enum', monedaMala.status >= 400, `HTTP ${monedaMala.status}`)
+
+    // Precisión de 8 decimales, igual que los montos.
+    const btcAcc = (await rows('fin_accounts', '&currency=eq.BTC'))[0]
+    const txBtc = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-18', account_id: btcAcc.id,
+      amount: 0.00042195, currency: 'BTC', exchange_rate: 68000, amount_usd: 28.69,
+    }).then(r => r.json()))[0]
+    const splitBtc = (await post('fin_splits', {
+      user_id: USER_ID, transaction_id: txBtc.id, person_id: ana.id,
+      amount: 0.00014065, currency: 'BTC', amount_usd: 9.56,
+    }).then(r => r.json()))[0]
+    eq('un reparto en BTC conserva los 8 decimales', Number(splitBtc.amount), 0.00014065)
+    await as(`/fin_splits?id=eq.${splitBtc.id}`, { method: 'DELETE' })
+    await as(`/fin_transactions?id=eq.${txBtc.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 2 · estados y claves foráneas')
+  {
+    const cobrado = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'ingreso', flow_type: 'movimiento', date: '2026-08-18',
+      account_id: airtm.id, amount: 1.68, currency: 'USD', exchange_rate: 1, amount_usd: 1.68,
+      description: 'Cobro a Ana',
+    }).then(r => r.json()))[0]
+    ok('un reembolso sin categoría sí se acepta', !!cobrado?.id)
+
+    const ambos = await as(`/fin_splits?id=eq.${splitAna.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ settled_tx_id: cobrado.id, waived_at: '2026-08-18' }),
+    })
+    ok('fin_split_settle_shape: no puede estar cobrado Y condonado',
+       ambos.status >= 400, `HTTP ${ambos.status}`)
+
+    await as(`/fin_splits?id=eq.${splitAna.id}`, {
+      method: 'PATCH', body: JSON.stringify({ settled_tx_id: cobrado.id }),
+    })
+
+    // on delete restrict: el gasto padre no se puede borrar mientras tenga
+    // repartos, aunque la validación del server falle.
+    const borrarPadre = await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })
+    ok('on delete restrict impide borrar el gasto con reparto',
+       borrarPadre.status >= 400, `HTTP ${borrarPadre.status}`)
+
+    const borrarPersona = await as(`/fin_people?id=eq.${ana.id}`, { method: 'DELETE' })
+    ok('on delete restrict impide borrar una persona con historial',
+       borrarPersona.status >= 400, `HTTP ${borrarPersona.status}`)
+
+    // on delete set null: borrar el cobro reabre la deuda, no deja huérfanos.
+    await as(`/fin_transactions?id=eq.${cobrado.id}`, { method: 'DELETE' })
+    const reabierto = (await rows('fin_splits', `&id=eq.${splitAna.id}`))[0]
+    eq('borrar el cobro devuelve el reparto a pendiente', reabierto.settled_tx_id, null)
+    ok('y el reparto sigue existiendo', !!reabierto.id)
+  }
+
+  section('SPRINT 2 · RLS de escritura sobre fin_people y fin_splits')
+  {
+    const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
+
+    const insertAnon = await fetch(`${URL_}/rest/v1/fin_people`, {
+      method: 'POST', headers: noSession, body: JSON.stringify({ user_id: USER_ID, name: 'Intruso' }),
+    })
+    ok('sin sesión no puede insertar una persona', insertAnon.status >= 400, `HTTP ${insertAnon.status}`)
+
+    const updateAnon = await fetch(`${URL_}/rest/v1/fin_people?id=eq.${ana.id}`, {
+      method: 'PATCH', headers: noSession, body: JSON.stringify({ name: 'Hackeada' }),
+    })
+    const anaIntacta = (await rows('fin_people', `&id=eq.${ana.id}`))[0]
+    ok('sin sesión no puede modificar una persona', anaIntacta.name === 'Ana', `HTTP ${updateAnon.status}`)
+
+    await fetch(`${URL_}/rest/v1/fin_splits?id=eq.${splitJuan.id}`, { method: 'DELETE', headers: noSession })
+    const sigue = await rows('fin_splits', `&id=eq.${splitJuan.id}`)
+    eq('sin sesión no puede borrar un reparto', sigue.length, 1)
+  }
+
+  section('SPRINT 2 · limpieza del reparto antes del borrado en cascada')
+  {
+    await as(`/fin_splits?transaction_id=eq.${gasto.id}`, { method: 'DELETE' })
+    const quedan = await rows('fin_splits', `&transaction_id=eq.${gasto.id}`)
+    eq('sin repartos colgando', quedan.length, 0)
+  }
+
+
+  section('SPRINT 3 · fin_recurring')
+  let fijo
+  {
+    const anon = await fetch(`${URL_}/rest/v1/fin_recurring?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve fijos', anon, [])
+
+    // Sin category_id: `comida` ya se borró en la sección de integridad
+    // referencial y la FK lo rechazaría.
+    fijo = (await post('fin_recurring', {
+      user_id: USER_ID, name: 'Spotify', emoji: '📱', amount: 11.99,
+      account_id: airtm.id, frequency: 'mensual', day_of_month: 5,
+    }).then(r => r.json()))[0]
+    ok('crea una plantilla', !!fijo?.id)
+    eq('mensual nace sin mes', fijo.month_of_year, null)
+
+    const cero = await post('fin_recurring', {
+      user_id: USER_ID, name: 'X', amount: 0, account_id: airtm.id,
+    })
+    ok('rechaza monto cero', cero.status >= 400, `HTTP ${cero.status}`)
+
+    const dia = await post('fin_recurring', {
+      user_id: USER_ID, name: 'X', amount: 5, account_id: airtm.id, day_of_month: 45,
+    })
+    ok('rechaza un día fuera de 1..31', dia.status >= 400, `HTTP ${dia.status}`)
+
+    const anualSinMes = await post('fin_recurring', {
+      user_id: USER_ID, name: 'Dominio', amount: 15, account_id: airtm.id, frequency: 'anual',
+    })
+    ok('un anual sin mes se rechaza', anualSinMes.status >= 400, `HTTP ${anualSinMes.status}`)
+
+    const mensualConMes = await post('fin_recurring', {
+      user_id: USER_ID, name: 'Raro', amount: 15, account_id: airtm.id,
+      frequency: 'mensual', month_of_year: 3,
+    })
+    ok('un mensual CON mes también', mensualConMes.status >= 400, `HTTP ${mensualConMes.status}`)
+
+    const freq = await post('fin_recurring', {
+      user_id: USER_ID, name: 'X', amount: 5, account_id: airtm.id, frequency: 'semanal',
+    })
+    ok('rechaza una frecuencia fuera del enum', freq.status >= 400, `HTTP ${freq.status}`)
+
+    const ajeno = await post('fin_recurring', {
+      user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajeno', amount: 5, account_id: airtm.id,
+    })
+    ok('RLS impide crear un fijo a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+  }
+
+  section('SPRINT 3 · fin_recurring_splits')
+  {
+    const parejo = (await post('fin_recurring_splits', {
+      user_id: USER_ID, recurring_id: fijo.id, person_id: ana.id, amount: null,
+    }).then(r => r.json()))[0]
+    eq('una parte pareja se guarda sin monto', parejo.amount, null)
+
+    const fijoMonto = (await post('fin_recurring_splits', {
+      user_id: USER_ID, recurring_id: fijo.id, person_id: juan.id, amount: 4.5,
+    }).then(r => r.json()))[0]
+    eq('y una con monto lo conserva', Number(fijoMonto.amount), 4.5)
+
+    const dup = await post('fin_recurring_splits', {
+      user_id: USER_ID, recurring_id: fijo.id, person_id: ana.id, amount: 2,
+    })
+    ok('la misma persona dos veces en la plantilla se rechaza', dup.status >= 400, `HTTP ${dup.status}`)
+
+    const cero = await post('fin_recurring_splits', {
+      user_id: USER_ID, recurring_id: fijo.id, person_id: juan.id, amount: 0,
+    })
+    ok('un monto en cero se rechaza (null sí, cero no)', cero.status >= 400, `HTTP ${cero.status}`)
+
+    const borrarPersona = await as(`/fin_people?id=eq.${ana.id}`, { method: 'DELETE' })
+    ok('on delete restrict protege a la persona de la plantilla',
+       borrarPersona.status >= 400, `HTTP ${borrarPersona.status}`)
+  }
+
+  section('SPRINT 3 · el vínculo con los movimientos')
+  {
+    const tx = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-05', account_id: airtm.id,
+      amount: 11.99, currency: 'USD', exchange_rate: 1, amount_usd: 11.99,
+      description: 'Spotify', recurring_id: fijo.id,
+    }).then(r => r.json()))[0]
+    eq('un movimiento puede apuntar a su plantilla', tx.recurring_id, fijo.id)
+
+    // Borrar la plantilla NO borra la historia: los movimientos quedan y solo
+    // pierden el vínculo. Su reparto por defecto sí se va (era configuración).
+    await as(`/fin_recurring?id=eq.${fijo.id}`, { method: 'DELETE' })
+
+    const sobrevive = (await rows('fin_transactions', `&id=eq.${tx.id}`))[0]
+    ok('el gasto sobrevive a la plantilla', !!sobrevive?.id)
+    eq('pero pierde el vínculo', sobrevive.recurring_id, null)
+
+    const repartos = await rows('fin_recurring_splits', `&recurring_id=eq.${fijo.id}`)
+    eq('el reparto por defecto sí se va en cascada', repartos.length, 0)
+
+    await as(`/fin_transactions?id=eq.${tx.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 3 · RLS de escritura sobre fin_recurring')
+  {
+    const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
+    const otro = (await post('fin_recurring', {
+      user_id: USER_ID, name: 'Netflix', amount: 9, account_id: airtm.id,
+    }).then(r => r.json()))[0]
+
+    const ins = await fetch(`${URL_}/rest/v1/fin_recurring`, {
+      method: 'POST', headers: noSession,
+      body: JSON.stringify({ user_id: USER_ID, name: 'Intruso', amount: 1, account_id: airtm.id }),
+    })
+    ok('sin sesión no puede insertar un fijo', ins.status >= 400, `HTTP ${ins.status}`)
+
+    await fetch(`${URL_}/rest/v1/fin_recurring?id=eq.${otro.id}`, {
+      method: 'PATCH', headers: noSession, body: JSON.stringify({ name: 'Hackeado' }),
+    })
+    eq('ni modificarlo', (await rows('fin_recurring', `&id=eq.${otro.id}`))[0].name, 'Netflix')
+
+    await fetch(`${URL_}/rest/v1/fin_recurring?id=eq.${otro.id}`, { method: 'DELETE', headers: noSession })
+    eq('ni borrarlo', (await rows('fin_recurring', `&id=eq.${otro.id}`)).length, 1)
+
+    await as(`/fin_recurring?id=eq.${otro.id}`, { method: 'DELETE' })
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

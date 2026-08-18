@@ -37,6 +37,7 @@ const api = (path, init = {}) => fetch(`${BASE}/api/finanzas${path}`, {
   ...init, headers: { Cookie: COOKIE, 'Content-Type': 'application/json', ...init.headers },
 })
 const json = async r => { try { return await r.json() } catch { return null } }
+const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100
 
 async function run() {
   section('autenticación')
@@ -374,6 +375,564 @@ async function run() {
        (await json(await api(`/transactions?account_id=${broker.id}`))).transactions.length, 1)
     eq('un mes sin datos vuelve vacío',
        (await json(await api('/transactions?from=2026-01-01&to=2026-01-31'))).transactions.length, 0)
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SPRINT 2 · Compartidos y reembolsos
+       ══════════════════════════════════════════════════════════════════════ */
+
+    section('SPRINT 2 · POST /people')
+    let ana, juan
+    {
+      const r = await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Ana', emoji: '🌿' }) })
+      eq('crea una persona', r.status, 201)
+      ana = (await json(r)).person
+
+      // Idempotencia: es lo que sostiene el "crear al vuelo" del quick-add.
+      const dup = await api('/people', { method: 'POST', body: JSON.stringify({ name: 'ana' }) })
+      const dupBody = await json(dup)
+      eq('el mismo nombre no crea otra: devuelve 200', dup.status, 200)
+      eq('y es exactamente la misma persona', dupBody.person.id, ana.id)
+      eq('marcada como no creada', dupBody.created, false)
+
+      eq('sin nombre → 400', (await api('/people', { method: 'POST', body: JSON.stringify({}) })).status, 400)
+      eq('nombre en blanco → 400', (await api('/people', { method: 'POST', body: JSON.stringify({ name: '  ' }) })).status, 400)
+
+      juan = (await json(await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Juan' }) }))).person
+      const lista = await json(await api('/people'))
+      eq('la lista trae las dos', lista.people.length, 2)
+      eq('y nadie debe nada todavía', lista.people.every(p => p.open_usd === 0), true)
+    }
+
+    section('SPRINT 2 · gasto compartido')
+    let spotify
+    {
+      // Contra el saldo del momento, no contra un número fijo: las secciones
+      // anteriores ya movieron Airtm y hardcodear acá haría fallar esta prueba
+      // cada vez que alguien agregue un movimiento más arriba.
+      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+
+      const r = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 11.99,
+        description: 'Spotify',
+        splits: [{ person_id: ana.id, amount: 3 }, { person_id: juan.id, amount: 3 },
+                 { person_name: 'Carlos', amount: 3 }],
+      })})
+      eq('crea el gasto con reparto', r.status, 201)
+      spotify = (await json(r)).transaction
+      eq('tres partes', spotify.splits.length, 3)
+      eq('Carlos se creó al vuelo', (await json(await api('/people'))).people.length, 3)
+
+      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('el saldo baja el BRUTO ($11.99), no tu parte ($2.99)',
+         round2(saldoAntes - saldoDespues), 11.99)
+
+      const lista = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('el gasto bruto del mes incluye Spotify entero', lista.total_gasto_usd, 17.02)
+      eq('lo repartido son $9', lista.total_repartido_usd, 9)
+      eq('el gasto real descuenta lo de otros', lista.total_gasto_real_usd, 8.02)
+
+      const soloCompartidos = await json(await api('/transactions?shared=1'))
+      eq('el filtro shared=1 devuelve solo el compartido', soloCompartidos.transactions.length, 1)
+    }
+
+    section('SPRINT 2 · validación del reparto')
+    {
+      // Regla CAMBIADA en el Sprint 3: repartir por encima del gasto es válido
+      // (cobrás de más y ganás la diferencia). Se limpia para no ensuciar los
+      // conteos de las secciones que siguen.
+      const sobra = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
+        splits: [{ person_id: ana.id, amount: 20 }],
+      })})
+      eq('repartir más que el gasto ya no se rechaza', sobra.status, 201)
+      await api(`/transactions/${(await json(sobra)).transaction.id}`, { method: 'DELETE' })
+
+      const enIngreso = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'ingreso', date: '2026-08-05', account_id: airtm.id, amount: 100,
+        splits: [{ person_id: ana.id, amount: 10 }],
+      })})
+      eq('un ingreso no se reparte → 400', enIngreso.status, 400)
+
+      const repetida = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
+        splits: [{ person_id: ana.id, amount: 2 }, { person_id: ana.id, amount: 2 }],
+      })})
+      eq('la misma persona dos veces → 400', repetida.status, 400)
+
+      const fantasma = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
+        splits: [{ person_id: '00000000-0000-0000-0000-000000000009', amount: 2 }],
+      })})
+      eq('una persona que no existe → 400', fantasma.status, 400)
+
+      // Si el reparto falla, el gasto no debe quedar suelto.
+      eq('y ninguno de esos intentos dejó un gasto colgado',
+         (await json(await api('/transactions?from=2026-08-05&to=2026-08-05'))).transactions.length, 1)
+    }
+
+    section('SPRINT 2 · GET /shared')
+    {
+      const sh = await json(await api('/shared'))
+      eq('te deben $9', sh.por_cobrar_usd, 9)
+      eq('repartido entre tres personas', sh.por_persona.length, 3)
+      eq('cada una debe $3', sh.por_persona.every(p => p.open_usd === 3), true)
+      ok('con la antigüedad calculada', sh.por_persona.every(p => typeof p.oldest_days === 'number'))
+      eq('nada cobrado todavía', sh.cobrado_mes_usd, 0)
+      eq('un reparto reciente para repetir', sh.repartos_recientes.length, 1)
+      eq('con las tres personas', sh.repartos_recientes[0].people.length, 3)
+      eq('y detectado como parejo', sh.repartos_recientes[0].even, true)
+    }
+
+    section('SPRINT 2 · cobrar')
+    let cobroTx
+    {
+      const sh = await json(await api('/shared'))
+      const deAna = sh.por_persona.find(p => p.person.id === ana.id)
+      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+
+      const r = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: deAna.splits.map(x => x.id), account_id: airtm.id, amount: 3, date: '2026-08-18',
+      })})
+      eq('registra el cobro', r.status, 201)
+      const body = await json(r)
+      cobroTx = body.transaction
+      eq('como ingreso', cobroTx.type, 'ingreso')
+      eq('pero marcado como movimiento', cobroTx.flow_type, 'movimiento')
+      eq('y sin categoría', cobroTx.category_id ?? null, null)
+
+      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('el saldo sube los $3 que entraron', round2(saldoDespues - saldoAntes), 3)
+
+      // La prueba que define el sprint.
+      const lista = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('el ingreso del mes NO se mueve', lista.total_ingreso_usd, 28.69)
+      eq('y el gasto real tampoco: cobrar no cambia de quién es el gasto', lista.total_gasto_real_usd, 8.02)
+
+      const sh2 = await json(await api('/shared'))
+      eq('te deben $6', sh2.por_cobrar_usd, 6)
+      eq('cobrado este mes: $3', sh2.cobrado_mes_usd, 3)
+      eq('Ana sale de las deudas abiertas', sh2.por_persona.length, 2)
+      eq('y entra al historial', sh2.historial.length, 1)
+      eq('marcada como cobrada', sh2.historial[0].state, 'cobrado')
+    }
+
+    section('SPRINT 2 · cobrar · errores')
+    {
+      const sh = await json(await api('/shared'))
+      const deJuan = sh.por_persona.find(p => p.person.id === juan.id)
+      const otro = sh.por_persona.find(p => p.person.id !== juan.id)
+      const yaCobrada = sh.historial[0]
+
+      eq('sin deudas → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [], account_id: airtm.id, amount: 3 }) })).status, 400)
+
+      eq('sin cuenta → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deJuan.splits[0].id], amount: 3 }) })).status, 400)
+
+      eq('monto en cero → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deJuan.splits[0].id], account_id: airtm.id, amount: 0 }) })).status, 400)
+
+      eq('una deuda que no existe → 404', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: ['00000000-0000-0000-0000-000000000009'], account_id: airtm.id, amount: 3 }) })).status, 404)
+
+      const yaCerrada = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [yaCobrada.id], account_id: airtm.id, amount: 3 }) })
+      eq('una deuda ya cobrada → 400', yaCerrada.status, 400)
+      ok('con el gasto nombrado en el error', (await json(yaCerrada)).error.includes('Spotify'))
+
+      const mezcla = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deJuan.splits[0].id, otro.splits[0].id], account_id: airtm.id, amount: 6 }) })
+      eq('mezclar dos personas en un cobro → 400', mezcla.status, 400)
+
+      // Ninguno de esos rechazos debe haber dejado un movimiento suelto.
+      const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
+      eq('ningún cobro fallido dejó un movimiento colgado',
+         ingresos.filter(t => t.flow_type === 'movimiento').length, 1)
+    }
+
+    section('SPRINT 2 · un cobro salda varias deudas')
+    {
+      // Un segundo gasto compartido con Juan: dos deudas, un solo pago.
+      const segundo = (await json(await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-06', account_id: airtm.id, amount: 8, description: 'Cena',
+        splits: [{ person_id: juan.id, amount: 4 }],
+      })}))).transaction
+
+      const sh = await json(await api('/shared'))
+      const deJuan = sh.por_persona.find(p => p.person.id === juan.id)
+      eq('Juan debe dos cosas', deJuan.splits.length, 2)
+
+      const r = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: deJuan.splits.map(x => x.id), account_id: airtm.id, amount: 7, date: '2026-08-18',
+      })})
+      eq('un solo cobro las salda a las dos', (await json(r)).settled, 2)
+
+      const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
+      eq('y crea un solo movimiento', ingresos.filter(t => t.flow_type === 'movimiento').length, 2)
+
+      // "Cena" queda viva a propósito: con su parte ya cobrada no se puede
+      // borrar (esa es justamente la regla), y las secciones siguientes la usan
+      // como el reparto que sobrevive a Spotify.
+      eq('y ahora no se puede borrar: tiene una parte cobrada',
+         (await api(`/transactions/${segundo.id}`, { method: 'DELETE' })).status, 409)
+    }
+
+    section('SPRINT 2 · condonar')
+    {
+      const antes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      const sh = await json(await api('/shared'))
+      const carlos = sh.por_persona[0]
+
+      const r = await api('/shared/waive', { method: 'POST', body: JSON.stringify({
+        split_ids: [carlos.splits[0].id] }) })
+      eq('condona', (await json(r)).waived, 1)
+
+      const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
+      eq('sin crear ningún movimiento nuevo', ingresos.filter(t => t.flow_type === 'movimiento').length, 2)
+
+      const despues = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      ok('el gasto real SUBE: te hiciste cargo vos',
+         despues.total_gasto_real_usd > antes.total_gasto_real_usd,
+         `${antes.total_gasto_real_usd} → ${despues.total_gasto_real_usd}`)
+
+      const sh2 = await json(await api('/shared'))
+      eq('ya no te debe nada', sh2.por_cobrar_usd, 0)
+      eq('condonado este mes: $3', sh2.condonado_mes_usd, 3)
+
+      eq('condonar algo ya cerrado → 400', (await api('/shared/waive', { method: 'POST', body: JSON.stringify({
+        split_ids: [carlos.splits[0].id] }) })).status, 400)
+    }
+
+    section('SPRINT 2 · deshacer')
+    {
+      const sh = await json(await api('/shared'))
+      const cobrado = sh.historial.find(x => x.state === 'cobrado' && x.person.id === ana.id)
+
+      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+
+      const r = await api('/shared/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [cobrado.id], delete_transaction: true }) })
+      const body = await json(r)
+      eq('reabre la deuda', body.reopened, 1)
+      eq('y borra el movimiento del cobro', body.deleted_transactions, 1)
+
+      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('el saldo devuelve exactamente los $3 del cobro', round2(saldoAntes - saldoDespues), 3)
+
+      const sh2 = await json(await api('/shared'))
+      eq('Ana vuelve a deber $3', sh2.por_cobrar_usd, 3)
+
+      // Borrar el movimiento del cobro directamente también reabre la deuda:
+      // es el `on delete set null` visto desde la API.
+      const shJuan = await json(await api('/shared'))
+      const cobradoJuan = shJuan.historial.find(x => x.state === 'cobrado')
+      await api(`/transactions/${cobradoJuan.settled_tx_id}`, { method: 'DELETE' })
+      const sh3 = await json(await api('/shared'))
+      ok('borrar el movimiento del cobro reabre la deuda sola',
+         sh3.por_cobrar_usd > sh2.por_cobrar_usd, `${sh2.por_cobrar_usd} → ${sh3.por_cobrar_usd}`)
+    }
+
+    section('SPRINT 2 · PATCH del reparto')
+    {
+      eq('sin `splits` en el body el reparto queda intacto',
+         (await json(await api(`/transactions/${spotify.id}`, {
+           method: 'PATCH', body: JSON.stringify({ description: 'Spotify familiar' }),
+         }))).transaction.splits.length, 3)
+
+      // Regla CAMBIADA en el Sprint 3: bajar el gasto por debajo de lo repartido
+      // es válido — pasás a cobrar por encima del costo. Se restaura el monto
+      // para no alterar los totales de las secciones siguientes.
+      const bajar = await api(`/transactions/${spotify.id}`, {
+        method: 'PATCH', body: JSON.stringify({ amount: 5 }) })
+      eq('bajar el monto por debajo del reparto ya no se rechaza', bajar.status, 200)
+      await api(`/transactions/${spotify.id}`, { method: 'PATCH', body: JSON.stringify({ amount: 11.99 }) })
+
+      const reemplazo = await api(`/transactions/${spotify.id}`, {
+        method: 'PATCH', body: JSON.stringify({ splits: [{ person_id: ana.id, amount: 3 }, { person_id: juan.id, amount: 5 }] }) })
+      const tras = (await json(reemplazo)).transaction
+      eq('reemplaza el reparto entero', tras.splits.length, 2)
+      eq('actualizando el que cambió de monto',
+         Number(tras.splits.find(x => x.person_id === juan.id).amount), 5)
+
+      const cambiarTipo = await api(`/transactions/${spotify.id}`, {
+        method: 'PATCH', body: JSON.stringify({ type: 'ingreso' }) })
+      eq('no se puede cambiar de tipo con reparto → 400', cambiarTipo.status, 400)
+    }
+
+    section('SPRINT 2 · borrar un gasto compartido')
+    {
+      // Con una parte cobrada, no se puede.
+      const sh = await json(await api('/shared'))
+      const deAna = sh.por_persona.find(p => p.person.id === ana.id)
+      await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deAna.splits[0].id], account_id: airtm.id, amount: 3 }) })
+
+      const bloqueado = await api(`/transactions/${spotify.id}`, { method: 'DELETE' })
+      eq('con una parte cobrada → 409', bloqueado.status, 409)
+      ok('y el mensaje explica qué hacer', (await json(bloqueado)).error.includes('Deshac'))
+
+      const sh2 = await json(await api('/shared'))
+      const cobrado = sh2.historial.find(x => x.state === 'cobrado')
+      await api('/shared/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [cobrado.id], delete_transaction: true }) })
+
+      const antes = await json(await api('/shared'))
+      const deudaSpotify = antes.por_persona
+        .flatMap(p => p.splits)
+        .filter(x => x.transaction.id === spotify.id)
+        .reduce((n, x) => n + x.amount_usd, 0)
+
+      eq('sin cobros, borra el gasto y su reparto',
+         (await api(`/transactions/${spotify.id}`, { method: 'DELETE' })).status, 200)
+
+      const despues = await json(await api('/shared'))
+      eq('desaparecen las deudas de ESE gasto',
+         round2(antes.por_cobrar_usd - despues.por_cobrar_usd), round2(deudaSpotify))
+      eq('y ninguna queda apuntando al gasto borrado',
+         despues.por_persona.flatMap(p => p.splits).filter(x => x.transaction.id === spotify.id).length, 0)
+    }
+
+    section('SPRINT 2 · personas · PATCH y DELETE')
+    {
+      eq('renombrar', (await api(`/people/${ana.id}`, {
+        method: 'PATCH', body: JSON.stringify({ name: 'Ana María' }) })).status, 200)
+      eq('nombre en blanco → 400', (await api(`/people/${ana.id}`, {
+        method: 'PATCH', body: JSON.stringify({ name: '  ' }) })).status, 400)
+      eq('una persona que no existe → 404', (await api('/people/00000000-0000-0000-0000-000000000009', {
+        method: 'PATCH', body: JSON.stringify({ name: 'X' }) })).status, 404)
+
+      // Juan es el que conserva historial: su parte de "Cena" sigue viva. Los
+      // repartos de Ana se borraron junto con Spotify.
+      const conHistorial = await api(`/people/${juan.id}`, { method: 'DELETE' })
+      eq('con historial de repartos → 409', conHistorial.status, 409)
+      ok('sugiriendo archivar', ((await json(conHistorial))?.error ?? '').includes('Archival'))
+
+      eq('archivar sí se puede', (await api(`/people/${juan.id}`, {
+        method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
+
+      const limpia = (await json(await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Sin historial' }) }))).person
+      eq('sin historial se borra', (await api(`/people/${limpia.id}`, { method: 'DELETE' })).status, 200)
+    }
+
+    section('SPRINT 2 · autenticación de las rutas nuevas')
+    {
+      for (const [label, path, init] of [
+        ['GET /people', '/people', {}],
+        ['POST /people', '/people', { method: 'POST', body: '{}' }],
+        ['GET /shared', '/shared', {}],
+        ['POST /shared/settle', '/shared/settle', { method: 'POST', body: '{}' }],
+        ['POST /shared/waive', '/shared/waive', { method: 'POST', body: '{}' }],
+        ['POST /shared/unsettle', '/shared/unsettle', { method: 'POST', body: '{}' }],
+      ]) {
+        const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
+        eq(`${label} sin cookie → 401`, r.status, 401)
+      }
+    }
+
+    section('GET /bootstrap · un viaje en vez de seis')
+    {
+      const anon = await fetch(`${BASE}/api/finanzas/bootstrap`)
+      eq('sin cookie → 401', anon.status, 401)
+
+      const RANGE = 'from=2026-08-01&to=2026-08-31'
+      const b = await json(await api(`/bootstrap?${RANGE}&limit=500&recent=3`))
+
+      // Lo que importa no es el contenido —cada ruta suelta ya tiene sus
+      // pruebas— sino que sea EXACTAMENTE el mismo. Si las dos vías se separan,
+      // la app muestra una cosa al abrir y otra al navegar.
+      const [acc, cat, ppl, shr, txm] = await Promise.all([
+        json(await api('/accounts')),
+        json(await api('/categories')),
+        json(await api('/people')),
+        json(await api(`/shared?${RANGE}`)),
+        json(await api(`/transactions?${RANGE}&limit=500`)),
+      ])
+
+      eq('el uid es el del usuario', b.uid, USER_ID)
+      eq('cuentas idénticas a GET /accounts', b.accounts, acc.accounts)
+      eq('patrimonio idéntico', b.total_usd, acc.total_usd)
+      eq('tasas idénticas', b.rates, acc.rates)
+      eq('rate_list idéntico', b.rate_list, acc.rate_list)
+      eq('categorías idénticas a GET /categories', b.categories, cat.categories)
+      eq('personas idénticas a GET /people', b.people, ppl.people)
+      eq('compartidos idénticos a GET /shared', b.shared, shr)
+      eq('el mes idéntico a GET /transactions', b.tx.month, txm)
+
+      ok('los últimos respetan el limit', b.tx.recent.transactions.length <= 3,
+         `llegaron ${b.tx.recent.transactions.length}`)
+      ok('y vienen del más nuevo al más viejo',
+         b.tx.recent.transactions.every((t, i, a) => i === 0 || a[i - 1].date >= t.date))
+
+      // El mes lo fija el cliente, no el reloj UTC del servidor.
+      const otro = await json(await api('/bootstrap?from=2026-01-01&to=2026-01-31'))
+      eq('otro rango filtra el mes', otro.tx.month.transactions.length, 0)
+      eq('pero las cuentas son las mismas', otro.total_usd, acc.total_usd)
+    }
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SPRINT 3 · Fijos
+       ══════════════════════════════════════════════════════════════════════ */
+
+    section('SPRINT 3 · repartir por encima del gasto')
+    {
+      const tx = (await json(await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-20', account_id: airtm.id, amount: 11.99, description: 'Margen',
+        splits: [{ person_id: ana.id, amount: 4.5 }, { person_id: juan.id, amount: 4.5 }],
+      })}))).transaction
+      eq('cobrar más que el costo ya no se rechaza', tx.splits.length, 2)
+
+      const lista = await json(await api('/transactions?from=2026-08-20&to=2026-08-20'))
+      eq('el bruto es lo que pagaste', lista.total_gasto_usd, 11.99)
+      eq('lo repartido puede superarlo', lista.total_repartido_usd, 9)
+      eq('y el real baja en consecuencia', lista.total_gasto_real_usd, 2.99)
+
+      // Y hasta puede dar negativo: eso es ganancia.
+      await api(`/transactions/${tx.id}`, { method: 'PATCH', body: JSON.stringify({
+        splits: [{ person_id: ana.id, amount: 7 }, { person_id: juan.id, amount: 7 }] }) })
+      const conGanancia = await json(await api('/transactions?from=2026-08-20&to=2026-08-20'))
+      eq('el gasto real da negativo: ganaste', conGanancia.total_gasto_real_usd, -2.01)
+
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 3 · POST /recurring')
+    let spotifyFijo
+    {
+      eq('sin nombre → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ amount: 5, account_id: airtm.id }) })).status, 400)
+      eq('sin cuenta → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5 }) })).status, 400)
+      eq('monto cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 0, account_id: airtm.id }) })).status, 400)
+      eq('día 45 → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id, day_of_month: 45 }) })).status, 400)
+      eq('anual sin mes → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id, frequency: 'anual' }) })).status, 400)
+      eq('cuenta que no existe → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
+
+      const r = await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Spotify', emoji: '📱', amount: 11.99, account_id: airtm.id,
+        frequency: 'mensual', day_of_month: 5,
+        // `amount: null` = parte pareja, se recalcula con el precio de cada mes.
+        splits: [{ person_id: ana.id, amount: null }, { person_id: juan.id, amount: null }],
+      })})
+      eq('crea la plantilla', r.status, 201)
+      spotifyFijo = (await json(r)).recurring
+
+      const lista = await json(await api('/recurring'))
+      const mio = lista.recurring.find(x => x.id === spotifyFijo.id)
+      eq('con sus dos partes', mio.splits.length, 2)
+      eq('las dos parejas', mio.splits.every(sp => sp.amount === null), true)
+      eq('la moneda sale de la cuenta', mio.currency, 'USD')
+      ok('y trae su estado del período', ['pendiente', 'vencido', 'registrado'].includes(mio.status), mio.status)
+      eq('nada registrado todavía', lista.done, 0)
+    }
+
+    section('SPRINT 3 · registrar el período')
+    {
+      const antes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+
+      const r = await api(`/recurring/${spotifyFijo.id}/register`, { method: 'POST', body: JSON.stringify({}) })
+      eq('registra', r.status, 201)
+      const tx = (await json(r)).transaction
+
+      eq('como gasto de consumo', `${tx.type}·${tx.flow_type}`, 'gasto·consumo')
+      eq('apuntando a su plantilla', tx.recurring_id, spotifyFijo.id)
+      eq('con la descripción del fijo', tx.description, 'Spotify')
+      eq('y genera las dos deudas', tx.splits.length, 2)
+      eq('$11.99 entre 3 → $3.99 cada uno', tx.splits.map(sp => Number(sp.amount)), [3.99, 3.99])
+
+      const despues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('el saldo baja el bruto', round2(antes - despues), 11.99)
+
+      const lista = await json(await api('/recurring'))
+      const mio = lista.recurring.find(x => x.id === spotifyFijo.id)
+      eq('la plantilla queda registrada', mio.status, 'registrado')
+      eq('con el movimiento enlazado', mio.registered_tx_id, tx.id)
+      eq('y sabe cuánto te deben de este fijo', mio.open_usd, 7.98)
+      eq('el progreso lo cuenta', lista.done, 1)
+
+      // Idempotencia: dos toques al botón no son dos gastos.
+      const otra = await api(`/recurring/${spotifyFijo.id}/register`, { method: 'POST', body: JSON.stringify({}) })
+      eq('registrar dos veces el mismo período → 409', otra.status, 409)
+      ok('diciendo cuál ya está', (await json(otra)).error.includes('Spotify'))
+    }
+
+    section('SPRINT 3 · la fecha por defecto es la del período, no hoy')
+    {
+      const lista = await json(await api('/recurring'))
+      const mio = lista.recurring.find(x => x.id === spotifyFijo.id)
+      const tx = (await json(await api(`/transactions?from=${mio.due}&to=${mio.due}`))).transactions
+        .find(t => t.recurring_id === spotifyFijo.id)
+      ok('el gasto cayó el día que le tocaba, no el de hoy', !!tx, `esperaba uno en ${mio.due}`)
+    }
+
+    section('SPRINT 3 · el precio sube')
+    {
+      // Otro fijo para no ensuciar el de arriba, y en un período limpio.
+      const tv = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'TradingView', amount: 29.95, account_id: airtm.id, day_of_month: 12,
+        splits: [{ person_id: ana.id, amount: null }],
+      })}))).recurring
+
+      const r = await api(`/recurring/${tv.id}/register`, { method: 'POST', body: JSON.stringify({
+        amount: 34.95, update_template: true }) })
+      const tx = (await json(r)).transaction
+      eq('el monto del mes manda', Number(tx.amount), 34.95)
+      eq('y la parte pareja se recalcula con ÉL', Number(tx.splits[0].amount), 17.47)
+
+      const lista = await json(await api('/recurring'))
+      eq('la plantilla se actualizó porque se pidió',
+         Number(lista.recurring.find(x => x.id === tv.id).amount), 34.95)
+
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' }).catch(() => {})
+    }
+
+    section('SPRINT 3 · PATCH y pausa')
+    {
+      eq('renombrar', (await api(`/recurring/${spotifyFijo.id}`, {
+        method: 'PATCH', body: JSON.stringify({ name: 'Spotify Familiar' }) })).status, 200)
+
+      eq('sin `splits` el reparto queda intacto',
+         (await json(await api('/recurring'))).recurring.find(x => x.id === spotifyFijo.id).splits.length, 2)
+
+      await api(`/recurring/${spotifyFijo.id}`, { method: 'PATCH', body: JSON.stringify({
+        splits: [{ person_id: ana.id, amount: 5 }] }) })
+      const tras = (await json(await api('/recurring'))).recurring.find(x => x.id === spotifyFijo.id)
+      eq('mandarlo lo reemplaza entero', tras.splits.length, 1)
+      eq('con el monto fijo que se pidió', Number(tras.splits[0].amount), 5)
+
+      await api(`/recurring/${spotifyFijo.id}`, { method: 'PATCH', body: JSON.stringify({ active: false }) })
+      const pausado = (await json(await api('/recurring'))).recurring.find(x => x.id === spotifyFijo.id)
+      eq('pausado deja de reclamar', pausado.status, 'pausado')
+
+      eq('un fijo que no existe → 404', (await api('/recurring/00000000-0000-0000-0000-000000000009', {
+        method: 'PATCH', body: JSON.stringify({ name: 'X' }) })).status, 404)
+      eq('registrar uno que no existe → 404', (await api('/recurring/00000000-0000-0000-0000-000000000009/register', {
+        method: 'POST', body: JSON.stringify({}) })).status, 404)
+    }
+
+    section('SPRINT 3 · borrar la plantilla no borra la historia')
+    {
+      const antes = (await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))).transactions
+        .filter(t => t.recurring_id === spotifyFijo.id).length
+      ok('hay al menos un gasto generado por el fijo', antes > 0)
+
+      eq('borra', (await api(`/recurring/${spotifyFijo.id}`, { method: 'DELETE' })).status, 200)
+
+      const despues = (await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))).transactions
+      ok('los gastos siguen ahí', despues.some(t => t.description?.includes('Spotify')))
+      eq('pero sin vínculo', despues.filter(t => t.recurring_id === spotifyFijo.id).length, 0)
+    }
+
+    section('SPRINT 3 · autenticación de las rutas nuevas')
+    {
+      for (const [label, path, init] of [
+        ['GET /recurring', '/recurring', {}],
+        ['POST /recurring', '/recurring', { method: 'POST', body: '{}' }],
+        ['POST /recurring/[id]/register', '/recurring/x/register', { method: 'POST', body: '{}' }],
+      ]) {
+        const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
+        eq(`${label} sin cookie → 401`, r.status, 401)
+      }
+    }
 
     section('DELETE /transactions')
     await api(`/transactions/${gasto.id}`, { method: 'DELETE' })

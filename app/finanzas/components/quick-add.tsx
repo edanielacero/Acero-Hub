@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { IconTrash, IconX } from '@tabler/icons-react'
+import { IconCheck, IconTrash, IconUsersGroup, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
 import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { useQuickAddApi } from './quick-add-context'
+import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
 import { Btn, ErrorNote, Label, Segmented, TextArea, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
@@ -20,7 +21,7 @@ const TYPE_OPTIONS: { value: TxType; label: string }[] = [
 
 export function QuickAdd() {
   const { open, editing, close } = useQuickAddApi()
-  const { accounts, categories, rates, reload } = useFinanzas()
+  const { accounts, categories, people, rates, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
 
@@ -36,6 +37,13 @@ export function QuickAdd() {
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Reparto. Arranca colapsado: el gasto normal tiene que seguir tardando menos
+  // de 10 segundos, y desplegar esto por defecto le agregaría una pantalla de
+  // scroll a los 9 de cada 10 gastos que no se comparten.
+  const [sharedOn, setSharedOn] = useState(false)
+  const [splitDrafts, setSplitDrafts] = useState<SplitDraft[]>([])
+  const [splitMode, setSplitMode] = useState<SplitMode>('igual')
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -54,6 +62,18 @@ export function QuickAdd() {
       setCategoryId(editing.category_id ?? '')
       setDate(editing.date)
       setDescription(editing.description ?? '')
+
+      const existentes = editing.splits ?? []
+      setSharedOn(existentes.length > 0)
+      setSplitDrafts(existentes.map(sp => ({
+        person_id: sp.person_id,
+        name: people.find(p => p.id === sp.person_id)?.name ?? 'Persona',
+        amount: String(sp.amount),
+      })))
+      // Manual al abrir: los montos guardados son los reales. Si arrancara en
+      // "iguales", el efecto de recálculo los pisaría antes de que el usuario
+      // pueda verlos.
+      setSplitMode('manual')
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
       setType('gasto')
@@ -65,6 +85,9 @@ export function QuickAdd() {
       setCategoryId('')
       setDate(todayISO())
       setDescription('')
+      setSharedOn(false)
+      setSplitDrafts([])
+      setSplitMode('igual')
     }
     const t = setTimeout(() => amountRef.current?.focus(), 120)
     return () => clearTimeout(t)
@@ -144,6 +167,14 @@ export function QuickAdd() {
     [categories, type],
   )
 
+  // Solo un gasto se reparte: una transferencia no es un gasto y un ingreso
+  // compartido no le pasa en la vida real.
+  const puedeCompartir = type === 'gasto'
+  const partes = sharedOn && puedeCompartir ? splitDrafts : []
+  const repartoIncompleto = partes.some(
+    d => !Number.isFinite(amountFromInput(d.amount, { decimals: fromDecimals })),
+  )
+
   if (!open) return null
 
   async function submit() {
@@ -173,6 +204,19 @@ export function QuickAdd() {
       }
     } else {
       payload.category_id = categoryId || null
+    }
+
+    if (puedeCompartir) {
+      if (repartoIncompleto) return setError('Completá el monto de cada persona del reparto')
+
+      // Mandar `splits` reemplaza el reparto entero. En modo edición se manda
+      // siempre — incluso vacío — para que desmarcar "es compartido" lo borre.
+      if (partes.length > 0 || editing) {
+        payload.splits = partes.map(d => ({
+          person_id: d.person_id,
+          amount: amountFromInput(d.amount, { decimals: fromDecimals }),
+        }))
+      }
     }
 
     setSaving(true)
@@ -378,6 +422,46 @@ export function QuickAdd() {
                   </p>
                 )}
               </div>
+            </div>
+          )}
+
+          {puedeCompartir && (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => setSharedOn(v => !v)}
+                aria-pressed={sharedOn}
+                className="flex items-center gap-3 h-11 px-3.5 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-left"
+              >
+                <span
+                  aria-hidden
+                  className={`grid place-items-center w-5 h-5 rounded-[6px] border-2 transition-colors ${
+                    sharedOn
+                      ? 'bg-[var(--fz-accent)] border-[var(--fz-accent)] text-white'
+                      : 'border-[var(--fz-ink-3)]'
+                  }`}
+                >
+                  {sharedOn && <IconCheck size={13} stroke={3} />}
+                </span>
+                <IconUsersGroup size={18} stroke={1.8} className="text-[var(--fz-ink-2)]" />
+                <span className="text-[15px] font-semibold flex-1">Es compartido</span>
+                {partes.length > 0 && (
+                  <span className="text-[13px] font-medium text-[var(--fz-ink-2)] fz-num">
+                    {partes.length} {partes.length === 1 ? 'persona' : 'personas'}
+                  </span>
+                )}
+              </button>
+
+              {sharedOn && (
+                <SplitEditor
+                  drafts={splitDrafts}
+                  setDrafts={setSplitDrafts}
+                  mode={splitMode}
+                  setMode={setSplitMode}
+                  amount={amount}
+                  currency={from?.currency}
+                />
+              )}
             </div>
           )}
 

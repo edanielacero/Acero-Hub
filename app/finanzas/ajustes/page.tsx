@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { IconArchive, IconCheck, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
-import type { Category, CategoryKind, Currency } from '@/lib/finanzas/types'
+import type { Category, CategoryKind, Currency, PersonWithDebt } from '@/lib/finanzas/types'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
-import { amountFromInput, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, formatUSD, parseDecimalInput } from '@/lib/finanzas/money'
 import { CurrencyIcon } from '../components/currency-icon'
 import { useFinanzas } from '../components/data-context'
 import { PageHeader } from '../components/tx-row'
@@ -22,7 +22,7 @@ function relativo(iso: string): string {
 }
 
 export default function AjustesPage() {
-  const { categories, rates, rateList, reload } = useFinanzas()
+  const { categories, people, rates, rateList, reload } = useFinanzas()
 
   const [draftRates, setDraftRates] = useState<Partial<Record<Currency, string>>>({})
   const [savingRate, setSavingRate] = useState<Currency | null>(null)
@@ -34,6 +34,8 @@ export default function AjustesPage() {
   const [newKind, setNewKind] = useState<CategoryKind>('gasto')
   const [newEmoji, setNewEmoji] = useState('')
   const [seeding, setSeeding] = useState(false)
+
+  const [newPerson, setNewPerson] = useState('')
 
   useEffect(() => {
     setDraftRates(Object.fromEntries(RATED_CURRENCIES.map(c => [c, String(rates[c] ?? CURRENCY_META[c].defaultRate)])))
@@ -123,6 +125,48 @@ export default function AjustesPage() {
   async function removeCategory(id: string) {
     setError('')
     const res = await fetch(`/api/finanzas/categories/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return setError(data.error ?? 'No se pudo borrar')
+    }
+    await reload()
+  }
+
+  async function addPerson() {
+    setError('')
+    const name = newPerson.trim()
+    if (!name) return setError('La persona necesita un nombre')
+
+    const res = await fetch('/api/finanzas/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return setError(data.error ?? 'No se pudo crear')
+    }
+    setNewPerson('')
+    await reload()
+  }
+
+  async function patchPerson(id: string, body: Record<string, unknown>) {
+    setError('')
+    const res = await fetch(`/api/finanzas/people/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return setError(data.error ?? 'No se pudo actualizar')
+    }
+    await reload()
+  }
+
+  async function removePerson(p: PersonWithDebt) {
+    setError('')
+    const res = await fetch(`/api/finanzas/people/${p.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo borrar')
@@ -282,6 +326,99 @@ export default function AjustesPage() {
             <div className="grid gap-5 min-[900px]:grid-cols-2 mt-5">
               <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} />
               <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} />
+            </div>
+          )}
+        </Panel>
+
+        <Panel>
+          <SectionTitle>Personas</SectionTitle>
+          <p className="text-[13px] text-[var(--fz-ink-2)] -mt-2 mb-3">
+            Con quiénes compartís gastos. Son etiquetas tuyas: nadie más las ve ni entra a la app.
+          </p>
+
+          <div className="grid gap-2 min-[900px]:grid-cols-[1fr_auto] items-end">
+            <div>
+              <Label>Nombre</Label>
+              <TextField
+                value={newPerson}
+                onChange={e => setNewPerson(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void addPerson() } }}
+                placeholder="Ana"
+              />
+            </div>
+            <Btn onClick={addPerson}><IconPlus size={18} stroke={2} /> Agregar</Btn>
+          </div>
+
+          {people.length === 0 ? (
+            <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
+              Todavía no hay personas. También podés crearlas al vuelo desde el quick-add.
+            </p>
+          ) : (
+            <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-4">
+              {people.map(p => (
+                <div key={p.id} className={`flex items-center gap-3 py-2.5 ${p.archived ? 'opacity-50' : ''}`}>
+                  <label
+                    className="relative grid place-items-center w-9 h-9 shrink-0 rounded-[var(--fz-r-chip)] cursor-text"
+                    style={tintVars(tintFor(p.name))}
+                    title="Cambiar emoji"
+                  >
+                    <span className="sr-only">Emoji de {p.name}</span>
+                    <input
+                      defaultValue={p.emoji ?? ''}
+                      onBlur={e => {
+                        const next = e.target.value.trim().slice(0, 2)
+                        if (next !== (p.emoji ?? '')) patchPerson(p.id, { emoji: next || null })
+                      }}
+                      maxLength={2}
+                      aria-label={`Emoji de ${p.name}`}
+                      placeholder={p.name.charAt(0)}
+                      className="w-full h-full bg-transparent text-center text-[17px] outline-none placeholder:opacity-40 focus:ring-2 focus:ring-[var(--fz-accent)] rounded-[var(--fz-r-chip)]"
+                    />
+                  </label>
+
+                  <input
+                    defaultValue={p.name}
+                    onBlur={e => {
+                      const next = e.target.value.trim()
+                      if (next && next !== p.name) patchPerson(p.id, { name: next })
+                    }}
+                    aria-label={`Nombre de ${p.name}`}
+                    className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
+                  />
+
+                  {p.open_usd > 0 && (
+                    <span className="shrink-0 text-[13px] font-semibold fz-num text-[var(--fz-out-text)]">
+                      debe {formatUSD(p.open_usd)}
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Archivar a alguien que todavía te debe es válido, pero
+                      // conviene saberlo antes: la deuda no desaparece con la
+                      // persona.
+                      if (!p.archived && p.open_usd > 0 &&
+                          !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
+                      patchPerson(p.id, { archived: !p.archived })
+                    }}
+                    aria-label={p.archived ? 'Restaurar' : 'Archivar'}
+                    title={p.archived ? 'Restaurar' : 'Archivar'}
+                    className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]"
+                  >
+                    <IconArchive size={16} stroke={1.8} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removePerson(p)}
+                    aria-label="Borrar"
+                    title={p.open_count > 0 ? 'Tiene historial: archivala en vez de borrarla' : 'Borrar'}
+                    className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]"
+                  >
+                    <IconTrash size={16} stroke={1.8} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </Panel>

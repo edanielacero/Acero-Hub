@@ -1,64 +1,49 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num, round2 } from '@/lib/finanzas/money'
+import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
+import { loadTransactions } from '@/lib/finanzas/load'
 import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
-import type { Account, TransactionInput } from '@/lib/finanzas/types'
+import { freezeSplitUsd, validateSplits } from '@/lib/finanzas/splits'
+import { resolvePeople, assertOwnedPeople } from '@/lib/finanzas/people'
+import { SPLIT_COLS } from '@/lib/finanzas/shared'
+import type { Account, Currency, SplitInput, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
+
+/** El reparto tal como llega del cliente, sin confiar en nada. */
+export function readSplitInput(raw: unknown): SplitInput[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (!Array.isArray(raw)) return []
+  return raw.map(r => ({
+    person_id: typeof r?.person_id === 'string' ? r.person_id : undefined,
+    person_name: typeof r?.person_name === 'string' ? r.person_name : undefined,
+    amount: num(r?.amount, NaN),
+  }))
+}
 
 export async function GET(request: Request) {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const url = new URL(request.url)
-  const from = url.searchParams.get('from')
-  const to = url.searchParams.get('to')
-  const type = url.searchParams.get('type')
-  const accountId = url.searchParams.get('account_id')
-  const categoryId = url.searchParams.get('category_id')
-  const limit = Math.min(num(url.searchParams.get('limit'), 200), 500)
-  const offset = num(url.searchParams.get('offset'), 0)
-
-  let query = supabase
-    .from('fin_transactions')
-    .select(TX_COLS)
-    .eq('user_id', userId)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1)
-
-  if (from) query = query.gte('date', from)
-  if (to) query = query.lte('date', to)
-  if (type) query = query.eq('type', type)
-  if (categoryId) query = query.eq('category_id', categoryId)
-  // Una cuenta aparece como origen o como destino de una transferencia.
-  if (accountId) query = query.or(`account_id.eq.${accountId},to_account_id.eq.${accountId}`)
-
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-  const transactions = (data ?? []).map(t => ({
-    ...t,
-    amount: num(t.amount),
-    to_amount: t.to_amount === null ? null : num(t.to_amount),
-    exchange_rate: num(t.exchange_rate),
-    amount_usd: num(t.amount_usd),
-  }))
-
-  return NextResponse.json({
-    transactions,
-    total_gasto_usd: round2(
-      transactions.filter(t => t.type === 'gasto').reduce((s, t) => s + t.amount_usd, 0),
-    ),
-    total_ingreso_usd: round2(
-      transactions.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount_usd, 0),
-    ),
+  const q = new URL(request.url).searchParams
+  const { data, error } = await loadTransactions(supabase, userId, {
+    from: q.get('from'),
+    to: q.get('to'),
+    type: q.get('type'),
+    accountId: q.get('account_id'),
+    categoryId: q.get('category_id'),
+    sharedOnly: q.get('shared') === '1',
+    limit: num(q.get('limit'), 200),
+    offset: num(q.get('offset'), 0),
   })
+
+  if (error) return NextResponse.json({ error }, { status: 400 })
+  return NextResponse.json(data)
 }
 
 export async function POST(request: Request) {
@@ -78,6 +63,7 @@ export async function POST(request: Request) {
     to_amount: body.to_amount == null ? null : num(body.to_amount),
     description: typeof body.description === 'string' ? body.description.trim() || null : null,
   }
+  const splitsInput = readSplitInput(body.splits) ?? []
 
   // Cuentas y tasas no dependen entre sí — van juntas en un solo viaje.
   const [{ data: accountRows }, { rates }] = await Promise.all([
@@ -99,11 +85,30 @@ export async function POST(request: Request) {
   const currency = accountsById.get(input.account_id!)!.currency
   const frozen = freezeConversion(input.amount!, currency, rates)
 
+  // Se leen las personas antes de validar: hacen falta para cruzar las filas
+  // que llegan por id con las que llegan por nombre y son la misma persona.
+  const conocidas = splitsInput.length > 0
+    ? (await supabase.from('fin_people').select('id, name').eq('user_id', userId)).data ?? []
+    : []
+
+  const splitCheck = validateSplits(splitsInput, input.type!, input.amount!, currency, conocidas)
+  if (!splitCheck.ok) return NextResponse.json({ error: splitCheck.error }, { status: 400 })
+
+  const ownedError = await assertOwnedPeople(
+    supabase, userId,
+    splitsInput.map(s => s.person_id).filter((x): x is string => Boolean(x)),
+  )
+  if (ownedError) return NextResponse.json({ error: ownedError }, { status: 400 })
+
   const { data, error } = await supabase
     .from('fin_transactions')
     .insert({
       user_id: userId,
       type: input.type,
+      // El cliente nunca manda `flow_type`. Un gasto o un ingreso registrados
+      // desde el quick-add son siempre consumo; los movimientos financieros los
+      // crea el server (transferencias y cobros).
+      flow_type: input.type === 'transferencia' ? 'movimiento' : 'consumo',
       date: input.date,
       account_id: input.account_id,
       to_account_id: input.type === 'transferencia' ? input.to_account_id : null,
@@ -119,5 +124,37 @@ export async function POST(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  return NextResponse.json({ transaction: data }, { status: 201 })
+
+  if (splitsInput.length === 0) {
+    return NextResponse.json({ transaction: { ...data, splits: [] } }, { status: 201 })
+  }
+
+  const { resolved, error: peopleError } = await resolvePeople(supabase, userId, splitsInput)
+  if (peopleError) {
+    await supabase.from('fin_transactions').delete().eq('id', data.id).eq('user_id', userId)
+    return NextResponse.json({ error: peopleError }, { status: 400 })
+  }
+
+  const { data: splits, error: splitError } = await supabase
+    .from('fin_splits')
+    .insert(resolved.map(r => ({
+      user_id: userId,
+      transaction_id: data.id,
+      person_id: r.person_id,
+      amount: r.amount,
+      currency,
+      // Con la tasa congelada del gasto, no con la de hoy: si cada parte
+      // convirtiera por su cuenta, las partes no sumarían al total.
+      amount_usd: freezeSplitUsd(r.amount, frozen.exchange_rate),
+    })))
+    .select(SPLIT_COLS)
+
+  if (splitError) {
+    // Compensación (§4.7 del sprint). Si este delete también falla, lo peor que
+    // queda es un gasto normal sin reparto: una fila válida, no un dato roto.
+    await supabase.from('fin_transactions').delete().eq('id', data.id).eq('user_id', userId)
+    return NextResponse.json({ error: `No se pudo guardar el reparto: ${splitError.message}` }, { status: 400 })
+  }
+
+  return NextResponse.json({ transaction: { ...data, splits: splits ?? [] } }, { status: 201 })
 }

@@ -82,17 +82,35 @@ export function freezeConversion(
   return { exchange_rate: freezeRate(currency, rates), amount_usd: toUsd(amount, currency, rates) }
 }
 
+/**
+ * Si el movimiento cuenta como consumo real.
+ *
+ * Se compara contra `'movimiento'` y no a favor de `'consumo'` a propósito: una
+ * fila sin `flow_type` — de antes de la migración del Sprint 2, o de un test
+ * que arma el objeto a mano — es consumo. El default de la columna dice lo
+ * mismo, y así las dos capas coinciden.
+ */
+export function isConsumo(tx: Pick<Transaction, 'flow_type'>): boolean {
+  return tx.flow_type !== 'movimiento'
+}
+
 /** Aporte de un movimiento al total de gasto del período, en USD. */
 export function gastoUsd(txs: Transaction[]): number {
   return round2(
-    txs.filter(t => t.type === 'gasto').reduce((s, t) => s + t.amount_usd, 0),
+    txs.filter(t => t.type === 'gasto' && isConsumo(t)).reduce((s, t) => s + t.amount_usd, 0),
   )
 }
 
-/** Aporte al total de ingresos del período, en USD. */
+/**
+ * Aporte al total de ingresos del período, en USD.
+ *
+ * ⚠️ **Excluye los reembolsos** (`flow_type = 'movimiento'`). Que Ana te
+ * devuelva su parte de Spotify sube el saldo, pero no es plata que ganaste.
+ * Sin este filtro, el reporte anual mostraría una fuente de ingresos inventada.
+ */
 export function ingresoUsd(txs: Transaction[]): number {
   return round2(
-    txs.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount_usd, 0),
+    txs.filter(t => t.type === 'ingreso' && isConsumo(t)).reduce((s, t) => s + t.amount_usd, 0),
   )
 }
 

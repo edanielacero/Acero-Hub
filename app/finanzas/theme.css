@@ -27,6 +27,8 @@ body:has(#fz-root) {
   --fz-surface-sunk:  #FAFAFB;
   --fz-hero:          #12281D;
   --fz-hairline:      #ECEDF0;
+  --fz-skel:          #ECEDF0;
+  --fz-skel-hi:       #F7F8FA;
 
   /* ── Texto ── */
   --fz-ink:           #12131A;
@@ -105,9 +107,9 @@ body:has(#fz-root) {
    ──────────────────────────────────────────────────────────────────────────── */
 #fz-root .fz-tabbar {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom) + 12px);
-  left: 12px;
-  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 6px);
+  left: 20px;
+  right: 20px;
   width: auto;                     /* no max-content: llega casi a los bordes */
   display: flex;
   align-items: stretch;
@@ -216,13 +218,17 @@ body:has(#fz-root) {
 /* Reserva para que el contenido no quede debajo de la barra.
    Va como padding del contenedor y no como un div al final: un spacer suelto
    agrega 68px de scroll fantasma incluso en páginas que entran en pantalla.
-   12 (separación del borde) + 8 + 52 + 8 = 80, más aire = 88 */
-#fz-root .fz-content-pad { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+   6 (separación del borde) + 8 + 52 + 8 = 74, más aire = 82 */
+#fz-root .fz-content-pad { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
 
 /* Es un patrón mobile: a partir del corte app/dashboard se cambia por sidebar. */
 @media (min-width: 900px) {
   #fz-root .fz-tabbar { display: none; }
-  #fz-root .fz-content-pad { padding-bottom: 0; }
+  /* No es reserva para la barra (acá no existe), es simetría: iguala el 20px
+     del `p-5` de arriba y es lo que hace que la última card de la columna
+     derecha corte a la misma altura que el pie de la sidebar, que es sticky
+     con `100dvh - 40px`. Con 0, la derecha llegaba al borde y la izquierda no. */
+  #fz-root .fz-content-pad { padding-bottom: 20px; }
 }
 
 /* ─── Sheet / modal ───────────────────────────────────────────────────────── */
@@ -262,5 +268,32 @@ body:has(#fz-root) {
   #fz-root .fz-tab-pill,
   #fz-root .fz-sheet,
   #fz-root .fz-backdrop,
-  #fz-root .fz-tab-action-badge { transition: none; animation: none; }
+  #fz-root .fz-tab-action-badge,
+  #fz-root .fz-skel { transition: none; animation: none; }
+}
+
+/* ─── Esqueletos de carga ──────────────────────────────────────────────────
+   Un $0 mientras carga no dice "todavía no sé": dice cero, que es un número
+   falso. Toda cifra que aún no llegó se pinta como barra hasta que llega. */
+#fz-root .fz-skel {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--fz-skel) 25%,
+    var(--fz-skel-hi) 37%,
+    var(--fz-skel) 63%
+  );
+  background-size: 400% 100%;
+  animation: fz-skel 1.4s ease-in-out infinite;
+}
+
+/* Sobre el hero oscuro los mismos grises desaparecerían. */
+#fz-root .fz-skel-dark {
+  --fz-skel: rgba(255, 255, 255, 0.10);
+  --fz-skel-hi: rgba(255, 255, 255, 0.22);
+}
+
+@keyframes fz-skel {
+  from { background-position: 100% 50%; }
+  to   { background-position: 0 50%; }
 }

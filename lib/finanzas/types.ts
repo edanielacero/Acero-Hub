@@ -5,6 +5,17 @@ export type Currency = 'USD' | 'BOB' | 'USDT' | 'USDC' | 'BTC'
 export type TxType = 'gasto' | 'ingreso' | 'transferencia'
 export type CategoryKind = 'gasto' | 'ingreso'
 
+/**
+ * Si el movimiento es consumo real o solo plata cambiando de lugar.
+ *
+ * No toda plata que entra es un ingreso, y no toda plata que sale es un gasto.
+ * Un reembolso de Spotify sube el saldo — es plata real — pero contarlo como
+ * ingreso inventaría una fuente de plata que no existe. `flow_type` es lo que
+ * separa las dos cosas, y de ahí cuelgan el gasto real y la futura tasa de
+ * ahorro.
+ */
+export type FlowType = 'consumo' | 'movimiento'
+
 export const CURRENCIES: Currency[] = ['USD', 'BOB', 'USDT', 'USDC', 'BTC']
 export const TX_TYPES: TxType[] = ['gasto', 'ingreso', 'transferencia']
 
@@ -106,6 +117,171 @@ export interface Transaction extends BalanceMovement {
   /** Monto en USD congelado al momento de escribir. */
   amount_usd: number
   description: string | null
+  /** Consumo real o movimiento financiero. Las filas viejas son 'consumo'. */
+  flow_type: FlowType
+  /** La plantilla de fijo que lo generó, si vino de una. */
+  recurring_id?: string | null
+  /** Reparto del gasto entre personas. Vacío en un gasto normal. */
+  splits?: Split[]
+}
+
+/* ─── Compartidos (Sprint 2) ────────────────────────────────────────────── */
+
+/**
+ * Alguien con quien compartís gastos. Es una etiqueta, no una cuenta: no hay
+ * `auth.users` detrás y nunca lo va a haber — la app es de un solo usuario.
+ */
+export interface Person {
+  id: string
+  name: string
+  emoji: string | null
+  archived: boolean
+}
+
+/** Persona con lo que debe, calculado en el server. */
+export interface PersonWithDebt extends Person {
+  open_count: number
+  open_usd: number
+}
+
+/**
+ * Los tres estados de una deuda. **No se guardan**: se derivan de dos punteros
+ * (`settled_tx_id`, `waived_at`), así que es imposible que un split diga
+ * "cobrado" sin que exista el movimiento que lo cobró. Un enum persistido sí
+ * puede desincronizarse del hecho que describe.
+ */
+export type SplitState = 'pendiente' | 'cobrado' | 'condonado'
+
+export interface Split {
+  id: string
+  transaction_id: string
+  person_id: string
+  amount: number
+  currency: Currency
+  /** Congelado con el `exchange_rate` DEL GASTO PADRE, no con la tasa de hoy. */
+  amount_usd: number
+  settled_tx_id: string | null
+  waived_at: string | null
+  note: string | null
+}
+
+export interface SplitInput {
+  /** Uno de los dos. `person_name` crea la persona al vuelo. */
+  person_id?: string
+  person_name?: string
+  amount: number
+}
+
+/** Un split con el gasto que lo originó, para las pantallas de Compartidos. */
+export interface SplitWithContext extends Split {
+  state: SplitState
+  person: Person
+  transaction: {
+    id: string
+    date: string
+    description: string | null
+    amount: number
+    currency: Currency
+    category_id: string | null
+  }
+}
+
+/** Lo que le debe una persona, agrupado. */
+export interface PersonDebt {
+  person: Person
+  open_usd: number
+  /** Días desde el gasto más viejo sin saldar. `null` si no debe nada. */
+  oldest_days: number | null
+  splits: SplitWithContext[]
+}
+
+/** Un reparto reciente, para el "Repetir reparto" del quick-add. */
+export interface RecentSplit {
+  label: string
+  people: Person[]
+  /** Si los montos eran todos iguales entre sí. */
+  even: boolean
+}
+
+/* ─── Fijos / recurrentes (Sprint 3) ───────────────────────────────────────
+
+   "Compartido" y "recurrente" son atributos independientes: cualquier
+   combinación existe. El alquiler es fijo y solo tuyo; Spotify es fijo y
+   compartido; un almuerzo es suelto y tuyo. Por eso el reparto es opcional
+   dentro de la plantilla, y no un tipo de plantilla aparte. */
+
+export type Frequency = 'mensual' | 'anual'
+
+/** Derivado, nunca guardado: sale de si existe el movimiento del período. */
+export type RecurringStatus = 'pendiente' | 'registrado' | 'vencido' | 'pausado'
+
+/** Una plantilla: literalmente "un gasto que todavía no pasó". */
+export interface Recurring {
+  id: string
+  name: string
+  emoji: string | null
+  /** Un default editable al confirmar, no una ley. */
+  amount: number
+  account_id: string
+  category_id: string | null
+  frequency: Frequency
+  day_of_month: number
+  month_of_year: number | null
+  active: boolean
+  note: string | null
+}
+
+/** Una parte del reparto por defecto. `amount` null = parte pareja. */
+export interface RecurringSplit {
+  id: string
+  recurring_id: string
+  person_id: string
+  /** null = se calcula al registrar, con el monto de ese mes. */
+  amount: number | null
+}
+
+export interface RecurringInput {
+  name: string
+  emoji?: string | null
+  amount: number
+  account_id: string
+  category_id?: string | null
+  frequency?: Frequency
+  day_of_month?: number
+  month_of_year?: number | null
+  active?: boolean
+  note?: string | null
+  splits?: { person_id?: string; person_name?: string; amount?: number | null }[]
+}
+
+/** Una plantilla con su estado en el período vigente. */
+export interface RecurringWithState extends Recurring {
+  splits: RecurringSplit[]
+  currency: Currency
+  status: RecurringStatus
+  /** Cuándo cae en el período vigente, topeado al largo del mes. */
+  due: string
+  days_late: number
+  /** El movimiento que ya la registró en este período, si existe. */
+  registered_tx_id: string | null
+  /** Lo que todavía te deben de este fijo, en USD, sumando todos los períodos. */
+  open_usd: number
+}
+
+export interface RecurringSummary {
+  recurring: RecurringWithState[]
+  done: number
+  total: number
+  pending: number
+}
+
+export interface SharedSummary {
+  por_cobrar_usd: number
+  cobrado_mes_usd: number
+  condonado_mes_usd: number
+  por_persona: PersonDebt[]
+  historial: SplitWithContext[]
+  repartos_recientes: RecentSplit[]
 }
 
 export interface TransactionInput {
@@ -117,6 +293,10 @@ export interface TransactionInput {
   amount: number
   to_amount?: number | null
   description?: string | null
+  /** Solo lo setea el server. El cliente nunca manda `flow_type`. */
+  flow_type?: FlowType
+  /** Reparto entre personas. Solo válido en `gasto`. */
+  splits?: SplitInput[]
 }
 
 /** Las 14 categorías que siembra POST /api/finanzas/seed. */

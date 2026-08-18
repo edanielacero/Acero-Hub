@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { IconPlus } from '@tabler/icons-react'
-import { NAV_ITEMS, isActive } from './nav-items'
+import { TAB_ITEMS, isActive } from './nav-items'
 import { useQuickAdd } from './quick-add-context'
 
 /**
@@ -19,7 +19,7 @@ export function TabBar() {
   const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const [pill, setPill] = useState<{ x: number; w: number; visible: boolean }>({ x: 0, w: 0, visible: false })
 
-  const activeHref = NAV_ITEMS.find(t => isActive(pathname, t.href, t.exact))?.href
+  const activeHref = TAB_ITEMS.find(t => isActive(pathname, t.href, t.exact))?.href
 
   // Se mide en coordenadas de viewport con getBoundingClientRect(), no con
   // offsetLeft, para no depender de dónde cae el borde o el padding del
@@ -44,10 +44,10 @@ export function TabBar() {
     return () => window.removeEventListener('resize', measure)
   }, [activeHref])
 
-  const left = NAV_ITEMS.slice(0, 2)
-  const right = NAV_ITEMS.slice(2)
+  const left = TAB_ITEMS.slice(0, 2)
+  const right = TAB_ITEMS.slice(2)
 
-  const renderTab = (item: (typeof NAV_ITEMS)[number]) => {
+  const renderTab = (item: (typeof TAB_ITEMS)[number]) => {
     const active = item.href === activeHref
     const Glyph = active ? item.IconActive : item.Icon
     return (

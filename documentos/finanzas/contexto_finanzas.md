@@ -5,7 +5,7 @@
 > producto ya cerradas y las lecciones del intento anterior. El plan de
 > construcción vive en `documento_maestro_finanzas.md`.
 >
-> Última actualización: 2026-08-17
+> Última actualización: 2026-08-18
 
 ---
 
@@ -146,6 +146,9 @@ No volver a preguntar por estas:
 | Import CSV de banco/exchange | **Nunca.** Entrada 100% manual |
 | Auto-categorización | Reglas simples por palabra clave, editables. Sin IA en v1 |
 | Suscripciones recurrentes | Solo **recuerdan**. Nunca se auto-postea un gasto |
+| Reparto por encima del costo | **Permitido.** Cobrar de más y ganar la diferencia es una decisión válida; tu parte queda negativa y se llama ganancia |
+| Fijos vs. compartidos | Son atributos **independientes**. Un solo módulo de fijos donde el reparto es opcional, no dos módulos |
+| Gastos compartidos | Se registra el **bruto**; los reembolsos son movimientos aparte. Detalle **por persona**. Aplica a cualquier gasto, no solo suscripciones |
 | Pasanaku | Modelo completo: participantes, rondas, turno, fechas esperadas |
 | Alertas | Panel in-app + email para las importantes (Resend, ya integrado) |
 | Apple Wallet con push | Descartado por completo |
@@ -161,9 +164,11 @@ las tocan:
 
 1. **Última cuota de la deuda:** ¿$57 o son 10 cuotas de $100 ($1.000)?
    → *Bloquea el sprint de "Dinero por cobrar".*
-2. **Compartidos en bruto o neto:** ¿quieres ver Spotify como "$X pagados,
-   $Y reembolsados, $Z neto" o directo el neto?
-   → *Bloquea el sprint de "Compartidos y reembolsos".*
+2. ~~**Compartidos en bruto o neto.**~~ **Resuelto el 2026-08-18: bruto +
+   reembolsos + neto.** El gasto se registra completo (lo que sale del bolsillo)
+   y las tres cifras existen en la app. Además: seguimiento **por persona**, y
+   el mecanismo sirve para **cualquier** gasto compartido, no solo las dos
+   suscripciones. → *Especificado en `sprint_2_compartidos.md`.*
 3. **Tipo de cambio para el pasanaku:** ¿a qué tasa se valúan los 300 Bs — la
    oficial, la paralela, o la del día de cada aporte?
    → *Parcialmente resuelto en Sprint 1: tasa manual editable.*
@@ -217,13 +222,14 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|
 | 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
-| 2 | Compartidos y reembolsos | Spotify, TradingView | — |
-| 3 | Dinero por cobrar | Las cuotas de los $957 | — |
+| 2 | Compartidos y reembolsos | Spotify, TradingView | ✅ Construido |
+| 3 | **Fijos** (era la 8) | Spotify, TradingView, alquiler | ✅ Construido |
+| 3b | Dinero por cobrar | Las cuotas de los $957 | ⏸ Bloqueado por la pregunta #1 |
 | 4 | Pasanaku | Los 300 Bs mensuales | — |
 | 5 | Presupuesto mensual | Requiere historial del 1 | — |
 | 6 | Reportes | Requiere 2–5 | — |
 | 7 | Objetivos y bolsillos | Requiere 5, 6 | — |
-| 8 | Recurrentes / suscripciones | Requiere 2 | — |
+| 8 | ~~Recurrentes / suscripciones~~ → **adelantado al 3** | Requiere 2 | ✅ Construido |
 | 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
 | 11 | Alertas | Requiere 5, 8 | — |
 

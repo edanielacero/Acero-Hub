@@ -164,6 +164,32 @@ export function Segmented<T extends string>({ options, value, onChange }: {
   )
 }
 
+/* ─── Esqueleto ────────────────────────────────────────────────────────────
+   Ocupa el lugar exacto de un dato que todavía no llegó. La alternativa —
+   pintar el valor inicial del estado— muestra $0, que no es "cargando": es un
+   número equivocado, y en una app de plata eso se lee como un saldo real. */
+
+export function Skeleton({ w, h = 14, radius, onDark = false, className = '' }: {
+  w: number | string
+  h?: number
+  /** Por defecto una píldora achatada; se fija cuando reemplaza algo cuadrado. */
+  radius?: number | string
+  onDark?: boolean
+  className?: string
+}) {
+  return (
+    <span
+      aria-hidden
+      className={`fz-skel ${onDark ? 'fz-skel-dark' : ''} ${className}`}
+      style={{
+        width: typeof w === 'number' ? `${w}px` : w,
+        height: h,
+        borderRadius: radius ?? Math.min(h / 2, 8),
+      }}
+    />
+  )
+}
+
 /* ─── Estado vacío ─────────────────────────────────────────────────────────── */
 
 export function EmptyState({ emoji, title, description, action }: {

@@ -2,6 +2,9 @@ import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
+import { evenSplit, floorTo, myShare, shareBreakdown, splitState, isOpen, freezeSplitUsd, validateSplits, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
+import { periodOf, statusOf, resolveSplits, sortRecurring, progress } from './.fin/recurring.mjs'
+import { currentUserId, readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
 /** Tasas de referencia usadas por todas las pruebas. */
@@ -359,5 +362,434 @@ eq('miles con separador', formatUSD(3209), '$3,209.00')
 eq('siempre 2 decimales', formatUSD(5.1), '$5.10')
 eq('negativo en USD', formatUSD(-42.5), '−$42.50')
 eq('BOB con miles', formatBOB(1234.5), 'Bs 1,234.50')
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SPRINT 2 · Compartidos y reembolsos
+   ══════════════════════════════════════════════════════════════════════════ */
+
+section('SPRINT 2 · división pareja (el que paga se come los centavos)')
+{
+  // Bs 350 entre 3: 116.6666… no cierra. Redondear hacia arriba daría 350.01.
+  const bs = evenSplit(350, 3, 'BOB')
+  eq('Bs 350 entre 3 → dos partes de 116.66', bs.shares, [116.66, 116.66])
+  eq('y el resto queda de tu lado: 116.68', bs.mine, 116.68)
+  eq('las partes NUNCA superan el total', bs.shares.reduce((a, b) => a + b, 0) + bs.mine, 350)
+
+  const exacto = evenSplit(10, 2, 'USD')
+  eq('división exacta no inventa resto: 10 entre 2', exacto.shares, [5])
+  eq('tu parte también es 5', exacto.mine, 5)
+
+  // 3.30 / 3 da 1.0999999999999999 en coma flotante. Un floor crudo lo bajaría
+  // a 1.09 y regalaría un centavo por persona.
+  const flotante = evenSplit(3.3, 3, 'USD')
+  eq('el ruido de coma flotante no come un centavo', flotante.shares, [1.1, 1.1])
+  eq('y tu parte cierra el total', flotante.mine, 1.1)
+
+  const spotify = evenSplit(11.99, 4, 'USD')
+  eq('Spotify $11.99 entre 4 → $2.99 cada amigo', spotify.shares, [2.99, 2.99, 2.99])
+  eq('y vos ponés $3.02', spotify.mine, 3.02)
+
+  const btc = evenSplit(0.00042195, 3, 'BTC')
+  eq('BTC respeta 8 decimales', btc.shares, [0.00014065, 0.00014065])
+  eq('y el resto en satoshis', btc.mine, 0.00014065)
+
+  eq('un solo participante no reparte nada', evenSplit(100, 1, 'USD').shares, [])
+  eq('monto en cero no rompe', evenSplit(0, 3, 'USD').shares, [])
+}
+
+section('SPRINT 2 · floorTo')
+eq('trunca, no redondea: 116.669 → 116.66', floorTo(116.669, 'BOB'), 116.66)
+eq('el epsilon salva 1.0999999999999999', floorTo(3.3 / 3, 'USD'), 1.1)
+eq('BTC no se destruye a 2 decimales', floorTo(0.123456789, 'BTC'), 0.12345678)
+
+section('SPRINT 2 · tu parte es la resta')
+eq('11.99 menos tres partes de 2.99', myShare(11.99, [{ amount: 2.99 }, { amount: 2.99 }, { amount: 2.99 }], 'USD'), 3.02)
+eq('sin reparto, tuyo es todo', myShare(35, [], 'BOB'), 35)
+eq('reparto completo deja cero', myShare(10, [{ amount: 10 }], 'USD'), 0)
+
+section('SPRINT 2 · estado derivado de dos punteros')
+eq('sin nada → pendiente', splitState({ settled_tx_id: null, waived_at: null }), 'pendiente')
+eq('con movimiento → cobrado', splitState({ settled_tx_id: 'tx-1', waived_at: null }), 'cobrado')
+eq('con fecha de perdón → condonado', splitState({ settled_tx_id: null, waived_at: '2026-08-18' }), 'condonado')
+eq('solo el pendiente está abierto', [
+  isOpen({ settled_tx_id: null, waived_at: null }),
+  isOpen({ settled_tx_id: 'tx-1', waived_at: null }),
+  isOpen({ settled_tx_id: null, waived_at: '2026-08-18' }),
+], [true, false, false])
+
+section('SPRINT 2 · la parte hereda la tasa CONGELADA del gasto padre')
+{
+  // Gasto de Bs 350 registrado a 6.96 → factor 0.14367816.
+  const factor = freezeRate('BOB', R)
+  eq('el gasto entero da $50.29', round2(350 * factor), 50.29)
+  eq('la parte de Ana (116.66) da $16.76', freezeSplitUsd(116.66, factor), 16.76)
+
+  // Tres días después el dólar está a 7.50. La parte NO puede recalcularse.
+  const hoy = freezeRate('BOB', { ...R, BOB: 7.5 })
+  ok('con la tasa de hoy daría otra cosa', freezeSplitUsd(116.66, hoy) !== 16.76,
+     `hoy daría ${freezeSplitUsd(116.66, hoy)}`)
+  eq('pero la congelada no se mueve', freezeSplitUsd(116.66, factor), 16.76)
+
+  // Tu parte en USD NO se congela por separado: es el resto. Congelar las tres
+  // por su cuenta daría 16.76 × 3 = 50.28 contra un gasto de 50.29, y ese
+  // centavo tiene que caer en algún lado. Cae del lado del que pagó, igual que
+  // en la división pareja en moneda nativa.
+  const ajenas = [116.66, 116.66].map(a => freezeSplitUsd(a, factor))
+  eq('las dos partes ajenas suman $33.52', round2(ajenas[0] + ajenas[1]), 33.52)
+  eq('tu parte en USD es el resto, y absorbe el centavo', round2(50.29 - 33.52), 16.77)
+  ok('congelarla aparte daría un centavo menos', freezeSplitUsd(116.68, factor) === 16.76)
+
+  // En moneda nativa no hay deriva: ahí sí cierra exacto.
+  eq('en Bs el reparto cierra sin resto', round2(116.66 * 2 + 116.68), 350)
+}
+
+section('SPRINT 2 · validación del reparto')
+{
+  const ana = { person_id: 'p1', amount: 3 }
+  const juan = { person_id: 'p2', amount: 3 }
+
+  eq('sin reparto es válido', validateSplits([], 'gasto', 11.99, 'USD').ok, true)
+  eq('undefined también', validateSplits(undefined, 'gasto', 11.99, 'USD').ok, true)
+  eq('reparto normal', validateSplits([ana, juan], 'gasto', 11.99, 'USD').ok, true)
+  eq('reparto que suma justo el total', validateSplits([{ person_id: 'p1', amount: 11.99 }], 'gasto', 11.99, 'USD').ok, true)
+
+  eq('un ingreso no se reparte', validateSplits([ana], 'ingreso', 100, 'USD').ok, false)
+  eq('una transferencia tampoco', validateSplits([ana], 'transferencia', 100, 'USD').ok, false)
+
+  // Regla CAMBIADA en el Sprint 3: repartir por encima del gasto es válido.
+  // Es cobrar un poco más y ganar la diferencia. Ver la sección del Sprint 3.
+  eq('repartir más que el gasto ya no se rechaza',
+     validateSplits([{ person_id: 'p1', amount: 20 }], 'gasto', 11.99, 'USD').ok, true)
+
+  eq('la misma persona dos veces', validateSplits([ana, { person_id: 'p1', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('el mismo nombre nuevo dos veces', validateSplits(
+    [{ person_name: 'Ana', amount: 2 }, { person_name: ' ana ', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte sin persona', validateSplits([{ amount: 3 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte en cero', validateSplits([{ person_id: 'p1', amount: 0 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte negativa', validateSplits([{ person_id: 'p1', amount: -3 }], 'gasto', 11.99, 'USD').ok, false)
+
+  // Tres partes de 116.66 + tu 116.68 suman 350 exacto; el ruido binario no
+  // debe hacer fallar un reparto que en realidad cierra.
+  eq('tolera el ruido de coma flotante', validateSplits(
+    [{ person_id: 'p1', amount: 116.66 }, { person_id: 'p2', amount: 116.66 }], 'gasto', 233.32, 'BOB').ok, true)
+}
+
+section('SPRINT 2 · normalizeName')
+eq('recorta y baja', normalizeName('  Ana  '), 'ana')
+eq('"ana" y "Ana" chocan', normalizeName('ana') === normalizeName('Ana'), true)
+
+section('SPRINT 2 · flow_type separa consumo de movimiento')
+{
+  const gastoNormal = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, splits: [] }
+  const sueldo = { type: 'ingreso', flow_type: 'consumo', amount_usd: 900, splits: [] }
+  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 8.99, splits: [] }
+  const transfer = { type: 'transferencia', flow_type: 'movimiento', amount_usd: 100, splits: [] }
+
+  const todos = [gastoNormal, sueldo, reembolso, transfer]
+  eq('un reembolso NO es ingreso del mes', ingresoUsd(todos), 900)
+  eq('el gasto no lo tocan los movimientos', gastoUsd(todos), 50)
+
+  // Una fila sin flow_type — de antes de la migración — es consumo.
+  eq('fila vieja sin flow_type cuenta como consumo',
+     ingresoUsd([{ type: 'ingreso', amount_usd: 100, splits: [] }]), 100)
+}
+
+section('SPRINT 2 · gasto bruto, repartido y real')
+{
+  // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos condonado.
+  const spotify = {
+    type: 'gasto', flow_type: 'consumo', amount_usd: 11.99,
+    splits: [
+      { amount_usd: 2.99, settled_tx_id: 'tx-c', waived_at: null },  // cobrado
+      { amount_usd: 2.99, settled_tx_id: null, waived_at: null },    // pendiente
+      { amount_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // condonado
+    ],
+  }
+  const comida = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, splits: [] }
+  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 2.99, splits: [] }
+  const mes = [spotify, comida, reembolso]
+
+  eq('bruto: lo que salió del bolsillo', gastoBrutoUsd(mes), 61.99)
+  eq('repartido descuenta cobrado Y pendiente, no condonado', repartidoUsd(mes), 5.98)
+  eq('gasto real', gastoRealUsd(mes), 56.01)
+
+  // Condonar es hacerse cargo: sin el condonado, el real bajaría a 53.02.
+  const sinCondonar = [{ ...spotify, splits: spotify.splits.map(s => ({ ...s, waived_at: null })) }, comida, reembolso]
+  eq('si nada estuviera condonado, el real es menor', gastoRealUsd(sinCondonar), 53.02)
+  ok('condonar SUBE el gasto real', gastoRealUsd(mes) > gastoRealUsd(sinCondonar))
+}
+
+section('SPRINT 2 · lo que te deben es un saldo, no un flujo')
+{
+  const splits = [
+    { amount_usd: 3, settled_tx_id: null, waived_at: null },
+    { amount_usd: 2.5, settled_tx_id: null, waived_at: null },
+    { amount_usd: 10, settled_tx_id: 'tx-1', waived_at: null },
+    { amount_usd: 7, settled_tx_id: null, waived_at: '2026-03-01' },
+  ]
+  eq('solo suma lo pendiente', porCobrarUsd(splits), 5.5)
+  eq('sin deudas da cero, no NaN', porCobrarUsd([]), 0)
+}
+
+section('SPRINT 2 · antigüedad de una deuda')
+eq('13 días', daysBetween('2026-08-05', '2026-08-18'), 13)
+eq('mismo día es cero', daysBetween('2026-08-18', '2026-08-18'), 0)
+eq('cruza el cambio de mes', daysBetween('2026-07-31', '2026-08-01'), 1)
+eq('cruza el cambio de año', daysBetween('2025-12-31', '2026-01-01'), 1)
+// Con Date local y horario de verano, 24h no siempre son 24h; por eso se
+// calcula en UTC a partir de los enteros de la fecha.
+eq('un año entero', daysBetween('2025-08-18', '2026-08-18'), 365)
+
+section('SPRINT 2 · agrupado por persona')
+{
+  const mk = (id, person, usd, date) => ({
+    id, person_id: person, amount_usd: usd,
+    person: { id: person, name: person, emoji: null, archived: false },
+    transaction: { id: 't' + id, date, description: 'x', amount: usd, currency: 'USD', category_id: null },
+    settled_tx_id: null, waived_at: null, amount: usd, currency: 'USD', transaction_id: 't' + id, note: null,
+    state: 'pendiente',
+  })
+  const g = groupByPerson([
+    mk('1', 'Ana', 3, '2026-08-05'),
+    mk('2', 'Juan', 10, '2026-08-10'),
+    mk('3', 'Ana', 2.5, '2026-07-01'),
+  ], '2026-08-18')
+
+  eq('una entrada por persona', g.length, 2)
+  eq('ordenado por lo que más deben', g.map(x => x.person.name), ['Juan', 'Ana'])
+  eq('Ana suma sus dos deudas', g[1].open_usd, 5.5)
+  eq('y la antigüedad es la de la más vieja', g[1].oldest_days, 48)
+  eq('las deudas de cada uno van de la más vieja a la más nueva',
+     g[1].splits.map(s => s.transaction.date), ['2026-07-01', '2026-08-05'])
+}
+
+/* ─── Snapshot del dispositivo ──────────────────────────────────────────────
+   Lo que hace que abrir la app muestre el patrimonio real en el primer frame
+   en vez de $0. Se prueba acá porque un fallo silencioso —una cookie que no se
+   parsea— no rompe nada visible: simplemente vuelve el $0. */
+
+const SUB = '9f8e7d6c-1111-2222-3333-444455556666'
+const REF = 'abcdef123456'
+
+const almacen = new Map()
+globalThis.window = {
+  localStorage: {
+    get length() { return almacen.size },
+    key: i => [...almacen.keys()][i],
+    getItem: k => almacen.get(k) ?? null,
+    setItem: (k, v) => almacen.set(k, v),
+    removeItem: k => almacen.delete(k),
+  },
+}
+globalThis.document = { cookie: '' }
+
+const b64u = o => Buffer.from(JSON.stringify(o)).toString('base64url')
+const jwt = claims => `${b64u({ alg: 'HS256' })}.${b64u(claims)}.firma`
+const cookieDe = (claims, relleno = 0) => 'base64-' + Buffer.from(JSON.stringify({
+  access_token: jwt(claims), refresh_token: 'x'.repeat(relleno),
+})).toString('base64')
+const NOMBRE = `sb-${REF}-auth-token`
+
+section('SNAPSHOT · leer el usuario de la cookie de sesión')
+document.cookie = ''
+eq('sin cookie no hay usuario', currentUserId(), null)
+
+document.cookie = `${NOMBRE}=${cookieDe({ sub: SUB })}`
+eq('cookie simple', currentUserId(), SUB)
+
+document.cookie = `otra=1; ${NOMBRE}=${cookieDe({ sub: SUB })}; ultima=2`
+eq('entre otras cookies', currentUserId(), SUB)
+
+// @supabase/ssr parte la cookie en `.0`, `.1`… cuando pasa los 3180 caracteres.
+{
+  const grande = cookieDe({ sub: SUB, email: 'acrosagency@gmail.com' }, 5000)
+  const mitad = Math.ceil(grande.length / 2)
+  document.cookie = `${NOMBRE}.0=${grande.slice(0, mitad)}; ${NOMBRE}.1=${grande.slice(mitad)}`
+  eq('cookie partida en dos', currentUserId(), SUB)
+}
+
+document.cookie = `${NOMBRE}=${encodeURIComponent(JSON.stringify({ access_token: jwt({ sub: SUB }) }))}`
+eq('cookie sin el prefijo base64', currentUserId(), SUB)
+
+document.cookie = `${NOMBRE}=base64-esto no es base64 !!`
+eq('cookie corrupta devuelve null en vez de romper', currentUserId(), null)
+
+document.cookie = `${NOMBRE}=${cookieDe({ email: 'sin-sub@test.local' })}`
+eq('token sin sub', currentUserId(), null)
+
+section('SNAPSHOT · guardar y recuperar')
+almacen.clear()
+document.cookie = `${NOMBRE}=${cookieDe({ sub: SUB })}`
+const UID = currentUserId()
+const DATOS = {
+  accounts: [{ id: 'a', balance: 500 }], total_usd: 1234.5, rates: { BOB: 11.5 },
+  rate_list: [], categories: [], people: [], shared: {},
+  tx: { 'limit=5': { transactions: [] } },
+}
+
+eq('sin nada guardado', readSnapshot(UID), null)
+writeSnapshot(UID, DATOS)
+eq('vuelve el patrimonio guardado', readSnapshot(UID).total_usd, 1234.5)
+eq('y las consultas cacheadas', Object.keys(readSnapshot(UID).tx), ['limit=5'])
+
+writeSnapshot(null, DATOS)
+eq('sin usuario no escribe nada', almacen.size, 1)
+eq('sin usuario no lee nada', readSnapshot(null), null)
+
+// Lo importante de todo esto: RLS protege los datos reales, pero un caché mal
+// llaveado le mostraría a otra cuenta el patrimonio de la anterior.
+eq('otro usuario no ve este snapshot', readSnapshot('otro-uid-cualquiera'), null)
+
+{
+  const clave = [...almacen.keys()][0]
+  const guardado = JSON.parse(almacen.get(clave))
+  guardado.at = Date.now() - (7 * 24 * 60 * 60 * 1000 + 60_000)
+  almacen.set(clave, JSON.stringify(guardado))
+  eq('un patrimonio de más de una semana se descarta', readSnapshot(UID), null)
+  eq('y se borra solo', almacen.size, 0)
+}
+
+almacen.set('fz:snap:1:roto', '{ esto no es json')
+eq('json corrupto devuelve null', readSnapshot('roto'), null)
+
+almacen.clear()
+writeSnapshot(UID, DATOS)
+almacen.set('fz:hidden', '1')
+clearSnapshots()
+ok('clearSnapshots borra los snapshots', ![...almacen.keys()].some(k => k.startsWith('fz:snap:')))
+eq('y no toca las otras preferencias', almacen.get('fz:hidden'), '1')
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SPRINT 3 · Fijos, y el margen al repartir
+   ══════════════════════════════════════════════════════════════════════════ */
+
+section('SPRINT 3 · repartir de más o de menos es una decisión, no un error')
+{
+  // Spotify cuesta 11.99 y les cobrás 4.50 a cada uno: ganás 1.51.
+  const cobrandoDeMas = validateSplits(
+    [{ person_id: 'a', amount: 4.5 }, { person_id: 'b', amount: 4.5 }, { person_id: 'c', amount: 4.5 }],
+    'gasto', 11.99, 'USD')
+  eq('cobrar por encima del costo es válido', cobrandoDeMas.ok, true)
+
+  const g = shareBreakdown(11.99, [{ amount: 4.5 }, { amount: 4.5 }, { amount: 4.5 }], 'USD')
+  eq('tu parte queda negativa', g.mine, -1.51)
+  eq('y se llama ganancia', g.kind, 'ganas')
+
+  // Invitando vos una parte.
+  const invitando = shareBreakdown(11.99, [{ amount: 2 }, { amount: 2 }], 'USD')
+  eq('repartir de menos: ponés más vos', invitando.mine, 7.99)
+  eq('y sigue siendo tu parte', invitando.kind, 'pagas')
+
+  const justo = shareBreakdown(10, [{ amount: 10 }], 'USD')
+  eq('reparto exacto: no ponés nada', justo.mine, 0)
+  eq('y se nombra distinto', justo.kind, 'exacto')
+
+  // Lo que SIGUE siendo inválido.
+  eq('una parte en cero', validateSplits([{ person_id: 'a', amount: 0 }], 'gasto', 10, 'USD').ok, false)
+  eq('una parte negativa', validateSplits([{ person_id: 'a', amount: -3 }], 'gasto', 10, 'USD').ok, false)
+  eq('repartir un ingreso', validateSplits([{ person_id: 'a', amount: 3 }], 'ingreso', 10, 'USD').ok, false)
+}
+
+section('SPRINT 3 · la misma persona por id Y por nombre')
+{
+  const conocidas = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Juan' }]
+  const choca = validateSplits(
+    [{ person_id: 'p1', amount: 2 }, { person_name: 'ana', amount: 3 }],
+    'gasto', 11.99, 'USD', conocidas)
+  eq('se detecta antes de llegar a la base', choca.ok, false)
+
+  eq('dos personas distintas siguen valiendo', validateSplits(
+    [{ person_id: 'p1', amount: 2 }, { person_name: 'Carlos', amount: 3 }],
+    'gasto', 11.99, 'USD', conocidas).ok, true)
+}
+
+section('SPRINT 3 · períodos')
+{
+  const mensual = { frequency: 'mensual', day_of_month: 5, month_of_year: null }
+  eq('el mes de la fecha de referencia', periodOf(mensual, '2026-08-18'),
+     { from: '2026-08-01', to: '2026-08-31', due: '2026-08-05' })
+
+  // Un 31 configurado no se pierde ni se corre a marzo: cae el último día.
+  const treintaYUno = { frequency: 'mensual', day_of_month: 31, month_of_year: null }
+  eq('el 31 en febrero cae el 28', periodOf(treintaYUno, '2026-02-10').due, '2026-02-28')
+  eq('el 31 en abril cae el 30', periodOf(treintaYUno, '2026-04-10').due, '2026-04-30')
+  eq('y en enero es el 31 de verdad', periodOf(treintaYUno, '2026-01-10').due, '2026-01-31')
+
+  const anual = { frequency: 'anual', day_of_month: 3, month_of_year: 3 }
+  eq('el anual abarca el año entero', periodOf(anual, '2026-08-18'),
+     { from: '2026-01-01', to: '2026-12-31', due: '2026-03-03' })
+}
+
+section('SPRINT 3 · estado derivado, nunca guardado')
+{
+  const r = { frequency: 'mensual', day_of_month: 5, month_of_year: null, active: true }
+
+  eq('sin movimiento y antes de la fecha: pendiente',
+     statusOf(r, [], '2026-08-02').status, 'pendiente')
+  eq('sin movimiento y pasada la fecha: vencido',
+     statusOf(r, [], '2026-08-18').status, 'vencido')
+  eq('con los días de atraso contados',
+     statusOf(r, [], '2026-08-18').days_late, 13)
+  eq('con un movimiento del mes: registrado',
+     statusOf(r, ['2026-08-05'], '2026-08-18').status, 'registrado')
+
+  // Un movimiento de OTRO mes no cuenta: cada período se resuelve solo.
+  eq('el de julio no registra agosto',
+     statusOf(r, ['2026-07-05'], '2026-08-18').status, 'vencido')
+  eq('pero sí registra julio',
+     statusOf(r, ['2026-07-05'], '2026-07-20').status, 'registrado')
+
+  eq('pausado no reclama nada',
+     statusOf({ ...r, active: false }, [], '2026-08-18').status, 'pausado')
+  // Pausado gana sobre registrado: "Listo" en un pausado se lee como activo.
+  eq('y sigue diciendo pausado aunque el período esté registrado',
+     statusOf({ ...r, active: false }, ['2026-08-05'], '2026-08-18').status, 'pausado')
+
+  // El día justo todavía no está vencido.
+  eq('el mismo día de vencimiento sigue pendiente',
+     statusOf(r, [], '2026-08-05').status, 'pendiente')
+}
+
+section('SPRINT 3 · el reparto se recalcula con el precio de cada mes')
+{
+  const parejo = [{ person_id: 'a', amount: null }, { person_id: 'b', amount: null }, { person_id: 'c', amount: null }]
+
+  const agosto = resolveSplits(parejo, 11.99, 'USD')
+  eq('Spotify a $11.99 entre 4', agosto.map(s => s.amount), [2.99, 2.99, 2.99])
+
+  // Sube el precio y el reparto se ajusta SOLO: con montos congelados en la
+  // plantilla les seguirías cobrando de menos sin enterarte.
+  const septiembre = resolveSplits(parejo, 12.99, 'USD')
+  eq('a $12.99 les toca más, sin tocar nada', septiembre.map(s => s.amount), [3.24, 3.24, 3.24])
+
+  // Montos fijos mandan tal cual: son los que te dejan cobrar de más.
+  const fijos = [{ person_id: 'a', amount: 4.5 }, { person_id: 'b', amount: 4.5 }]
+  eq('los montos fijos no se recalculan', resolveSplits(fijos, 11.99, 'USD').map(s => s.amount), [4.5, 4.5])
+
+  // Mezcla: lo comprometido sale antes de dividir el resto.
+  const mixto = [{ person_id: 'a', amount: 5 }, { person_id: 'b', amount: null }]
+  const m = resolveSplits(mixto, 11, 'USD')
+  eq('el fijo se respeta y el resto se divide', m.map(s => s.amount), [5, 3])
+
+  eq('sin reparto no devuelve nada', resolveSplits([], 11.99, 'USD'), [])
+}
+
+section('SPRINT 3 · orden y progreso de la lista')
+{
+  const mk = (id, status, due, active = true) => ({ id, status, due, active })
+  const orden = sortRecurring([
+    mk('1', 'registrado', '2026-08-05'),
+    mk('2', 'vencido', '2026-08-12'),
+    mk('3', 'pendiente', '2026-08-25'),
+    mk('4', 'pausado', '2026-08-01', false),
+    mk('5', 'vencido', '2026-08-03'),
+  ])
+  eq('vencidos primero, después pendientes, y los pausados al final',
+     orden.map(r => r.id), ['5', '2', '3', '1', '4'])
+
+  eq('el progreso ignora los pausados', progress(orden), { done: 1, total: 4, pending: 3 })
+  eq('sin fijos no divide por cero', progress([]), { done: 0, total: 0, pending: 0 })
+}
 
 process.exit(summary() === 0 ? 0 : 1)
