@@ -174,7 +174,7 @@ function StatTile({ tint, icon, label, value }: {
       >
         {icon}
       </span>
-      <p className="mt-3 text-[13px] font-medium text-[var(--fz-ink-2)] capitalize">{label}</p>
+      <p className="mt-3 text-[13px] font-medium text-[var(--fz-ink-2)]">{label}</p>
       <p className="text-[26px] font-bold tracking-[-0.01em] fz-num">
         <AmountUSD value={value} />
       </p>

@@ -67,3 +67,35 @@ export function num(v: unknown, fallback = 0): number {
   const n = typeof v === 'number' ? v : Number(v)
   return Number.isFinite(n) ? n : fallback
 }
+
+/**
+ * Normaliza lo que se tipea en un campo de monto.
+ *
+ * Acepta **coma y punto** como separador decimal: en teclado boliviano/español
+ * la coma es lo natural, y el teclado decimal de iOS muestra la del locale. Si
+ * se descartara la coma, escribir "5,03" daría "503" — un error de 100× que no
+ * avisa. En una app de plata eso es inaceptable.
+ *
+ * Devuelve siempre un string con punto, listo para `Number()`.
+ */
+export function parseDecimalInput(raw: string, opts?: { allowNegative?: boolean }): string {
+  const negative = opts?.allowNegative === true && raw.trimStart().startsWith('-')
+
+  // La coma pasa a punto ANTES de filtrar, para no perderla.
+  const cleaned = raw.replace(/,/g, '.').replace(/[^\d.]/g, '')
+
+  // Solo el primer separador cuenta; el resto se ignora.
+  const [head, ...rest] = cleaned.split('.')
+  const body = rest.length > 0
+    ? `${head}.${rest.join('').slice(0, 2)}`   // numeric(14,2): 2 decimales
+    : head
+
+  return negative && body !== '' ? `-${body}` : body
+}
+
+/** El string de un campo de monto convertido a número, o NaN si está vacío. */
+export function amountFromInput(raw: string, opts?: { allowNegative?: boolean }): number {
+  const parsed = parseDecimalInput(raw, opts)
+  if (parsed === '' || parsed === '.' || parsed === '-' || parsed === '-.') return NaN
+  return Number(parsed)
+}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconPlus } from '@tabler/icons-react'
 import type { Transaction, TxType } from '@/lib/finanzas/types'
-import { groupByDay, monthRange, todayISO } from '@/lib/finanzas/transactions'
+import { groupByDay, lastMonths, monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { useFinanzas, useTransactions } from '../components/data-context'
@@ -12,21 +12,6 @@ import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, SelectField } from '../components/ui'
 
 type TypeFilter = TxType | 'todos'
-
-/** Los últimos 12 meses como opciones de filtro, del más reciente al más viejo. */
-function lastMonths(count = 12): { value: string; label: string }[] {
-  const out: { value: string; label: string }[] = []
-  const d = new Date()
-  for (let i = 0; i < count; i++) {
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    out.push({
-      value,
-      label: d.toLocaleDateString('es', { month: 'long', year: 'numeric' }),
-    })
-    d.setMonth(d.getMonth() - 1)
-  }
-  return out
-}
 
 export default function MovimientosPage() {
   const { accounts, categories, hidden } = useFinanzas()
@@ -126,7 +111,7 @@ export default function MovimientosPage() {
                 return (
                   <section key={day.date}>
                     <div className="flex items-baseline justify-between mb-1">
-                      <h3 className="text-[13px] font-semibold text-[var(--fz-ink-2)] capitalize">
+                      <h3 className="text-[13px] font-semibold text-[var(--fz-ink-2)]">
                         {formatDayLabel(day.date, today)}
                       </h3>
                       <span className="text-[13px] font-medium text-[var(--fz-ink-3)] fz-num">

@@ -60,7 +60,12 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       const data = await accRes.json()
       setAccounts(data.accounts ?? [])
       setTotal(data.total_usd ?? 0)
-      setSettings(s => ({ ...s, usd_bob_rate: data.usd_bob_rate ?? s.usd_bob_rate }))
+      setSettings(s => ({
+        usd_bob_rate: data.usd_bob_rate ?? s.usd_bob_rate,
+        // Sin esto, Ajustes mostraba como "última edición" el momento en que se
+        // cargó la página, no cuándo se cambió la tasa de verdad.
+        updated_at: data.usd_bob_rate_updated_at ?? s.updated_at,
+      }))
     }
     if (catRes.ok) {
       const data = await catRes.json()

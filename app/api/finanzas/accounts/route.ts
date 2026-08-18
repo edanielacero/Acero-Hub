@@ -37,6 +37,7 @@ export async function GET() {
     accounts: withBal,
     total_usd: totalUsd(withBal),
     usd_bob_rate: settings.usd_bob_rate,
+    usd_bob_rate_updated_at: settings.updated_at,
   })
 }
 

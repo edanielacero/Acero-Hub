@@ -124,3 +124,30 @@ export function groupByDay(txs: Transaction[]): { date: string; items: Transacti
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))
     .map(([date, items]) => ({ date, items }))
 }
+
+/**
+ * Los últimos `count` meses, del más reciente al más viejo, como opciones de
+ * filtro. `{ value: '2026-08', label: 'Agosto de 2026' }`.
+ *
+ * La cuenta se hace sobre enteros de año/mes y NO con
+ * `d.setMonth(d.getMonth() - 1)` sobre una fecha con día: parado un 29, 30 o
+ * 31, restar un mes cae en un día que no existe (29 de febrero en año no
+ * bisiesto) y Date rebota al mes siguiente. Con ese bug la lista repetía un
+ * mes y se comía otro — y el mes perdido quedaba imposible de filtrar.
+ */
+export function lastMonths(count = 12, ref: Date = new Date()): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = []
+
+  for (let i = 0; i < count; i++) {
+    const total = ref.getFullYear() * 12 + ref.getMonth() - i
+    const year = Math.floor(total / 12)
+    const month = ((total % 12) + 12) % 12
+    // Día 1: el único que existe en todos los meses.
+    const label = new Date(year, month, 1).toLocaleDateString('es', { month: 'long', year: 'numeric' })
+    out.push({
+      value: `${year}-${String(month + 1).padStart(2, '0')}`,
+      label: label.charAt(0).toUpperCase() + label.slice(1),
+    })
+  }
+  return out
+}

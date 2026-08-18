@@ -511,24 +511,60 @@ El componente más importante del sprint. **Meta: < 10 segundos.**
 
 ## 8. Verificación
 
-Antes de dar el sprint por cerrado:
+**156 pruebas automatizadas, todas en verde** (2026-08-18). Viven en
+`tests/finanzas/` y se corren con:
 
-| # | Prueba | Resultado esperado |
+```bash
+node tests/finanzas/run.mjs          # las tres suites
+node tests/finanzas/run.mjs unit     # solo una
+```
+
+`unit` y `db` no necesitan nada levantado. `api` necesita el dev server
+(`localhost:3001` por defecto, o `FZ_BASE_URL`).
+
+**Las suites `db` y `api` crean un usuario temporal propio, trabajan ahí y lo
+borran al terminar.** Nunca tocan datos reales — eso además hace que el
+aislamiento de RLS entre usuarios quede probado de verdad.
+
+| Suite | Qué cubre | Pruebas |
 |---|---|---|
-| 1 | `npm run build` | Sin errores ni warnings de tipos |
-| 2 | Entrar a `/finanzas` con un usuario no-admin | Redirige a `/` |
-| 3 | Sembrar categorías dos veces | La segunda no duplica nada |
-| 4 | Crear las 6 cuentas reales | Patrimonio total ≈ $3.209 |
-| 5 | Gasto de 35 Bs en Efectivo (tasa 6.96) | `amount_usd = 5.03`, saldo baja 35 Bs |
-| 6 | Cambiar la tasa a 7.50 en Ajustes | El gasto del paso 5 **sigue** en $5.03 |
-| 7 | Nuevo gasto de 35 Bs con tasa 7.50 | `amount_usd = 4.67` |
-| 8 | Transferir $100 de Airtm a Broker | Patrimonio total **no cambia** |
-| 9 | Transferir $50 de Airtm a Efectivo (BOB), recibiendo 348 Bs | Airtm −$50, Efectivo +348 Bs |
-| 10 | Borrar el gasto del paso 5 | El saldo de Efectivo vuelve al valor previo |
-| 11 | Editar el monto de un movimiento | El saldo refleja el nuevo monto, no la suma de ambos |
-| 12 | Intentar borrar una cuenta con movimientos | `409` con mensaje que sugiere archivar |
-| 13 | Registrar un gasto en móvil, cronometrado | < 10 segundos desde tocar `(+)` |
-| 14 | `/finanzas` aparece en la grilla del Hub | Con ícono y banner propios |
+| `unit.mjs` | Parseo de montos, conversión de moneda, saldos derivados, congelado de tasa, validación de forma, fechas, formato | 73 |
+| `db.mjs` | RLS, check constraints, índice único, `on delete restrict`, `on delete set null`, saldos sobre filas reales | 29 |
+| `api.mjs` | Las 8 rutas HTTP con sesión real: auth, validación, códigos 400/401/409, idempotencia del seed, recongelado selectivo | 54 |
+
+### Checklist original del sprint
+
+| # | Prueba | Estado |
+|---|---|---|
+| 1 | `npm run build` sin errores | ✅ |
+| 2 | `/finanzas` con usuario no-admin redirige | ⏳ manual |
+| 3 | Sembrar categorías dos veces no duplica | ✅ `api` |
+| 4 | 6 cuentas → patrimonio ≈ $3.209 | ✅ `unit` |
+| 5 | 35 Bs a 6.96 → `amount_usd = 5.03` | ✅ `unit` `db` `api` |
+| 6 | Cambiar la tasa no altera lo ya guardado | ✅ `db` `api` |
+| 7 | Nuevo gasto de 35 Bs a 7.50 → $4.67 | ✅ `unit` `api` |
+| 8 | Transferencia USD→USD no mueve el patrimonio | ✅ `unit` `api` |
+| 9 | Transferencia USD→BOB con monto recibido real | ✅ `unit` `db` `api` |
+| 10 | Borrar un movimiento devuelve el saldo | ✅ `db` `api` |
+| 11 | Editar el monto no acumula | ✅ `unit` `api` |
+| 12 | Borrar cuenta con movimientos → 409 | ✅ `db` `api` |
+| 13 | Registrar un gasto en móvil en < 10 s | ⏳ manual |
+| 14 | `/finanzas` aparece en la grilla del Hub | ⏳ manual |
+
+Los tres pendientes necesitan un navegador con sesión real; no hay forma
+honesta de automatizarlos en este sprint.
+
+### Bug corregido durante el testing
+
+**El separador decimal.** Los campos de monto descartaban la coma, así que
+tipear `5,03` — lo natural en teclado boliviano, y lo que ofrece el teclado
+decimal de iOS en locale es-BO — producía `503`. Un error de **100×** que no
+avisaba: la app guardaba el monto equivocado sin ningún síntoma.
+
+Se resolvió con `parseDecimalInput()` en `lib/finanzas/money.ts`, que acepta
+coma y punto y normaliza a punto. La usan los cuatro campos de monto de la app
+(monto, monto recibido, saldo inicial y tasa). Cubierto por 19 pruebas en
+`unit.mjs`.
 
 ---
 

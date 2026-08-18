@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { IconArchive, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
-import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { amountFromInput, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { PageHeader } from '../components/tx-row'
@@ -42,7 +42,7 @@ export default function CuentasPage() {
     const payload = {
       name: draft.name.trim(),
       currency: draft.currency,
-      initial_balance: Number(draft.initial_balance || 0),
+      initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true }),
       initial_balance_date: draft.initial_balance_date,
     }
 
@@ -151,7 +151,7 @@ export default function CuentasPage() {
                 <Label>Saldo inicial</Label>
                 <TextField
                   value={draft.initial_balance}
-                  onChange={e => setDraft({ ...draft, initial_balance: e.target.value.replace(/[^\d.-]/g, '') })}
+                  onChange={e => setDraft({ ...draft, initial_balance: parseDecimalInput(e.target.value, { allowNegative: true }) })}
                   inputMode="decimal"
                   placeholder="0.00"
                   className="fz-num"

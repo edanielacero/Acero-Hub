@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { IconArchive, IconCheck, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { Category, CategoryKind } from '@/lib/finanzas/types'
+import { amountFromInput, parseDecimalInput } from '@/lib/finanzas/money'
 import { useFinanzas } from '../components/data-context'
 import { PageHeader } from '../components/tx-row'
 import { Btn, ErrorNote, IconChip, Label, Panel, SectionTitle, SelectField, TextField, tintFor } from '../components/ui'
@@ -24,7 +25,7 @@ export default function AjustesPage() {
 
   async function saveRate() {
     setError('')
-    const value = Number(rate)
+    const value = amountFromInput(rate)
     if (!Number.isFinite(value) || value <= 0) return setError('La tasa debe ser mayor a cero')
 
     setSavingRate(true)
@@ -122,7 +123,7 @@ export default function AjustesPage() {
               <Label>Bs por 1 USD</Label>
               <TextField
                 value={rate}
-                onChange={e => setRate(e.target.value.replace(/[^\d.]/g, ''))}
+                onChange={e => setRate(parseDecimalInput(e.target.value))}
                 inputMode="decimal"
                 className="fz-num"
               />

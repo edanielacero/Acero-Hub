@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency, TxType } from '@/lib/finanzas/types'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { amountFromInput, parseDecimalInput } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
 import { useQuickAddApi } from './quick-add-context'
 import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
@@ -15,13 +16,6 @@ const TYPE_OPTIONS: { value: TxType; label: string }[] = [
   { value: 'ingreso', label: 'Ingreso' },
   { value: 'transferencia', label: 'Transferir' },
 ]
-
-/** Solo dígitos y un punto: evita que el teclado decimal cuele comas o signos. */
-function sanitizeAmount(raw: string): string {
-  const cleaned = raw.replace(/[^\d.]/g, '')
-  const [head, ...rest] = cleaned.split('.')
-  return rest.length ? `${head}.${rest.join('').slice(0, 2)}` : head
-}
 
 function symbolOf(currency: Currency | undefined): string {
   return currency === 'BOB' ? 'Bs' : '$'
@@ -73,7 +67,22 @@ export function QuickAdd() {
     }
     const t = setTimeout(() => amountRef.current?.focus(), 120)
     return () => clearTimeout(t)
-  }, [open, editing, active])
+    // `active` queda fuera de las dependencias a propósito: es un array nuevo
+    // en cada recarga de cuentas, y al guardar un movimiento se recarga ANTES
+    // de cerrar el sheet. Si estuviera acá, el formulario se reseteaba solo
+    // mientras el usuario todavía lo estaba viendo. El valor capturado es el
+    // del momento en que se abrió, que es exactamente el que corresponde.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing])
+
+  // Si las cuentas todavía no habían llegado cuando se abrió el sheet, se
+  // completa la cuenta por defecto en cuanto aparecen — sin pisar nada que el
+  // usuario ya haya elegido.
+  useEffect(() => {
+    if (!open || accountId || active.length === 0) return
+    const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
+    setAccountId(active.some(a => a.id === last) ? last : active[0].id)
+  }, [open, accountId, active])
 
   useEffect(() => {
     if (!open) return
@@ -99,7 +108,7 @@ export function QuickAdd() {
 
   async function submit() {
     setError('')
-    const value = Number(amount)
+    const value = amountFromInput(amount)
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
     if (!accountId) return setError('Elegí una cuenta')
     if (type === 'transferencia' && !toAccountId) return setError('Elegí la cuenta destino')
@@ -113,8 +122,9 @@ export function QuickAdd() {
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
-      payload.to_amount = crossCurrency ? Number(toAmount) : null
-      if (crossCurrency && (!Number.isFinite(Number(toAmount)) || Number(toAmount) <= 0)) {
+      const received = amountFromInput(toAmount)
+      payload.to_amount = crossCurrency ? received : null
+      if (crossCurrency && (!Number.isFinite(received) || received <= 0)) {
         return setError(`Indicá cuánto llegó realmente a ${to?.name}`)
       }
     } else {
@@ -191,7 +201,7 @@ export function QuickAdd() {
             <input
               ref={amountRef}
               value={amount}
-              onChange={e => setAmount(sanitizeAmount(e.target.value))}
+              onChange={e => setAmount(parseDecimalInput(e.target.value))}
               inputMode="decimal"
               placeholder="0.00"
               aria-label="Monto"
@@ -236,7 +246,7 @@ export function QuickAdd() {
                   <Label>Cuánto llegó a {to?.name} ({to?.currency})</Label>
                   <TextField
                     value={toAmount}
-                    onChange={e => setToAmount(sanitizeAmount(e.target.value))}
+                    onChange={e => setToAmount(parseDecimalInput(e.target.value))}
                     inputMode="decimal"
                     placeholder="0.00"
                     className="fz-num"
