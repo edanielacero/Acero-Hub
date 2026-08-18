@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { ensureSettings } from '@/lib/finanzas/settings'
+import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
@@ -79,10 +79,10 @@ export async function POST(request: Request) {
     description: typeof body.description === 'string' ? body.description.trim() || null : null,
   }
 
-  // Cuentas y ajustes no dependen entre sí — van juntos en un solo viaje.
-  const [{ data: accountRows }, settings] = await Promise.all([
+  // Cuentas y tasas no dependen entre sí — van juntas en un solo viaje.
+  const [{ data: accountRows }, { rates }] = await Promise.all([
     supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
-    ensureSettings(supabase, userId),
+    ensureRates(supabase, userId),
   ])
 
   const accountsById = new Map<string, Account>(
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 
   // La moneda sale de la cuenta, nunca del cliente.
   const currency = accountsById.get(input.account_id!)!.currency
-  const frozen = freezeConversion(input.amount!, currency, settings.usd_bob_rate)
+  const frozen = freezeConversion(input.amount!, currency, rates)
 
   const { data, error } = await supabase
     .from('fin_transactions')

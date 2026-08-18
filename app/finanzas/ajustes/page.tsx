@@ -1,19 +1,33 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { IconArchive, IconCheck, IconPlus, IconTrash } from '@tabler/icons-react'
-import type { Category, CategoryKind } from '@/lib/finanzas/types'
+import { IconArchive, IconCheck, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
+import type { Category, CategoryKind, Currency } from '@/lib/finanzas/types'
+import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
+import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
 import { amountFromInput, parseDecimalInput } from '@/lib/finanzas/money'
+import { CurrencyIcon } from '../components/currency-icon'
 import { useFinanzas } from '../components/data-context'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, IconChip, Label, Panel, SectionTitle, SelectField, TextField, tintFor } from '../components/ui'
+import { Btn, ErrorNote, Label, Panel, SectionTitle, SelectField, TextField, tintFor, tintVars } from '../components/ui'
+
+/** "hace 3 min" es más útil que un timestamp para saber si una tasa está fresca. */
+function relativo(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'recién'
+  if (mins < 60) return `hace ${mins} min`
+  const hs = Math.round(mins / 60)
+  if (hs < 24) return `hace ${hs} h`
+  return `hace ${Math.round(hs / 24)} d`
+}
 
 export default function AjustesPage() {
-  const { categories, settings, reload } = useFinanzas()
+  const { categories, rates, rateList, reload } = useFinanzas()
 
-  const [rate, setRate] = useState('')
-  const [savingRate, setSavingRate] = useState(false)
-  const [rateSaved, setRateSaved] = useState(false)
+  const [draftRates, setDraftRates] = useState<Partial<Record<Currency, string>>>({})
+  const [savingRate, setSavingRate] = useState<Currency | null>(null)
+  const [savedRate, setSavedRate] = useState<Currency | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
   const [newName, setNewName] = useState('')
@@ -21,28 +35,45 @@ export default function AjustesPage() {
   const [newEmoji, setNewEmoji] = useState('')
   const [seeding, setSeeding] = useState(false)
 
-  useEffect(() => { setRate(String(settings.usd_bob_rate)) }, [settings.usd_bob_rate])
+  useEffect(() => {
+    setDraftRates(Object.fromEntries(RATED_CURRENCIES.map(c => [c, String(rates[c] ?? CURRENCY_META[c].defaultRate)])))
+  }, [rates])
 
-  async function saveRate() {
+  async function patchRate(currency: Currency, body: Record<string, unknown>) {
     setError('')
-    const value = amountFromInput(rate)
-    if (!Number.isFinite(value) || value <= 0) return setError('La tasa debe ser mayor a cero')
-
-    setSavingRate(true)
-    const res = await fetch('/api/finanzas/settings', {
+    setSavingRate(currency)
+    const res = await fetch('/api/finanzas/rates', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usd_bob_rate: value }),
+      body: JSON.stringify({ currency, ...body }),
     })
-    setSavingRate(false)
+    setSavingRate(null)
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo guardar la tasa')
     }
     await reload()
-    setRateSaved(true)
-    setTimeout(() => setRateSaved(false), 2000)
+    setSavedRate(currency)
+    setTimeout(() => setSavedRate(null), 2000)
+  }
+
+  async function saveManualRate(currency: Currency) {
+    const value = amountFromInput(draftRates[currency] ?? '', { decimals: 8 })
+    if (!Number.isFinite(value) || value <= 0) return setError('La tasa debe ser mayor a cero')
+    await patchRate(currency, { rate: value, auto: false })
+  }
+
+  async function refreshNow() {
+    setError('')
+    setRefreshing(true)
+    const res = await fetch('/api/finanzas/rates/refresh', { method: 'POST' })
+    setRefreshing(false)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return setError(data.error ?? 'No se pudieron traer las cotizaciones')
+    }
+    await reload()
   }
 
   async function seed() {
@@ -102,40 +133,104 @@ export default function AjustesPage() {
   const gastos = categories.filter(c => c.kind === 'gasto')
   const ingresos = categories.filter(c => c.kind === 'ingreso')
 
-  const updated = new Date(settings.updated_at)
 
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
-      <PageHeader title="Ajustes" subtitle="Tasa y categorías" />
+      <PageHeader title="Ajustes" subtitle="Tasas y categorías" />
 
       <div className="flex flex-col gap-4">
         <ErrorNote>{error}</ErrorNote>
 
         <Panel>
-          <SectionTitle>Tipo de cambio</SectionTitle>
-          <p className="text-[13px] text-[var(--fz-ink-2)] mb-3">
-            Bolivianos por 1 dólar. Cada movimiento congela la tasa vigente al momento de
-            registrarlo, así que cambiarla acá <strong>no altera</strong> nada de lo ya guardado.
+          <SectionTitle
+            action={
+              <Btn size="sm" variant="soft" onClick={refreshNow} disabled={refreshing}>
+                <IconRefresh size={16} stroke={2} />
+                {refreshing ? 'Trayendo…' : 'Actualizar'}
+              </Btn>
+            }
+          >
+            Tipo de cambio
+          </SectionTitle>
+          <p className="text-[13px] text-[var(--fz-ink-2)] mb-4">
+            Se actualizan solas cuando abrís la app. Cada movimiento congela la tasa
+            del momento en que lo registrás, así que esto <strong>no altera</strong> nada
+            de lo ya guardado — solo cuánto vale hoy tu patrimonio.
           </p>
 
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <Label>Bs por 1 USD</Label>
-              <TextField
-                value={rate}
-                onChange={e => setRate(parseDecimalInput(e.target.value))}
-                inputMode="decimal"
-                className="fz-num"
-              />
-            </div>
-            <Btn onClick={saveRate} disabled={savingRate}>
-              {rateSaved ? <IconCheck size={18} stroke={2.2} /> : savingRate ? 'Guardando…' : 'Guardar'}
-            </Btn>
+          <div className="flex flex-col gap-4">
+            {RATED_CURRENCIES.map(c => {
+              const meta = CURRENCY_META[c]
+              const row = rateList.find(r => r.currency === c)
+              const opciones = PAIRS_FOR_CURRENCY[c] ?? []
+              const auto = row?.auto ?? true
+              return (
+                <div key={c} className="rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <CurrencyIcon currency={c} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-semibold">{meta.name}</p>
+                      <p className="text-[12px] text-[var(--fz-ink-3)]">
+                        {row ? `${row.source} · ${relativo(row.updated_at)}` : meta.rateLabel}
+                      </p>
+                    </div>
+                    <p className="text-[20px] font-bold fz-num shrink-0">
+                      {(row?.rate ?? meta.defaultRate).toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                    </p>
+                  </div>
+
+                  {/* El Bs es el único con dos cotizaciones posibles. */}
+                  {auto && opciones.length > 1 && (
+                    <div className="flex gap-2 mb-2">
+                      {opciones.map(pair => (
+                        <button
+                          key={pair}
+                          type="button"
+                          onClick={() => patchRate(c, { quote_pair: pair, auto: true })}
+                          aria-pressed={row?.quote_pair === pair}
+                          className={`flex-1 h-9 rounded-[var(--fz-r-pill)] text-[12px] font-semibold transition-colors ${
+                            row?.quote_pair === pair
+                              ? 'bg-[var(--fz-accent)] text-white'
+                              : 'bg-[var(--fz-surface)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                          }`}
+                        >
+                          {QUOTE_META[pair].hint}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {auto ? (
+                    <button
+                      type="button"
+                      onClick={() => patchRate(c, { auto: false })}
+                      className="text-[12px] font-semibold text-[var(--fz-ink-3)] hover:text-[var(--fz-ink)]"
+                    >
+                      Fijar a mano
+                    </button>
+                  ) : (
+                    <div className="flex flex-col min-[420px]:flex-row gap-2 min-[420px]:items-end">
+                      <div className="flex-1 min-w-0">
+                        <Label>{meta.rateLabel}</Label>
+                        <TextField
+                          value={draftRates[c] ?? ''}
+                          onChange={e => setDraftRates(d => ({ ...d, [c]: parseDecimalInput(e.target.value, { decimals: 8 }) }))}
+                          inputMode="decimal"
+                          className="fz-num"
+                        />
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Btn onClick={() => saveManualRate(c)} disabled={savingRate === c} className="flex-1">
+                          {savedRate === c ? <IconCheck size={18} stroke={2.2} /> : 'Guardar'}
+                        </Btn>
+                        <Btn variant="ghost" onClick={() => patchRate(c, { auto: true })}>Auto</Btn>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
-
-          <p className="text-[12px] text-[var(--fz-ink-3)] mt-2">
-            Última edición: {updated.toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
         </Panel>
 
         <Panel>
@@ -207,7 +302,26 @@ function CategoryList({ title, items, onPatch, onRemove }: {
       <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
         {items.map(c => (
           <div key={c.id} className={`flex items-center gap-3 py-2.5 ${c.archived ? 'opacity-50' : ''}`}>
-            <IconChip tint={tintFor(c.name)} size={36}>{c.emoji ?? '•'}</IconChip>
+            {/* El emoji se edita en el lugar: el chip ES el input, para no
+                agregar un modo edición aparte por un solo carácter. */}
+            <label
+              className="relative grid place-items-center w-9 h-9 shrink-0 rounded-[var(--fz-r-chip)] cursor-text"
+              style={tintVars(tintFor(c.name))}
+              title="Cambiar emoji"
+            >
+              <span className="sr-only">Emoji de {c.name}</span>
+              <input
+                defaultValue={c.emoji ?? ''}
+                onBlur={e => {
+                  const next = e.target.value.trim().slice(0, 2)
+                  if (next !== (c.emoji ?? '')) onPatch(c.id, { emoji: next || null })
+                }}
+                maxLength={2}
+                aria-label={`Emoji de ${c.name}`}
+                placeholder="•"
+                className="w-full h-full bg-transparent text-center text-[17px] outline-none placeholder:opacity-40 focus:ring-2 focus:ring-[var(--fz-accent)] rounded-[var(--fz-r-chip)]"
+              />
+            </label>
             <input
               defaultValue={c.name}
               onBlur={e => {
@@ -215,7 +329,7 @@ function CategoryList({ title, items, onPatch, onRemove }: {
                 if (next && next !== c.name) onPatch(c.id, { name: next })
               }}
               aria-label={`Nombre de ${c.name}`}
-              className="flex-1 min-w-0 bg-transparent text-[15px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
+              className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
             />
             <button
               type="button"

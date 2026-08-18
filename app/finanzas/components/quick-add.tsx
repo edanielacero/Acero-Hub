@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
-import type { AccountWithBalance, Currency, TxType } from '@/lib/finanzas/types'
-import { todayISO } from '@/lib/finanzas/transactions'
-import { amountFromInput, parseDecimalInput } from '@/lib/finanzas/money'
+import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
+import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
+import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
+import { CurrencyIcon } from './currency-icon'
 import { useQuickAddApi } from './quick-add-context'
-import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
+import { Btn, ErrorNote, Label, Segmented, TextArea, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -17,19 +18,17 @@ const TYPE_OPTIONS: { value: TxType; label: string }[] = [
   { value: 'transferencia', label: 'Transferir' },
 ]
 
-function symbolOf(currency: Currency | undefined): string {
-  return currency === 'BOB' ? 'Bs' : '$'
-}
-
 export function QuickAdd() {
   const { open, editing, close } = useQuickAddApi()
-  const { accounts, categories, reload } = useFinanzas()
+  const { accounts, categories, rates, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
 
   const [type, setType] = useState<TxType>('gasto')
   const [amount, setAmount] = useState('')
   const [toAmount, setToAmount] = useState('')
+  // Si el usuario escribió el monto recibido a mano, la sugerencia deja de pisarlo.
+  const [toAmountTouched, setToAmountTouched] = useState(false)
   const [accountId, setAccountId] = useState('')
   const [toAccountId, setToAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -49,6 +48,7 @@ export function QuickAdd() {
       setType(editing.type)
       setAmount(String(editing.amount))
       setToAmount(editing.to_amount != null ? String(editing.to_amount) : '')
+      setToAmountTouched(true)
       setAccountId(editing.account_id)
       setToAccountId(editing.to_account_id ?? '')
       setCategoryId(editing.category_id ?? '')
@@ -59,6 +59,7 @@ export function QuickAdd() {
       setType('gasto')
       setAmount('')
       setToAmount('')
+      setToAmountTouched(false)
       setAccountId(active.some(a => a.id === last) ? last : (active[0]?.id ?? ''))
       setToAccountId('')
       setCategoryId('')
@@ -98,6 +99,45 @@ export function QuickAdd() {
   const from = active.find(a => a.id === accountId)
   const to = active.find(a => a.id === toAccountId)
   const crossCurrency = type === 'transferencia' && !!from && !!to && from.currency !== to.currency
+  // 8 decimales si la cuenta es BTC, 2 en cualquier otra.
+  const fromDecimals = decimalsFor(from?.currency)
+  const toDecimals = decimalsFor(to?.currency)
+
+  // Gastos y transferencias no pueden dejar la cuenta en negativo.
+  const limita = consumesBalance(type) && !!from
+  const disponible = from ? availableFrom(from.balance, editing, from.id) : 0
+  const montoActual = amountFromInput(amount, { decimals: fromDecimals })
+  const excede = limita && Number.isFinite(montoActual) && montoActual > disponible
+  const sinFondos = limita && disponible <= 0
+
+  /**
+   * Lo que debería llegar según las tasas de hoy: origen → USD → destino.
+   * Es una sugerencia, no una imposición: lo que se guarda es lo que realmente
+   * llegó, que casi nunca coincide por las comisiones de conversión.
+   */
+  const sugerido = useMemo(() => {
+    if (!crossCurrency || !from || !to) return null
+    const value = amountFromInput(amount, { decimals: fromDecimals })
+    if (!Number.isFinite(value) || value <= 0) return null
+    return fromUsd(toUsd(value, from.currency, rates), to.currency, rates)
+  }, [crossCurrency, from, to, amount, fromDecimals, rates])
+
+  // Diferencia en USD entre lo que salió y lo que llegó: es la comisión real.
+  const recibido = amountFromInput(toAmount, { decimals: toDecimals })
+  const diferenciaUsd = useMemo(() => {
+    if (!crossCurrency || !from || !to) return null
+    const salida = amountFromInput(amount, { decimals: fromDecimals })
+    if (!Number.isFinite(salida) || salida <= 0) return null
+    if (!Number.isFinite(recibido) || recibido <= 0) return null
+    return toUsd(recibido, to.currency, rates) - toUsd(salida, from.currency, rates)
+  }, [crossCurrency, from, to, amount, recibido, fromDecimals, rates])
+
+  // Mientras el usuario no escriba el monto recibido, se mantiene sincronizado
+  // con la sugerencia a medida que cambia el monto que sale.
+  useEffect(() => {
+    if (!crossCurrency || toAmountTouched || sugerido == null) return
+    setToAmount(String(sugerido))
+  }, [sugerido, crossCurrency, toAmountTouched])
 
   const visibleCategories = useMemo(
     () => categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto')),
@@ -108,10 +148,15 @@ export function QuickAdd() {
 
   async function submit() {
     setError('')
-    const value = amountFromInput(amount)
+    const value = amountFromInput(amount, { decimals: fromDecimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
     if (!accountId) return setError('Elegí una cuenta')
     if (type === 'transferencia' && !toAccountId) return setError('Elegí la cuenta destino')
+    if (limita && value > disponible) {
+      return setError(
+        `${from!.name} tiene ${formatAmount(disponible, from!.currency)} disponibles`,
+      )
+    }
 
     const payload: Record<string, unknown> = {
       type,
@@ -122,9 +167,8 @@ export function QuickAdd() {
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
-      const received = amountFromInput(toAmount)
-      payload.to_amount = crossCurrency ? received : null
-      if (crossCurrency && (!Number.isFinite(received) || received <= 0)) {
+      payload.to_amount = crossCurrency ? recibido : null
+      if (crossCurrency && (!Number.isFinite(recibido) || recibido <= 0)) {
         return setError(`Indicá cuánto llegó realmente a ${to?.name}`)
       }
     } else {
@@ -195,19 +239,53 @@ export function QuickAdd() {
         <div className="px-5 pb-5 flex flex-col gap-4">
           <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
 
-          {/* El monto es lo primero y lo más grande: es el dato que siempre se escribe. */}
-          <div className="flex items-center gap-2 justify-center py-2">
-            <span className="text-[28px] font-bold text-[var(--fz-ink-3)]">{symbolOf(from?.currency)}</span>
+          {/*
+            El monto es lo primero y lo más grande: es el dato que siempre se
+            escribe. La moneda va SIEMPRE a la izquierda, con el mismo ícono y
+            el mismo tamaño — antes el símbolo saltaba de lado según la moneda
+            ($ y Bs a la izquierda, USDT y BTC a la derecha, y encima con otro
+            cuerpo de letra), así que el campo cambiaba de forma al elegir otra
+            cuenta.
+          */}
+          <div className="flex items-center justify-center gap-3 py-3">
+            <span className="flex items-center gap-2 shrink-0">
+              {from
+                ? <CurrencyIcon currency={from.currency} size={26} />
+                : <span className="w-[26px] h-[26px] rounded-full bg-[var(--fz-surface-sunk)]" />}
+              {/* Ancho fijo: USDT y USDC tienen 4 letras y USD/BOB/BTC 3, así que
+                  sin esto el número arrancaba en un punto distinto según la
+                  cuenta elegida — el mismo salto que se quería eliminar. */}
+              <span className="w-[48px] text-[13px] font-bold text-[var(--fz-ink-3)] tracking-wide">
+                {from?.currency ?? '—'}
+              </span>
+            </span>
+
             <input
               ref={amountRef}
               value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value))}
+              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals: fromDecimals }))}
               inputMode="decimal"
               placeholder="0.00"
-              aria-label="Monto"
-              className="fz-num w-full max-w-[220px] bg-transparent text-[40px] font-bold tracking-[-0.02em] outline-none placeholder:text-[var(--fz-ink-3)]"
+              aria-label={`Monto en ${from?.currency ?? ''}`}
+              className={`fz-num w-full max-w-[190px] bg-transparent text-[40px] font-bold tracking-[-0.02em] leading-none outline-none placeholder:text-[var(--fz-ink-3)] ${excede ? 'text-[var(--fz-out-text)]' : ''}`}
             />
           </div>
+
+          {limita && (
+            <div className="flex items-center justify-center gap-3 -mt-2">
+              <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+                Disponible {from ? formatAmount(disponible, from.currency) : '—'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAmount(String(roundFor(disponible, from!.currency)))}
+                disabled={sinFondos}
+                className="h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[12px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
+              >
+                MAX
+              </button>
+            </div>
+          )}
 
           <div>
             <Label>{type === 'transferencia' ? 'Desde' : 'Cuenta'}</Label>
@@ -246,11 +324,39 @@ export function QuickAdd() {
                   <Label>Cuánto llegó a {to?.name} ({to?.currency})</Label>
                   <TextField
                     value={toAmount}
-                    onChange={e => setToAmount(parseDecimalInput(e.target.value))}
+                    onChange={e => {
+                      setToAmountTouched(true)
+                      setToAmount(parseDecimalInput(e.target.value, { decimals: toDecimals }))
+                    }}
                     inputMode="decimal"
                     placeholder="0.00"
                     className="fz-num"
                   />
+
+                  <div className="flex items-center justify-between gap-2 mt-1.5">
+                    {/* La diferencia contra la tasa de referencia es, en la
+                        práctica, lo que te cobró la plataforma. */}
+                    {diferenciaUsd != null && Math.abs(diferenciaUsd) >= 0.01 ? (
+                      <span className={`text-[12px] font-medium fz-num ${diferenciaUsd < 0 ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-in-text)]'}`}>
+                        {diferenciaUsd < 0 ? 'Comisión ≈ ' : 'A favor ≈ '}
+                        {formatUSD(Math.abs(diferenciaUsd))}
+                      </span>
+                    ) : (
+                      <span className="text-[12px] text-[var(--fz-ink-3)]">
+                        {sugerido != null ? 'Según la tasa de hoy' : 'Poné el monto que sale'}
+                      </span>
+                    )}
+
+                    {toAmountTouched && sugerido != null && (
+                      <button
+                        type="button"
+                        onClick={() => { setToAmountTouched(false); setToAmount(String(sugerido)) }}
+                        className="text-[12px] font-semibold text-[var(--fz-accent)] shrink-0"
+                      >
+                        Usar {formatAmount(sugerido, to!.currency)}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -275,19 +381,19 @@ export function QuickAdd() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Fecha</Label>
-              <TextField type="date" value={date} onChange={e => setDate(e.target.value)} />
-            </div>
-            <div>
-              <Label>Descripción</Label>
-              <TextField
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
+          <div>
+            <Label>Fecha</Label>
+            <TextField type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+
+          <div>
+            <Label>Descripción</Label>
+            <TextArea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Opcional — en qué fue, con quién, para qué"
+              rows={3}
+            />
           </div>
 
           <ErrorNote>{error}</ErrorNote>
@@ -298,8 +404,11 @@ export function QuickAdd() {
                 <IconTrash size={18} stroke={1.8} />
               </Btn>
             )}
-            <Btn onClick={submit} disabled={saving} full>
-              {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Guardar'}
+            <Btn onClick={submit} disabled={saving || excede || sinFondos} full>
+              {saving ? 'Guardando…'
+                : sinFondos ? 'Sin saldo disponible'
+                : excede ? 'Supera el saldo'
+                : editing ? 'Guardar cambios' : 'Guardar'}
             </Btn>
           </div>
         </div>

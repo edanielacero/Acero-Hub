@@ -16,7 +16,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <FinanzasProvider>
       <QuickAddProvider>
-        <div className="min-h-[100dvh] p-0 min-[900px]:p-5">
+        <div className="fz-content-pad min-h-[100dvh] p-0 min-[900px]:p-5">
           <div className="mx-auto flex gap-5 max-w-[1440px]">
             <Sidebar />
             <main className="flex-1 min-w-0">{children}</main>

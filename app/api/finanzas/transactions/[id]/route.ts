@@ -1,7 +1,7 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { ensureSettings } from '@/lib/finanzas/settings'
-import { num } from '@/lib/finanzas/money'
+import { ensureRates } from '@/lib/finanzas/rates'
+import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import type { Account, TransactionInput } from '@/lib/finanzas/types'
@@ -84,13 +84,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   let amount_usd = num(current.amount_usd)
 
   if (rateExplicit || amountChanged || accountChanged) {
-    const rate = rateExplicit ? num(body.exchange_rate, NaN) : (await ensureSettings(supabase, userId)).usd_bob_rate
-    if (!Number.isFinite(rate) || rate <= 0) {
-      return NextResponse.json({ error: 'La tasa debe ser mayor a cero' }, { status: 400 })
+    if (rateExplicit) {
+      // Una tasa mandada a mano es el factor congelado directo: USD por unidad.
+      const factor = num(body.exchange_rate, NaN)
+      if (!Number.isFinite(factor) || factor <= 0) {
+        return NextResponse.json({ error: 'La tasa debe ser mayor a cero' }, { status: 400 })
+      }
+      exchange_rate = factor
+      amount_usd = round2(merged.amount! * factor)
+    } else {
+      const { rates } = await ensureRates(supabase, userId)
+      const frozen = freezeConversion(merged.amount!, currency, rates)
+      exchange_rate = frozen.exchange_rate
+      amount_usd = frozen.amount_usd
     }
-    const frozen = freezeConversion(merged.amount!, currency, rate)
-    exchange_rate = frozen.exchange_rate
-    amount_usd = frozen.amount_usd
   }
 
   const { data, error } = await supabase

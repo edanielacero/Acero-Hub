@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { IconArrowLeft } from '@tabler/icons-react'
 import { NAV_ITEMS, isActive } from './nav-items'
+import { CURRENCY_META } from '@/lib/finanzas/types'
+import { CurrencyIcon } from './currency-icon'
 import { useFinanzas } from './data-context'
 
 /**
@@ -12,7 +14,10 @@ import { useFinanzas } from './data-context'
  */
 export function Sidebar() {
   const pathname = usePathname()
-  const { settings } = useFinanzas()
+  const { rates, rateList } = useFinanzas()
+
+  // Solo las que se mueven: mostrar "1.00 USD por 1 USDT" no le sirve a nadie.
+  const volatiles = (['BOB', 'BTC'] as const).filter(c => rates[c] != null)
 
   return (
     <aside className="hidden min-[900px]:flex flex-col w-[248px] shrink-0 bg-[var(--fz-surface)] rounded-[var(--fz-r-card)] shadow-[var(--fz-sh-rest)] p-4">
@@ -50,11 +55,21 @@ export function Sidebar() {
           href="/finanzas/ajustes"
           className="block rounded-[var(--fz-r-tile)] bg-[var(--fz-hero)] p-4 text-white hover:brightness-110 transition-[filter]"
         >
-          <span className="block text-[12px] font-medium text-white/60">Tipo de cambio</span>
-          <span className="block mt-1 text-[22px] font-bold fz-num text-[var(--fz-lime)]">
-            {settings.usd_bob_rate.toFixed(2)}
+          <span className="flex items-baseline justify-between gap-2 mb-2">
+            <span className="text-[12px] font-medium text-white/60">Tipo de cambio</span>
+            {rateList.some(r => r.auto) && (
+              <span className="text-[10px] font-semibold text-[var(--fz-lime)] uppercase tracking-wide">Auto</span>
+            )}
           </span>
-          <span className="block text-[12px] text-white/50">Bs por 1 USD</span>
+          {volatiles.map(c => (
+            <span key={c} className="flex items-center gap-2 mt-1.5">
+              <CurrencyIcon currency={c} size={22} />
+              <span className="text-[12px] text-white/50 flex-1">{CURRENCY_META[c].symbol}</span>
+              <span className="text-[17px] font-bold fz-num text-[var(--fz-lime)]">
+                {rates[c]!.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+              </span>
+            </span>
+          ))}
         </Link>
 
         <Link

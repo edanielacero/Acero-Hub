@@ -6,6 +6,20 @@
    es oscuro por defecto y Finanzas pinta su propio canvas claro encima.
    ───────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * El Hub pinta `html, body` en #0a0a0a. Ese negro asoma en iOS detrás de la
+ * barra de estado y en el rebote del scroll, y en esta mini-app no hay ningún
+ * negro. Se corrige desde acá y no desde globals.css: `:has(#fz-root)` hace que
+ * la regla solo aplique cuando Finanzas está montada, así que el tema del Hub
+ * y el de las demás mini-apps quedan intactos.
+ */
+html:has(#fz-root),
+body:has(#fz-root) {
+  background-color: #F3F4F6;
+  /* Evita que el rebote de iOS descubra el fondo del documento. */
+  overscroll-behavior-y: none;
+}
+
 #fz-root {
   /* ── Superficies ── */
   --fz-canvas:        #F3F4F6;
@@ -30,10 +44,15 @@
   --fz-lime:          #C8F169;
   --fz-lime-ink:      #12281D;
 
-  /* ── Vidrio de la tab bar ── */
-  --fz-glass-bg:      rgba(18,40,29,0.72);
-  --fz-glass-edge:    rgba(255,255,255,0.14);
-  --fz-glass-pill:    rgba(255,255,255,0.16);
+  /* ── Vidrio de la tab bar ──
+     Neutro y bien translúcido: el verde competía con el acento y con la
+     tarjeta del patrimonio, y con tres verdes en pantalla ninguno mandaba.
+     Blanco escarchado sobre canvas claro es además lo que hace iOS, y deja
+     ver de verdad lo que pasa por detrás. */
+  --fz-glass-bg:      rgba(255,255,255,0.72);
+  --fz-glass-edge:    rgba(255,255,255,0.7);
+  --fz-glass-pill:    rgba(22,97,60,0.10);
+  --fz-glass-ink:     #5A616B;
 
   /* ── Semántica de dinero ── */
   --fz-in:            #16A34A;
@@ -86,20 +105,35 @@
    ──────────────────────────────────────────────────────────────────────────── */
 #fz-root .fz-tabbar {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom) + 16px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: calc(100% - 32px);
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  left: 12px;
+  right: 12px;
+  width: auto;                     /* no max-content: llega casi a los bordes */
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  justify-content: space-evenly;
   border-radius: var(--fz-r-pill);
-  background: var(--fz-glass-bg);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);  /* Safari lo sigue necesitando */
-  border: 0.5px solid var(--fz-glass-edge);
-  box-shadow: var(--fz-sh-float);
+  /* Gradiente vertical sutil: simula la luz entrando por arriba del vidrio.
+     Un fondo plano se lee como plástico; este leve degradado le da grosor. */
+  background:
+    linear-gradient(to bottom, rgba(255,255,255,0.55), rgba(255,255,255,0.28)),
+    var(--fz-glass-bg);
+
+  /* `brightness` y `saturate` son lo que deja pasar el color de lo que scrollea
+     debajo. Solo con blur el panel se lee como un gris plano.
+     Nada de feDisplacementMap: WebKit no lo aplica sobre el backdrop, así que
+     la refracción de Apple no es reproducible en iPhone. Ver §11. */
+  backdrop-filter: blur(30px) saturate(180%) brightness(1.06);
+  -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(1.06);  /* Safari lo sigue necesitando */
+
+  border: 0.5px solid var(--fz-glass-edge);            /* el filo de luz */
+  box-shadow:
+    /* Reflejo especular en el borde superior: el canto del vidrio. */
+    inset 0 1px 0 rgba(255,255,255,0.85),
+    /* Sombra interna abajo: da la sensación de espesor. */
+    inset 0 -1px 0 rgba(16,24,40,0.05),
+    0 8px 32px rgba(16,24,40,0.12),
+    0 2px 8px rgba(16,24,40,0.06);
   padding: 8px;
   z-index: 40;
 }
@@ -107,20 +141,18 @@
 /* Si el navegador no soporta backdrop-filter, el vidrio se vuelve opaco en vez
    de quedar como un panel semitransparente ilegible. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  #fz-root .fz-tabbar { background: #16301F; }
+  #fz-root .fz-tabbar { background: rgba(255,255,255,0.96); }
 }
 
 /* Pill compartido que se desliza hacia la pestaña activa. */
 #fz-root .fz-tab-pill {
   position: absolute;
   /* El bloque contenedor de un position:absolute es el PADDING box de .fz-tabbar,
-     no su content box. Con top:0 quedaba pegado arriba del padding, desalineado
-     respecto a los tabs. top:50% + translateY(-50%) lo centra sin hardcodear nada. */
-  top: 50%;
+     no su content box. top:50% + translateY(-50%) lo centra sin hardcodear nada. */
+  top: 8px;
   left: 0;
-  width: 46px;
-  height: 40px;
-  border-radius: var(--fz-r-pill);
+  height: 52px;
+  border-radius: 18px;
   background: var(--fz-glass-pill);
   transition: transform 0.4s cubic-bezier(0.32, 1.2, 0.4, 1), opacity 0.2s ease;
   z-index: 0;
@@ -131,44 +163,66 @@
   position: relative;
   z-index: 1;                      /* por encima del pill */
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 40px;                    /* debe coincidir con .fz-tab-pill */
-  border-radius: var(--fz-r-pill);
-  color: rgba(255,255,255,0.55);
+  gap: 3px;
+  flex: 1 1 0;
+  min-width: 0;                    /* si no, el label largo impide encoger */
+  max-width: 96px;
+  height: 52px;                    /* debe coincidir con .fz-tab-pill */
+  border-radius: 18px;
+  color: var(--fz-glass-ink);
   cursor: pointer;
   transition: color 0.2s ease;
   -webkit-tap-highlight-color: transparent;
 }
-#fz-root .fz-tab-active { color: var(--fz-lime); }
+#fz-root .fz-tab-label {
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+#fz-root .fz-tab-active { color: var(--fz-accent); }
 
 /* Botón de acción central (+). No recibe el pill. */
 #fz-root .fz-tab-action {
   position: relative;
   z-index: 1;
   display: flex; align-items: center; justify-content: center;
-  width: 46px; height: 40px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 96px;
+  height: 52px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 #fz-root .fz-tab-action-badge {
-  width: 36px; height: 36px;
+  width: 46px; height: 46px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--fz-accent);
   color: #FFFFFF;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  box-shadow: 0 4px 14px rgba(22,97,60,0.35);
   transition: transform 0.12s ease;
 }
 #fz-root .fz-tab-action:active .fz-tab-action-badge { transform: scale(0.92); }
 
 /* Reserva de scroll para que el contenido no quede debajo del panel flotante. */
-#fz-root .fz-tabbar-spacer { height: calc(88px + env(safe-area-inset-bottom)); }
+/* Reserva para que el contenido no quede debajo de la barra.
+   Va como padding del contenedor y no como un div al final: un spacer suelto
+   agrega 68px de scroll fantasma incluso en páginas que entran en pantalla.
+   12 (separación del borde) + 8 + 52 + 8 = 80, más aire = 88 */
+#fz-root .fz-content-pad { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 
 /* Es un patrón mobile: a partir del corte app/dashboard se cambia por sidebar. */
 @media (min-width: 900px) {
-  #fz-root .fz-tabbar, #fz-root .fz-tabbar-spacer { display: none; }
+  #fz-root .fz-tabbar { display: none; }
+  #fz-root .fz-content-pad { padding-bottom: 0; }
 }
 
 /* ─── Sheet / modal ───────────────────────────────────────────────────────── */

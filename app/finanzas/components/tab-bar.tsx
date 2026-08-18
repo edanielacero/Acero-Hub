@@ -8,7 +8,8 @@ import { NAV_ITEMS, isActive } from './nav-items'
 import { useQuickAdd } from './quick-add-context'
 
 /**
- * Tab bar flotante de vidrio verde oscuro. Ver documentos/finanzas/contexto_ui_finanzas.md §6.
+ * Tab bar de vidrio, a todo el ancho y anclada al borde inferior.
+ * Ver documentos/finanzas/contexto_ui_finanzas.md §6.
  * El (+) va al medio, partiendo los 4 items en dos y dos.
  */
 export function TabBar() {
@@ -16,7 +17,7 @@ export function TabBar() {
   const openQuickAdd = useQuickAdd()
   const navRef = useRef<HTMLElement | null>(null)
   const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
-  const [pill, setPill] = useState<{ x: number; visible: boolean }>({ x: 0, visible: false })
+  const [pill, setPill] = useState<{ x: number; w: number; visible: boolean }>({ x: 0, w: 0, visible: false })
 
   const activeHref = NAV_ITEMS.find(t => isActive(pathname, t.href, t.exact))?.href
 
@@ -34,7 +35,9 @@ export function TabBar() {
       }
       const navRect = nav.getBoundingClientRect()
       const tabRect = el.getBoundingClientRect()
-      setPill({ x: tabRect.left - navRect.left - nav.clientLeft, visible: true })
+      // El ancho también se mide: los tabs son flexibles, así que no hay un
+      // valor fijo que el CSS pueda asumir.
+      setPill({ x: tabRect.left - navRect.left - nav.clientLeft, w: tabRect.width, visible: true })
     }
     measure()
     window.addEventListener('resize', measure)
@@ -52,11 +55,11 @@ export function TabBar() {
         key={item.href}
         href={item.href}
         ref={el => { tabRefs.current[item.href] = el }}
-        aria-label={item.label}
         aria-current={active ? 'page' : undefined}
         className={`fz-tab ${active ? 'fz-tab-active' : ''}`}
       >
-        <Glyph size={23} stroke={1.7} />
+        <Glyph size={22} stroke={1.8} />
+        <span className="fz-tab-label">{item.label}</span>
       </Link>
     )
   }
@@ -68,15 +71,14 @@ export function TabBar() {
             el pill se ve saltar desde x=0 en la primera carga. */}
         <span
           className="fz-tab-pill"
-          style={{ transform: `translate(${pill.x}px, -50%)`, opacity: pill.visible ? 1 : 0 }}
+          style={{ transform: `translateX(${pill.x}px)`, width: pill.w, opacity: pill.visible ? 1 : 0 }}
         />
         {left.map(renderTab)}
         <button type="button" onClick={openQuickAdd} className="fz-tab-action" aria-label="Nuevo movimiento">
-          <span className="fz-tab-action-badge"><IconPlus size={20} stroke={2.2} /></span>
+          <span className="fz-tab-action-badge"><IconPlus size={24} stroke={2.4} /></span>
         </button>
         {right.map(renderTab)}
       </nav>
-      <div className="fz-tabbar-spacer" aria-hidden />
     </>
   )
 }

@@ -1,5 +1,5 @@
-import type { Account, AccountWithBalance, BalanceMovement, Currency } from './types'
-import { num, round2, toUsd } from './money'
+import type { Account, AccountWithBalance, BalanceMovement, Currency, RateMap } from './types'
+import { num, roundFor, round2, toUsd } from './money'
 
 /**
  * Saldo derivado por cuenta (§4.2 del documento maestro).
@@ -34,7 +34,12 @@ export function computeBalances(
     }
   }
 
-  for (const [id, value] of balances) balances.set(id, round2(value))
+  // Cada saldo se redondea a la precisión de SU moneda: 2 decimales en fiat,
+  // 8 en BTC. Redondear un saldo en satoshis a centavos lo destruiría.
+  const currencyById = new Map(accounts.map(a => [a.id, a.currency]))
+  for (const [id, value] of balances) {
+    balances.set(id, roundFor(value, currencyById.get(id) ?? 'USD'))
+  }
   return balances
 }
 
@@ -46,12 +51,12 @@ export function computeBalances(
 export function withBalances(
   accounts: Account[],
   transactions: BalanceMovement[],
-  rate: number,
+  rates: RateMap,
 ): AccountWithBalance[] {
   const balances = computeBalances(accounts, transactions)
   return accounts.map(a => {
     const balance = balances.get(a.id) ?? a.initial_balance
-    return { ...a, balance, balance_usd: toUsd(balance, a.currency, rate) }
+    return { ...a, balance, balance_usd: toUsd(balance, a.currency, rates) }
   })
 }
 

@@ -1,6 +1,7 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireUser, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { ensureSettings } from '@/lib/finanzas/settings'
+import { ensureRates } from '@/lib/finanzas/rates'
+import { readQuotes, refreshQuotes, quotesAreStale } from '@/lib/finanzas/quotes'
 import { num } from '@/lib/finanzas/money'
 import { mapAccount, mapBalanceMovement, totalUsd, withBalances } from '@/lib/finanzas/accounts'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
@@ -11,10 +12,16 @@ export async function GET() {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  // Los ajustes no dependen de las cuentas ni de los movimientos: pedirlos
-  // antes del Promise.all era un salto en serie de gratis.
-  const [settings, { data: accountRows }, { data: txRows }] = await Promise.all([
-    ensureSettings(supabase, userId),
+  // El patrimonio se valúa a la cotización de hoy, así que si está vencida se
+  // refresca antes de calcular. Refrescar es idempotente: si otra request ya lo
+  // hizo, esta encuentra todo fresco y sigue de largo.
+  let quotes = await readQuotes(supabase)
+  if (quotesAreStale(quotes)) {
+    quotes = await refreshQuotes(createAdminClient())
+  }
+
+  const [{ rates, rows: rateRows }, { data: accountRows }, { data: txRows }] = await Promise.all([
+    ensureRates(supabase, userId, quotes),
     supabase
       .from('fin_accounts')
       .select(ACCOUNT_COLS)
@@ -31,13 +38,13 @@ export async function GET() {
 
   const accounts = (accountRows ?? []).map(mapAccount)
   const movements = (txRows ?? []).map(mapBalanceMovement)
-  const withBal = withBalances(accounts, movements, settings.usd_bob_rate)
+  const withBal = withBalances(accounts, movements, rates)
 
   return NextResponse.json({
     accounts: withBal,
     total_usd: totalUsd(withBal),
-    usd_bob_rate: settings.usd_bob_rate,
-    usd_bob_rate_updated_at: settings.updated_at,
+    rates,
+    rate_list: rateRows,
   })
 }
 

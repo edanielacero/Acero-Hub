@@ -1,42 +1,75 @@
-import type { Currency, TxType } from './types'
+import { CURRENCY_META, type Currency, type RateMap, type TxType } from './types'
 
-/** Redondeo a 2 decimales, que es la precisión de todas las columnas numeric(14,2). */
+/** Redondeo a 2 decimales — la precisión del dólar y de `amount_usd`. */
 export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
 /**
- * Convierte a USD. `rate` son bolivianos por 1 USD.
- * Un monto que ya está en USD se devuelve tal cual — nunca se toca la tasa.
+ * Redondeo a la precisión de la moneda: 2 para fiat y stablecoins, 8 para BTC.
+ * Redondear un monto en BTC a 2 decimales lo destruiría.
  */
-export function toUsd(amount: number, currency: Currency, rate: number): number {
+export function roundFor(n: number, currency: Currency): number {
+  const factor = 10 ** CURRENCY_META[currency].decimals
+  return Math.round((n + Number.EPSILON) * factor) / factor
+}
+
+/**
+ * Cuántos USD vale 1 unidad de esta moneda, según la tasa cargada.
+ * Resuelve la dirección: la del Bs se guarda invertida (6.96 Bs por dólar),
+ * la del BTC directa (68.000 dólares por BTC).
+ */
+export function usdPerUnit(currency: Currency, rates: RateMap): number {
+  const meta = CURRENCY_META[currency]
+  if (meta.rateMode === 'none') return 1
+  const rate = rates[currency] ?? meta.defaultRate
+  if (!Number.isFinite(rate) || rate <= 0) return meta.rateMode === 'direct' ? meta.defaultRate : 1 / meta.defaultRate
+  return meta.rateMode === 'direct' ? rate : 1 / rate
+}
+
+/** Convierte un monto a USD con las tasas dadas. */
+export function toUsd(amount: number, currency: Currency, rates: RateMap): number {
   if (currency === 'USD') return round2(amount)
-  return round2(amount / rate)
+  return round2(amount * usdPerUnit(currency, rates))
 }
 
-/** El camino inverso: cuántos bolivianos son X dólares. */
-export function fromUsd(usd: number, currency: Currency, rate: number): number {
+/** El camino inverso: cuántas unidades de `currency` son X dólares. */
+export function fromUsd(usd: number, currency: Currency, rates: RateMap): number {
   if (currency === 'USD') return round2(usd)
-  return round2(usd * rate)
+  return roundFor(usd / usdPerUnit(currency, rates), currency)
 }
 
-function group(n: number): string {
+/**
+ * El factor congelado que se guarda en cada transacción.
+ * Siempre es "USD por 1 unidad", así que `amount_usd = amount × exchange_rate`
+ * sin importar la moneda — lo que hace que auditar una fila vieja sea trivial.
+ */
+export function freezeRate(currency: Currency, rates: RateMap): number {
+  return usdPerUnit(currency, rates)
+}
+
+function group(n: number, currency: Currency): string {
   return Math.abs(n).toLocaleString('en-US', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: CURRENCY_META[currency].decimals,
   })
 }
 
+export function formatAmount(n: number, currency: Currency): string {
+  const meta = CURRENCY_META[currency]
+  const sign = n < 0 ? '−' : ''
+  const body = group(n, currency)
+  return meta.symbolAfter
+    ? `${sign}${body} ${meta.symbol}`
+    : `${sign}${meta.symbol}${meta.symbol === '$' ? '' : ' '}${body}`
+}
+
 export function formatUSD(n: number): string {
-  return `${n < 0 ? '−' : ''}$${group(n)}`
+  return formatAmount(n, 'USD')
 }
 
 export function formatBOB(n: number): string {
-  return `${n < 0 ? '−' : ''}Bs ${group(n)}`
-}
-
-export function formatAmount(n: number, currency: Currency): string {
-  return currency === 'USD' ? formatUSD(n) : formatBOB(n)
+  return formatAmount(n, 'BOB')
 }
 
 /**
@@ -76,9 +109,13 @@ export function num(v: unknown, fallback = 0): number {
  * se descartara la coma, escribir "5,03" daría "503" — un error de 100× que no
  * avisa. En una app de plata eso es inaceptable.
  *
- * Devuelve siempre un string con punto, listo para `Number()`.
+ * `decimals` sale de la moneda: 2 para fiat, 8 para BTC.
  */
-export function parseDecimalInput(raw: string, opts?: { allowNegative?: boolean }): string {
+export function parseDecimalInput(
+  raw: string,
+  opts?: { allowNegative?: boolean; decimals?: number },
+): string {
+  const decimals = opts?.decimals ?? 2
   const negative = opts?.allowNegative === true && raw.trimStart().startsWith('-')
 
   // La coma pasa a punto ANTES de filtrar, para no perderla.
@@ -86,16 +123,22 @@ export function parseDecimalInput(raw: string, opts?: { allowNegative?: boolean 
 
   // Solo el primer separador cuenta; el resto se ignora.
   const [head, ...rest] = cleaned.split('.')
-  const body = rest.length > 0
-    ? `${head}.${rest.join('').slice(0, 2)}`   // numeric(14,2): 2 decimales
-    : head
+  const body = rest.length > 0 ? `${head}.${rest.join('').slice(0, decimals)}` : head
 
   return negative && body !== '' ? `-${body}` : body
 }
 
 /** El string de un campo de monto convertido a número, o NaN si está vacío. */
-export function amountFromInput(raw: string, opts?: { allowNegative?: boolean }): number {
+export function amountFromInput(
+  raw: string,
+  opts?: { allowNegative?: boolean; decimals?: number },
+): number {
   const parsed = parseDecimalInput(raw, opts)
   if (parsed === '' || parsed === '.' || parsed === '-' || parsed === '-.') return NaN
   return Number(parsed)
+}
+
+/** Decimales que admite el campo de monto de una moneda. */
+export function decimalsFor(currency: Currency | undefined): number {
+  return currency ? CURRENCY_META[currency].decimals : 2
 }

@@ -107,18 +107,27 @@ export function Label({ children }: { children: ReactNode }) {
   return <span className="block text-[13px] font-medium text-[var(--fz-ink-2)] mb-1.5">{children}</span>
 }
 
+/**
+ * 16px no es capricho: Safari en iOS hace zoom automático al enfocar cualquier
+ * campo con font-size menor a 16px, y después no vuelve solo. Todo input,
+ * select y textarea de la mini-app tiene que quedarse en 16 o más.
+ */
 const fieldClass =
-  'w-full h-12 px-4 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] ' +
-  'border border-[var(--fz-hairline)] text-[15px] font-medium text-[var(--fz-ink)] ' +
+  'w-full px-4 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] ' +
+  'border border-[var(--fz-hairline)] text-[16px] font-medium text-[var(--fz-ink)] ' +
   'placeholder:text-[var(--fz-ink-3)] outline-none focus:border-[var(--fz-accent)]'
 
 export function TextField(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`${fieldClass} ${props.className ?? ''}`} />
+  return <input {...props} className={`${fieldClass} h-12 ${props.className ?? ''}`} />
+}
+
+export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} className={`${fieldClass} py-3 leading-snug resize-y ${props.className ?? ''}`} />
 }
 
 export function SelectField(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...props} className={`${fieldClass} appearance-none pr-9 ${props.className ?? ''}`}>
+    <select {...props} className={`${fieldClass} h-12 appearance-none pr-9 ${props.className ?? ''}`}>
       {props.children}
     </select>
   )

@@ -201,6 +201,7 @@ Stat grande          26px / 700 / tracking -0.01em
 Título de sección    19px / 700
 Título de fila       15px / 600
 Cuerpo               15px / 500
+Campo de formulario  16px / 500  ← mínimo obligatorio, ver abajo
 Monto en lista       15px / 600 / tabular-nums
 Etiqueta             13px / 500
 Caption / hora       12px / 500 / --fz-ink-3
@@ -211,6 +212,10 @@ Caption / hora       12px / 500 / --fz-ink-3
 - El hero usa cifras proporcionales — se ve más apretado y deliberado.
 - Pesos usados: 500, 600, 700. Nada de 400 (se ve lavado sobre gris claro) ni
   800.
+- **Todo `input`, `select` y `textarea` va en 16px como mínimo.** Safari en iOS
+  hace zoom automático al enfocar un campo con menos de 16px, y después no
+  vuelve solo. No es una preferencia estética: por debajo de ese número la app
+  se siente rota en el celular.
 
 ### Formato de montos
 
@@ -237,6 +242,44 @@ Cuadrado de 40×40 (48×48 en el hero), `border-radius: var(--fz-r-chip)`, fondo
 en el tinte de la categoría, ícono de línea de 20px en el `-fg` de ese tinte.
 Es el átomo visual que más se repite en toda la app.
 
+### Ícono de moneda (`<CurrencyIcon>`)
+
+Logos reales, embebidos como SVG dentro del componente:
+
+| | Ícono | Origen |
+|---|---|---|
+| USD | Bandera de EEUU | HatScripts/circle-flags (MIT) |
+| BOB | Bandera de Bolivia | HatScripts/circle-flags (MIT) |
+| USDT | Logo de Tether | spothq/cryptocurrency-icons (CC0) |
+| USDC | Logo de USD Coin | spothq/cryptocurrency-icons (CC0) |
+| BTC | Logo de Bitcoin | spothq/cryptocurrency-icons (CC0) |
+
+**Van inline, no como `<img src>` ni vía paquete npm.** Los cinco juntos pesan
+~4 KB: no dependen de que un CDN siga vivo, no agregan cinco requests a cada
+pantalla, no parpadean al cargar, y no meten una dependencia nueva en el
+`package.json` del Hub.
+
+Dos detalles que hicieron falta al integrarlos:
+
+- **El círculo lo recorta el contenedor por CSS, no una `<mask>` del SVG.**
+  Las banderas venían recortadas con una máscara referenciada por `id`. Al
+  repetirse el ícono en la página — hay 9 cuentas en Bs — quedaban 9 elementos
+  con el mismo id, y WebKit dejaba de resolver la referencia: **la bandera se
+  dibujaba cuadrada en el iPhone**. Ahora el componente no tiene ningún `id`
+  interno, así que no hay nada que colisionar.
+
+  Se recorta con `clip-path: circle(50%)` **además** de `overflow: hidden` +
+  `border-radius`: WebKit no siempre recorta por radio cuando el elemento
+  comparte contexto con un `backdrop-filter`, que es justo el caso de la tab bar.
+- **Llevan un aro de `rgba(0,0,0,0.1)`**, ahora como `box-shadow: inset` del
+  contenedor. Sin él, las franjas blancas de la bandera de EEUU se funden con el
+  canvas claro y el ícono pierde el filo. En CSS escala solo y no depende del
+  viewBox, que no es igual entre banderas (512) y cripto (32).
+
+Aparece en cuatro lugares: el selector al crear una cuenta, las listas de
+cuentas (Home y Cuentas), la lista de tasas en Ajustes, y la tarjeta de tipo de
+cambio del dashboard.
+
 ### Tarjeta hero (`<HeroBalance>`)
 Fondo `--fz-hero`, radio `--fz-r-card`, padding 24px. Contiene: etiqueta
 ("Patrimonio total") en blanco al 60%, el monto en 40/700, y el toggle de
@@ -257,47 +300,112 @@ fecha y el neto del día.
 Fondo `--fz-surface`, radio `--fz-r-card`, `--fz-sh-rest`, padding 20–24px. Es
 el contenedor de todo en desktop, y de los bloques agrupados en móvil.
 
-### Tab bar (`<TabBar>`) — solo móvil · **liquid glass**
+### Tab bar (`<TabBar>`) — solo móvil · **frosted glass**
 
-Se implementa con el CSS ya rescatado en `documentos/design/liquid-glass-menu.md`,
-con **una sola modificación**: el panel deja de ser vidrio claro sobre fondo
-oscuro y pasa a ser **vidrio verde oscuro sobre el canvas claro**.
+**Pill flotante ancho**, al estilo de las tab bars de iOS 26: llega casi a los
+bordes pero nunca los toca.
 
 ```css
 .fz-tabbar {
-  background: var(--fz-glass-bg);              /* rgba(18,40,29,0.72) */
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  border: 0.5px solid var(--fz-glass-edge);
-  box-shadow: var(--fz-sh-float);
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  left: 12px; right: 12px; width: auto;   /* no max-content */
+  border-radius: 999px;
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 0.5px solid rgba(255,255,255,0.7);   /* el filo de luz */
+  box-shadow: 0 8px 32px rgba(16,24,40,0.12), 0 2px 8px rgba(16,24,40,0.06);
+  padding: 8px;
 }
-.fz-tab-pill { background: var(--fz-glass-pill); }
-.fz-tab        { color: rgba(255,255,255,0.55); }
-.fz-tab-active { color: var(--fz-lime); }
 ```
 
-**Por qué funciona sobre canvas claro:** el vidrio se lee cuando hay contraste
-entre el panel y lo que pasa por detrás. Vidrio *claro* sobre canvas claro no se
-nota; vidrio *oscuro* sobre contenido claro sí — se ven las formas del scroll
-difuminándose a través del tinte verde. La regla original del documento
-rescatado ("íconos y texto van claros") se mantiene intacta: sigue siendo un
-panel oscuro, solo que ahora flota sobre claro en vez de sobre oscuro.
+**Por qué neutro y no verde:** con la tarjeta del patrimonio, el acento de los
+botones y la barra, había tres verdes peleando y ninguno mandaba. El vidrio
+blanco escarchado deja que el verde signifique una sola cosa: acción.
 
-Del CSS rescatado se conserva sin tocar: la geometría del pill deslizante, la
-curva con rebote `cubic-bezier(0.32, 1.2, 0.4, 1)`, el `env(safe-area-inset-bottom)`,
-el `.fz-tabbar-spacer`, la medición con `getBoundingClientRect()` + `nav.clientLeft`
-en `useLayoutEffect`, y los íconos Tabler con variante `*Filled` en activo.
+`saturate(180%)` es lo que hace que se vea el color de lo que scrollea debajo;
+solo con `blur` el panel se lee como un gris plano. Donde más se aprecia es
+cuando la tarjeta oscura del patrimonio pasa por detrás.
 
-Cinco slots:
+**Los tabs son flexibles** (`flex: 1 1 0; max-width: 96px`), no de ancho fijo:
+cinco slots de 64px más el padding se salían de una pantalla de 320px. Por eso
+el pill indicador **también mide su ancho** además de su posición — no hay un
+valor que el CSS pueda asumir.
+
+Cinco slots, con etiqueta bajo cada ícono:
 
 ```
   Inicio   Movimientos   ( + )   Cuentas   Ajustes
 ```
 
-- Ítem activo: ícono `*Filled` en `--fz-lime` + el pill deslizándose detrás.
-- El `(+)` es un círculo elevado en `--fz-accent` con el glifo blanco.
-- El breakpoint de la barra sube de 1024px a **900px**, para coincidir con el
-  corte app/dashboard de §8.
+- Ítem activo: ícono `*Filled` + etiqueta en `--fz-accent`, con el pill detrás.
+- El `(+)` es un círculo de 46px en `--fz-accent`.
+- Del CSS rescatado se conserva la curva con rebote
+  `cubic-bezier(0.32, 1.2, 0.4, 1)`, el `env(safe-area-inset-bottom)`, y la
+  medición con `getBoundingClientRect()` + `nav.clientLeft` en `useLayoutEffect`.
+- **La reserva de scroll va como `padding-bottom` del contenedor**
+  (`88px + safe-area`), no como un div al final: un spacer suelto agregaba
+  scroll fantasma en páginas que entraban en pantalla.
+
+### Hasta dónde llega el vidrio en Safari
+
+La refracción de Apple —el borde que deforma lo que hay detrás— se implementa
+con filtros SVG `feDisplacementMap` aplicados al backdrop. **WebKit no los
+aplica**, así que en iPhone no es reproducible, con librería o sin ella.
+
+Lo que Safari sí soporta, y que se usa para dar grosor al vidrio:
+
+| Técnica | Para qué |
+|---|---|
+| `blur(30px) saturate(180%)` | Difumina y deja pasar el color de lo que scrollea debajo |
+| `brightness(1.06)` | Simula la luz que atraviesa el vidrio |
+| Gradiente vertical en el fondo | Sin él el panel se lee como plástico plano |
+| `inset 0 1px 0 rgba(255,255,255,0.85)` | Reflejo especular en el canto superior |
+| `inset 0 -1px 0 rgba(16,24,40,0.05)` | Sombra interna abajo: sensación de espesor |
+
+### El negro del Hub en iOS
+
+El Hub pinta `html, body` en `#0a0a0a`. Ese negro asomaba **detrás de la barra
+de estado del iPhone** y en el rebote del scroll — y en Finanzas no hay ningún
+negro. Se corrige en dos frentes, los dos dentro de la mini-app:
+
+```css
+/* :has() hace que la regla solo aplique cuando Finanzas está montada, así que
+   el tema del Hub y el de las otras mini-apps quedan intactos. */
+html:has(#fz-root), body:has(#fz-root) {
+  background-color: #F3F4F6;
+  overscroll-behavior-y: none;   /* el rebote deja de descubrir el fondo */
+}
+```
+
+```ts
+// app/finanzas/layout.tsx — pinta la barra del navegador en iOS
+export const viewport: Viewport = { themeColor: '#F3F4F6', viewportFit: 'cover' }
+```
+
+Si el navegador no soporta `:has()`, la regla se ignora y el `themeColor` sigue
+resolviendo la barra de estado: degrada sin romper nada.
+
+### Campo de monto del quick-add
+
+```
+  [🇧🇴] BOB    1,354.29
+       Disponible Bs 1,354.29   [MAX]
+```
+
+La moneda va **siempre a la izquierda**, con el ícono circular y el código a
+ancho fijo. Antes el símbolo cambiaba de lado según la moneda — `$` y `Bs` a la
+izquierda, `USDT` y `BTC` a la derecha y con otro cuerpo de letra — así que el
+campo cambiaba de forma al elegir otra cuenta.
+
+Dos detalles que hacen que nada se mueva:
+
+- **El código tiene ancho fijo (48px).** `USDT` y `USDC` tienen cuatro letras y
+  `USD`/`BOB`/`BTC` tres: sin ancho fijo el número arrancaba en un punto
+  distinto según la cuenta, que era el mismo salto que se quería eliminar.
+- **El ícono reemplaza al símbolo.** Ya identifica la moneda sin ambigüedad y
+  reusa el sistema de íconos, en vez de mezclar tres convenciones distintas.
 
 ### Bottom sheet (`<Sheet>`) — móvil
 Sube desde abajo, esquinas superiores a 28px, handle de 36×4px centrado arriba,
@@ -441,10 +549,10 @@ lo único que importa acá.
 | Fuera | Razón |
 |---|---|
 | Modo oscuro | Una sola paleta bien resuelta primero. La referencia 2 queda archivada como dirección futura |
-| Librería de React para el efecto vidrio | El CSS propio ya resuelve el material y lo difícil (medición del pill, safe-area, rebote). Ver §12 |
+| Librería de React para el efecto vidrio | Evaluada `rdev/liquid-glass-react` (5.9k ★, MIT). Su propio README avisa: *"Safari and Firefox only partially support the effect (displacement will not be visible)"*. Usa `feDisplacementMap` sobre el backdrop, que WebKit no aplica — y **todo navegador en iOS es WebKit**. El tab bar solo existe en móvil, así que la refracción no se vería nunca donde importa. Último commit: junio 2025 |
 | Logos de marcas en las filas | Las referencias muestran Netflix, Spotify, Wise. Requiere un catálogo de assets. Se usan chips de categoría con ícono |
 | Fotos de perfil / avatares | Es una app de un solo usuario |
-| Librería de componentes o de gráficas | Se escribe todo a mano con Tailwind v4 y SVG |
+| Librería de componentes o de gráficas | Se escribe todo a mano con Tailwind v4 y SVG. Los íconos de moneda son la excepción: son logos reales, embebidos |
 | Gráficas | No hay ninguna en el Sprint 1. El estilo (línea fina, tooltip oscuro, control segmentado) queda documentado para cuando lleguen |
 | Ilustraciones en estados vacíos | Un ícono, una frase y un botón. Nada más |
 

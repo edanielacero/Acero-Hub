@@ -216,7 +216,7 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 
 | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|
-| 1 | **Movimientos** — registrar y ver saldo | Todo lo demás | 📋 Especificado |
+| 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
 | 2 | Compartidos y reembolsos | Spotify, TradingView | — |
 | 3 | Dinero por cobrar | Las cuotas de los $957 | — |
 | 4 | Pasanaku | Los 300 Bs mensuales | — |
@@ -225,7 +225,6 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 7 | Objetivos y bolsillos | Requiere 5, 6 | — |
 | 8 | Recurrentes / suscripciones | Requiere 2 | — |
 | 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
-| 10 | Tipo de cambio automático | Sustituye la tasa manual del 1 | — |
 | 11 | Alertas | Requiere 5, 8 | — |
 
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son

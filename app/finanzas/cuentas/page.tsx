@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { IconArchive, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { IconArchive, IconChevronDown, IconChevronUp, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
-import { amountFromInput, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
+import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
+import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
+import { CurrencyIcon } from '../components/currency-icon'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, Label, Panel, SectionTitle, SelectField, TextField } from '../components/ui'
+import { Btn, ErrorNote, Label, Panel, SectionTitle, TextField } from '../components/ui'
 
 interface Draft {
   id?: string
@@ -42,7 +44,7 @@ export default function CuentasPage() {
     const payload = {
       name: draft.name.trim(),
       currency: draft.currency,
-      initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true }),
+      initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true, decimals: decimalsFor(draft.currency) }),
       initial_balance_date: draft.initial_balance_date,
     }
 
@@ -75,6 +77,32 @@ export default function CuentasPage() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo actualizar')
+    }
+    await reload()
+  }
+
+  /**
+   * Mueve una cuenta un lugar arriba o abajo y persiste el orden completo.
+   * Se manda la lista entera porque todas nacen con sort_order = 0: mover de a
+   * pares no alcanzaría para desempatarlas.
+   */
+  async function move(id: string, delta: -1 | 1) {
+    setError('')
+    const orden = visible.map(a => a.id)
+    const i = orden.indexOf(id)
+    const j = i + delta
+    if (i < 0 || j < 0 || j >= orden.length) return
+
+    ;[orden[i], orden[j]] = [orden[j], orden[i]]
+
+    const res = await fetch('/api/finanzas/accounts/reorder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: orden }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return setError(data.error ?? 'No se pudo reordenar')
     }
     await reload()
   }
@@ -137,21 +165,35 @@ export default function CuentasPage() {
                   autoFocus
                 />
               </div>
-              <div>
+              <div className="min-[900px]:col-span-2">
                 <Label>Moneda</Label>
-                <SelectField
-                  value={draft.currency}
-                  onChange={e => setDraft({ ...draft, currency: e.target.value as Currency })}
-                >
-                  <option value="USD">USD · dólares</option>
-                  <option value="BOB">BOB · bolivianos</option>
-                </SelectField>
+                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                  {CURRENCIES.map(c => {
+                    const selected = draft.currency === c
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setDraft({ ...draft, currency: c })}
+                        aria-pressed={selected}
+                        className={`shrink-0 flex items-center gap-2 h-12 pl-2 pr-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold transition-colors ${
+                          selected
+                            ? 'bg-[var(--fz-accent)] text-white'
+                            : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                        }`}
+                      >
+                        <CurrencyIcon currency={c} size={28} />
+                        {c}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               <div>
                 <Label>Saldo inicial</Label>
                 <TextField
                   value={draft.initial_balance}
-                  onChange={e => setDraft({ ...draft, initial_balance: parseDecimalInput(e.target.value, { allowNegative: true }) })}
+                  onChange={e => setDraft({ ...draft, initial_balance: parseDecimalInput(e.target.value, { allowNegative: true, decimals: decimalsFor(draft.currency) }) })}
                   inputMode="decimal"
                   placeholder="0.00"
                   className="fz-num"
@@ -183,11 +225,15 @@ export default function CuentasPage() {
             </p>
           ) : (
             <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {visible.map(a => (
+              {visible.map((a, i) => (
                 <AccountRow
                   key={a.id}
                   account={a}
                   hidden={hidden}
+                  isFirst={i === 0}
+                  isLast={i === visible.length - 1}
+                  onMoveUp={() => move(a.id, -1)}
+                  onMoveDown={() => move(a.id, 1)}
                   onEdit={() => {
                     setError('')
                     setDraft({
@@ -221,11 +267,12 @@ export default function CuentasPage() {
             {showArchived && (
               <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-3">
                 {archived.map(a => (
-                  <div key={a.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
+                  <div key={a.id} className="flex items-center gap-3 py-3">
+                    <CurrencyIcon currency={a.currency} size={32} />
+                    <div className="min-w-0 flex-1">
                       <p className="text-[15px] font-semibold truncate text-[var(--fz-ink-2)]">{a.name}</p>
                       <p className="text-[12px] text-[var(--fz-ink-3)]">
-                        {a.currency} · {hidden ? HIDDEN : a.balance.toFixed(2)}
+                        {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
                       </p>
                     </div>
                     <Btn size="sm" variant="ghost" onClick={() => patch(a.id, { archived: false })}>
@@ -242,25 +289,40 @@ export default function CuentasPage() {
   )
 }
 
-function AccountRow({ account, hidden, onEdit, onArchive, onDelete }: {
+function AccountRow({ account, hidden, isFirst, isLast, onMoveUp, onMoveDown, onEdit, onArchive, onDelete }: {
   account: AccountWithBalance
   hidden: boolean
+  isFirst: boolean
+  isLast: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
 }) {
   return (
-    <div className="flex items-center gap-3 py-3">
+    <div className="flex items-center gap-2 min-[900px]:gap-3 py-3">
+      {/* Flechas y no arrastrar: el drag-and-drop táctil sin librería es
+          frágil, y estos botones funcionan igual con teclado y lector. */}
+      <div className="flex flex-col shrink-0">
+        <IconBtn label="Subir" onClick={onMoveUp} disabled={isFirst} small>
+          <IconChevronUp size={15} stroke={2.2} />
+        </IconBtn>
+        <IconBtn label="Bajar" onClick={onMoveDown} disabled={isLast} small>
+          <IconChevronDown size={15} stroke={2.2} />
+        </IconBtn>
+      </div>
+      <CurrencyIcon currency={account.currency} size={36} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-semibold truncate">{account.name}</p>
         <p className="text-[12px] text-[var(--fz-ink-3)]">
-          {account.currency} · inicial {hidden ? HIDDEN : account.initial_balance.toFixed(2)}
+          {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
         </p>
       </div>
 
       <div className="text-right shrink-0">
         <p className="text-[15px] font-semibold fz-num">
-          {hidden ? HIDDEN : (account.currency === 'USD' ? formatUSD(account.balance) : `Bs ${account.balance.toFixed(2)}`)}
+          {hidden ? HIDDEN : formatAmount(account.balance, account.currency)}
         </p>
         {account.currency !== 'USD' && (
           <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
@@ -278,16 +340,24 @@ function AccountRow({ account, hidden, onEdit, onArchive, onDelete }: {
   )
 }
 
-function IconBtn({ children, label, onClick, danger }: {
-  children: React.ReactNode; label: string; onClick: () => void; danger?: boolean
+function IconBtn({ children, label, onClick, danger, disabled, small }: {
+  children: React.ReactNode
+  label: string
+  onClick: () => void
+  danger?: boolean
+  disabled?: boolean
+  small?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
-      className={`grid place-items-center w-9 h-9 rounded-full transition-colors ${
+      className={`grid place-items-center rounded-full transition-colors disabled:opacity-25 disabled:pointer-events-none ${
+        small ? 'w-6 h-6 min-[900px]:w-7' : 'w-8 h-8 min-[900px]:w-9 min-[900px]:h-9'
+      } ${
         danger
           ? 'text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]'
           : 'text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]'

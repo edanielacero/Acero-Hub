@@ -1,8 +1,9 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountWithBalance, Category, Settings, Transaction } from '@/lib/finanzas/types'
-import { DEFAULT_USD_BOB_RATE } from '@/lib/finanzas/types'
+import type { AccountWithBalance, Category, RateMap, Transaction } from '@/lib/finanzas/types'
+import type { RateDetail } from '@/lib/finanzas/rates'
+import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 
 /**
  * Estado compartido de la mini-app. Vive en el cliente para que registrar un
@@ -12,7 +13,10 @@ import { DEFAULT_USD_BOB_RATE } from '@/lib/finanzas/types'
 interface FinanzasData {
   accounts: AccountWithBalance[]
   categories: Category[]
-  settings: Settings
+  /** Tasa vigente por moneda. USD no aparece: siempre vale 1. */
+  rates: RateMap
+  /** Las mismas tasas con su fecha de última edición, para Ajustes. */
+  rateList: RateDetail[]
   totalUsd: number
   loading: boolean
   /** Vuelve a pedir cuentas, categorías y ajustes. Lo llama el quick-add al guardar. */
@@ -30,10 +34,10 @@ const HIDDEN_KEY = 'fz:hidden'
 export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([])
   const [categories, setCategories] = useState<Category[]>([])
-  const [settings, setSettings] = useState<Settings>({
-    usd_bob_rate: DEFAULT_USD_BOB_RATE,
-    updated_at: new Date().toISOString(),
-  })
+  const [rates, setRates] = useState<RateMap>(
+    () => Object.fromEntries(RATED_CURRENCIES.map(c => [c, CURRENCY_META[c].defaultRate])),
+  )
+  const [rateList, setRateList] = useState<RateDetail[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState(0)
@@ -52,6 +56,8 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const reload = useCallback(async () => {
+    // /accounts ya refresca las cotizaciones vencidas y devuelve las tasas
+    // resueltas, así que con dos viajes alcanza.
     const [accRes, catRes] = await Promise.all([
       fetch('/api/finanzas/accounts'),
       fetch('/api/finanzas/categories'),
@@ -60,12 +66,10 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       const data = await accRes.json()
       setAccounts(data.accounts ?? [])
       setTotal(data.total_usd ?? 0)
-      setSettings(s => ({
-        usd_bob_rate: data.usd_bob_rate ?? s.usd_bob_rate,
-        // Sin esto, Ajustes mostraba como "última edición" el momento en que se
-        // cargó la página, no cuándo se cambió la tasa de verdad.
-        updated_at: data.usd_bob_rate_updated_at ?? s.updated_at,
-      }))
+      if (data.rates) setRates(data.rates)
+      // La fecha de última edición viene con las tasas: sin esto, Ajustes
+      // mostraba el momento en que se cargó la página en vez del cambio real.
+      if (data.rate_list) setRateList(data.rate_list)
     }
     if (catRes.ok) {
       const data = await catRes.json()
@@ -87,8 +91,8 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { void reload() }, [reload])
 
   const value = useMemo<FinanzasData>(
-    () => ({ accounts, categories, settings, totalUsd, loading, reload, version, hidden, toggleHidden }),
-    [accounts, categories, settings, totalUsd, loading, reload, version, hidden, toggleHidden],
+    () => ({ accounts, categories, rates, rateList, totalUsd, loading, reload, version, hidden, toggleHidden }),
+    [accounts, categories, rates, rateList, totalUsd, loading, reload, version, hidden, toggleHidden],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

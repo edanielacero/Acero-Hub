@@ -4,10 +4,11 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { IconArrowDownLeft, IconArrowUpRight, IconChevronRight, IconPlus } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
-import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { AmountUSD, HideToggle } from './components/amount'
 import { useFinanzas, useTransactions } from './components/data-context'
 import { useQuickAdd, useQuickEdit } from './components/quick-add-context'
+import { CurrencyIcon } from './components/currency-icon'
 import { PageHeader, TxRow } from './components/tx-row'
 import { Btn, EmptyState, monthName, Panel, SectionTitle } from './components/ui'
 
@@ -135,14 +136,15 @@ export default function HomePage() {
 
           <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
             {visible.map(a => (
-              <div key={a.id} className="flex items-center justify-between gap-3 py-3">
-                <div className="min-w-0">
+              <div key={a.id} className="flex items-center gap-3 py-3">
+                <CurrencyIcon currency={a.currency} size={36} />
+                <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold truncate">{a.name}</p>
                   <p className="text-[12px] text-[var(--fz-ink-3)]">{a.currency}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-[15px] font-semibold fz-num">
-                    {hidden ? HIDDEN : (a.currency === 'USD' ? formatUSD(a.balance) : `Bs ${a.balance.toFixed(2)}`)}
+                    {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
                   </p>
                   {a.currency !== 'USD' && (
                     <p className="text-[12px] text-[var(--fz-ink-3)]">

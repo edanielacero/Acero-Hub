@@ -1,5 +1,5 @@
-import type { Account, Currency, Transaction, TransactionInput, TxType } from './types'
-import { round2, toUsd } from './money'
+import type { Account, Currency, RateMap, Transaction, TransactionInput, TxType } from './types'
+import { freezeRate, round2, toUsd } from './money'
 
 export interface ValidationResult {
   ok: boolean
@@ -77,9 +77,9 @@ export function validateInput(
 export function freezeConversion(
   amount: number,
   currency: Currency,
-  rate: number,
+  rates: RateMap,
 ): { exchange_rate: number; amount_usd: number } {
-  return { exchange_rate: rate, amount_usd: toUsd(amount, currency, rate) }
+  return { exchange_rate: freezeRate(currency, rates), amount_usd: toUsd(amount, currency, rates) }
 }
 
 /** Aporte de un movimiento al total de gasto del período, en USD. */
@@ -150,4 +150,29 @@ export function lastMonths(count = 12, ref: Date = new Date()): { value: string;
     })
   }
   return out
+}
+
+/**
+ * Cuánto se puede sacar de una cuenta sin dejarla en negativo.
+ *
+ * En modo edición hay que revertir el efecto que el propio movimiento ya tiene
+ * sobre ese saldo: si estás editando un gasto de 35 y el saldo quedó en 0, el
+ * máximo al que podés subirlo es 35, no 0. Sin esta corrección, editar un
+ * movimiento hacia arriba sería imposible.
+ */
+export function availableFrom(
+  balance: number,
+  editing?: { type: TxType; account_id: string; amount: number } | null,
+  accountId?: string,
+): number {
+  if (!editing || !accountId || editing.account_id !== accountId) return balance
+
+  // Efecto actual del movimiento sobre la cuenta de origen.
+  const effect = editing.type === 'ingreso' ? editing.amount : -editing.amount
+  return balance - effect
+}
+
+/** Si el tipo de movimiento consume saldo de la cuenta de origen. */
+export function consumesBalance(type: TxType): boolean {
+  return type === 'gasto' || type === 'transferencia'
 }

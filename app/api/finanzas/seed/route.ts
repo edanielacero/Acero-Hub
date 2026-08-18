@@ -1,10 +1,10 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { ensureSettings } from '@/lib/finanzas/settings'
+import { ensureRates } from '@/lib/finanzas/rates'
 import { SEED_CATEGORIES } from '@/lib/finanzas/types'
 
 /**
- * Siembra idempotente: crea la fila de ajustes y las 14 categorías iniciales.
+ * Siembra idempotente: crea las tasas por moneda y las 14 categorías iniciales.
  * Se dispara desde un botón en Ajustes y no desde la migración, porque una
  * migración no puede conocer el auth.uid() del usuario de forma limpia.
  *
@@ -15,7 +15,7 @@ export async function POST() {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  await ensureSettings(supabase, userId)
+  await ensureRates(supabase, userId)
 
   const { data: existing } = await supabase
     .from('fin_categories')
