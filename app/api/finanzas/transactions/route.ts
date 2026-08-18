@@ -79,10 +79,11 @@ export async function POST(request: Request) {
     description: typeof body.description === 'string' ? body.description.trim() || null : null,
   }
 
-  const { data: accountRows } = await supabase
-    .from('fin_accounts')
-    .select(ACCOUNT_COLS)
-    .eq('user_id', userId)
+  // Cuentas y ajustes no dependen entre sí — van juntos en un solo viaje.
+  const [{ data: accountRows }, settings] = await Promise.all([
+    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
+    ensureSettings(supabase, userId),
+  ])
 
   const accountsById = new Map<string, Account>(
     (accountRows ?? []).map(r => {
@@ -96,7 +97,6 @@ export async function POST(request: Request) {
 
   // La moneda sale de la cuenta, nunca del cliente.
   const currency = accountsById.get(input.account_id!)!.currency
-  const settings = await ensureSettings(supabase, userId)
   const frozen = freezeConversion(input.amount!, currency, settings.usd_bob_rate)
 
   const { data, error } = await supabase

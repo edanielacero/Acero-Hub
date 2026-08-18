@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import { createClient, createAdminClient } from '@/lib/supabase-server'
-import { redirect } from 'next/navigation'
+import { requireProjectAccess } from '@/lib/access'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -15,28 +14,11 @@ export const metadata: Metadata = {
 }
 
 export default async function TradingLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) redirect('/login')
-
-  const admin = createAdminClient()
-
-  const [{ data: profile }, { data: project }] = await Promise.all([
-    admin.from('profiles').select('role, accent_color, color_mode').eq('id', user.id).single(),
-    admin.from('projects').select('id').eq('slug', 'trading-journal').single(),
-  ])
-
-  if (profile?.role !== 'admin') {
-    if (!project) redirect('/')
-    const { data: access } = await admin
-      .from('project_access')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('project_id', project.id)
-      .maybeSingle()
-    if (!access) redirect('/')
-  }
+  // El tema sale de `profiles`, así que acá la consulta no se puede evitar —
+  // pero el gate ya no cuesta un getUser() ni una query a `projects` aparte.
+  const { profile } = await requireProjectAccess('trading-journal', {
+    profileFields: ['accent_color', 'color_mode'],
+  })
 
   const accent = profile?.accent_color ?? 'blue'
   const mode   = profile?.color_mode   ?? 'dark'

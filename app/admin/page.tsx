@@ -47,13 +47,18 @@ export default function AdminPage() {
 
   async function loadData() {
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
+    const { data: auth } = await supabase.auth.getClaims()
+    const userId = auth?.claims.sub
+    if (!userId) { router.push('/login'); return }
 
-    const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-    if (me?.role !== 'admin') { router.push('/'); return }
+    // El rol viaja firmado en el JWT (custom access token hook). Solo se
+    // consulta `profiles` si el hook todavía no está registrado.
+    const claimRole = (auth.claims as { app_metadata?: { role?: string } }).app_metadata?.role
+    const role = claimRole
+      ?? (await supabase.from('profiles').select('role').eq('id', userId).single()).data?.role
+    if (role !== 'admin') { router.push('/'); return }
     setIsAdmin(true)
-    setCurrentUserId(user.id)
+    setCurrentUserId(userId)
 
     const [{ data: profilesData }, { data: projectsData }, { data: accessData }, { data: invitesData }] = await Promise.all([
       supabase.from('profiles').select('id, name, email, role').order('created_at'),
@@ -79,8 +84,7 @@ export default function AdminPage() {
     if (hasAccess) {
       await supabase.from('project_access').delete().eq('user_id', userId).eq('project_id', projectId)
     } else {
-      const { data: { user } } = await supabase.auth.getUser()
-      await supabase.from('project_access').insert({ user_id: userId, project_id: projectId, granted_by: user!.id })
+      await supabase.from('project_access').insert({ user_id: userId, project_id: projectId, granted_by: currentUserId })
     }
     setUsers(prev => prev.map(u =>
       u.id === userId

@@ -1,14 +1,12 @@
-import { createClient } from '@/lib/supabase-server'
-import { createAdminClient } from '@/lib/supabase-server'
+import { createAdminClient, requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 const VALID_ACCENTS = ['blue', 'violet', 'emerald', 'amber', 'rose', 'red']
 const VALID_MODES   = ['dark', 'light']
 
 export async function PATCH(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json()
   const updates: Record<string, string> = {}
@@ -29,7 +27,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Sin cambios' }, { status: 400 })
 
   const admin = createAdminClient()
-  const { error } = await admin.from('profiles').update(updates).eq('id', user.id)
+  const { error } = await admin.from('profiles').update(updates).eq('id', userId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   return NextResponse.json({ ok: true })

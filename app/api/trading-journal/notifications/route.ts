@@ -1,4 +1,4 @@
-import { createClient, createAdminClient, requireUser } from '@/lib/supabase-server'
+import { createAdminClient, requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET() {
@@ -21,15 +21,14 @@ export async function GET() {
 // 20260813030000_trading_journal_write_policies.sql), algo que ninguna
 // policy de RLS por ownership puede autorizar.
 export async function PATCH(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
   const { notificationId, action } = await req.json()
 
   if (action === 'read_all') {
-    await admin.from('tj_notifications').update({ read: true }).eq('user_id', user.id).eq('read', false)
+    await admin.from('tj_notifications').update({ read: true }).eq('user_id', userId).eq('read', false)
     return NextResponse.json({ success: true })
   }
 
@@ -39,7 +38,7 @@ export async function PATCH(req: NextRequest) {
     .from('tj_notifications')
     .select('*')
     .eq('id', notificationId)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .single()
   if (!notif) return NextResponse.json({ error: 'Notificación no encontrada' }, { status: 404 })
 
@@ -85,7 +84,7 @@ export async function PATCH(req: NextRequest) {
     const { data: copy, error: sessionError } = await admin
       .from('tj_sessions')
       .insert({
-        user_id:         user.id,
+        user_id:         userId,
         type:            original.type,
         name:            original.name,
         description:     original.description,

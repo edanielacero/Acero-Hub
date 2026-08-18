@@ -1,14 +1,11 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { createAdminClient } from '@/lib/supabase-server'
+import { requireApiAdmin } from '@/lib/access'
 import { getResend } from '@/lib/resend'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Prohibido' }, { status: 403 })
+  const gate = await requireApiAdmin()
+  if (!gate.ok) return gate.response
 
   const { email } = await request.json()
   if (!email) return NextResponse.json({ error: 'Email requerido' }, { status: 400 })

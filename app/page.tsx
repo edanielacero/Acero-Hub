@@ -1,4 +1,5 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { createAdminClient, requireUser } from '@/lib/supabase-server'
+import { listProjects, type ProjectRow } from '@/lib/access'
 import ProjectCard from '@/components/ProjectCard'
 import ProfileMenu from '@/components/ProfileMenu'
 import Link from 'next/link'
@@ -8,52 +9,42 @@ import { PROJECT_ASSETS } from '@/lib/project-assets'
 const PUBLIC_SLUGS: string[] = []
 
 export default async function Home() {
-  const supabase = await createClient()
+  const { userId, claims, role: claimRole } = await requireUser()
+
+  // Todo lo que sigue sale de una sola tanda en paralelo. Antes eran cuatro
+  // queries en serie detrás de un getUser(): cada una esperaba a la anterior.
   const admin = createAdminClient()
+  const [profileRes, projects, accessRes] = await Promise.all([
+    userId
+      ? admin.from('profiles').select('name, role').eq('id', userId).single()
+      : null,
+    listProjects(),
+    // Solo se saltea si el JWT ya confirmó que es admin: en ese caso ve todo y
+    // la tabla de accesos no aporta nada.
+    userId && claimRole !== 'admin'
+      ? admin.from('project_access').select('project_id').eq('user_id', userId)
+      : null,
+  ])
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const profile = profileRes?.data ?? null
+  const isAdmin = (claimRole ?? profile?.role) === 'admin'
 
-  // Proyectos públicos — siempre visibles, admin client para bypass de RLS
-  const { data: publicProjects } = await admin
-    .from('projects')
-    .select('id, name, slug, description')
-    .in('slug', PUBLIC_SLUGS)
+  const publicProjects = PUBLIC_SLUGS.length
+    ? projects.filter(p => PUBLIC_SLUGS.includes(p.slug))
+    : []
 
-  let profile: { name: string; role: string } | null = null
-  let privateProjects: { id: string; name: string; slug: string; description: string | null }[] = []
-
-  if (user) {
-    const { data: p } = await admin.from('profiles').select('name, role').eq('id', user.id).single()
-    profile = p
-    const isAdmin = profile?.role === 'admin'
-
+  let privateProjects: ProjectRow[] = []
+  if (userId) {
     if (isAdmin) {
-      // Admin ve todo excepto los públicos (ya los tiene arriba)
-      const { data } = await admin
-        .from('projects')
-        .select('id, name, slug, description')
-        .order('name')
-      privateProjects = (data ?? []).filter(p => !PUBLIC_SLUGS.includes(p.slug))
+      privateProjects = projects.filter(p => !PUBLIC_SLUGS.includes(p.slug))
     } else {
-      // Usuario normal: solo sus proyectos con acceso, excluyendo públicos
-      const { data: access } = await admin
-        .from('project_access')
-        .select('project_id')
-        .eq('user_id', user.id)
-      const ids = (access ?? []).map(a => a.project_id)
-      if (ids.length > 0) {
-        const { data } = await admin
-          .from('projects')
-          .select('id, name, slug, description')
-          .in('id', ids)
-          .order('name')
-        privateProjects = (data ?? []).filter(p => !PUBLIC_SLUGS.includes(p.slug))
-      }
+      const ids = new Set((accessRes?.data ?? []).map(a => a.project_id))
+      privateProjects = projects.filter(p => ids.has(p.id) && !PUBLIC_SLUGS.includes(p.slug))
     }
   }
 
-  const allProjects = [...(publicProjects ?? []), ...privateProjects]
-  const isAdmin = profile?.role === 'admin'
+  const allProjects = [...publicProjects, ...privateProjects]
+  const user = userId ? { email: claims?.email ?? '' } : null
 
   return (
     <main className="min-h-screen flex flex-col items-center px-6 py-16">

@@ -11,9 +11,10 @@ export async function GET() {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const settings = await ensureSettings(supabase, userId)
-
-  const [{ data: accountRows }, { data: txRows }] = await Promise.all([
+  // Los ajustes no dependen de las cuentas ni de los movimientos: pedirlos
+  // antes del Promise.all era un salto en serie de gratis.
+  const [settings, { data: accountRows }, { data: txRows }] = await Promise.all([
+    ensureSettings(supabase, userId),
     supabase
       .from('fin_accounts')
       .select(ACCOUNT_COLS)

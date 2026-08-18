@@ -6,7 +6,7 @@ import type { Transaction, TxType } from '@/lib/finanzas/types'
 import { groupByDay, monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
-import { fetchTransactions, useFinanzas } from '../components/data-context'
+import { useFinanzas, useTransactions } from '../components/data-context'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, SelectField } from '../components/ui'
@@ -29,7 +29,7 @@ function lastMonths(count = 12): { value: string; label: string }[] {
 }
 
 export default function MovimientosPage() {
-  const { accounts, categories, hidden, version } = useFinanzas()
+  const { accounts, categories, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
 
@@ -39,31 +39,22 @@ export default function MovimientosPage() {
   const [accountId, setAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
 
-  const [txs, setTxs] = useState<Transaction[]>([])
-  const [totals, setTotals] = useState({ gasto: 0, ingreso: 0 })
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
+  const range = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
-    const range = monthRange(new Date(y, m - 1, 1))
-    void (async () => {
-      const data = await fetchTransactions({
-        from: range.from,
-        to: range.to,
-        type: type === 'todos' ? undefined : type,
-        account_id: accountId || undefined,
-        category_id: categoryId || undefined,
-        limit: '500',
-      })
-      if (cancelled) return
-      setTxs(data.transactions)
-      setTotals({ gasto: data.total_gasto_usd, ingreso: data.total_ingreso_usd })
-      setLoading(false)
-    })()
-    return () => { cancelled = true }
-  }, [month, type, accountId, categoryId, version])
+    return monthRange(new Date(y, m - 1, 1))
+  }, [month])
+
+  const { data, loading } = useTransactions({
+    from: range.from,
+    to: range.to,
+    type: type === 'todos' ? undefined : type,
+    account_id: accountId || undefined,
+    category_id: categoryId || undefined,
+    limit: '500',
+  })
+
+  const txs = data.transactions
+  const totals = { gasto: data.total_gasto_usd, ingreso: data.total_ingreso_usd }
 
   const days = useMemo(() => groupByDay(txs), [txs])
   const today = todayISO()

@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getJwks } from './lib/jwks'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -30,7 +31,12 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims() en vez de getUser(): verifica la firma del JWT localmente en
+  // lugar de pegarle a /auth/v1/user. Sigue refrescando la sesión, porque por
+  // dentro pasa por getSession() y eso es lo que reescribe las cookies.
+  const jwks = await getJwks()
+  const { data } = await supabase.auth.getClaims(undefined, jwks ? { keys: jwks } : undefined)
+  const user = data?.claims
   const isPublic = pathname.startsWith('/login') || pathname.startsWith('/invite') || pathname.startsWith('/auth')
 
   if (!user && !isPublic) {

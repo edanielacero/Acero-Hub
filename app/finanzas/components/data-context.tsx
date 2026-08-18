@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountWithBalance, Category, Settings, Transaction } from '@/lib/finanzas/types'
 import { DEFAULT_USD_BOB_RATE } from '@/lib/finanzas/types'
 
@@ -38,6 +38,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState(0)
   const [hidden, setHidden] = useState(false)
+  const firstLoad = useRef(true)
 
   useEffect(() => {
     setHidden(window.localStorage.getItem(HIDDEN_KEY) === '1')
@@ -66,7 +67,16 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       setCategories(data.categories ?? [])
     }
     setLoading(false)
-    setVersion(v => v + 1)
+
+    // En la primera carga no se toca `version`: las pantallas ya están pidiendo
+    // sus datos por su cuenta y bumpearla las hacía pedir todo dos veces.
+    if (firstLoad.current) {
+      firstLoad.current = false
+    } else {
+      // Recarga por mutación: lo cacheado quedó viejo.
+      txCache.clear()
+      setVersion(v => v + 1)
+    }
   }, [])
 
   useEffect(() => { void reload() }, [reload])
@@ -85,15 +95,75 @@ export function useFinanzas(): FinanzasData {
   return ctx
 }
 
-/** Trae movimientos con filtros. Cada pantalla maneja su propia query. */
-export async function fetchTransactions(params: Record<string, string | undefined>): Promise<{
+export interface TxResult {
   transactions: Transaction[]
   total_gasto_usd: number
   total_ingreso_usd: number
-}> {
+}
+
+const EMPTY: TxResult = { transactions: [], total_gasto_usd: 0, total_ingreso_usd: 0 }
+
+/**
+ * Respuestas ya vistas, por query string. Volver a una pantalla que ya se
+ * visitó pinta al instante en vez de esperar otra vuelta al servidor; el dato
+ * fresco llega por detrás y reemplaza. Se limpia entero en cada mutación.
+ */
+const txCache = new Map<string, TxResult>()
+
+function txKey(params: Record<string, string | undefined>): string {
   const qs = new URLSearchParams()
-  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v)
-  const res = await fetch(`/api/finanzas/transactions?${qs.toString()}`)
-  if (!res.ok) return { transactions: [], total_gasto_usd: 0, total_ingreso_usd: 0 }
+  for (const [k, v] of Object.entries(params).sort(([a], [b]) => a.localeCompare(b))) {
+    if (v) qs.set(k, v)
+  }
+  return qs.toString()
+}
+
+/** Trae movimientos con filtros. Cada pantalla maneja su propia query. */
+export async function fetchTransactions(
+  params: Record<string, string | undefined>,
+): Promise<TxResult> {
+  const res = await fetch(`/api/finanzas/transactions?${txKey(params)}`)
+  if (!res.ok) return EMPTY
   return res.json()
+}
+
+/**
+ * Movimientos con caché stale-while-revalidate. `loading` solo es true la
+ * primera vez que se pide una consulta: si ya hay algo cacheado se muestra
+ * mientras se revalida, que es lo que hace que navegar se sienta instantáneo.
+ */
+export function useTransactions(params: Record<string, string | undefined>): {
+  data: TxResult
+  loading: boolean
+} {
+  const { version } = useFinanzas()
+  const key = txKey(params)
+
+  const [data, setData] = useState<TxResult>(() => txCache.get(key) ?? EMPTY)
+  const [loading, setLoading] = useState(() => !txCache.has(key))
+
+  useEffect(() => {
+    let cancelled = false
+    const cached = txCache.get(key)
+    if (cached) {
+      setData(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
+
+    void (async () => {
+      const res = await fetch(`/api/finanzas/transactions?${key}`)
+      if (cancelled) return
+      const fresh: TxResult = res.ok ? await res.json() : EMPTY
+      if (cancelled) return
+      txCache.set(key, fresh)
+      setData(fresh)
+      setLoading(false)
+    })()
+
+    return () => { cancelled = true }
+  }, [key, version])
+
+  return { data, loading }
 }

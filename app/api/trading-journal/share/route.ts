@@ -1,10 +1,9 @@
-import { createClient, createAdminClient } from '@/lib/supabase-server'
+import { createAdminClient, requireUser } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { userId } = await requireUser()
+  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const admin = createAdminClient()
   const { sessionId, toEmail } = await req.json()
@@ -13,8 +12,8 @@ export async function POST(req: NextRequest) {
   const email = String(toEmail).toLowerCase().trim()
 
   const [{ data: session }, { data: senderProfile }, { data: project }] = await Promise.all([
-    admin.from('tj_sessions').select('id, name').eq('id', sessionId).eq('user_id', user.id).single(),
-    admin.from('profiles').select('name, email').eq('id', user.id).single(),
+    admin.from('tj_sessions').select('id, name').eq('id', sessionId).eq('user_id', userId).single(),
+    admin.from('profiles').select('name, email').eq('id', userId).single(),
     admin.from('projects').select('id').eq('slug', 'trading-journal').single(),
   ])
 
@@ -28,7 +27,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (!receiver) return NextResponse.json({ error: 'El correo no está registrado en Acero Hub' }, { status: 404 })
-  if (receiver.id === user.id) return NextResponse.json({ error: 'No puedes compartir una sesión contigo mismo' }, { status: 400 })
+  if (receiver.id === userId) return NextResponse.json({ error: 'No puedes compartir una sesión contigo mismo' }, { status: 400 })
 
   // Verificar que el receptor tiene acceso a Trading Journal
   if (receiver.role !== 'admin' && project) {
@@ -51,7 +50,7 @@ export async function POST(req: NextRequest) {
     .from('tj_share_invitations')
     .select('id')
     .eq('session_id', sessionId)
-    .eq('from_user_id', user.id)
+    .eq('from_user_id', userId)
     .eq('to_email', email)
     .eq('status', 'pending')
     .maybeSingle()
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   const { data: invitation, error: invErr } = await admin
     .from('tj_share_invitations')
-    .insert({ from_user_id: user.id, to_email: email, session_id: sessionId, status: 'pending' })
+    .insert({ from_user_id: userId, to_email: email, session_id: sessionId, status: 'pending' })
     .select()
     .single()
   if (invErr || !invitation) return NextResponse.json({ error: 'Error al crear la invitación' }, { status: 500 })
@@ -72,7 +71,7 @@ export async function POST(req: NextRequest) {
     payload: {
       invitationId: invitation.id,
       fromName,
-      fromUserId:   user.id,
+      fromUserId:   userId,
       sessionName:  session.name,
       sessionId,
     },

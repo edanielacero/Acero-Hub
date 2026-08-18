@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 interface ProjectCardProps {
   href: string
   name: string
-  description: string
+  description: string | null
   icon: ReactNode
   banner: ReactNode
 }

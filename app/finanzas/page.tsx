@@ -1,13 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
 import { IconArrowDownLeft, IconArrowUpRight, IconChevronRight, IconPlus } from '@tabler/icons-react'
-import type { Transaction } from '@/lib/finanzas/types'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { AmountUSD, HideToggle } from './components/amount'
-import { fetchTransactions, useFinanzas } from './components/data-context'
+import { useFinanzas, useTransactions } from './components/data-context'
 import { useQuickAdd, useQuickEdit } from './components/quick-add-context'
 import { PageHeader, TxRow } from './components/tx-row'
 import { Btn, EmptyState, monthName, Panel, SectionTitle } from './components/ui'
@@ -20,31 +19,19 @@ function greeting(): string {
 }
 
 export default function HomePage() {
-  const { accounts, categories, totalUsd, loading, hidden, version } = useFinanzas()
+  const { accounts, categories, totalUsd, loading, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
 
-  const [recent, setRecent] = useState<Transaction[]>([])
-  const [gastoMes, setGastoMes] = useState(0)
-  const [ingresoMes, setIngresoMes] = useState(0)
+  const now = useMemo(() => new Date(), [])
+  const range = useMemo(() => monthRange(now), [now])
 
-  const now = new Date()
-  const range = monthRange(now)
+  const mes = useTransactions({ from: range.from, to: range.to })
+  const ultimos = useTransactions({ limit: '5' })
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const [mes, ultimos] = await Promise.all([
-        fetchTransactions({ from: range.from, to: range.to }),
-        fetchTransactions({ limit: '5' }),
-      ])
-      if (cancelled) return
-      setGastoMes(mes.total_gasto_usd)
-      setIngresoMes(mes.total_ingreso_usd)
-      setRecent(ultimos.transactions)
-    })()
-    return () => { cancelled = true }
-  }, [version, range.from, range.to])
+  const gastoMes = mes.data.total_gasto_usd
+  const ingresoMes = mes.data.total_ingreso_usd
+  const recent = ultimos.data.transactions
 
   const visible = accounts.filter(a => !a.archived)
 
