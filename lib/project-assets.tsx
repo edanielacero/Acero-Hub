@@ -106,49 +106,7 @@ const ExpandlogyIcon = () => (
   </svg>
 )
 
-const FinanzasBanner = () => (
-  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="bg-fin" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#171006" />
-        <stop offset="100%" stopColor="#0c0904" />
-      </linearGradient>
-      <radialGradient id="glow-fin" cx="50%" cy="38%" r="45%">
-        <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.12" />
-        <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
-      </radialGradient>
-      <linearGradient id="card-fin" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="#2a2110" />
-        <stop offset="100%" stopColor="#15100a" />
-      </linearGradient>
-    </defs>
-    <rect width="400" height="120" fill="url(#bg-fin)" />
-    <rect width="400" height="120" fill="url(#glow-fin)" />
-    {/* Tarjeta */}
-    <rect x="152" y="28" width="96" height="60" rx="7" fill="url(#card-fin)" stroke="#3a2e14" strokeWidth="1" />
-    <rect x="152" y="43" width="96" height="9" fill="#f59e0b" fillOpacity="0.14" />
-    <circle cx="220" cy="71" r="8" fill="#f59e0b" fillOpacity="0.85" />
-    <line x1="164" y1="71" x2="196" y2="71" stroke="#4a3a18" strokeWidth="1.5" strokeLinecap="round" />
-    <line x1="164" y1="78" x2="184" y2="78" stroke="#3a2e14" strokeWidth="1.5" strokeLinecap="round" />
-    {/* Tendencia ascendente */}
-    <path d="M42,88 L78,74 L112,80 L146,52" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.7" />
-    <circle cx="42" cy="88" r="2.3" fill="#f59e0b" fillOpacity="0.6" />
-    <circle cx="78" cy="74" r="2.3" fill="#f59e0b" fillOpacity="0.7" />
-    <circle cx="112" cy="80" r="2.3" fill="#f59e0b" fillOpacity="0.7" />
-    <circle cx="146" cy="52" r="3" fill="#fbbf24" />
-    {/* Label */}
-    <rect x="150" y="98" width="100" height="14" rx="3" fill="#120d05" />
-    <text x="200" y="108" textAnchor="middle" fill="#8a6a24" fontSize="7.5" fontFamily="monospace" fontWeight="600" letterSpacing="3">FINANZAS</text>
-  </svg>
-)
 
-const FinanzasIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="6" width="20" height="14" rx="2.5" />
-    <path d="M2 10.5h20" />
-    <circle cx="17" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
-  </svg>
-)
 
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
@@ -158,9 +116,5 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'expandlogy': {
     icon: <ExpandlogyIcon />,
     banner: <ExpandlogyBanner />,
-  },
-  'finanzas': {
-    icon: <FinanzasIcon />,
-    banner: <FinanzasBanner />,
   },
 }
