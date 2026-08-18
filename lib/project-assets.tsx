@@ -108,6 +108,48 @@ const ExpandlogyIcon = () => (
 
 
 
+/* ─── Finanzas ─────────────────────────────────────────────────────────────
+   Verde bosque + lima, la identidad de la mini-app (ver
+   documentos/finanzas/contexto_ui_finanzas.md §4). */
+
+const FinanzasBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-fz" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#16301F" />
+        <stop offset="100%" stopColor="#0D1F15" />
+      </linearGradient>
+      <linearGradient id="bar-fz" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0%" stopColor="#C8F169" stopOpacity="0.25" />
+        <stop offset="100%" stopColor="#C8F169" stopOpacity="0.95" />
+      </linearGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-fz)" />
+    <circle cx="330" cy="30" r="70" fill="#C8F169" fillOpacity="0.05" />
+    <circle cx="360" cy="96" r="40" fill="#C8F169" fillOpacity="0.04" />
+    {[
+      { x: 40,  h: 26 }, { x: 72,  h: 42 }, { x: 104, h: 34 }, { x: 136, h: 56 },
+      { x: 168, h: 48 }, { x: 200, h: 70 }, { x: 232, h: 62 }, { x: 264, h: 84 },
+    ].map(bar => (
+      <rect key={bar.x} x={bar.x} y={96 - bar.h} width="16" height={bar.h} rx="5" fill="url(#bar-fz)" />
+    ))}
+    <line x1="24" y1="96" x2="376" y2="96" stroke="#FFFFFF" strokeOpacity="0.08" strokeWidth="1" />
+    <text x="24" y="34" fill="#C8F169" fontSize="11" fontFamily="system-ui" fontWeight="700" opacity="0.9">
+      PATRIMONIO
+    </text>
+  </svg>
+)
+
+const FinanzasIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 18V9" />
+    <path d="M9 18V5" />
+    <path d="M15 18v-7" />
+    <path d="M21 18V8" />
+    <line x1="2" y1="21" x2="22" y2="21" opacity="0.5" />
+  </svg>
+)
+
 export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'trading-journal': {
     icon: <CandlestickIcon />,
@@ -116,5 +158,9 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
   'expandlogy': {
     icon: <ExpandlogyIcon />,
     banner: <ExpandlogyBanner />,
+  },
+  'finanzas': {
+    icon: <FinanzasIcon />,
+    banner: <FinanzasBanner />,
   },
 }

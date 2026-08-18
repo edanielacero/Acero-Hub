@@ -8,6 +8,12 @@ export const metadata: Metadata = {
   description: 'Organización de clientes, onboarding y generación de creativos/copys con IA',
 }
 
+// Prototipo visual: sin tablas propias ni persistencia. El único contacto con
+// Supabase es el gate de acceso del Hub. El tema es fijo a propósito — no se
+// lee la preferencia del perfil para que el mockup no dependa de datos de usuario.
+const ACCENT = 'blue'
+const MODE = 'dark'
+
 export default async function ExpandlogyLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -17,7 +23,7 @@ export default async function ExpandlogyLayout({ children }: { children: React.R
   const admin = createAdminClient()
 
   const [{ data: profile }, { data: project }] = await Promise.all([
-    admin.from('profiles').select('role, accent_color, color_mode').eq('id', user.id).single(),
+    admin.from('profiles').select('role').eq('id', user.id).single(),
     admin.from('projects').select('id').eq('slug', 'expandlogy').single(),
   ])
 
@@ -32,11 +38,8 @@ export default async function ExpandlogyLayout({ children }: { children: React.R
     if (!access) redirect('/')
   }
 
-  const accent = profile?.accent_color ?? 'blue'
-  const mode = profile?.color_mode ?? 'dark'
-
   return (
-    <div id="exp-root" data-accent={accent} data-mode={mode} className="min-h-screen">
+    <div id="exp-root" data-accent={ACCENT} data-mode={MODE} className="min-h-screen">
       <MockDataProvider>{children}</MockDataProvider>
     </div>
   )

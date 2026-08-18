@@ -1,0 +1,212 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Finanzas · tema propio
+   Ver documentos/finanzas/contexto_ui_finanzas.md §4
+
+   Todo cuelga de #fz-root. No toca app/globals.css ni el tema del Hub: el Hub
+   es oscuro por defecto y Finanzas pinta su propio canvas claro encima.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#fz-root {
+  /* ── Superficies ── */
+  --fz-canvas:        #F3F4F6;
+  --fz-surface:       #FFFFFF;
+  --fz-surface-sunk:  #FAFAFB;
+  --fz-hero:          #12281D;
+  --fz-hairline:      #ECEDF0;
+
+  /* ── Texto ── */
+  --fz-ink:           #12131A;
+  --fz-ink-2:         #6B7078;
+  --fz-ink-3:         #9CA1A9;
+  --fz-ink-invert:    #FFFFFF;
+
+  /* ── Acento: verde bosque. Solo superficies llenas. ── */
+  --fz-accent:        #16613C;
+  --fz-accent-press:  #0F4A2D;
+  --fz-accent-tint:   #E4F0E9;
+
+  /* Lima: la contraparte del acento sobre superficies OSCURAS.
+     Nunca sobre el canvas claro — 1.3:1, ilegible. */
+  --fz-lime:          #C8F169;
+  --fz-lime-ink:      #12281D;
+
+  /* ── Vidrio de la tab bar ── */
+  --fz-glass-bg:      rgba(18,40,29,0.72);
+  --fz-glass-edge:    rgba(255,255,255,0.14);
+  --fz-glass-pill:    rgba(255,255,255,0.16);
+
+  /* ── Semántica de dinero ── */
+  --fz-in:            #16A34A;
+  --fz-in-text:       #15803D;
+  --fz-in-tint:       #E3F5E9;
+  --fz-out:           #E5484D;
+  --fz-out-text:      #C62A2F;
+  --fz-out-tint:      #FDE9EA;
+
+  /* ── Tintes de categoría ── */
+  --fz-tint-lavender: #EDEBFB;   --fz-tint-lavender-fg: #6D5BD0;
+  --fz-tint-peach:    #FDF0DF;   --fz-tint-peach-fg:    #E07C1F;
+  --fz-tint-mint:     #E3F5E9;   --fz-tint-mint-fg:     #15803D;
+  --fz-tint-sky:      #E6F1FD;   --fz-tint-sky-fg:      #1D74D0;
+  --fz-tint-rose:     #FDE9EA;   --fz-tint-rose-fg:     #C62A2F;
+  --fz-tint-sand:     #F6F1E7;   --fz-tint-sand-fg:     #9A7B33;
+  --fz-tint-slate:    #EEEFF2;   --fz-tint-slate-fg:    #5A616B;
+
+  /* ── Radios ── */
+  --fz-r-card:   24px;
+  --fz-r-tile:   20px;
+  --fz-r-chip:   14px;
+  --fz-r-field:  16px;
+  --fz-r-pill:   999px;
+
+  /* ── Sombras ── */
+  --fz-sh-rest:  0 1px 2px rgba(16,24,40,.04);
+  --fz-sh-float: 0 4px 12px rgba(16,24,40,.06), 0 16px 32px rgba(16,24,40,.06);
+  --fz-sh-modal: 0 24px 64px rgba(16,24,40,.18);
+
+  /* La Plus Jakarta Sans ya la carga el root del Hub en <body>; acá solo se usa. */
+  font-family: var(--font-jakarta), 'Plus Jakarta Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  min-height: 100dvh;
+  background: var(--fz-canvas);
+  color: var(--fz-ink);
+}
+
+/* Todo monto en listas y tablas alinea por columna. */
+#fz-root .fz-num { font-variant-numeric: tabular-nums; }
+
+/* ─── Tab bar liquid glass ───────────────────────────────────────────────────
+   Reformulado desde documentos/design/liquid-glass-menu.md: el panel deja de
+   ser vidrio claro sobre fondo oscuro y pasa a ser vidrio verde oscuro sobre el
+   canvas claro. Vidrio claro sobre claro no se nota; vidrio oscuro sobre
+   contenido claro sí — se ven las formas del scroll difuminándose detrás.
+   La regla original se mantiene: íconos y texto van claros.
+   ──────────────────────────────────────────────────────────────────────────── */
+#fz-root .fz-tabbar {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--fz-r-pill);
+  background: var(--fz-glass-bg);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);  /* Safari lo sigue necesitando */
+  border: 0.5px solid var(--fz-glass-edge);
+  box-shadow: var(--fz-sh-float);
+  padding: 8px;
+  z-index: 40;
+}
+
+/* Si el navegador no soporta backdrop-filter, el vidrio se vuelve opaco en vez
+   de quedar como un panel semitransparente ilegible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #fz-root .fz-tabbar { background: #16301F; }
+}
+
+/* Pill compartido que se desliza hacia la pestaña activa. */
+#fz-root .fz-tab-pill {
+  position: absolute;
+  /* El bloque contenedor de un position:absolute es el PADDING box de .fz-tabbar,
+     no su content box. Con top:0 quedaba pegado arriba del padding, desalineado
+     respecto a los tabs. top:50% + translateY(-50%) lo centra sin hardcodear nada. */
+  top: 50%;
+  left: 0;
+  width: 46px;
+  height: 40px;
+  border-radius: var(--fz-r-pill);
+  background: var(--fz-glass-pill);
+  transition: transform 0.4s cubic-bezier(0.32, 1.2, 0.4, 1), opacity 0.2s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#fz-root .fz-tab {
+  position: relative;
+  z-index: 1;                      /* por encima del pill */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 40px;                    /* debe coincidir con .fz-tab-pill */
+  border-radius: var(--fz-r-pill);
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+#fz-root .fz-tab-active { color: var(--fz-lime); }
+
+/* Botón de acción central (+). No recibe el pill. */
+#fz-root .fz-tab-action {
+  position: relative;
+  z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 40px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#fz-root .fz-tab-action-badge {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--fz-accent);
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  transition: transform 0.12s ease;
+}
+#fz-root .fz-tab-action:active .fz-tab-action-badge { transform: scale(0.92); }
+
+/* Reserva de scroll para que el contenido no quede debajo del panel flotante. */
+#fz-root .fz-tabbar-spacer { height: calc(88px + env(safe-area-inset-bottom)); }
+
+/* Es un patrón mobile: a partir del corte app/dashboard se cambia por sidebar. */
+@media (min-width: 900px) {
+  #fz-root .fz-tabbar, #fz-root .fz-tabbar-spacer { display: none; }
+}
+
+/* ─── Sheet / modal ───────────────────────────────────────────────────────── */
+#fz-root .fz-sheet {
+  border-radius: 28px 28px 0 0;
+  animation: fz-sheet-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes fz-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+@media (min-width: 900px) {
+  #fz-root .fz-sheet {
+    border-radius: var(--fz-r-card);
+    animation: fz-modal-in 0.18s ease-out;
+  }
+  @keyframes fz-modal-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}
+
+#fz-root .fz-backdrop { animation: fz-fade-in 0.2s ease-out; }
+@keyframes fz-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Scrollbars discretas: la app se lee como app, no como página web. */
+#fz-root .fz-scroll-x { scrollbar-width: none; -ms-overflow-style: none; }
+#fz-root .fz-scroll-x::-webkit-scrollbar { display: none; }
+
+/* Foco visible y consistente en toda la mini-app. */
+#fz-root :focus-visible {
+  outline: 2px solid var(--fz-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* §9 del documento de UI: sin el deslizamiento del pill ni las transiciones. */
+@media (prefers-reduced-motion: reduce) {
+  #fz-root .fz-tab-pill,
+  #fz-root .fz-sheet,
+  #fz-root .fz-backdrop,
+  #fz-root .fz-tab-action-badge { transition: none; animation: none; }
+}

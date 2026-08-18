@@ -25,7 +25,11 @@ y usa las tablas compartidas del Hub (`profiles`, `projects`, `project_access`)
 
 - Slug: `expandlogy`
 - Ruta: `/expandlogy`
-- Tablas usadas: ninguna propia — solo el gate genérico del Hub (`projects`/`project_access`)
+- Tablas usadas: ninguna propia — solo el gate genérico del Hub (`projects`/`project_access`,
+  más `profiles.role` para el bypass de admin)
+- Tema fijo (`accent=blue`, `mode=dark`, constantes en el layout): a diferencia de
+  Trading Journal, Expandlogy **no** sigue la preferencia de color del perfil — el
+  mockup no depende de datos de usuario
 
 ## Decisiones de arquitectura
 
@@ -173,6 +177,11 @@ implemente Ad Generator de verdad.
   clientes, formulario, detalle, acceso por cliente — primero contra
   Supabase real, después reescrito 100% hardcodeado por decisión explícita
   del 2026-07-29.
+- **2026-08-17**: verificación de que no quedara nada en base de datos. Las
+  tablas `exp_*` ya no existían (borradas el 2026-07-29) y no hay buckets de
+  storage ni rutas API. Se decidió conservar la fila en `projects` para que la
+  card siga apareciendo en el Hub, y se quitó del layout la lectura de
+  `accent_color`/`color_mode` del perfil: el tema quedó fijo.
 - **2026-07-29**: pivot a MVP hardcodeado. Se agregaron las 3 pestañas
   (Onboardings/Ad Generator/Campañas), la sección "Proceso" (checklist +
   progreso por Daniel/Luis), se simplificó el onboarding a un solo campo
