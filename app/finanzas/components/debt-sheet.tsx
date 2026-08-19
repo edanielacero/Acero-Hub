@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { Currency, DebtWithContext, Person } from '@/lib/finanzas/types'
 import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { debtLabel } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
+import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { PersonPicker } from './person-picker'
-import { Btn, DateField, ErrorNote, Label, TextField } from './ui'
+import { Btn, DateField, ErrorNote, Label, PersonAvatar, TextField } from './ui'
 
 /**
  * Alta y edición de una deuda **suelta**: alguien te debe plata sin que haya
@@ -36,6 +38,8 @@ export function DebtSheet({ editing, onClose, onSaved }: {
   const [date, setDate] = useState(editing?.incurred_on ?? todayISO())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [removing, setRemoving] = useState(false)
 
   // Una deuda que vino de un gasto hereda de él la persona y la moneda: eso no
   // se toca desde acá, se toca en el gasto.
@@ -89,14 +93,19 @@ export function DebtSheet({ editing, onClose, onSaved }: {
 
   async function remove() {
     if (!editing) return
-    setSaving(true)
+    setRemoving(true)
     const res = await fetch(`/api/finanzas/debts/${editing.id}`, { method: 'DELETE' })
-    setSaving(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
+      setRemoving(false)
+      setConfirmDelete(false)
       return setError(data.error ?? 'No se pudo borrar')
     }
+    // Se apaga `removing` recién después de reload(): antes, el slider se
+    // resetearía solo mientras el sheet sigue en pantalla (ver el efecto de
+    // <SlideToConfirm>), y se ve como un parpadeo justo antes de cerrar.
     await reload()
+    setRemoving(false)
     onSaved()
   }
 
@@ -202,7 +211,7 @@ export function DebtSheet({ editing, onClose, onSaved }: {
 
           <div className="flex gap-2 pt-1">
             {editing && (
-              <Btn variant="danger" onClick={remove} disabled={saving}>Borrar</Btn>
+              <Btn variant="danger" onClick={() => setConfirmDelete(true)} disabled={saving}>Borrar</Btn>
             )}
             <Btn onClick={submit} disabled={saving} full>
               {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Registrar deuda'}
@@ -210,6 +219,23 @@ export function DebtSheet({ editing, onClose, onSaved }: {
           </div>
         </div>
       </div>
+
+      <DeleteConfirmSheet
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        title="Eliminar deuda"
+        confirming={removing}
+      >
+        {editing && (
+          <DeletePreview
+            icon={<PersonAvatar name={editing.person.name} size={40} />}
+            title={editing.person.name}
+            subtitle={debtLabel(editing)}
+            amount={formatAmount(editing.amount, editing.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }

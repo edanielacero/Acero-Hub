@@ -163,8 +163,11 @@ No volver a preguntar por estas:
 Ninguna bloquea el Sprint 1, pero hay que resolverlas antes de los sprints que
 las tocan:
 
-1. **Última cuota de la deuda:** ¿$57 o son 10 cuotas de $100 ($1.000)?
-   → *Bloquea el sprint de "Dinero por cobrar".*
+1. ~~**Última cuota de la deuda:** ¿$57 o son 10 cuotas de $100 ($1.000)?~~
+   **Resuelto el 2026-08-19: no importa.** El usuario arma el plan de cuotas
+   dentro de la app — cuántas, de cuánto, con o sin interés — y lo edita
+   cuando el deudor confirme. Deja de ser una pregunta que bloquee nada.
+   → *Especificado en `sprint_4_planes_de_pago.md`.*
 2. ~~**Compartidos en bruto o neto.**~~ **Resuelto el 2026-08-18: bruto +
    reembolsos + neto.** El gasto se registra completo (lo que sale del bolsillo)
    y las tres cifras existen en la app. Además: seguimiento **por persona**, y
@@ -224,15 +227,14 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 |---|---|---|---|
 | 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
 | 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ Construido · modelo corregido el 19/8 |
-| 3 | **Fijos** (era la 8) | Spotify, TradingView, alquiler | ✅ Construido |
-| ~~3b~~ | ~~Dinero por cobrar~~ → **absorbido por la feature 2** | Los $957 son una deuda más; solo falta el calendario de cuotas | ⏸ Falta confirmar la pregunta #1 |
-| 4 | Pasanaku | Los 300 Bs mensuales | — |
-| 5 | Presupuesto mensual | Requiere historial del 1 | — |
-| 6 | Reportes | Requiere 2–5 | — |
-| 7 | Objetivos y bolsillos | Requiere 5, 6 | — |
-| 8 | ~~Recurrentes / suscripciones~~ → **adelantado al 3** | Requiere 2 | ✅ Construido |
+| 3 | **Fijos** (era la 8; incluye Recurrentes) | Spotify, TradingView, alquiler | ✅ Construido |
+| 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | 📝 Especificado en `sprint_4_planes_de_pago.md` |
+| 5 | Pasanaku | Los 300 Bs mensuales | — |
+| 6 | Presupuesto mensual | Requiere historial del 1 | — |
+| 7 | Reportes | Requiere 2–6 | — |
+| 8 | Objetivos y bolsillos | Requiere 6, 7 | — |
 | 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
-| 11 | Alertas | Requiere 5, 8 | — |
+| 10 | Alertas | Requiere 6, 3 | — |
 
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son
 cosas que **ya le están pasando cada mes**. Por eso van antes que presupuesto y

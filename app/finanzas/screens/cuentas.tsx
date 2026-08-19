@@ -1,15 +1,25 @@
 'use client'
 
-import { useState } from 'react'
-import { IconArchive, IconChevronDown, IconChevronUp, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { useMemo, useState } from 'react'
+import {
+  DndContext, KeyboardSensor, PointerSensor, closestCenter,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, arrayMove, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { IconArchive, IconGripVertical, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
 import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CurrencyIcon } from '../components/currency-icon'
+import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, Label, Panel, SectionTitle, TextField } from '../components/ui'
+import { Btn, ErrorNote, Label, Panel, RowMenu, SectionTitle, TextField } from '../components/ui'
 
 interface Draft {
   id?: string
@@ -32,9 +42,37 @@ export function CuentasScreen() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [deleting, setDeleting] = useState<AccountWithBalance | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   const visible = accounts.filter(a => !a.archived)
   const archived = accounts.filter(a => a.archived)
+
+  /**
+   * Orden optimista durante y justo después de un drag: sin esto, la fila
+   * soltada rebotaría a su posición vieja mientras se espera la respuesta del
+   * server y volvería a saltar a la nueva cuando `reload()` termina. Se pisa
+   * con `null` en cuanto `accounts` ya trae el orden real, así que nunca queda
+   * un estado local viejo compitiendo con el del server.
+   */
+  const [order, setOrder] = useState<string[] | null>(null)
+
+  const orderedVisible = useMemo(() => {
+    if (!order) return visible
+    const byId = new Map(visible.map(a => [a.id, a]))
+    const ordered = order.map(id => byId.get(id)).filter((a): a is AccountWithBalance => !!a)
+    // Una cuenta que no estaba en el snapshot del drag (se creó justo en el
+    // medio) no se pierde: se agrega al final en vez de desaparecer.
+    const missing = visible.filter(a => !order.includes(a.id))
+    return [...ordered, ...missing]
+  }, [visible, order])
+
+  const sensors = useSensors(
+    // `distance: 6` deja que un tap normal (editar, abrir el menú) no dispare
+    // un drag por 1px de temblor del dedo.
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   async function save() {
     if (!draft) return
@@ -81,30 +119,34 @@ export function CuentasScreen() {
     await reload()
   }
 
-  /**
-   * Mueve una cuenta un lugar arriba o abajo y persiste el orden completo.
-   * Se manda la lista entera porque todas nacen con sort_order = 0: mover de a
-   * pares no alcanzaría para desempatarlas.
-   */
-  async function move(id: string, delta: -1 | 1) {
-    setError('')
-    const orden = visible.map(a => a.id)
-    const i = orden.indexOf(id)
-    const j = i + delta
-    if (i < 0 || j < 0 || j >= orden.length) return
+  /** Soltar una cuenta en otro lugar de la lista reordena y persiste el orden
+      completo — ver el comentario de `/api/finanzas/accounts/reorder` sobre
+      por qué se manda la lista entera y no un intercambio de a pares. */
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
 
-    ;[orden[i], orden[j]] = [orden[j], orden[i]]
+    const ids = orderedVisible.map(a => a.id)
+    const oldIndex = ids.indexOf(String(active.id))
+    const newIndex = ids.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const next = arrayMove(ids, oldIndex, newIndex)
+    setOrder(next)
+    setError('')
 
     const res = await fetch('/api/finanzas/accounts/reorder', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: orden }),
+      body: JSON.stringify({ ids: next }),
     })
     if (!res.ok) {
+      setOrder(null)
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo reordenar')
     }
     await reload()
+    setOrder(null)
   }
 
   async function remove(id: string) {
@@ -115,6 +157,14 @@ export function CuentasScreen() {
       return setError(data.error ?? 'No se pudo borrar')
     }
     await reload()
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return
+    setConfirming(true)
+    await remove(deleting.id)
+    setConfirming(false)
+    setDeleting(null)
   }
 
   return (
@@ -232,31 +282,31 @@ export function CuentasScreen() {
               Todavía no hay cuentas. Creá la primera para empezar a registrar.
             </p>
           ) : (
-            <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {visible.map((a, i) => (
-                <AccountRow
-                  key={a.id}
-                  account={a}
-                  hidden={hidden}
-                  isFirst={i === 0}
-                  isLast={i === visible.length - 1}
-                  onMoveUp={() => move(a.id, -1)}
-                  onMoveDown={() => move(a.id, 1)}
-                  onEdit={() => {
-                    setError('')
-                    setDraft({
-                      id: a.id,
-                      name: a.name,
-                      currency: a.currency,
-                      initial_balance: String(a.initial_balance),
-                      initial_balance_date: a.initial_balance_date,
-                    })
-                  }}
-                  onArchive={() => patch(a.id, { archived: true })}
-                  onDelete={() => remove(a.id)}
-                />
-              ))}
-            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={orderedVisible.map(a => a.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
+                  {orderedVisible.map(a => (
+                    <AccountRow
+                      key={a.id}
+                      account={a}
+                      hidden={hidden}
+                      onEdit={() => {
+                        setError('')
+                        setDraft({
+                          id: a.id,
+                          name: a.name,
+                          currency: a.currency,
+                          initial_balance: String(a.initial_balance),
+                          initial_balance_date: a.initial_balance_date,
+                        })
+                      }}
+                      onArchive={() => patch(a.id, { archived: true })}
+                      onDelete={() => setDeleting(a)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </Panel>
 
@@ -293,33 +343,66 @@ export function CuentasScreen() {
           </Panel>
         )}
       </div>
+
+      <DeleteConfirmSheet
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={confirmDelete}
+        title="Eliminar cuenta"
+        confirming={confirming}
+      >
+        {deleting && (
+          <DeletePreview
+            icon={<CurrencyIcon currency={deleting.currency} size={40} />}
+            title={deleting.name}
+            subtitle={CURRENCY_META[deleting.currency].name}
+            amount={hidden ? HIDDEN : formatAmount(deleting.balance, deleting.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }
 
-function AccountRow({ account, hidden, isFirst, isLast, onMoveUp, onMoveDown, onEdit, onArchive, onDelete }: {
+function AccountRow({ account, hidden, onEdit, onArchive, onDelete }: {
   account: AccountWithBalance
   hidden: boolean
-  isFirst: boolean
-  isLast: boolean
-  onMoveUp: () => void
-  onMoveDown: () => void
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: account.id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    position: 'relative',
+    zIndex: isDragging ? 1 : undefined,
+    boxShadow: isDragging ? 'var(--fz-sh-float)' : undefined,
+  }
+
   return (
-    <div className="flex items-center gap-2 min-[900px]:gap-3 py-3">
-      {/* Flechas y no arrastrar: el drag-and-drop táctil sin librería es
-          frágil, y estos botones funcionan igual con teclado y lector. */}
-      <div className="flex flex-col shrink-0">
-        <IconBtn label="Subir" onClick={onMoveUp} disabled={isFirst} small>
-          <IconChevronUp size={15} stroke={2.2} />
-        </IconBtn>
-        <IconBtn label="Bajar" onClick={onMoveDown} disabled={isLast} small>
-          <IconChevronDown size={15} stroke={2.2} />
-        </IconBtn>
-      </div>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 min-[900px]:gap-3 py-3 bg-[var(--fz-surface)] ${
+        isDragging ? 'rounded-[var(--fz-r-field)] opacity-95' : ''
+      }`}
+    >
+      {/* El handle es el único punto de la fila que arrastra — el resto sigue
+          siendo tap normal para abrir el menú o editar, sin ambigüedad entre
+          "quiero arrastrar" y "quiero tocar". `touch-none` evita que el
+          navegador le dispute el gesto al scroll en móvil. */}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`Reordenar ${account.name}`}
+        className="grid place-items-center w-7 h-7 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
+      >
+        <IconGripVertical size={16} stroke={1.8} />
+      </button>
+
       <CurrencyIcon currency={account.currency} size={36} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-semibold truncate">{account.name}</p>
@@ -339,39 +422,13 @@ function AccountRow({ account, hidden, isFirst, isLast, onMoveUp, onMoveDown, on
         )}
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
-        <IconBtn label="Editar" onClick={onEdit}><IconPencil size={17} stroke={1.8} /></IconBtn>
-        <IconBtn label="Archivar" onClick={onArchive}><IconArchive size={17} stroke={1.8} /></IconBtn>
-        <IconBtn label="Borrar" onClick={onDelete} danger><IconTrash size={17} stroke={1.8} /></IconBtn>
-      </div>
+      <RowMenu
+        items={[
+          { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
+          { label: 'Archivar', icon: <IconArchive size={16} stroke={1.8} />, onClick: onArchive },
+          { label: 'Borrar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
+        ]}
+      />
     </div>
-  )
-}
-
-function IconBtn({ children, label, onClick, danger, disabled, small }: {
-  children: React.ReactNode
-  label: string
-  onClick: () => void
-  danger?: boolean
-  disabled?: boolean
-  small?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className={`grid place-items-center rounded-full transition-colors disabled:opacity-25 disabled:pointer-events-none ${
-        small ? 'w-6 h-6 min-[900px]:w-7' : 'w-8 h-8 min-[900px]:w-9 min-[900px]:h-9'
-      } ${
-        danger
-          ? 'text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]'
-          : 'text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]'
-      }`}
-    >
-      {children}
-    </button>
   )
 }

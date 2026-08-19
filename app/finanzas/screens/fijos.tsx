@@ -1,23 +1,26 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlus, IconRepeat, IconUsersGroup } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconRepeat, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
+import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { RecurringSheet } from '../components/recurring-sheet'
 import { RegisterSheet } from '../components/register-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, formatDayLabel, Panel, SectionTitle } from '../components/ui'
+import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
 
 export function FijosScreen() {
   const { recurring, hidden, loading, reload } = useFinanzas()
   const [editando, setEditando] = useState<RecurringWithState | null>(null)
   const [creando, setCreando] = useState(false)
   const [registrando, setRegistrando] = useState<RecurringWithState | null>(null)
+  const [eliminando, setEliminando] = useState<RecurringWithState | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [busy, setBusy] = useState('')
 
   const hoy = useMemo(() => todayISO(), [])
@@ -33,6 +36,19 @@ export function FijosScreen() {
     })
     await reload()
     setBusy('')
+  }
+
+  async function remove(id: string) {
+    await fetch(`/api/finanzas/recurring/${id}`, { method: 'DELETE' })
+    await reload()
+  }
+
+  async function confirmDeleteRecurring() {
+    if (!eliminando) return
+    setConfirmingDelete(true)
+    await remove(eliminando.id)
+    setConfirmingDelete(false)
+    setEliminando(null)
   }
 
   return (
@@ -97,6 +113,7 @@ export function FijosScreen() {
                   onRegister={() => setRegistrando(r)}
                   onEdit={() => setEditando(r)}
                   onTogglePause={() => togglePause(r)}
+                  onDelete={() => setEliminando(r)}
                 />
               ))}
             </div>
@@ -119,11 +136,28 @@ export function FijosScreen() {
           onDone={() => setRegistrando(null)}
         />
       )}
+
+      <DeleteConfirmSheet
+        open={!!eliminando}
+        onClose={() => setEliminando(null)}
+        onConfirm={confirmDeleteRecurring}
+        title="Eliminar fijo"
+        confirming={confirmingDelete}
+      >
+        {eliminando && (
+          <DeletePreview
+            icon={<CategoryIcon slug={eliminando.icon} name={eliminando.name} size={40} />}
+            title={eliminando.name}
+            subtitle={eliminando.frequency === 'anual' ? 'Cada año' : 'Cada mes'}
+            amount={formatAmount(eliminando.amount, eliminando.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }
 
-function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
+function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause, onDelete }: {
   r: RecurringWithState
   hidden: boolean
   hoy: string
@@ -131,6 +165,7 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
   onRegister: () => void
   onEdit: () => void
   onTogglePause: () => void
+  onDelete: () => void
 }) {
   const compartido = r.splits.length > 0
   const vencido = r.status === 'vencido'
@@ -200,16 +235,18 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
           </>
         )}
 
-        <button
-          type="button"
-          onClick={onTogglePause}
-          disabled={busy}
-          aria-label={r.active ? 'Pausar' : 'Reanudar'}
-          title={r.active ? 'Pausar: deja de pedirte que lo registres' : 'Reanudar'}
-          className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] disabled:opacity-40"
-        >
-          {r.active ? <IconPlayerPause size={16} stroke={1.8} /> : <IconPencil size={16} stroke={1.8} />}
-        </button>
+        <RowMenu
+          items={[
+            { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
+            {
+              label: r.active ? 'Pausar' : 'Reanudar',
+              icon: r.active ? <IconPlayerPause size={16} stroke={1.8} /> : <IconPlayerPlay size={16} stroke={1.8} />,
+              onClick: onTogglePause,
+              disabled: busy,
+            },
+            { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
+          ]}
+        />
       </span>
     </div>
   )

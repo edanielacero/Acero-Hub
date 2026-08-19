@@ -1,15 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { IconTrash, IconX } from '@tabler/icons-react'
+import { IconArrowsExchange, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
 import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
-import { CategoryGlyph } from './category-icon'
+import { CategoryGlyph, CategoryIcon } from './category-icon'
+import { SignedAmount } from './amount'
+import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { useQuickAddApi } from './quick-add-context'
-import { Btn, DateField, ErrorNote, Label, Segmented, TextArea, TextField } from './ui'
+import { Btn, DateField, ErrorNote, IconChip, Label, Segmented, TextArea, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -41,6 +43,8 @@ export function QuickAdd() {
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [removing, setRemoving] = useState(false)
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -155,6 +159,19 @@ export function QuickAdd() {
 
   if (!open) return null
 
+  // Vista previa para la confirmación de borrado — misma resolución de
+  // título que usa <TxRow>, simplificada: acá no hace falta el reparto.
+  const deletePreview = editing && (() => {
+    const isTransfer = editing.type === 'transferencia'
+    const category = categories.find(c => c.id === editing.category_id)
+    const fromAcc = accounts.find(a => a.id === editing.account_id)
+    const toAcc = accounts.find(a => a.id === editing.to_account_id)
+    const title = isTransfer
+      ? `${fromAcc?.name ?? 'Cuenta'} → ${toAcc?.name ?? 'Cuenta'}`
+      : (editing.description || category?.name || 'Sin categoría')
+    return { isTransfer, category, fromAcc, title }
+  })()
+
   async function submit() {
     setError('')
     const value = amountFromInput(amount, { decimals: fromDecimals })
@@ -207,14 +224,20 @@ export function QuickAdd() {
 
   async function remove() {
     if (!editing) return
-    setSaving(true)
+    setRemoving(true)
     const res = await fetch(`/api/finanzas/transactions/${editing.id}`, { method: 'DELETE' })
-    setSaving(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
+      setRemoving(false)
+      setConfirmDelete(false)
       return setError(data.error ?? 'No se pudo borrar')
     }
+    // `removing` sigue en true hasta que reload() termina: si se apaga antes,
+    // el slider se resetea solo (ver el efecto en <SlideToConfirm>) mientras
+    // el sheet todavía está en pantalla, y se ve como un parpadeo justo antes
+    // de cerrar.
     await reload()
+    setRemoving(false)
     close()
   }
 
@@ -420,7 +443,7 @@ export function QuickAdd() {
 
           <div className="flex gap-2 pt-1">
             {editing && (
-              <Btn variant="danger" onClick={remove} disabled={saving}>
+              <Btn variant="danger" onClick={() => setConfirmDelete(true)} disabled={saving}>
                 <IconTrash size={18} stroke={1.8} />
               </Btn>
             )}
@@ -433,6 +456,27 @@ export function QuickAdd() {
           </div>
         </div>
       </div>
+
+      <DeleteConfirmSheet
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        title="Eliminar movimiento"
+        confirming={removing}
+      >
+        {editing && deletePreview && (
+          <DeletePreview
+            icon={
+              deletePreview.isTransfer
+                ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+                : <CategoryIcon slug={deletePreview.category?.icon} name={deletePreview.title} />
+            }
+            title={deletePreview.title}
+            subtitle={deletePreview.fromAcc?.name}
+            amount={<SignedAmount value={editing.amount} currency={editing.currency} type={editing.type} />}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconChevronDown, IconCoinOff, IconPencil, IconPlus, IconReceiptRefund, IconRotateClockwise, IconUsersGroup } from '@tabler/icons-react'
+import { IconChevronDown, IconCoinOff, IconPencil, IconPlus, IconReceiptRefund, IconRotateClockwise, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { DebtWithContext, PersonDebt } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
@@ -10,15 +10,19 @@ import { debtLabel } from '@/lib/finanzas/splits'
 import { CurrencyIcon } from '../components/currency-icon'
 import { useFinanzas } from '../components/data-context'
 import { DebtSheet } from '../components/debt-sheet'
+import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { SettleSheet } from '../components/settle-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, formatDayLabel, IconChip, Panel, PersonAvatar, SectionTitle, Skeleton } from '../components/ui'
+import { Btn, EmptyState, formatDayLabel, IconChip, Panel, PersonAvatar, RowMenu, SectionTitle, Skeleton } from '../components/ui'
 
 export function DeudasScreen() {
   const { shared, hidden, loading, reload } = useFinanzas()
   const [cobrando, setCobrando] = useState<PersonDebt | null>(null)
   const [creando, setCreando] = useState(false)
   const [editando, setEditando] = useState<DebtWithContext | null>(null)
+  const [eliminando, setEliminando] = useState<DebtWithContext | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [verHistorial, setVerHistorial] = useState(false)
   const [busy, setBusy] = useState('')
 
@@ -34,6 +38,23 @@ export function DeudasScreen() {
     })
     await reload()
     setBusy('')
+  }
+
+  async function confirmDeleteDebt() {
+    if (!eliminando) return
+    setConfirmingDelete(true)
+    setDeleteError('')
+    const res = await fetch(`/api/finanzas/debts/${eliminando.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setConfirmingDelete(false)
+      return setDeleteError(data.error ?? 'No se pudo borrar')
+    }
+    // Se cierra recién después de reload(): antes, el sheet desaparecía con
+    // la lista todavía sin actualizar, y se veía la fila vieja un instante.
+    await reload()
+    setConfirmingDelete(false)
+    setEliminando(null)
   }
 
   return (
@@ -128,18 +149,18 @@ export function DeudasScreen() {
                             {hidden ? HIDDEN : formatAmount(s.amount, s.currency)}
                           </span>
                         </span>
-                        {/* Con texto y no un ícono: "perdonar" no es evidente,
-                            y una moneda tachada menos. En el celular tampoco
-                            hay hover que muestre el tooltip. */}
-                        <button
-                          type="button"
-                          disabled={busy === s.id}
-                          onClick={() => post('waive', { split_ids: [s.id] }, s.id)}
-                          title="Darla por saldada sin que te paguen"
-                          className="shrink-0 h-7 px-2 rounded-[var(--fz-r-pill)] text-[12px] font-semibold text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)] disabled:opacity-40"
-                        >
-                          Perdonar
-                        </button>
+                        <RowMenu
+                          items={[
+                            { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => setEditando(s) },
+                            {
+                              label: 'Perdonar',
+                              icon: <IconCoinOff size={16} stroke={1.8} />,
+                              onClick: () => post('waive', { split_ids: [s.id] }, s.id),
+                              disabled: busy === s.id,
+                            },
+                            { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setEliminando(s), danger: true },
+                          ]}
+                        />
                       </div>
                     ))}
                   </div>
@@ -201,6 +222,24 @@ export function DeudasScreen() {
           onDone={async () => { setCobrando(null); await reload() }}
         />
       )}
+
+      <DeleteConfirmSheet
+        open={!!eliminando}
+        onClose={() => { setEliminando(null); setDeleteError('') }}
+        onConfirm={confirmDeleteDebt}
+        title="Eliminar deuda"
+        confirming={confirmingDelete}
+        error={deleteError}
+      >
+        {eliminando && (
+          <DeletePreview
+            icon={<PersonAvatar name={eliminando.person.name} size={40} />}
+            title={eliminando.person.name}
+            subtitle={debtLabel(eliminando)}
+            amount={formatAmount(eliminando.amount, eliminando.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }

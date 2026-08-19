@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
 import type { Frequency, RecurringWithState } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryGlyph, CategoryIcon, IconPickerGrid } from './category-icon'
+import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
 import { Btn, ErrorNote, Label, Segmented, SelectField, TextField } from './ui'
 
@@ -43,6 +44,8 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const [month, setMonth] = useState(String(editing?.month_of_year ?? 1))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [removing, setRemoving] = useState(false)
 
   const [sharedOn, setSharedOn] = useState((editing?.splits.length ?? 0) > 0)
   const [drafts, setDrafts] = useState<SplitDraft[]>(
@@ -122,14 +125,19 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
   async function remove() {
     if (!editing) return
-    setSaving(true)
+    setRemoving(true)
     const res = await fetch(`/api/finanzas/recurring/${editing.id}`, { method: 'DELETE' })
-    setSaving(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
+      setRemoving(false)
+      setConfirmDelete(false)
       return setError(data.error ?? 'No se pudo borrar')
     }
+    // Se apaga `removing` recién después de reload(): antes, el slider se
+    // resetearía solo mientras el sheet sigue en pantalla (ver el efecto de
+    // <SlideToConfirm>), y se ve como un parpadeo justo antes de cerrar.
     await reload()
+    setRemoving(false)
     onSaved()
   }
 
@@ -313,7 +321,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
           <div className="flex gap-2 pt-1">
             {editing && (
-              <Btn variant="danger" onClick={remove} disabled={saving}>
+              <Btn variant="danger" onClick={() => setConfirmDelete(true)} disabled={saving}>
                 <IconTrash size={18} stroke={1.8} />
               </Btn>
             )}
@@ -323,6 +331,23 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           </div>
         </div>
       </div>
+
+      <DeleteConfirmSheet
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+        title="Eliminar fijo"
+        confirming={removing}
+      >
+        {editing && (
+          <DeletePreview
+            icon={<CategoryIcon slug={editing.icon} name={editing.name} size={40} />}
+            title={editing.name}
+            subtitle={editing.frequency === 'anual' ? 'Cada año' : 'Cada mes'}
+            amount={formatAmount(editing.amount, editing.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }

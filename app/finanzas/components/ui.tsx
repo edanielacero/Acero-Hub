@@ -1,7 +1,7 @@
 'use client'
 
-import { ReactNode } from 'react'
-import type { TablerIcon } from '@tabler/icons-react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { IconDotsVertical, type TablerIcon } from '@tabler/icons-react'
 
 /* ─── Tinte de chip ────────────────────────────────────────────────────────
    Tres valores y no siete: 'neutral' es el único que usan categoría, persona
@@ -318,4 +318,88 @@ export function formatDayLabel(iso: string, todayISO: string): string {
   yesterday.setDate(yesterday.getDate() - 1)
   if (d.getTime() === yesterday.getTime()) return 'Ayer'
   return `${d.getDate()} de ${MESES[d.getMonth()]}`
+}
+
+/* ─── Menú de fila (⋮) ─────────────────────────────────────────────────────
+   Editar/Archivar/Borrar (o el subconjunto que aplique) detrás de un ⋮ en
+   vez de un botón suelto por acción: en Cuentas competían con el drag handle
+   y el monto por atención, y la mayoría de las veces no se tocan. El mismo
+   componente lo usan todas las listas de la mini-app — Cuentas, Movimientos,
+   Fijos, Deudas, categorías y personas de Ajustes — para que "tres puntos
+   arriba a la derecha de la fila" signifique siempre lo mismo.
+
+   Cierra solo (clic afuera o Escape): nada de un backdrop a pantalla completa
+   por un menú de dos o tres líneas. */
+
+export interface RowMenuItem {
+  label: string
+  icon: ReactNode
+  onClick: () => void
+  danger?: boolean
+  disabled?: boolean
+  /** Aclaración al pasar el mouse — por ejemplo, por qué "Borrar" conviene
+      cambiarse por "Archivar" en este caso puntual. */
+  title?: string
+}
+
+export function RowMenu({ items }: { items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-label="Más opciones"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="grid place-items-center w-8 h-8 min-[900px]:w-9 min-[900px]:h-9 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] transition-colors"
+      >
+        <IconDotsVertical size={18} stroke={1.8} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-10 w-44 rounded-[var(--fz-r-field)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)] border border-[var(--fz-hairline)] py-1.5 overflow-hidden"
+        >
+          {items.map(item => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              title={item.title}
+              onClick={() => { setOpen(false); item.onClick() }}
+              className={`w-full flex items-center gap-2.5 px-3.5 h-10 text-[14px] font-medium text-left transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+                item.danger
+                  ? 'text-[var(--fz-out-text)] hover:bg-[var(--fz-out-tint)]'
+                  : 'text-[var(--fz-ink)] hover:bg-[var(--fz-surface-sunk)]'
+              }`}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

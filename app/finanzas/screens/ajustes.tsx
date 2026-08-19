@@ -9,8 +9,9 @@ import { amountFromInput, formatUSD, parseDecimalInput } from '@/lib/finanzas/mo
 import { CurrencyIcon } from '../components/currency-icon'
 import { CategoryIcon, IconPickerGrid } from '../components/category-icon'
 import { useFinanzas } from '../components/data-context'
+import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, Label, Panel, PersonAvatar, SectionTitle, SelectField, TextField } from '../components/ui'
+import { Btn, ErrorNote, Label, Panel, PersonAvatar, RowMenu, SectionTitle, SelectField, TextField } from '../components/ui'
 
 /** "hace 3 min" es más útil que un timestamp para saber si una tasa está fresca. */
 function relativo(iso: string): string {
@@ -38,6 +39,8 @@ export function AjustesScreen() {
   const [seeding, setSeeding] = useState(false)
 
   const [newPerson, setNewPerson] = useState('')
+  const [deletingPerson, setDeletingPerson] = useState<PersonWithDebt | null>(null)
+  const [confirmingPerson, setConfirmingPerson] = useState(false)
 
   useEffect(() => {
     setDraftRates(Object.fromEntries(RATED_CURRENCIES.map(c => [c, String(rates[c] ?? CURRENCY_META[c].defaultRate)])))
@@ -175,6 +178,14 @@ export function AjustesScreen() {
       return setError(data.error ?? 'No se pudo borrar')
     }
     await reload()
+  }
+
+  async function confirmDeletePerson() {
+    if (!deletingPerson) return
+    setConfirmingPerson(true)
+    await removePerson(deletingPerson)
+    setConfirmingPerson(false)
+    setDeletingPerson(null)
   }
 
   const gastos = categories.filter(c => c.kind === 'gasto')
@@ -390,37 +401,51 @@ export function AjustesScreen() {
                     </span>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Archivar a alguien que todavía te debe es válido, pero
-                      // conviene saberlo antes: la deuda no desaparece con la
-                      // persona.
-                      if (!p.archived && p.open_usd > 0 &&
-                          !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
-                      patchPerson(p.id, { archived: !p.archived })
-                    }}
-                    aria-label={p.archived ? 'Restaurar' : 'Archivar'}
-                    title={p.archived ? 'Restaurar' : 'Archivar'}
-                    className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]"
-                  >
-                    <IconArchive size={16} stroke={1.8} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removePerson(p)}
-                    aria-label="Borrar"
-                    title={p.open_count > 0 ? 'Tiene historial: archivala en vez de borrarla' : 'Borrar'}
-                    className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]"
-                  >
-                    <IconTrash size={16} stroke={1.8} />
-                  </button>
+                  <RowMenu
+                    items={[
+                      {
+                        label: p.archived ? 'Restaurar' : 'Archivar',
+                        icon: <IconArchive size={16} stroke={1.8} />,
+                        onClick: () => {
+                          // Archivar a alguien que todavía te debe es válido,
+                          // pero conviene saberlo antes: la deuda no
+                          // desaparece con la persona.
+                          if (!p.archived && p.open_usd > 0 &&
+                              !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
+                          patchPerson(p.id, { archived: !p.archived })
+                        },
+                      },
+                      {
+                        label: 'Borrar',
+                        icon: <IconTrash size={16} stroke={1.8} />,
+                        onClick: () => setDeletingPerson(p),
+                        danger: true,
+                        title: p.open_count > 0 ? 'Tiene historial: archivala en vez de borrarla' : undefined,
+                      },
+                    ]}
+                  />
                 </div>
               ))}
             </div>
           )}
         </Panel>
       </div>
+
+      <DeleteConfirmSheet
+        open={!!deletingPerson}
+        onClose={() => setDeletingPerson(null)}
+        onConfirm={confirmDeletePerson}
+        title="Eliminar persona"
+        confirming={confirmingPerson}
+      >
+        {deletingPerson && (
+          <DeletePreview
+            icon={<PersonAvatar name={deletingPerson.name} size={40} />}
+            title={deletingPerson.name}
+            subtitle={deletingPerson.open_usd > 0 ? `Debe ${formatUSD(deletingPerson.open_usd)}` : undefined}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }
@@ -434,6 +459,16 @@ function CategoryList({ title, items, onPatch, onRemove }: {
   // El ícono se edita en el lugar: tocar el chip abre la grilla justo debajo
   // de esa fila, y elegir cierra — no hay un modo edición aparte que mantener.
   const [openId, setOpenId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Category | null>(null)
+  const [confirming, setConfirming] = useState(false)
+
+  async function confirmDelete() {
+    if (!deleting) return
+    setConfirming(true)
+    await onRemove(deleting.id)
+    setConfirming(false)
+    setDeleting(null)
+  }
 
   return (
     <section>
@@ -462,24 +497,21 @@ function CategoryList({ title, items, onPatch, onRemove }: {
                   aria-label={`Nombre de ${c.name}`}
                   className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
                 />
-                <button
-                  type="button"
-                  onClick={() => onPatch(c.id, { archived: !c.archived })}
-                  aria-label={c.archived ? 'Restaurar' : 'Archivar'}
-                  title={c.archived ? 'Restaurar' : 'Archivar'}
-                  className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]"
-                >
-                  <IconArchive size={16} stroke={1.8} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(c.id)}
-                  aria-label="Borrar"
-                  title="Borrar"
-                  className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]"
-                >
-                  <IconTrash size={16} stroke={1.8} />
-                </button>
+                <RowMenu
+                  items={[
+                    {
+                      label: c.archived ? 'Restaurar' : 'Archivar',
+                      icon: <IconArchive size={16} stroke={1.8} />,
+                      onClick: () => onPatch(c.id, { archived: !c.archived }),
+                    },
+                    {
+                      label: 'Borrar',
+                      icon: <IconTrash size={16} stroke={1.8} />,
+                      onClick: () => setDeleting(c),
+                      danger: true,
+                    },
+                  ]}
+                />
               </div>
               {open && (
                 <div className="mb-3 ml-[48px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
@@ -493,6 +525,22 @@ function CategoryList({ title, items, onPatch, onRemove }: {
           )
         })}
       </div>
+
+      <DeleteConfirmSheet
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={confirmDelete}
+        title="Eliminar categoría"
+        confirming={confirming}
+      >
+        {deleting && (
+          <DeletePreview
+            icon={<CategoryIcon slug={deleting.icon} name={deleting.name} size={40} />}
+            title={deleting.name}
+            subtitle={deleting.kind === 'gasto' ? 'Gasto' : 'Ingreso'}
+          />
+        )}
+      </DeleteConfirmSheet>
     </section>
   )
 }
