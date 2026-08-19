@@ -326,7 +326,10 @@ export function CuentasScreen() {
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedVisible.map(a => a.id)} strategy={verticalListSortingStrategy}>
-                <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
+                {/* Cards con gap en vez de un `divide-y`: cada cuenta es su
+                    propio bloque con borde + sombra propia, no una fila más
+                    de una lista continua. */}
+                <div className="flex flex-col gap-2.5">
                   {orderedVisible.map(a => (
                     <AccountRow
                       key={a.id}
@@ -357,10 +360,13 @@ export function CuentasScreen() {
               </span>
             </button>
             {showArchived && (
-              <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-3">
+              <div className="flex flex-col gap-2.5 mt-3">
                 {archived.map(a => (
-                  <div key={a.id} className="flex items-center gap-3 py-3">
-                    <CurrencyIcon currency={a.currency} size={32} />
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 rounded-[var(--fz-r-tile)] border border-[var(--fz-hairline)] bg-[var(--fz-surface)] px-3.5 py-3.5 shadow-[var(--fz-sh-rest)]"
+                  >
+                    <CurrencyIcon currency={a.currency} size={36} />
                     <div className="min-w-0 flex-1">
                       <p className="text-[15px] font-semibold truncate text-[var(--fz-ink-2)]">{a.name}</p>
                       <p className="text-[12px] text-[var(--fz-ink-3)]">
@@ -446,70 +452,89 @@ function AccountRow({ account, hidden, onView, onEdit, onArchive, onDelete }: {
     transition,
     position: 'relative',
     zIndex: isDragging ? 1 : undefined,
-    boxShadow: isDragging ? 'var(--fz-sh-float)' : undefined,
   }
 
   return (
+    /*
+      Composición prestada del hero de Home ("Patrimonio total": etiqueta
+      chica, valor grande) pero invertida — acá lo grande es el NOMBRE de la
+      cuenta, no el saldo. Por eso la card se apila en dos bloques en vez de
+      ir en columnas como antes:
+        1. Fila superior "de metadatos": handle + ícono a la izquierda,
+           badge de inversión + RowMenu a la derecha — cada uno con su
+           propio espacio, nada compitiendo por ancho con el nombre.
+        2. Bloque tappable: nombre grande, subtítulo chico, y el saldo —
+           más chico que el nombre a propósito — separado por una línea fina
+           que lo marca como un dato aparte, no una continuación del texto.
+      Todas las cards miden lo mismo porque cada línea siempre está presente
+      (el saldo y el ≈USD van en la MISMA fila con items-baseline, así que
+      la ausencia de equivalencia no le saca una línea entera a la card).
+    */
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-2 min-[900px]:gap-3 py-3 bg-[var(--fz-surface)] ${
-        isDragging ? 'rounded-[var(--fz-r-field)] opacity-95' : ''
+      className={`rounded-[var(--fz-r-tile)] border border-[var(--fz-hairline)] bg-[var(--fz-surface)] p-4 transition-shadow ${
+        isDragging ? 'shadow-[var(--fz-sh-float)]' : 'shadow-[var(--fz-sh-rest)]'
       }`}
     >
-      {/* El handle es el único punto de la fila que arrastra — el resto sigue
-          siendo tap normal para abrir el menú o editar, sin ambigüedad entre
-          "quiero arrastrar" y "quiero tocar". `touch-none` evita que el
-          navegador le dispute el gesto al scroll en móvil. */}
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label={`Reordenar ${account.name}`}
-        className="grid place-items-center w-7 h-7 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
-      >
-        <IconGripVertical size={16} stroke={1.8} />
-      </button>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {/* El handle es el único punto de la card que arrastra — el resto
+              sigue siendo tap normal para abrir el menú o editar, sin
+              ambigüedad entre "quiero arrastrar" y "quiero tocar".
+              `touch-none` evita que el navegador le dispute el gesto al
+              scroll en móvil. */}
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reordenar ${account.name}`}
+            className="grid place-items-center w-8 h-8 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
+          >
+            <IconGripVertical size={18} stroke={1.8} />
+          </button>
+          <CurrencyIcon currency={account.currency} size={36} />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Ya no compite con el nombre por ancho: tiene toda esta fila
+              para sí, así que entra completo sin estrujarse. */}
+          {account.is_investment && (
+            <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+              <IconChartLine size={13} stroke={2.2} /> Inversión
+            </span>
+          )}
+          <RowMenu
+            items={[
+              { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
+              { label: 'Archivar', icon: <IconArchive size={16} stroke={1.8} />, onClick: onArchive },
+              { label: 'Borrar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
+            ]}
+          />
+        </div>
+      </div>
 
       <button
         type="button"
         onClick={onView}
-        className="flex-1 min-w-0 flex items-center gap-2 min-[900px]:gap-3 py-1 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
+        className="block w-full mt-3 -mx-2 px-2 py-1.5 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
       >
-        <CurrencyIcon currency={account.currency} size={36} />
-        <div className="flex-1 min-w-0">
-          <p className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[15px] font-semibold truncate">{account.name}</span>
-            {account.is_investment && (
-              <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
-                <IconChartLine size={11} stroke={2.2} /> Inversión
-              </span>
-            )}
-          </p>
-          <p className="text-[12px] text-[var(--fz-ink-3)]">
-            {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
-          </p>
-        </div>
+        <p className="text-[20px] font-bold tracking-[-0.01em] truncate">{account.name}</p>
+        <p className="mt-0.5 text-[12.5px] text-[var(--fz-ink-3)] truncate">
+          {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
+        </p>
 
-        <div className="text-right shrink-0">
-          <p className="text-[15px] font-semibold fz-num">
+        <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)] flex items-baseline gap-2">
+          <span className="text-[15px] font-semibold fz-num">
             {hidden ? HIDDEN : formatAmount(account.balance, account.currency)}
-          </p>
-          {account.currency !== 'USD' && (
-            <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
-              {hidden ? '' : `≈ ${formatUSD(account.balance_usd)}`}
-            </p>
+          </span>
+          {account.currency !== 'USD' && !hidden && (
+            <span className="text-[12px] text-[var(--fz-ink-3)] fz-num">
+              ≈ {formatUSD(account.balance_usd)}
+            </span>
           )}
         </div>
       </button>
-
-      <RowMenu
-        items={[
-          { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
-          { label: 'Archivar', icon: <IconArchive size={16} stroke={1.8} />, onClick: onArchive },
-          { label: 'Borrar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
-        ]}
-      />
     </div>
   )
 }

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { IconChevronDown, IconCoinOff, IconListNumbers, IconPencil, IconPlus, IconReceiptRefund, IconRefresh, IconRotateClockwise, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { DebtPlanWithCuotas, DebtWithContext, PersonDebt } from '@/lib/finanzas/types'
-import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { debtLabel } from '@/lib/finanzas/splits'
@@ -38,7 +38,20 @@ export function DeudasScreen() {
   const [deletePlanError, setDeletePlanError] = useState('')
 
   const hoy = useMemo(() => todayISO(), [])
-  const hayDeudas = shared.por_persona.length > 0
+
+  // Las cuotas de un plan ya se muestran agrupadas en su propia fila (con
+  // colapsar/expandir); acá solo entran las deudas sueltas de cada persona,
+  // o el bloque quedaría duplicando lo que el plan ya cuenta. El total y el
+  // botón "Cobrar" de la persona se recalculan sobre ese subconjunto — cobrar
+  // una cuota sigue siendo una acción propia de la cuota, dentro del plan.
+  const sueltasPorPersona = useMemo(
+    () => shared.por_persona
+      .map(pd => ({ ...pd, debts: pd.debts.filter(s => !s.plan_id) }))
+      .filter(pd => pd.debts.length > 0)
+      .map(pd => ({ ...pd, open_usd: round2(pd.debts.reduce((s, x) => s + x.amount_usd, 0)) })),
+    [shared.por_persona],
+  )
+  const hayDeudas = plans.length > 0 || sueltasPorPersona.length > 0
 
   async function post(path: string, body: unknown, key: string) {
     setBusy(key)
@@ -104,80 +117,6 @@ export function DeudasScreen() {
           <Tile label="Cobrado este mes" value={shared.cobrado_mes_usd} tone="in" hidden={hidden} loading={loading} />
         </div>
 
-        {plans.length > 0 && (
-          <Panel>
-            <SectionTitle>Planes</SectionTitle>
-
-            <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {plans.map(p => {
-                const abierto = expandedPlan === p.id
-                return (
-                  <section key={p.id} className="py-3 first:pt-0 last:pb-0">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedPlan(abierto ? null : p.id)}
-                      aria-expanded={abierto}
-                      className="w-full flex items-center gap-3 text-left"
-                    >
-                      <PersonAvatar name={p.person.name} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-semibold truncate">
-                          {p.person.name} · {p.concept}
-                        </p>
-                        <p className="text-[12px] text-[var(--fz-ink-3)]">
-                          {p.cerrado
-                            ? 'Cerrado'
-                            : `${p.cuotas.filter(c => c.state === 'pendiente').length} cuota(s) pendiente(s)`}
-                        </p>
-                      </div>
-                      <span className="fz-num text-[16px] font-bold shrink-0">
-                        {hidden ? HIDDEN : formatUSD(p.cerrado ? p.total_usd : p.pendiente_usd)}
-                      </span>
-                      <IconChevronDown
-                        size={18} stroke={2}
-                        className={`text-[var(--fz-ink-3)] transition-transform shrink-0 ${abierto ? 'rotate-180' : ''}`}
-                      />
-                      <RowMenu
-                        items={[
-                          { label: 'Regenerar', icon: <IconRefresh size={16} stroke={1.8} />, onClick: () => setRegenerandoPlan(p) },
-                          { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setEliminandoPlan(p), danger: true },
-                        ]}
-                      />
-                    </button>
-
-                    {abierto && (
-                      <div className="mt-2 ml-[52px] flex flex-col divide-y divide-[var(--fz-hairline)]">
-                        {p.cuotas.map((c, i) => (
-                          <div key={c.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
-                            <span className="flex-1 min-w-[50%]">
-                              <span className="block text-[13px] font-medium">
-                                {/* "N de las que hay hoy", no `plan_installment_no`/`p.installments`:
-                                    después de regenerar esos dos números quedan con huecos (cobradas
-                                    viejas + tandas nuevas) y la fracción deja de tener sentido. La
-                                    posición en la lista ya ordenada siempre es verdad. */}
-                                Cuota {i + 1}/{p.cuotas.length} · {formatDayLabel(c.incurred_on, todayISO())}
-                              </span>
-                              <span className="block text-[12px] text-[var(--fz-ink-3)]">
-                                {c.state === 'cobrado' ? 'Cobrada' : c.state === 'perdonado' ? 'Perdonada' : 'Pendiente'}
-                              </span>
-                            </span>
-                            <span className="ml-auto fz-num text-[13px] font-semibold shrink-0">
-                              {hidden ? HIDDEN : formatAmount(c.amount, c.currency)}
-                            </span>
-                            {c.state === 'pendiente' && (
-                              <Btn size="sm" onClick={() => setCobrandoCuota({ plan: p, cuota: c })}>Cobrar</Btn>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )
-              })}
-            </div>
-          </Panel>
-        )}
-
         <Panel>
           <SectionTitle>Deudas abiertas</SectionTitle>
 
@@ -192,7 +131,22 @@ export function DeudasScreen() {
             />
           ) : (
             <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {shared.por_persona.map(d => (
+              {plans.map(p => (
+                <PlanRow
+                  key={p.id}
+                  plan={p}
+                  hidden={hidden}
+                  expanded={expandedPlan === p.id}
+                  busy={busy}
+                  onToggle={() => setExpandedPlan(expandedPlan === p.id ? null : p.id)}
+                  onRegenerate={() => setRegenerandoPlan(p)}
+                  onDelete={() => setEliminandoPlan(p)}
+                  onCobrarCuota={c => setCobrandoCuota({ plan: p, cuota: c })}
+                  onEditarCuota={c => setEditando(c)}
+                  onPerdonarCuota={c => post('waive', { split_ids: [c.id] }, c.id)}
+                />
+              ))}
+              {sueltasPorPersona.map(d => (
                 <section key={d.person.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center gap-3">
                     <PersonAvatar name={d.person.name} />
@@ -427,6 +381,107 @@ export function DeudasScreen() {
         )}
       </DeleteConfirmSheet>
     </div>
+  )
+}
+
+/**
+ * Una deuda con plan de pago, en el mismo lugar que cualquier otra deuda —
+ * no en un panel aparte — pero con su propio formato: colapsa/expande en vez
+ * de listar sus cuotas de una. El (⋮) de la fila del plan es sobre el plan
+ * entero (Regenerar, Eliminar); cada cuota tiene el suyo (Editar, Perdonar),
+ * más "Cobrar" cuando sigue pendiente.
+ */
+function PlanRow({
+  plan, hidden, expanded, busy, onToggle, onRegenerate, onDelete,
+  onCobrarCuota, onEditarCuota, onPerdonarCuota,
+}: {
+  plan: DebtPlanWithCuotas
+  hidden: boolean
+  expanded: boolean
+  busy: string
+  onToggle: () => void
+  onRegenerate: () => void
+  onDelete: () => void
+  onCobrarCuota: (cuota: DebtWithContext) => void
+  onEditarCuota: (cuota: DebtWithContext) => void
+  onPerdonarCuota: (cuota: DebtWithContext) => void
+}) {
+  return (
+    <section className="py-3 first:pt-0 last:pb-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="w-full flex items-center gap-3 text-left"
+      >
+        <PersonAvatar name={plan.person.name} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold truncate">
+            {plan.person.name} · {plan.concept}
+          </p>
+          <p className="text-[12px] text-[var(--fz-ink-3)]">
+            {plan.cerrado
+              ? 'Cerrado'
+              : `${plan.cuotas.filter(c => c.state === 'pendiente').length} cuota(s) pendiente(s)`}
+          </p>
+        </div>
+        <span className="fz-num text-[16px] font-bold shrink-0">
+          {hidden ? HIDDEN : formatUSD(plan.cerrado ? plan.total_usd : plan.pendiente_usd)}
+        </span>
+        <IconChevronDown
+          size={18} stroke={2}
+          className={`text-[var(--fz-ink-3)] transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`}
+        />
+        <RowMenu
+          items={[
+            { label: 'Regenerar', icon: <IconRefresh size={16} stroke={1.8} />, onClick: onRegenerate },
+            { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
+          ]}
+        />
+      </button>
+
+      {expanded && (
+        <div className="mt-2 ml-[52px] flex flex-col divide-y divide-[var(--fz-hairline)]">
+          {plan.cuotas.map((c, i) => (
+            <div key={c.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+              <span className="flex-1 min-w-[50%]">
+                <span className="block text-[13px] font-medium">
+                  {/* "N de las que hay hoy", no `plan_installment_no`/`plan.installments`:
+                      después de regenerar esos dos números quedan con huecos (cobradas
+                      viejas + tandas nuevas) y la fracción deja de tener sentido. La
+                      posición en la lista ya ordenada siempre es verdad. */}
+                  Cuota {i + 1}/{plan.cuotas.length} · {formatDayLabel(c.incurred_on, todayISO())}
+                </span>
+                <span className="block text-[12px] text-[var(--fz-ink-3)]">
+                  {c.state === 'cobrado' ? 'Cobrada' : c.state === 'perdonado' ? 'Perdonada' : 'Pendiente'}
+                </span>
+              </span>
+              <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                <span className="fz-num text-[13px] font-semibold">
+                  {hidden ? HIDDEN : formatAmount(c.amount, c.currency)}
+                </span>
+                {c.state === 'pendiente' && (
+                  <>
+                    <Btn size="sm" onClick={() => onCobrarCuota(c)}>Cobrar</Btn>
+                    <RowMenu
+                      items={[
+                        { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => onEditarCuota(c) },
+                        {
+                          label: 'Perdonar',
+                          icon: <IconCoinOff size={16} stroke={1.8} />,
+                          onClick: () => onPerdonarCuota(c),
+                          disabled: busy === c.id,
+                        },
+                      ]}
+                    />
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 

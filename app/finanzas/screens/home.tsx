@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconArrowsLeftRight, IconBuildingBank,
-  IconChevronRight, IconNotes, IconRepeat, IconUsersGroup, IconWifiOff,
+  IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconUsersGroup, IconWifiOff,
 } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
@@ -153,11 +153,15 @@ export function HomeScreen() {
                 movimiento" aparte, que llevaría al mismo panel y volvería
                 redundante elegir Gasto/Ingreso/Transferir acá (§16.3). Cada
                 botón abre el sheet con el tipo ya fijado. Fila de 3 en
-                mobile; columna de 3 al lado del hero desde 900px. */}
+                mobile; columna de 3 al lado del hero desde 900px. Acá el
+                ícono es +/− genérico (no IconIngreso/IconGasto, que quedan
+                reservados para identificar el tipo de movimiento en el resto
+                de la app): estos tres son botones de acción, no etiquetas, y
+                el nombre completo (verbo + objeto) refuerza eso. */}
             <div className="grid grid-cols-3 gap-2.5 min-[900px]:flex min-[900px]:flex-col min-[900px]:h-full">
-              <QuickAction label="Ingreso" Icon={IconIngreso} onClick={() => openQuickAdd('ingreso')} />
-              <QuickAction label="Gasto" Icon={IconGasto} onClick={() => openQuickAdd('gasto')} />
-              <QuickAction label="Mover" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
+              <QuickAction label="Agregar ingreso" Icon={IconPlus} onClick={() => openQuickAdd('ingreso')} />
+              <QuickAction label="Registrar gasto" Icon={IconMinus} onClick={() => openQuickAdd('gasto')} />
+              <QuickAction label="Mover entre cuentas" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
             </div>
           </div>
 
@@ -388,7 +392,7 @@ function QuickAction({ label, Icon, onClick }: { label: string; Icon: TablerIcon
       <span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] shrink-0">
         <Icon size={19} stroke={1.8} />
       </span>
-      <span className="text-[12px] font-semibold text-[var(--fz-ink-2)] min-[900px]:text-[14px] min-[900px]:text-[var(--fz-ink)]">
+      <span className="text-[12px] font-semibold leading-tight text-center text-[var(--fz-ink-2)] min-[900px]:text-[14px] min-[900px]:text-left min-[900px]:text-[var(--fz-ink)]">
         {label}
       </span>
       <IconChevronRight size={16} stroke={2} className="hidden min-[900px]:block ml-auto text-[var(--fz-ink-3)]" />

@@ -275,6 +275,14 @@ guardar histórico de cuánto ganó/perdió cada mes. Eso sigue pendiente.
   [transactions.ts](../../lib/finanzas/transactions.ts), compartidas por el
   POST y el PATCH en vez de repetir la regla en cada ruta — y ahora con
   pruebas unitarias propias.
+- [tx-row.tsx](../../app/finanzas/components/tx-row.tsx): un gasto/ingreso de
+  inversión se distingue en Movimientos y en "Últimos movimientos" (Home) con
+  el mismo tratamiento que ya tenía un reembolso — ícono propio (`IconChartLine`),
+  "Inversión" en el subtítulo, y el campo en el detalle. Se decide por
+  `account.is_investment` y no por `flow_type` solo, porque `flow_type =
+  'movimiento'` en un `ingreso` tiene dos causas distintas (reembolso/cobro de
+  deuda, o cuenta de inversión) y hay que poder distinguirlas; para un `gasto`
+  la cuenta es la única causa posible, así que no hay ambigüedad.
 
 #### Bug encontrado en la primera pasada, y corregido
 
