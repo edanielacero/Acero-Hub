@@ -515,7 +515,7 @@ section('SPRINT 2 · agrupado por persona')
   // suelta la pone el usuario. Ordenar y envejecer usan esa, no la del gasto.
   const mk = (id, person, usd, date) => ({
     id, person_id: person, amount_usd: usd, incurred_on: date, concept: null,
-    person: { id: person, name: person, emoji: null, archived: false },
+    person: { id: person, name: person, archived: false },
     transaction: { id: 't' + id, date, description: 'x', amount: usd, currency: 'USD', category_id: null },
     settled_tx_id: null, waived_at: null, amount: usd, currency: 'USD', transaction_id: 't' + id, note: null,
     state: 'pendiente',

@@ -8,6 +8,7 @@ import { resolveSplits } from '@/lib/finanzas/recurring'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
+import { CategoryIcon } from './category-icon'
 import { Btn, ErrorNote, Label, TextField } from './ui'
 
 /**
@@ -97,8 +98,9 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
         </div>
 
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
-          <h2 className="text-[19px] font-bold tracking-[-0.01em]">
-            Registrar {recurring.emoji ? `${recurring.emoji} ` : ''}{recurring.name}
+          <h2 className="flex items-center gap-2.5 text-[19px] font-bold tracking-[-0.01em]">
+            <CategoryIcon slug={recurring.icon} name={recurring.name} size={32} />
+            Registrar {recurring.name}
           </h2>
           <button
             type="button" onClick={onClose} aria-label="Cerrar"

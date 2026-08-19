@@ -1,16 +1,17 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlus, IconUsersGroup } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlus, IconRepeat, IconUsersGroup } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
+import { CategoryIcon } from '../components/category-icon'
 import { RecurringSheet } from '../components/recurring-sheet'
 import { RegisterSheet } from '../components/register-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, formatDayLabel, IconChip, Panel, SectionTitle, tintFor } from '../components/ui'
+import { Btn, EmptyState, formatDayLabel, Panel, SectionTitle } from '../components/ui'
 
 export function FijosScreen() {
   const { recurring, hidden, loading, reload } = useFinanzas()
@@ -79,7 +80,7 @@ export function FijosScreen() {
             <p className="text-[14px] text-[var(--fz-ink-3)] py-8 text-center">Cargando…</p>
           ) : !hay ? (
             <EmptyState
-              emoji="🔁"
+              icon={IconRepeat}
               title="Todavía no cargaste ningún fijo"
               description="Spotify, el alquiler, TradingView. Los cargás una vez y después es un toque por mes — y la app te dice cuáles te faltan."
               action={<Btn onClick={() => setCreando(true)}>Crear el primero</Btn>}
@@ -143,7 +144,7 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
       la pantalla, que es justo al revés de lo que hace falta.
     */
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 py-3 ${r.active ? '' : 'opacity-50'}`}>
-      <IconChip tint={tintFor(r.name)}>{r.emoji ?? r.name.charAt(0)}</IconChip>
+      <CategoryIcon slug={r.icon} name={r.name} />
 
       <button type="button" onClick={onEdit} className="flex-1 min-w-[55%] text-left">
         <span className="flex items-center gap-1.5 min-w-0">

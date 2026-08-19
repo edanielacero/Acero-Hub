@@ -17,7 +17,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!name) return NextResponse.json({ error: 'La persona necesita un nombre' }, { status: 400 })
     patch.name = name
   }
-  if (body.emoji !== undefined) patch.emoji = body.emoji || null
   if (body.archived !== undefined) patch.archived = Boolean(body.archived)
 
   const { data, error } = await supabase

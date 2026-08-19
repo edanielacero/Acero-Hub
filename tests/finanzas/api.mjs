@@ -335,23 +335,23 @@ async function run() {
          (await api('/accounts/reorder', { method: 'PATCH', body: JSON.stringify({ ids: ['00000000-0000-0000-0000-000000000009'] }) })).status, 400)
     }
 
-    section('PATCH /categories · emoji')
+    section('PATCH /categories · icon')
     {
       const cats = (await json(await api('/categories'))).categories
       const comidaCat = cats.find(c => c.name === 'Comida')
-      eq('la semilla trae emoji', comidaCat.emoji, '🍽️')
+      eq('la semilla trae icon', comidaCat.icon, 'comida')
 
       const cambiado = (await json(await api(`/categories/${comidaCat.id}`, {
-        method: 'PATCH', body: JSON.stringify({ emoji: '🥘' }),
+        method: 'PATCH', body: JSON.stringify({ icon: 'cafe' }),
       }))).category
-      eq('se puede cambiar el emoji de una categoría existente', cambiado.emoji, '🥘')
+      eq('se puede cambiar el icon de una categoría existente', cambiado.icon, 'cafe')
       eq('sin tocar el nombre', cambiado.name, 'Comida')
 
       const vaciado = (await json(await api(`/categories/${comidaCat.id}`, {
-        method: 'PATCH', body: JSON.stringify({ emoji: null }),
+        method: 'PATCH', body: JSON.stringify({ icon: null }),
       }))).category
-      eq('y se puede dejar sin emoji', vaciado.emoji, null)
-      await api(`/categories/${comidaCat.id}`, { method: 'PATCH', body: JSON.stringify({ emoji: '🍽️' }) })
+      eq('y se puede dejar sin icon', vaciado.icon, null)
+      await api(`/categories/${comidaCat.id}`, { method: 'PATCH', body: JSON.stringify({ icon: 'comida' }) })
     }
 
     section('categorías')
@@ -384,7 +384,7 @@ async function run() {
     section('SPRINT 2 · POST /people')
     let ana, juan
     {
-      const r = await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Ana', emoji: '🌿' }) })
+      const r = await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Ana' }) })
       eq('crea una persona', r.status, 201)
       ana = (await json(r)).person
 
@@ -755,7 +755,7 @@ async function run() {
       eq('cuenta que no existe → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
 
       const r = await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Spotify', emoji: '📱', amount: 11.99, account_id: airtm.id,
+        name: 'Spotify', icon: 'suscripciones', amount: 11.99, account_id: airtm.id,
         frequency: 'mensual', day_of_month: 5,
         // `amount: null` = parte pareja, se recalcula con el precio de cada mes.
         splits: [{ person_id: ana.id, amount: null }, { person_id: juan.id, amount: null }],

@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
 import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
+import { CategoryGlyph } from './category-icon'
 import { useQuickAddApi } from './quick-add-context'
 import { Btn, DateField, ErrorNote, Label, Segmented, TextArea, TextField } from './ui'
 
@@ -18,8 +19,12 @@ const TYPE_OPTIONS: { value: TxType; label: string }[] = [
   { value: 'transferencia', label: 'Transferir' },
 ]
 
+const NEW_TITLES: Record<TxType, string> = {
+  gasto: 'Nuevo gasto', ingreso: 'Nuevo ingreso', transferencia: 'Nueva transferencia',
+}
+
 export function QuickAdd() {
-  const { open, editing, close } = useQuickAddApi()
+  const { open, editing, initialType, lockType, close } = useQuickAddApi()
   const { accounts, categories, rates, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
@@ -57,7 +62,7 @@ export function QuickAdd() {
 
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
-      setType('gasto')
+      setType(initialType)
       setAmount('')
       setToAmount('')
       setToAmountTouched(false)
@@ -75,7 +80,7 @@ export function QuickAdd() {
     // mientras el usuario todavía lo estaba viendo. El valor capturado es el
     // del momento en que se abrió, que es exactamente el que corresponde.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing])
+  }, [open, editing, initialType])
 
   // Si las cuentas todavía no habían llegado cuando se abrió el sheet, se
   // completa la cuenta por defecto en cuanto aparecen — sin pisar nada que el
@@ -213,6 +218,10 @@ export function QuickAdd() {
     close()
   }
 
+  // Con tipo fijado por un botón puntual, no hay selector que mostrar: el
+  // título dice de qué se trata en su lugar.
+  const title = editing ? 'Editar movimiento' : lockType ? NEW_TITLES[type] : 'Nuevo movimiento'
+
   return (
     <div className="fixed inset-0 z-50 flex items-end min-[900px]:items-center min-[900px]:justify-center">
       <div className="fz-backdrop absolute inset-0 bg-[rgba(16,24,40,0.35)]" onClick={close} aria-hidden />
@@ -220,7 +229,7 @@ export function QuickAdd() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={editing ? 'Editar movimiento' : 'Nuevo movimiento'}
+        aria-label={title}
         className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         {/* Handle de arrastre: solo tiene sentido en el bottom sheet. */}
@@ -229,9 +238,7 @@ export function QuickAdd() {
         </div>
 
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
-          <h2 className="text-[19px] font-bold tracking-[-0.01em]">
-            {editing ? 'Editar movimiento' : 'Nuevo movimiento'}
-          </h2>
+          <h2 className="text-[19px] font-bold tracking-[-0.01em]">{title}</h2>
           <button
             type="button" onClick={close} aria-label="Cerrar"
             className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]"
@@ -241,7 +248,15 @@ export function QuickAdd() {
         </div>
 
         <div className="px-5 pb-5 flex flex-col gap-4">
-          <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
+          {/* El selector solo aparece cuando hay algo que elegir: al editar
+              (podés corregirte) o al entrar por un "+" genérico (tab bar
+              móvil, "Nuevo" de Movimientos). Si el tipo ya vino fijado por un
+              botón puntual —Gasto/Ingreso/Transferir en la Home— mostrarlo
+              igual dejaba pasarte a otro tipo desde ahí, y entonces esos tres
+              botones no eran más que un "+" con pasos extra (§3 feedback). */}
+          {(!lockType || editing) && (
+            <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
+          )}
 
           {/*
             El monto es lo primero y lo más grande: es el dato que siempre se
@@ -373,7 +388,8 @@ export function QuickAdd() {
                     key={c.id}
                     selected={c.id === categoryId}
                     onClick={() => setCategoryId(c.id === categoryId ? '' : c.id)}
-                    label={`${c.emoji ?? ''} ${c.name}`.trim()}
+                    label={c.name}
+                    icon={<CategoryGlyph slug={c.icon} />}
                   />
                 ))}
                 {visibleCategories.length === 0 && (
@@ -421,20 +437,21 @@ export function QuickAdd() {
   )
 }
 
-function ChipButton({ label, selected, onClick }: {
-  label: string; selected: boolean; onClick: () => void
+function ChipButton({ label, icon, selected, onClick }: {
+  label: string; icon?: ReactNode; selected: boolean; onClick: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`shrink-0 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+      className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
         selected
           ? 'bg-[var(--fz-accent)] text-white'
           : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
       }`}
     >
+      {icon}
       {label}
     </button>
   )

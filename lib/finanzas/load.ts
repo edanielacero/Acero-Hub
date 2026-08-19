@@ -27,7 +27,7 @@ import type {
  */
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
-const CATEGORY_COLS = 'id, name, kind, emoji, sort_order, archived'
+const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
 
@@ -193,7 +193,7 @@ export interface TxResult {
 
 
 const RECURRING_COLS =
-  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const RECURRING_SPLIT_COLS = 'id, recurring_id, person_id, amount'
 

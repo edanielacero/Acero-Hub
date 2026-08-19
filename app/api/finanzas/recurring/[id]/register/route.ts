@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [{ data: plantilla }, { data: templateSplits }] = await Promise.all([
     supabase
       .from('fin_recurring')
-      .select('id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on')
+      .select('id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on')
       .eq('id', id).eq('user_id', userId).maybeSingle(),
     supabase
       .from('fin_recurring_splits')

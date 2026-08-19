@@ -7,9 +7,10 @@ import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
 import { amountFromInput, formatUSD, parseDecimalInput } from '@/lib/finanzas/money'
 import { CurrencyIcon } from '../components/currency-icon'
+import { CategoryIcon, IconPickerGrid } from '../components/category-icon'
 import { useFinanzas } from '../components/data-context'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, Label, Panel, SectionTitle, SelectField, TextField, tintFor, tintVars } from '../components/ui'
+import { Btn, ErrorNote, Label, Panel, PersonAvatar, SectionTitle, SelectField, TextField } from '../components/ui'
 
 /** "hace 3 min" es más útil que un timestamp para saber si una tasa está fresca. */
 function relativo(iso: string): string {
@@ -32,7 +33,8 @@ export function AjustesScreen() {
 
   const [newName, setNewName] = useState('')
   const [newKind, setNewKind] = useState<CategoryKind>('gasto')
-  const [newEmoji, setNewEmoji] = useState('')
+  const [newIcon, setNewIcon] = useState<string | null>(null)
+  const [newIconOpen, setNewIconOpen] = useState(false)
   const [seeding, setSeeding] = useState(false)
 
   const [newPerson, setNewPerson] = useState('')
@@ -97,14 +99,15 @@ export function AjustesScreen() {
     const res = await fetch('/api/finanzas/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName.trim(), kind: newKind, emoji: newEmoji || null }),
+      body: JSON.stringify({ name: newName.trim(), kind: newKind, icon: newIcon }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo crear')
     }
     setNewName('')
-    setNewEmoji('')
+    setNewIcon(null)
+    setNewIconOpen(false)
     await reload()
   }
 
@@ -290,15 +293,18 @@ export function AjustesScreen() {
             Categorías
           </SectionTitle>
 
-          <div className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-[80px_1fr_150px_auto] items-end">
+          <div className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-[56px_1fr_150px_auto] items-end">
             <div>
-              <Label>Emoji</Label>
-              <TextField
-                value={newEmoji}
-                onChange={e => setNewEmoji(e.target.value.slice(0, 2))}
-                placeholder="🍽️"
-                className="text-center"
-              />
+              <Label>Ícono</Label>
+              <button
+                type="button"
+                onClick={() => setNewIconOpen(v => !v)}
+                aria-expanded={newIconOpen}
+                aria-label="Elegir ícono"
+                className="mx-auto min-[900px]:mx-0"
+              >
+                <CategoryIcon slug={newIcon} name={newName || '?'} size={48} />
+              </button>
             </div>
             <div>
               <Label>Nombre</Label>
@@ -317,6 +323,15 @@ export function AjustesScreen() {
             </div>
             <Btn onClick={addCategory}><IconPlus size={18} stroke={2} /> Agregar</Btn>
           </div>
+
+          {newIconOpen && (
+            <div className="mt-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
+              <IconPickerGrid
+                value={newIcon}
+                onChange={slug => { setNewIcon(slug); setNewIconOpen(false) }}
+              />
+            </div>
+          )}
 
           {categories.length === 0 ? (
             <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
@@ -357,24 +372,7 @@ export function AjustesScreen() {
             <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-4">
               {people.map(p => (
                 <div key={p.id} className={`flex items-center gap-3 py-2.5 ${p.archived ? 'opacity-50' : ''}`}>
-                  <label
-                    className="relative grid place-items-center w-9 h-9 shrink-0 rounded-[var(--fz-r-chip)] cursor-text"
-                    style={tintVars(tintFor(p.name))}
-                    title="Cambiar emoji"
-                  >
-                    <span className="sr-only">Emoji de {p.name}</span>
-                    <input
-                      defaultValue={p.emoji ?? ''}
-                      onBlur={e => {
-                        const next = e.target.value.trim().slice(0, 2)
-                        if (next !== (p.emoji ?? '')) patchPerson(p.id, { emoji: next || null })
-                      }}
-                      maxLength={2}
-                      aria-label={`Emoji de ${p.name}`}
-                      placeholder={p.name.charAt(0)}
-                      className="w-full h-full bg-transparent text-center text-[17px] outline-none placeholder:opacity-40 focus:ring-2 focus:ring-[var(--fz-accent)] rounded-[var(--fz-r-chip)]"
-                    />
-                  </label>
+                  <PersonAvatar name={p.name} size={36} />
 
                   <input
                     defaultValue={p.name}
@@ -433,61 +431,67 @@ function CategoryList({ title, items, onPatch, onRemove }: {
   onPatch: (id: string, body: Record<string, unknown>) => void
   onRemove: (id: string) => void
 }) {
+  // El ícono se edita en el lugar: tocar el chip abre la grilla justo debajo
+  // de esa fila, y elegir cierra — no hay un modo edición aparte que mantener.
+  const [openId, setOpenId] = useState<string | null>(null)
+
   return (
     <section>
       <h3 className="text-[13px] font-semibold text-[var(--fz-ink-2)] mb-2">{title}</h3>
       <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-        {items.map(c => (
-          <div key={c.id} className={`flex items-center gap-3 py-2.5 ${c.archived ? 'opacity-50' : ''}`}>
-            {/* El emoji se edita en el lugar: el chip ES el input, para no
-                agregar un modo edición aparte por un solo carácter. */}
-            <label
-              className="relative grid place-items-center w-9 h-9 shrink-0 rounded-[var(--fz-r-chip)] cursor-text"
-              style={tintVars(tintFor(c.name))}
-              title="Cambiar emoji"
-            >
-              <span className="sr-only">Emoji de {c.name}</span>
-              <input
-                defaultValue={c.emoji ?? ''}
-                onBlur={e => {
-                  const next = e.target.value.trim().slice(0, 2)
-                  if (next !== (c.emoji ?? '')) onPatch(c.id, { emoji: next || null })
-                }}
-                maxLength={2}
-                aria-label={`Emoji de ${c.name}`}
-                placeholder="•"
-                className="w-full h-full bg-transparent text-center text-[17px] outline-none placeholder:opacity-40 focus:ring-2 focus:ring-[var(--fz-accent)] rounded-[var(--fz-r-chip)]"
-              />
-            </label>
-            <input
-              defaultValue={c.name}
-              onBlur={e => {
-                const next = e.target.value.trim()
-                if (next && next !== c.name) onPatch(c.id, { name: next })
-              }}
-              aria-label={`Nombre de ${c.name}`}
-              className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
-            />
-            <button
-              type="button"
-              onClick={() => onPatch(c.id, { archived: !c.archived })}
-              aria-label={c.archived ? 'Restaurar' : 'Archivar'}
-              title={c.archived ? 'Restaurar' : 'Archivar'}
-              className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]"
-            >
-              <IconArchive size={16} stroke={1.8} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onRemove(c.id)}
-              aria-label="Borrar"
-              title="Borrar"
-              className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]"
-            >
-              <IconTrash size={16} stroke={1.8} />
-            </button>
-          </div>
-        ))}
+        {items.map(c => {
+          const open = openId === c.id
+          return (
+            <div key={c.id} className={c.archived ? 'opacity-50' : ''}>
+              <div className="flex items-center gap-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpenId(open ? null : c.id)}
+                  aria-expanded={open}
+                  aria-label={`Cambiar ícono de ${c.name}`}
+                  className="shrink-0"
+                >
+                  <CategoryIcon slug={c.icon} name={c.name} size={36} />
+                </button>
+                <input
+                  defaultValue={c.name}
+                  onBlur={e => {
+                    const next = e.target.value.trim()
+                    if (next && next !== c.name) onPatch(c.id, { name: next })
+                  }}
+                  aria-label={`Nombre de ${c.name}`}
+                  className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
+                />
+                <button
+                  type="button"
+                  onClick={() => onPatch(c.id, { archived: !c.archived })}
+                  aria-label={c.archived ? 'Restaurar' : 'Archivar'}
+                  title={c.archived ? 'Restaurar' : 'Archivar'}
+                  className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)]"
+                >
+                  <IconArchive size={16} stroke={1.8} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemove(c.id)}
+                  aria-label="Borrar"
+                  title="Borrar"
+                  className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)]"
+                >
+                  <IconTrash size={16} stroke={1.8} />
+                </button>
+              </div>
+              {open && (
+                <div className="mb-3 ml-[48px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
+                  <IconPickerGrid
+                    value={c.icon}
+                    onChange={slug => { onPatch(c.id, { icon: slug }); setOpenId(null) }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )

@@ -22,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const merged: Partial<RecurringInput> = {
     name: typeof body.name === 'string' ? body.name.trim() : current.name,
-    emoji: body.emoji === undefined ? current.emoji : (body.emoji || null),
+    icon: body.icon === undefined ? current.icon : (body.icon || null),
     amount: body.amount === undefined ? num(current.amount) : num(body.amount, NaN),
     account_id: pick(body.account_id, current.account_id),
     category_id: body.category_id === undefined ? current.category_id : (body.category_id || null),

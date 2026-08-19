@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconChevronDown, IconCoinOff, IconPencil, IconPlus, IconReceiptRefund, IconRotateClockwise } from '@tabler/icons-react'
+import { IconChevronDown, IconCoinOff, IconPencil, IconPlus, IconReceiptRefund, IconRotateClockwise, IconUsersGroup } from '@tabler/icons-react'
 import type { DebtWithContext, PersonDebt } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
@@ -12,7 +12,7 @@ import { useFinanzas } from '../components/data-context'
 import { DebtSheet } from '../components/debt-sheet'
 import { SettleSheet } from '../components/settle-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, formatDayLabel, IconChip, Panel, SectionTitle, Skeleton, tintFor } from '../components/ui'
+import { Btn, EmptyState, formatDayLabel, IconChip, Panel, PersonAvatar, SectionTitle, Skeleton } from '../components/ui'
 
 export function DeudasScreen() {
   const { shared, hidden, loading, reload } = useFinanzas()
@@ -64,7 +64,7 @@ export function DeudasScreen() {
             <p className="text-[14px] text-[var(--fz-ink-3)] py-8 text-center">Cargando…</p>
           ) : !hayDeudas ? (
             <EmptyState
-              emoji="🤝"
+              icon={IconUsersGroup}
               title="Nadie te debe nada"
               description="Las deudas aparecen acá de dos formas: cuando registrás un fijo compartido, o cuando cargás una a mano."
               action={<Btn onClick={() => setCreando(true)}>Registrar una deuda</Btn>}
@@ -74,7 +74,7 @@ export function DeudasScreen() {
               {shared.por_persona.map(d => (
                 <section key={d.person.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center gap-3">
-                    <IconChip tint={tintFor(d.person.name)}>{d.person.emoji ?? d.person.name.charAt(0)}</IconChip>
+                    <PersonAvatar name={d.person.name} />
                     <div className="min-w-0 flex-1">
                       <p className="text-[15px] font-semibold truncate">{d.person.name}</p>
                       <p className="text-[12px] text-[var(--fz-ink-3)]">
@@ -211,7 +211,7 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
   const cobrado = split.state === 'cobrado'
   return (
     <div className="flex items-center gap-3 py-2.5">
-      <IconChip tint={cobrado ? 'mint' : 'sand'}>
+      <IconChip tint={cobrado ? 'in' : 'neutral'}>
         {cobrado ? <IconReceiptRefund size={18} stroke={1.8} /> : <IconCoinOff size={18} stroke={1.8} />}
       </IconChip>
       <span className="flex-1 min-w-0">

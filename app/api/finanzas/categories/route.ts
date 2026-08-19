@@ -4,7 +4,7 @@ import { num } from '@/lib/finanzas/money'
 import { loadCategories } from '@/lib/finanzas/load'
 import type { CategoryKind } from '@/lib/finanzas/types'
 
-const CATEGORY_COLS = 'id, name, kind, emoji, sort_order, archived'
+const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const KINDS: CategoryKind[] = ['gasto', 'ingreso']
 
 export async function GET() {
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       user_id: userId,
       name,
       kind,
-      emoji: typeof body?.emoji === 'string' ? body.emoji : null,
+      icon: typeof body?.icon === 'string' ? body.icon : null,
       sort_order: num(body?.sort_order, 99),
     })
     .select(CATEGORY_COLS)

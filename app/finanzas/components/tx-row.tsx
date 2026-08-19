@@ -6,7 +6,8 @@ import type { AccountWithBalance, Category, Transaction } from '@/lib/finanzas/t
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { formatAmount } from '@/lib/finanzas/money'
 import { SignedAmount } from './amount'
-import { IconChip, tintFor } from './ui'
+import { CategoryIcon } from './category-icon'
+import { IconChip } from './ui'
 
 export function PageHeader({ title, subtitle, action }: {
   title: ReactNode; subtitle?: ReactNode; action?: ReactNode
@@ -66,26 +67,15 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       className="w-full flex items-center gap-3 min-h-16 py-2.5 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
     >
       {isTransfer ? (
-        <IconChip tint="slate"><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+        <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
       ) : isReembolso ? (
-        <IconChip tint="mint"><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
+        <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
       ) : (
-        <IconChip tint={tintFor(label)}>{category?.emoji ?? '•'}</IconChip>
+        <CategoryIcon slug={category?.icon} name={label} />
       )}
 
       <span className="flex-1 min-w-0">
-        <span className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[15px] font-semibold truncate">{title}</span>
-          {generoDeudas && (
-            <span
-              className="shrink-0 inline-flex items-center gap-0.5 h-[18px] px-1.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold"
-              title={`Generó ${deudas.length} ${deudas.length === 1 ? 'deuda' : 'deudas'}`}
-            >
-              <IconUsersGroup size={11} stroke={2.2} />
-              {deudas.length}
-            </span>
-          )}
-        </span>
+        <span className="block text-[15px] font-semibold truncate">{title}</span>
         <span className="block text-[13px] text-[var(--fz-ink-2)] truncate">{subtitle}</span>
       </span>
 
@@ -96,11 +86,15 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           type={tx.type}
           className="block text-[15px]"
         />
+        {/* El indicador de reparto vive bajo el monto, no al lado del título:
+            ahí competía con el nombre del movimiento por la misma línea. Es
+            además donde ya está la mirada cuando importa la plata (§16.7). */}
         {generoDeudas ? (
           <span
-            className="block text-[12px] fz-num"
+            className="flex items-center justify-end gap-1 text-[12px] fz-num"
             style={{ color: parte!.kind === 'ganas' ? 'var(--fz-in-text)' : 'var(--fz-ink-3)' }}
           >
+            <IconUsersGroup size={11} stroke={2.2} className="opacity-70" />
             {/* Si repartiste por encima del costo, la resta da negativo: eso
                 no es "tu parte −$2.01", es plata que ganaste. */}
             {parte!.kind === 'ganas' ? 'ganás ' : 'tu parte '}

@@ -31,11 +31,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from('fin_people')
-    .insert({
-      user_id: userId,
-      name,
-      emoji: typeof body?.emoji === 'string' ? body.emoji || null : null,
-    })
+    .insert({ user_id: userId, name })
     .select(PERSON_COLS)
     .single()
 

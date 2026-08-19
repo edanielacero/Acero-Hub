@@ -8,7 +8,7 @@ import { todayISO } from '@/lib/finanzas/transactions'
 import { debtLabel } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
-import { formatDayLabel } from './ui'
+import { formatDayLabel, PersonAvatar } from './ui'
 import { Btn, DateField, ErrorNote, Label, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
@@ -133,8 +133,9 @@ export function SettleSheet({ debt, onClose, onDone }: {
         </div>
 
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
-          <h2 className="text-[19px] font-bold tracking-[-0.01em]">
-            Cobrar a {debt.person.emoji ? `${debt.person.emoji} ` : ''}{debt.person.name}
+          <h2 className="flex items-center gap-2.5 text-[19px] font-bold tracking-[-0.01em]">
+            <PersonAvatar name={debt.person.name} size={28} />
+            Cobrar a {debt.person.name}
           </h2>
           <button
             type="button" onClick={onClose} aria-label="Cerrar"

@@ -33,7 +33,7 @@ export async function POST() {
         user_id: userId,
         name: c.name,
         kind: c.kind,
-        emoji: c.emoji,
+        icon: c.icon,
         sort_order: c.sort_order,
       })),
     )

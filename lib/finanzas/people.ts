@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeName } from './splits'
 import type { Person, DebtInput } from './types'
 
-export const PERSON_COLS = 'id, name, emoji, archived'
+export const PERSON_COLS = 'id, name, archived'
 
 /**
  * Busca una persona activa por nombre, comparando como el índice único de la

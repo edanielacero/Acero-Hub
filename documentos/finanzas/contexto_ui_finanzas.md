@@ -133,13 +133,22 @@ Todo vive en `app/finanzas/theme.css`, aplicado sobre el div wrapper de
   --fz-ink-3:         #9CA1A9;  /* horas, metadatos */
   --fz-ink-invert:    #FFFFFF;  /* sobre --fz-hero */
 
-  /* ── Acento: verde bosque ────────────────────────── */
+  /* ── 1 color principal + 1 secundario + neutros. Nada más ────────────
+     Revisado 2026-08-19 (feedback directo del usuario): la app tenía "gasto"
+     en rojo en Movimientos y en ámbar en Home, y siete pasteles distintos
+     repartidos por categoría — mucho color para lo que tenía que decir cada
+     uno. Ahora hay exactamente cuatro roles de color y ninguno más: marca,
+     su contraparte sobre oscuro, semántica de dinero, y un solo neutro para
+     todo lo que no es dinero. Ver §20. ── */
+
+  /* ── Principal: verde bosque ─────────────────────── */
   --fz-accent:        #16613C;  /* FAB, botones, activo — SOLO superficies llenas */
   --fz-accent-press:  #0F4A2D;
   --fz-accent-tint:   #E4F0E9;  /* fondo de chips y tiles de marca */
 
-  /* Lima: la contraparte del acento sobre superficies OSCURAS.
-     Nunca sobre el canvas claro — no tiene contraste suficiente. */
+  /* ── Secundario: lima, la contraparte del acento sobre superficies
+     OSCURAS. Nunca sobre el canvas claro — no tiene contraste suficiente.
+     Uso escaso a propósito: vidrio de la tab bar, pie de la sidebar. ── */
   --fz-lime:          #C8F169;
   --fz-lime-ink:      #12281D;
 
@@ -148,7 +157,9 @@ Todo vive en `app/finanzas/theme.css`, aplicado sobre el div wrapper de
   --fz-glass-edge:    rgba(255,255,255,0.14); /* el filo de luz */
   --fz-glass-pill:    rgba(255,255,255,0.16);
 
-  /* ── Semántica de dinero ─────────────────────────── */
+  /* ── Semántica de dinero: la ÚNICA razón para usar rojo o verde fuera de
+     la marca. Ingreso es siempre este verde, gasto es siempre este rojo, en
+     cualquier pantalla — nunca un tercer tono para el mismo concepto. ── */
   --fz-in:            #16A34A;  /* chips, íconos, montos grandes */
   --fz-in-text:       #15803D;  /* montos chicos sobre blanco */
   --fz-in-tint:       #E3F5E9;
@@ -156,14 +167,11 @@ Todo vive en `app/finanzas/theme.css`, aplicado sobre el div wrapper de
   --fz-out-text:      #C62A2F;
   --fz-out-tint:      #FDE9EA;
 
-  /* ── Tintes de categoría ─────────────────────────── */
-  --fz-tint-lavender: #EDEBFB;   --fz-tint-lavender-fg: #6D5BD0;
-  --fz-tint-peach:    #FDF0DF;   --fz-tint-peach-fg:    #E07C1F;
-  --fz-tint-mint:     #E3F5E9;   --fz-tint-mint-fg:     #15803D;
-  --fz-tint-sky:      #E6F1FD;   --fz-tint-sky-fg:      #1D74D0;
-  --fz-tint-rose:     #FDE9EA;   --fz-tint-rose-fg:     #C62A2F;
-  --fz-tint-sand:     #F6F1E7;   --fz-tint-sand-fg:     #9A7B33;
-  --fz-tint-slate:    #EEEFF2;   --fz-tint-slate-fg:    #5A616B;
+  /* ── Tinte neutro de categoría/persona/nav ──────────
+     Un solo tono sobrio para todo ícono que no es dinero. El glifo de línea
+     diferencia una categoría de otra; el color ya no tiene que hacerlo. ── */
+  --fz-tint-neutral:    #EEF0F2;
+  --fz-tint-neutral-fg: #4B5259;
 
   /* ── Radios ──────────────────────────────────────── */
   --fz-r-card:   24px;   /* paneles, hero, sheet */
@@ -183,9 +191,10 @@ Todo vive en `app/finanzas/theme.css`, aplicado sobre el div wrapper de
 }
 ```
 
-**Los 7 tintes de categoría** se asignan a las 14 categorías semilla de forma
-determinística (hash del nombre → índice) para que cada categoría siempre tenga
-el mismo color sin guardarlo en la base.
+**El tinte neutro** es el único fondo de chip que existe para categoría,
+persona y navegación — no hay una asignación por hash ni variedad de color
+que guardar. Lo que identifica a una categoría es su ícono (§15), no un color
+distinto por cada una.
 
 ---
 
@@ -282,9 +291,10 @@ cambio del dashboard.
 
 ### Tarjeta hero (`<HeroBalance>`)
 Fondo `--fz-hero`, radio `--fz-r-card`, padding 24px. Contiene: etiqueta
-("Patrimonio total") en blanco al 60%, el monto en 40/700, y el toggle de
-ocultar arriba a la derecha. Opcionalmente una barra fina de proporción
-ingreso/gasto del mes, como el degradado de la referencia 1.
+("Patrimonio total") en blanco al 60%, el monto en 40/700, y debajo el delta
+neto del mes con signo (§16.1/§18) en `--fz-in`/`--fz-out` — nunca lima, ver
+§20. **Sin toggle de ocultar propio** (el del header alcanza, §20) y **sin
+marca de agua** (§20).
 
 ### Tile de resumen (`<StatTile>`)
 Fondo en tinte, radio `--fz-r-tile`, padding 16px. Chip de ícono arriba,
@@ -463,36 +473,47 @@ y al pie la **tarjeta de tipo de cambio** — el slot que en la referencia 3 ocu
 
 ## 8. Layout desktop (≥ 900px)
 
+**Dos columnas, no tres.** Revisado 2026-08-19 — ver §20. La sidebar es fija;
+todo lo demás, incluida la que antes era una tercera columna de "Cuentas",
+vive en una sola columna de contenido que scrollea entera.
+
 ```
-┌────────┬──────────────────────────────┬─────────────┐
-│        │  Buenos días, Daniel         │  Cuentas    │
-│ Finanzas│  domingo 17 de agosto        │  ┌────────┐ │
-│        │                              │  │ Airtm  │ │
-│ ⌂ Inicio│ ┌────┐ ┌────┐ ┌────┐         │  │ $1,299 │ │
-│ ⇄ Movim.│ │Patr│ │Ingr│ │Gast│         │  └────────┘ │
-│ ▣ Cuent.│ │3209│ │ 900│ │ 142│         │  ┌────────┐ │
-│ ⚙ Ajust.│ └────┘ └────┘ └────┘         │  │ Broker │ │
-│        │                              │  │  $980  │ │
-│        │ Movimientos      [filtros]   │  └────────┘ │
-│        │ ┌──────────────────────────┐ │             │
-│        │ │ hoy, 17 ago       −$7.18 │ │  Tipo de    │
-│ ┌─────┐│ │ [🍽] Almuerzo     −$5.03 │ │  cambio     │
-│ │ USD ││ │ [🚕] Taxi         −$2.15 │ │  6.96       │
-│ │ BOB ││ │                          │ │             │
-│ │6.96 ││ │ ayer, 16 ago     +$100.0 │ │             │
-│ └─────┘│ └──────────────────────────┘ │             │
-└────────┴──────────────────────────────┴─────────────┘
-   248px            fluido                  320px
+┌────────┬────────────────────────────────────────┐
+│        │  Buenos días, Daniel              [👁]  │
+│ Finanzas│  domingo 17 de agosto                  │
+│        │                                        │
+│ ⌂ Inicio│  Patrimonio total                      │
+│ ⇄ Movim.│  $27,120.45                            │
+│ ▣ Cuent.│  ↗ +$758.42 este mes                    │
+│ ⚙ Ajust.│                                        │
+│        │  [ Gasto ] [ Ingreso ] [ Transferir ]   │
+│        │  ┌────────┐ ┌────────┐                 │
+│        │  │ Ingr.  │ │ Gasto  │                  │
+│ ┌─────┐│  │  900   │ │  142   │                  │
+│ │ USD ││  └────────┘ └────────┘                  │
+│ │ BOB ││                                        │
+│ │6.96 ││  Cuentas                    Ver todas   │
+│ └─────┘│  ┌────────┐ ┌────────┐                 │
+│        │  │ Airtm  │ │ Broker │ →                │
+│        │  │ $1,299 │ │  $980  │                  │
+│        │  └────────┘ └────────┘                  │
+│        │                                        │
+│        │  Movimientos                Ver todos   │
+│        │  ┌──────────────────────────┐          │
+│        │  │ hoy, 17 ago       −$7.18 │          │
+│        │  │ Almuerzo          −$5.03 │          │
+│        │  └──────────────────────────┘          │
+└────────┴────────────────────────────────────────┘
+   248px         fluido, una sola columna que scrollea
 ```
 
-- **Sin tab bar ni FAB.** El botón primario **"+ Nuevo movimiento"** vive en el
-  header del contenido central, a la derecha del saludo.
-- Contenedor con `max-width: 1440px`, centrado, gap de 20px entre zonas.
-- Cada zona scrollea por separado; la página no scrollea.
-- La lista de movimientos pasa de tarjetas apiladas a **tabla densa** con
-  columnas: fecha · categoría · descripción · cuenta · monto.
-- Acá sí hay hover: fila resaltada con `--fz-surface-sunk` y acciones de editar
-  y borrar que aparecen a la derecha.
+- **Sin tab bar ni FAB.** Tampoco hay un botón "+ Nuevo movimiento" aparte: los
+  tres botones Gasto/Ingreso/Transferir bajo el hero son la única puerta de
+  entrada, en desktop igual que en móvil (§16.3 / §20).
+- Contenedor con `max-width: 1440px`, centrado, gap de 20px entre sidebar y
+  contenido.
+- La sidebar es `sticky`; el contenido es una columna normal que scrollea con
+  la página — no hay una zona con su propio scroll interno independiente.
 
 ### Regla anti-desborde (mobile first)
 
@@ -522,8 +543,7 @@ descendiente: recortar ahí nunca puede afectar su posicionamiento fijo.
 | Rango | Modo |
 |---|---|
 | `< 900px` | **App**: 1 columna, tab bar + FAB, sheets |
-| `900–1279px` | **Dashboard compacto**: sidebar + contenido. Sin rail derecho — cuentas y tipo de cambio pasan al flujo central |
-| `≥ 1280px` | **Dashboard completo**: 3 zonas |
+| `≥ 900px` | **Dashboard**: sidebar fija + 1 columna de contenido que scrollea entera. No hay un tercer nivel a partir de 1280px: la vieja distinción "compacto / completo" desaparece con el rail derecho (§20) |
 
 Un solo árbol de componentes con CSS responsive. Nada de renderizar dos veces
 según el ancho.
@@ -612,3 +632,432 @@ lo único que importa acá.
    degrada. Si aparece jank en el dispositivo del usuario, el plan B es un
    fallback opaco (`--fz-glass-bg` sin alpha) detrás de
    `@supports not (backdrop-filter: blur(1px))`.
+
+---
+
+# Segunda ronda de referencias — 2026-08-19
+
+> Esta parte se agrega sobre el documento original, no lo reemplaza. Los §1–12
+> siguen vigentes salvo donde acá se diga explícitamente que se revisan (§18).
+> Disparador: **la UI actual usa emojis y se lee infantil.**
+
+---
+
+## 13. Por qué se van los emojis
+
+No es una cuestión de gusto. Los emojis rompen tres sistemas que el documento
+original ya había definido bien:
+
+1. **Anulan el sistema de tintes.** `IconChip` pinta el glifo con
+   `color: var(--fz-tint-*-fg)`. Un emoji es una **imagen a color**: ignora esa
+   propiedad. El resultado es que los 7 tintes cuidadosamente elegidos quedan de
+   fondo mientras 14 paletas ajenas —el naranja del 🍽️, el amarillo del 💡, el
+   rosa del 🎁— pelean encima. Esa es la causa real del efecto infantil: no es
+   el emoji, es que hay quince paletas donde el documento definió una.
+
+2. **Cambian por plataforma.** 🍽️ en iOS, en Android y en Windows son tres
+   dibujos distintos, con tres pesos y tres cajas ópticas. Una app que se quiere
+   ver nativa no puede delegar su iconografía al sistema operativo.
+
+3. **No se alinean.** Cada emoji tiene métricas propias, así que dentro de un
+   chip de 40×40 ninguno cae en el mismo centro óptico que el anterior. En una
+   lista de movimientos —que es la pantalla más larga de la app— el ruido se
+   acumula fila a fila.
+
+Y hay una cuarta señal, más barata de leer: **hoy hay tres fallbacks distintos
+para el mismo hueco.**
+
+| Lugar | Fallback |
+|---|---|
+| `components/tx-row.tsx:73` | `category?.emoji ?? '•'` |
+| `screens/fijos.tsx:146` | `r.emoji ?? r.name.charAt(0)` |
+| `screens/deudas.tsx:77` | `d.person.emoji ?? d.person.name.charAt(0)` |
+
+Tres respuestas para "¿y si no hay emoji?" es la definición de que no hay
+sistema. Se suman los 6 emojis hardcodeados en estados vacíos (📡 🏦 📝 🔍 🤝 🔁)
+y el editor de Ajustes, que es literalmente **un `<input type=text>` donde se
+pega un emoji con el teclado del sistema** (`screens/ajustes.tsx:363-370` y
+`:447-454`). Eso no es un control: es un hueco.
+
+**Ninguna de las seis referencias que entregó el usuario usa un solo emoji.**
+
+---
+
+## 14. Lo que aportan las referencias nuevas
+
+### Referencia 4 — Wallet, canvas gris claro, acento lima
+
+- **Tarjeta lima como objeto físico**, con degradado, número enmascarado
+  (`•••• 3090`), el ícono de contactless, "Total due" abajo a la izquierda y un
+  botón pill negro "Pay now" **dentro** de la tarjeta.
+- **Puntos de paginación** bajo la tarjeta: hay más de una y se desliza.
+- **Filas de cuenta como pills independientes** con gap entre ellas, cada una
+  con ícono a color, nombre, monto y chevron. No es una lista con divisores.
+- **Título de sección que ES el link**: `Accounts ›`, `Watch list ›`. Un solo
+  elemento en vez de título + "Ver todas" a la derecha.
+- **Tarjeta de gráfica**: título con ícono, período a la derecha ("Last 7 days"),
+  etiqueta "Total growth", monto grande, **delta en verde entre paréntesis**
+  `(+6.2%)` en línea con el monto, y barras verdes/rojas con iniciales de día.
+- **Watch list**: logo real de cada activo en círculo, ticker + símbolo apilados
+  a la izquierda, precio + delta apilados a la derecha, delta coloreado.
+- Tab bar de 4 íconos de línea monocromos, **sin etiquetas**, activo en relleno.
+
+### Referencia 5 — canvas verde, paneles de vidrio, hero amarillo
+
+- **Hero amarillo con tinta oscura.** Etiqueta de moneda arriba, ojo tachado a la
+  derecha, monto enorme, y **delta debajo** (`+$421.03`).
+- **Micro-línea de tipo de cambio** bajo el nombre de la moneda:
+  `1 USD = EUR 0.95 = GBP 0.79`. Información, no adorno.
+- **Tres acciones rápidas en fila** bajo el hero: Pay · Transfer · Receive, cada
+  una ícono circular de línea + etiqueta.
+- **Selector de cuenta en el header**, como pill: `[mastercard] •••• 2872 ⌄`.
+  Cambiar de cuenta no requiere ir a otra pantalla.
+- **Filas de transacción identificadas por persona o marca** —foto de Eva Novak,
+  logo de Binance, de Nike, de Megogo— y el subtítulo es el **estado**
+  (`Received ⓘ` / `Paid ⓘ`), no la categoría.
+- Agrupación por día con encabezados `Today` / `Yesterday` / `19 November`.
+- **Tiles de moneda** abajo: cuadrados chicos con bandera, código y tasa, más un
+  tile negro `+ Add Currency` que cierra la grilla.
+- **Pantalla de monto con teclado propio**: destinatario arriba, monto gigante,
+  `Balance: $126,887.09` debajo, campo de nota, teclado numérico y pill negro
+  "Send" a lo ancho.
+
+### Referencia 6 — Neobank, blanco, tarjetas lima
+
+- **Saludo de dos líneas**: `Good morning, Terry` en bold + `Welcome to Neobank`
+  chico debajo. Campana de notificación con badge a la derecha.
+- **Tarjeta de balance con el CTA adentro**: monto, ojo tachado, y un pill negro
+  "Add money" a todo el ancho **dentro** de la tarjeta.
+- **Carrusel horizontal de tarjetas con peek**: la siguiente asoma por el borde
+  derecho. El recorte es el affordance — dice "deslizá" sin escribirlo.
+- **Marca de agua repetida** (`N.NEO.NEO.NEO`) a muy baja opacidad sobre la
+  tarjeta lima. Es lo que la hace sentir un objeto y no un div de color.
+- **Chip de cashback** `+$1.65` en pastilla lima **bajo el monto**, en la columna
+  derecha de la fila.
+- **Selector horizontal con estado seleccionado** (aro oscuro alrededor de la
+  tarjeta elegida) y lista de métodos con ícono de línea + etiqueta + chevron.
+- **Perfil**: avatar grande con lápiz de editar, y tarjetas agrupadas
+  (`Personal info` con "Edit" en el encabezado) de filas etiqueta/valor con
+  ícono de línea a la izquierda.
+- Jerarquía por **hairline de 1px**, casi sin sombras. Muchísimo aire.
+
+---
+
+## 15. El sistema que reemplaza al emoji
+
+Las tres referencias nuevas coinciden en algo más fuerte que "no usar emojis":
+usan **tres familias de marca visual, y la forma dice de qué tipo de cosa se
+trata antes de leer el texto.**
+
+| Familia | Forma | Identifica | En las refs |
+|---|---|---|---|
+| Ícono de línea monocromo | **Squircle** en tinte | Una categoría o una acción | Tab bars, `Move your direct deposit`, Pay/Transfer/Receive |
+| Logo de marca a color | **Círculo** | Un comercio o un activo | BTC/ETH/SOL, Netflix, Nike, Binance, Starbucks |
+| Foto o monograma | **Círculo** | Una persona | Eva Novak, Matteo Ricci, el avatar de perfil |
+
+Hoy en Finanzas **categorías, personas y fijos usan todos el mismo squircle con
+emoji**: se leen como la misma clase de objeto cuando son tres cosas distintas.
+La app ya tiene la cuarta familia bien resuelta —`CurrencyIcon`, círculo con
+bandera o logo cripto— así que el sistema ya existe, solo que aplicado a una
+sola dimensión.
+
+### Mapa de categorías → íconos
+
+`@tabler/icons-react` **ya es dependencia del proyecto** (lo usan `tx-row.tsx`,
+`home.tsx`, `tab-bar.tsx`). No hace falta agregar nada. Nombres verificados
+contra el paquete instalado:
+
+| Categoría | Ícono | Categoría | Ícono |
+|---|---|---|---|
+| Comida | `IconToolsKitchen2` | Educación | `IconBook2` |
+| Transporte | `IconCar` | Otros (gasto) | `IconPackage` |
+| Vivienda | `IconHome` | Sueldo | `IconBriefcase` |
+| Servicios | `IconBolt` | Freelance | `IconDeviceLaptop` |
+| Suscripciones | `IconDeviceMobile` | Extraordinario | `IconGift` |
+| Salud | `IconHeartbeat` | Otros (ingreso) | `IconCoins` |
+| Personal | `IconSparkles` | | |
+| Ocio | `IconMovie` | | |
+
+### Cómo se guarda
+
+La columna `emoji` de `categories`, `people` y `recurring` pasa a guardar un
+**slug** (`comida`, `transporte`, …) en vez de un carácter. Un componente
+`<CategoryIcon slug>` mapea slug → componente de Tabler, con **un único
+fallback**: monograma con la inicial en el tinte de la categoría. Un solo
+fallback, no tres.
+
+El editor de Ajustes deja de ser un campo de texto y pasa a ser una **grilla de
+íconos seleccionables** — el mismo patrón del selector de tarjetas de la ref 6,
+con aro oscuro en el elegido.
+
+---
+
+## 16. Hallazgos concretos sobre lo que ya tenemos
+
+Ordenados por cuánto cambian la percepción de la app, no por esfuerzo.
+
+### 16.1 El hero dice metadatos donde podría decir un número
+
+Hoy la tercera línea es `3 cuentas · convertido a la tasa de hoy`. Las tres
+referencias ponen en ese lugar un **delta**: ref 4 `(+6.2%)`, ref 5 `+$421.03`.
+
+Propuesta: `↗ +$421.03 este mes` bajo el patrimonio, y la tasa baja a una
+**micro-línea al estilo ref 5** — `1 USD = Bs 6.96`. En Bolivia esa cifra se
+mira todos los días: decirla es más útil que decir que se usó.
+
+*Cierra la decisión abierta #4 del documento original con algo mejor que la
+barra de proporción: un número, no una barra sin escala.*
+
+### 16.2 El toggle de ocultar está fuera de la tarjeta
+
+`HideToggle` vive en el `PageHeader` (`home.tsx:88`). Ref 5 y ref 6 lo ponen
+**dentro de la tarjeta de balance**, arriba a la derecha, como ojo tachado.
+
+**Revertido en §20**: se implementó así y el usuario lo sacó — con uno en el
+header y otro adentro del hero eran dos botones para la misma acción a
+centímetros de distancia. Queda uno solo, en el header.
+
+### 16.3 No hay acciones rápidas bajo el hero
+
+Hoy el único camino para registrar es el FAB genérico → abrir sheet → elegir
+tipo. Ref 5 tiene Pay · Transfer · Receive en fila bajo el hero.
+
+Tres botones —**Gasto · Ingreso · Transferencia**— que abran el sheet con el tipo
+ya puesto ahorran un toque en **todos** los registros.
+
+**Ajustado en §20**: el tipo solo son tres — gasto, ingreso, transferencia —
+no hay un cuarto caso "no sé todavía qué es" que justifique un botón genérico
+al lado. Por eso el header de Home dejó de tener un "+ Nuevo movimiento": era
+la misma acción que estos tres botones, con un paso extra. Y el sheet que
+abren ya no muestra el selector de tipo — mostrarlo dejaba elegir cualquier
+otro tipo desde ahí, así que el botón específico no cambiaba nada. El FAB
+genérico de la tab bar (móvil) y el "Nuevo" de Movimientos sí lo conservan:
+son la única entrada en pantallas sin los tres botones.
+
+### 16.4 Las cuentas son una lista truncada a 3
+
+`home.tsx:266` corta con `.slice(0, 3)` y manda el resto a "Ver todas". Ref 6 las
+muestra como **carrusel horizontal con peek**: la siguiente asoma por el borde.
+
+`CurrencyIcon` ya existe; una tarjeta de cuenta con bandera, nombre, saldo y
+equivalencia en USD llena ese formato sin un solo asset nuevo, y deja de esconder
+información detrás de un link.
+
+### 16.5 El hero es un rectángulo plano
+
+`#12281D` sólido se lee como un div de color. Las tres referencias tratan la
+tarjeta de dinero como **objeto físico**: degradado (ref 4), marca de agua
+repetida a ~4% de opacidad (ref 6), logo de red arriba a la derecha (ref 5 y 6).
+
+Un gradiente radial muy sutil desde la esquina superior derecha + una marca de
+agua tipográfica no suman ni un KB y son la diferencia entre "una tarjeta" y
+"un rectángulo verde".
+
+### 16.6 La lima está desaprovechada
+
+El §4 la encierra en *"solo sobre `--fz-hero` y sobre el vidrio de la tab bar"*.
+Pero **las tres referencias nuevas usan lima o amarillo como superficie de una
+tarjeta entera, con tinta oscura encima** — es su firma visual, lo que hace que
+se vean como se ven.
+
+`#C8F169` sobre `#12281D` da **≈11.8:1**. La regla que hay que conservar es
+*"lima nunca como **texto** sobre canvas claro"* (ahí sí es ilegible, 1.3:1).
+Como **superficie** con tinta oscura es legítima, accesible, y es exactamente lo
+que falta para que la app se parezca a las referencias.
+
+Candidatos: la tarjeta de una cuenta destacada, el bloque de "Te deben", el chip
+de "tu parte". **No el hero** — el §3.2 sigue mandando: un solo bloque dominante.
+
+### 16.7 Falta la pastilla de delta en la columna derecha
+
+Ref 4: `+$1,204.50 (+1.47%)`. Ref 6: `+$1.65` en pastilla lima bajo el monto.
+
+Hoy la columna derecha de `TxRow` tiene monto + equivalencia o "tu parte" en
+texto pelado, y el chip de "generó N deudas" está **pegado al título** —
+compitiendo con el nombre del movimiento. La pastilla bajo el monto es su lugar
+natural: es donde el ojo ya está mirando cuando le importa la plata.
+
+### 16.8 Los `StatTile` no comparan contra nada
+
+`Gastos de agosto · $142` sin referencia no dice nada. Ref 4 rotula el período
+("Last 7 days") y muestra el crecimiento en %.
+
+Un `vs. julio ↓12%` convierte el tile de **dato** en **juicio**, que es para lo
+que uno abre una app de finanzas.
+
+### 16.9 Los estados vacíos usan emoji de 32px
+
+📡 🏦 📝 🔍 🤝 🔁 en `home.tsx`, `movimientos.tsx`, `deudas.tsx`, `fijos.tsx`.
+Reemplazo directo: ícono de línea de 24px dentro de un **círculo de 56px en
+tinte neutro** (`IconWifiOff`, `IconBuildingBank`, `IconNotes`, `IconSearch`,
+`IconUsersGroup`, `IconRepeat`).
+
+### 16.10 Las personas usan el mismo chip que las categorías
+
+`deudas.tsx:77` renderiza `IconChip` (squircle) con el emoji de la persona.
+Según §15, una persona va en **círculo con monograma** — inicial sobre tinte
+determinístico por nombre, igual que `tintFor()` ya hace. Separa "persona" de
+"categoría" de un vistazo, sin leer.
+
+### 16.11 Los fijos son marcas, no categorías
+
+Spotify y TradingView no son "Suscripciones": son Spotify y TradingView. Ref 5 y
+ref 6 muestran Netflix, Nike, Binance y Starbucks **con su logo real**, y de ahí
+sale buena parte del aire premium que tienen.
+
+El §11 descartó esto por *"requiere un catálogo de assets"* — correcto para un
+catálogo general. Pero **un set curado de 8–12 marcas que el usuario realmente
+paga** es tractable: SVG inline, exactamente el patrón ya validado en
+`CurrencyIcon` (§6), con fallback al ícono de categoría cuando no hay logo.
+
+### 16.12 Detalles menores que suman
+
+| Hoy | Referencia | Cambio |
+|---|---|---|
+| `SectionTitle` + "Ver todas ›" a la derecha | Ref 4: `Accounts ›`, el título **es** el link | Un elemento menos por sección |
+| Header sin notificaciones | Ref 4 y 6: campana con badge | En Finanzas tendría contenido real: fijos que faltan, deudas por cobrar |
+| Home sin gráfica | Ref 4: barras de 7 días verde/rojo con delta | §11 lo difirió; con varios meses cargados ya es el bloque que más eleva la Home |
+| Filas dentro de un panel con `divide-y` | Ref 4: cada fila es un pill independiente con gap | Es una alternativa, no una mejora — ref 6 usa divisores igual que nosotros. **Se queda como está.** |
+
+---
+
+## 17. Lo que ya está bien y no se toca
+
+Vale decirlo para no rehacer lo que las referencias confirman:
+
+- **Canvas gris + paneles blancos + un bloque oscuro.** Ref 4 y ref 6 hacen
+  exactamente eso.
+- **Agrupación por día con `Hoy` / `Ayer`** — ya implementada en
+  `movimientos.tsx` vía `groupByDay()` + `formatDayLabel()`. Es literalmente el
+  patrón de ref 5.
+- **`CurrencyIcon` con logos reales inline.** Es la familia de íconos que las
+  referencias usan para activos, y ya está resuelta, incluidos los bugs de
+  WebKit documentados en §6.
+- **Tab bar de vidrio con etiquetas y FAB central.** Ref 5 tiene el círculo
+  central; ref 6 tiene las etiquetas. Está respaldada.
+- **Flechas direccionales ↗ ↘ en los tiles** además del color (§9).
+- **`tabular-nums` en montos**, `min-w-0` anti-desborde, 16px en campos.
+
+---
+
+## 18. Revisiones al documento original
+
+| § | Decía | Ahora |
+|---|---|---|
+| §4 / §9 | La lima **solo** sobre `--fz-hero` y sobre el vidrio | La lima **como superficie** con tinta oscura es válida en cualquier lado (≈11.8:1). Sigue prohibida **como texto** sobre canvas claro |
+| §11 | "Fotos de perfil / avatares — es una app de un solo usuario" | Cierto para el **dueño** de la app; **falso para las personas de Deudas y splits**, que sí son varias. Van con monograma en círculo |
+| §11 | "Logos de marcas — requiere un catálogo de assets" | Se acota: **set curado de 8–12 marcas** para los fijos del usuario, inline como `CurrencyIcon`. No un catálogo general |
+| §11 | "Gráficas: ninguna en el Sprint 1" | Sigue fuera del alcance inmediato, pero sube de prioridad: es el bloque de mayor impacto visual pendiente |
+| Decisión abierta #4 | "Barra de proporción en el hero" | **Se resuelve como delta numérico** (§16.1), no como barra. Un número con signo dice más que una barra sin escala |
+
+---
+
+## 19. Orden de ataque sugerido
+
+1. **Erradicar el emoji** (§15) — `<CategoryIcon>`, mapa de las 14 semillas,
+   migración de la columna a slug, grilla de selección en Ajustes, estados
+   vacíos con ícono, monograma para personas. *Es el pedido explícito y toca
+   todas las pantallas.*
+2. **Rediseñar el hero** (§16.1, §16.2, §16.5) — delta, micro-línea de tasa, ojo
+   adentro, textura. *Máximo impacto por línea de código.*
+3. **Acciones rápidas bajo el hero** (§16.3). *Gana un toque en cada registro.*
+4. **Carrusel de cuentas** (§16.4) y **lima como superficie** (§16.6).
+5. **Pastilla de delta en filas** (§16.7) y **comparación en tiles** (§16.8).
+6. **Logos de fijos** (§16.11) y **gráfica de la Home** (§16.12).
+
+---
+
+## 20. Revisión 2026-08-19 — feedback directo sobre lo construido
+
+> A diferencia de §13-19 (análisis de referencias, antes de tocar código), esto
+> es feedback sobre la implementación real del §19, ya en producción. Se
+> aplicó directo; esta sección deja constancia de qué cambió y por qué, para
+> que no se repitan las mismas inconsistencias en la próxima pantalla nueva.
+
+### 20.1 Una sola paleta, no una por pantalla
+
+El síntoma que lo disparó: "gasto" salía **ámbar** en los tiles de la Home y
+**rojo** en los totales de Movimientos — la misma idea, dos colores. Debajo de
+eso estaba un problema más grande: el sistema de 7 tintes pastel pensado para
+categorías (§4 original) se había filtrado a lugares que no eran categorías —
+los tiles de Ingresos/Gastos de Home usaban `tint="mint"/"peach"` en vez de la
+semántica de dinero que ya existía y que Movimientos, Deudas y Fijos sí usaban
+(`--fz-in-tint`/`--fz-out-tint`).
+
+**Regla que queda fija:** cuatro roles de color, nunca un quinto.
+
+1. **Principal** — `--fz-accent` (verde bosque). Solo superficies llenas de marca.
+2. **Secundario** — `--fz-lime`. Solo sobre superficies oscuras, uso escaso.
+3. **Semántica de dinero** — `--fz-in` / `--fz-out`. La única razón válida para
+   que algo sea rojo o verde fuera de la marca. Un mismo concepto (ingreso,
+   gasto) es siempre el mismo token, en cualquier pantalla.
+4. **Neutro** — `--fz-tint-neutral`. Todo lo que no es dinero: categoría,
+   persona, ítem de navegación.
+
+**Lo que se fue:** los 7 tintes pastel por categoría (`lavender/peach/mint/
+sky/rose/sand/slate`) y la función `tintFor()` que los repartía por hash de
+nombre. Antes cada categoría tenía un color de fondo distinto — variedad de
+color que no comunicaba nada que el ícono de línea (§15) no dijera ya, y que
+es lo que hacía que la app se sintiera un tablero de colores en vez de una
+herramienta seria. `<CategoryIcon>`, `<PersonAvatar>` y las tarjetas de "Más"
+son ahora siempre neutras; lo único que las diferencia es el glifo.
+
+`Tint` pasó de 7 valores decorativos a 3 funcionales: `'neutral' | 'in' | 'out'`.
+
+### 20.2 El hero pierde la marca de agua
+
+El texto `FINANZAS` a 5% de opacidad en la esquina del hero (§16.5) se sacó.
+Quedó el degradado radial sutil, que sigue dando la sensación de superficie
+sin escribir nada encima.
+
+### 20.3 Un solo ojo, una sola puerta de entrada
+
+Dos inconsistencias que compartían la misma raíz — duplicar una acción en dos
+lugares no la refuerza, la vuelve ambigua:
+
+- El toggle de ocultar montos vivía en el header **y** dentro del hero (§16.2
+  había propuesto justo esto último). Con los dos a la vista, no quedaba claro
+  cuál era "el" control. Se saca el del hero; el del header alcanza.
+- Home tenía un botón "+ Nuevo movimiento" en el header **y** los tres botones
+  Gasto/Ingreso/Transferir bajo el hero (§16.3). Los tres botones ya cubren el
+  100% de los tipos posibles — no existe un cuarto caso ambiguo que el botón
+  genérico resolviera — así que el genérico se saca.
+
+  Encima, el botón específico no cambiaba nada en la práctica: tocar "Ingreso"
+  abría el mismo sheet con los tres tipos seleccionables, así que terminabas
+  en el mismo lugar que tocando cualquiera de los tres. Se agregó `lockType`
+  al contexto del quick-add: cuando se entra por un botón puntual, el sheet
+  fija ese tipo y **no muestra el selector** — el título dice "Nuevo gasto" /
+  "Nuevo ingreso" / "Nueva transferencia" en su lugar. El selector se queda
+  visible solo donde sigue haciendo falta elegir: al editar un movimiento
+  existente, y en las dos entradas genéricas que no tienen tres botones al
+  lado (el FAB de la tab bar en móvil, el "Nuevo" de Movimientos).
+
+### 20.4 Desktop: dos columnas, no tres
+
+La sidebar es la única columna fija; todo lo demás —incluida la que era una
+columna de "Cuentas" con `sticky` propio (§8 original)— pasa a ser un panel
+más dentro de una sola columna de contenido que scrollea entera. Tener una
+segunda zona con scroll independiente al lado de la principal partía la
+atención y no aportaba nada que el panel no resolviera estando en el flujo.
+
+`home.tsx` pierde el grid `1fr_320px` a partir de 1280px: a cualquier ancho
+desktop es sidebar + una columna, sin un tercer nivel de layout que distinga
+"compacto" de "completo" (la tabla de breakpoints de §8 se achica de tres
+filas a dos).
+
+---
+
+## 21. Ajuste 2026-08-19 (2) — orden de Home y guindo en vez de rojo
+
+- **Movimientos antes que Cuentas.** Es lo que se quiere ver primero al abrir
+  la app. El panel de Cuentas no se toca en nada más — mismo carrusel, mismo
+  contenido — solo baja un lugar en el flujo (§20.4).
+- **Guindo en vez de rojo puro para "sale plata".** `--fz-out` pasó de
+  `#E5484D` (rojo brillante, se leía como alarma) a `#B8434A` — un rojo más
+  oscuro y menos saturado, con `--fz-out-text` en `#8B2E33`. Es el mismo
+  token en todos lados (§20.1), así que gastos y deudas cambian juntos con
+  una sola edición en `theme.css`. Única salvedad: `--fz-out` es el que se ve
+  sobre el hero oscuro (delta negativo del mes) y ahí el contraste baja a
+  ~3:1 — el límite aceptable para una etiqueta chica; no oscurecer más este
+  token sin volver a medirlo contra `--fz-hero`.

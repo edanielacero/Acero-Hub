@@ -8,7 +8,7 @@ import { resolvePeople } from '@/lib/finanzas/people'
 import type { Frequency, RecurringInput } from '@/lib/finanzas/types'
 
 export const RECURRING_COLS =
-  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const FREQUENCIES: Frequency[] = ['mensual', 'anual']
 
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
   const input: Partial<RecurringInput> = {
     name: typeof body.name === 'string' ? body.name.trim() : '',
-    emoji: typeof body.emoji === 'string' ? body.emoji || null : null,
+    icon: typeof body.icon === 'string' ? body.icon || null : null,
     amount: num(body.amount, NaN),
     account_id: body.account_id,
     category_id: body.category_id ?? null,

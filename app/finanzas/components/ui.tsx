@@ -1,25 +1,21 @@
 'use client'
 
 import { ReactNode } from 'react'
+import type { TablerIcon } from '@tabler/icons-react'
 
-/* ─── Tintes de categoría ──────────────────────────────────────────────────
-   Los 7 tintes se reparten de forma determinística por hash del nombre, así
-   cada categoría conserva siempre el mismo color sin guardarlo en la base. */
+/* ─── Tinte de chip ────────────────────────────────────────────────────────
+   Tres valores y no siete: 'neutral' es el único que usan categoría, persona
+   y navegación — el ícono de línea ya diferencia, así que el color no tiene
+   que hacerlo también. 'in'/'out' son la excepción semántica: existen para
+   los pocos lugares donde el chip mismo tiene que decir "entró plata" o
+   "salió plata" (p. ej. el historial de una deuda cobrada). */
 
-export const TINTS = ['lavender', 'peach', 'mint', 'sky', 'rose', 'sand', 'slate'] as const
-export type Tint = (typeof TINTS)[number]
-
-export function tintFor(name: string): Tint {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-  return TINTS[hash % TINTS.length]
-}
+export type Tint = 'neutral' | 'in' | 'out'
 
 export function tintVars(tint: Tint) {
-  return {
-    background: `var(--fz-tint-${tint})`,
-    color: `var(--fz-tint-${tint}-fg)`,
-  }
+  if (tint === 'in') return { background: 'var(--fz-in-tint)', color: 'var(--fz-in-text)' }
+  if (tint === 'out') return { background: 'var(--fz-out-tint)', color: 'var(--fz-out-text)' }
+  return { background: 'var(--fz-tint-neutral)', color: 'var(--fz-tint-neutral-fg)' }
 }
 
 /* ─── Contenedores ─────────────────────────────────────────────────────────── */
@@ -49,7 +45,7 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
    El átomo visual que más se repite: cuadrado redondeado, fondo en tinte,
    glifo en el color saturado de ese tinte. */
 
-export function IconChip({ children, tint = 'slate', size = 40 }: {
+export function IconChip({ children, tint = 'neutral', size = 40 }: {
   children: ReactNode; tint?: Tint; size?: number
 }) {
   return (
@@ -59,6 +55,24 @@ export function IconChip({ children, tint = 'slate', size = 40 }: {
       style={{ width: size, height: size, fontSize: size * 0.45, ...tintVars(tint) }}
     >
       {children}
+    </span>
+  )
+}
+
+/* ─── Avatar de persona ────────────────────────────────────────────────────
+   Círculo, nunca squircle: es lo que separa "persona" de "categoría" de un
+   vistazo, sin leer nada. Siempre neutro — el nombre ya va escrito al lado,
+   así que un color distinto por persona no aporta nada y suma variedad de
+   color que no hace falta (§15/§16.10 de contexto_ui_finanzas.md). */
+
+export function PersonAvatar({ name, size = 40 }: { name: string; size?: number }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex items-center justify-center shrink-0 rounded-full font-bold"
+      style={{ width: size, height: size, fontSize: size * 0.42, ...tintVars('neutral') }}
+    >
+      {name.trim().charAt(0).toUpperCase() || '?'}
     </span>
   )
 }
@@ -254,12 +268,17 @@ export function Skeleton({ w, h = 14, radius, onDark = false, className = '' }: 
 
 /* ─── Estado vacío ─────────────────────────────────────────────────────────── */
 
-export function EmptyState({ emoji, title, description, action }: {
-  emoji: string; title: string; description?: string; action?: ReactNode
+export function EmptyState({ icon: Icon, title, description, action }: {
+  icon: TablerIcon; title: string; description?: string; action?: ReactNode
 }) {
   return (
     <div className="flex flex-col items-center text-center py-10 px-6">
-      <div className="text-[32px] mb-3" aria-hidden>{emoji}</div>
+      <span
+        aria-hidden
+        className="grid place-items-center w-14 h-14 rounded-full mb-3.5 bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-3)]"
+      >
+        <Icon size={24} stroke={1.6} />
+      </span>
       <p className="text-[15px] font-semibold">{title}</p>
       {description && <p className="text-[13px] text-[var(--fz-ink-2)] mt-1 max-w-[36ch]">{description}</p>}
       {action && <div className="mt-4">{action}</div>}

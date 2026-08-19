@@ -1,7 +1,11 @@
 'use client'
 
 import { useMemo } from 'react'
-import { IconArrowDownLeft, IconArrowUpRight, IconChevronRight, IconPlus, IconRepeat, IconUsersGroup } from '@tabler/icons-react'
+import type { TablerIcon } from '@tabler/icons-react'
+import {
+  IconArrowDownLeft, IconArrowsLeftRight, IconArrowUpRight, IconBuildingBank,
+  IconChevronRight, IconNotes, IconRepeat, IconUsersGroup, IconWifiOff,
+} from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { AmountUSD, HideToggle } from '../components/amount'
@@ -20,7 +24,7 @@ function greeting(): string {
 }
 
 export function HomeScreen() {
-  const { accounts, categories, shared, recurring, totalUsd, loading, stale, error, reload, hidden } = useFinanzas()
+  const { accounts, categories, shared, recurring, totalUsd, rates, loading, stale, error, reload, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
@@ -34,6 +38,10 @@ export function HomeScreen() {
   const gastoMes = mes.data.total_gasto_usd
   const gastoRealMes = mes.data.total_gasto_real_usd
   const ingresoMes = mes.data.total_ingreso_usd
+  // Lo que entró menos lo que realmente costó, no lo que salió bruto: si
+  // repartiste un gasto, la parte de otros no debería restar tu crecimiento
+  // del mes. Reemplaza a la barra de proporción sin escala (§16.1 / §18).
+  const netoMes = ingresoMes - gastoRealMes
   const recent = ultimos.data.transactions
 
   // Los dos bloques son condicionales: si no tenés deudas ni fijos, la Home se
@@ -53,7 +61,7 @@ export function HomeScreen() {
         <PageHeader title="Finanzas" subtitle={greeting()} />
         <Panel>
           <EmptyState
-            emoji="📡"
+            icon={IconWifiOff}
             title="No pudimos cargar tus datos"
             description="Revisá la conexión y volvé a intentar."
             action={<Btn onClick={() => void reload()}>Reintentar</Btn>}
@@ -69,7 +77,7 @@ export function HomeScreen() {
         <PageHeader title="Finanzas" subtitle={greeting()} />
         <Panel>
           <EmptyState
-            emoji="🏦"
+            icon={IconBuildingBank}
             title="Empezá por tus cuentas"
             description="Cargá dónde tenés tu plata hoy — efectivo, banco, broker, cripto. Sin cuentas, un movimiento no tiene de dónde salir."
             action={<Btn onClick={() => navigate('/finanzas/cuentas')}>Crear mi primera cuenta</Btn>}
@@ -84,51 +92,73 @@ export function HomeScreen() {
       <PageHeader
         title="Daniel"
         subtitle={greeting()}
-        action={
-          <>
-            <HideToggle />
-            <Btn onClick={openQuickAdd} size="sm" className="hidden min-[900px]:inline-flex">
-              <IconPlus size={18} stroke={2} /> Nuevo movimiento
-            </Btn>
-          </>
-        }
+        action={<HideToggle />}
       />
 
-      <div className="grid grid-cols-1 gap-5 min-[1280px]:grid-cols-[1fr_320px] items-start">
-        <div className="flex flex-col gap-5 min-w-0">
+      <div className="flex flex-col gap-5 min-w-0">
           {/* Hero: el único bloque oscuro de la pantalla. */}
-          <div className="rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
-            <p className="text-[13px] font-medium text-white/60">Patrimonio total</p>
+          <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0"
+              style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
+            />
+
+            <p className="relative text-[13px] font-medium text-white/60">Patrimonio total</p>
+
             {loading ? (
-              <Skeleton w="min(220px, 70%)" h={38} onDark className="mt-2" />
+              <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
             ) : (
-              <p className="mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+              <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
                 {hidden ? HIDDEN : formatUSD(totalUsd)}
               </p>
             )}
-            <p className="mt-2 text-[13px] text-white/50">
+
+            {/* Reemplaza a la barra de proporción ingreso/gasto: un número con
+                signo dice más que una barra sin escala (§16.1 / §18). Mismo
+                verde/rojo que el resto de la app — nunca lima para "entró
+                plata": ese es el color de marca, no el semántico. */}
+            {!loading && !hidden && !mes.loading && (
+              <p
+                className="relative mt-2 text-[13px] font-semibold fz-num"
+                style={{ color: netoMes >= 0 ? 'var(--fz-in)' : 'var(--fz-out)' }}
+              >
+                {netoMes >= 0 ? '↗ +' : '↘ −'}{formatUSD(Math.abs(netoMes))} este mes
+              </p>
+            )}
+
+            <p className="relative mt-2 text-[13px] text-white/50">
               {loading ? 'Cargando tus cuentas…' : (
                 <>
                   {visible.length} {visible.length === 1 ? 'cuenta' : 'cuentas'} ·{' '}
-                  {/* El número que se ve salió del dispositivo y puede tener horas:
-                      decirlo. Reemplaza a la coletilla en vez de sumarse, para no
-                      pasar a dos líneas y mover el hero cuando llega el dato. */}
-                  {stale ? 'actualizando…' : 'convertido a la tasa de hoy'}
+                  {/* La tasa del día es un dato que se mira seguido en Bolivia:
+                      decirla es más útil que decir que se usó (§16.1). */}
+                  {stale ? 'actualizando…' : `1 USD = Bs ${(rates.BOB ?? 6.96).toFixed(2)}`}
                 </>
               )}
             </p>
           </div>
 
+          {/* Única puerta de entrada para registrar: no hay un "Nuevo
+              movimiento" aparte, que llevaría al mismo panel y volvería
+              redundante elegir Gasto/Ingreso/Transferir acá (§16.3). Cada
+              botón abre el sheet con el tipo ya fijado. */}
+          <div className="grid grid-cols-3 gap-2.5">
+            <QuickAction label="Gasto" Icon={IconArrowUpRight} onClick={() => openQuickAdd('gasto')} />
+            <QuickAction label="Ingreso" Icon={IconArrowDownLeft} onClick={() => openQuickAdd('ingreso')} />
+            <QuickAction label="Transferir" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <StatTile
-              tint="mint"
+              tone="in"
               icon={<IconArrowDownLeft size={18} stroke={2} />}
               label={`Ingresos de ${monthName(now.getMonth())}`}
               value={ingresoMes}
               loading={mes.loading}
             />
             <StatTile
-              tint="peach"
+              tone="out"
               icon={<IconArrowUpRight size={18} stroke={2} />}
               label={`Gastos de ${monthName(now.getMonth())}`}
               value={gastoMes}
@@ -206,6 +236,12 @@ export function HomeScreen() {
             </FzLink>
           )}
 
+          {/* Movimientos antes que Cuentas: es lo que se quiere ver primero al
+              entrar (§21). Antes Cuentas vivía en una tercera columna fija al
+              lado de Movimientos; en desktop ese rail no scrolleaba con el
+              resto y quedaba como un bloque aparte. Ahora los dos son paneles
+              del mismo flujo: sidebar fija a la izquierda, todo lo demás en
+              una sola columna que scrollea junto (§20). */}
           <Panel>
             <SectionTitle
               action={
@@ -223,7 +259,7 @@ export function HomeScreen() {
               <RowSkeletons n={4} />
             ) : recent.length === 0 ? (
               <EmptyState
-                emoji="📝"
+                icon={IconNotes}
                 title="Todavía no registraste nada"
                 description="Tocá el + y anotá tu primer gasto."
               />
@@ -235,51 +271,71 @@ export function HomeScreen() {
               </div>
             )}
           </Panel>
-        </div>
 
-        {/* Rail derecho en dashboard completo; en móvil y tablet baja al flujo. */}
-        <Panel className="min-w-0 min-[1280px]:sticky min-[1280px]:top-5">
-          <SectionTitle
-            action={
-              <FzLink href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
-                Ver todas <IconChevronRight size={14} stroke={2} />
-              </FzLink>
-            }
-          >
-            Cuentas
-          </SectionTitle>
+          <Panel>
+            <SectionTitle
+              action={
+                <FzLink href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+                  Ver todas <IconChevronRight size={14} stroke={2} />
+                </FzLink>
+              }
+            >
+              Cuentas
+            </SectionTitle>
 
-          {loading ? (
-            <RowSkeletons n={3} />
-          ) : (
-            /* Solo un asomo: el listado completo vive en /finanzas/cuentas, que es
-               justo a donde lleva el "Ver todas" de arriba. Con muchas cuentas
-               este rail crecía hasta desbalancear la columna. */
-            <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {visible.slice(0, 3).map(a => (
-                <div key={a.id} className="flex items-center gap-3 py-3">
-                  <CurrencyIcon currency={a.currency} size={36} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-semibold truncate">{a.name}</p>
-                    <p className="text-[12px] text-[var(--fz-ink-3)]">{a.currency}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-[15px] font-semibold fz-num">
-                      {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
-                    </p>
-                    {a.currency !== 'USD' && (
-                      <p className="text-[12px] text-[var(--fz-ink-3)]">
-                        ≈ <AmountUSD value={a.balance_usd} />
+            {loading ? (
+              <div className="flex gap-3 overflow-hidden">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <Skeleton key={i} w={148} h={104} radius="var(--fz-r-tile)" className="shrink-0" />
+                ))}
+              </div>
+            ) : (
+              /* Carrusel horizontal con peek en vez de una lista truncada a 3:
+                 con muchas cuentas se scrollea en vez de esconderse detrás de
+                 "Ver todas" (§16.4). `snap-mandatory` para que cada tarjeta
+                 quede prolija al soltar el dedo. */
+              <div className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1">
+                {visible.map(a => (
+                  <div
+                    key={a.id}
+                    className="snap-start shrink-0 w-[148px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-2.5"
+                  >
+                    <CurrencyIcon currency={a.currency} size={30} />
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">{a.name}</p>
+                      <p className="text-[16px] font-bold tracking-[-0.01em] fz-num truncate">
+                        {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
                       </p>
-                    )}
+                      {a.currency !== 'USD' && (
+                        <p className="text-[11px] text-[var(--fz-ink-3)] fz-num truncate">
+                          {hidden ? '' : <>≈ <AmountUSD value={a.balance_usd} /></>}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+                ))}
+              </div>
+            )}
+          </Panel>
       </div>
     </div>
+  )
+}
+
+/** Un botón de acción rápida: chip circular + etiqueta, al estilo Pay/Transfer
+    /Receive de la referencia de wallet (§14, referencia 5). */
+function QuickAction({ label, Icon, onClick }: { label: string; Icon: TablerIcon; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center gap-1.5 py-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] transition-transform active:scale-[0.97]"
+    >
+      <span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+        <Icon size={19} stroke={1.8} />
+      </span>
+      <span className="text-[12px] font-semibold text-[var(--fz-ink-2)]">{label}</span>
+    </button>
   )
 }
 
@@ -301,8 +357,15 @@ function RowSkeletons({ n }: { n: number }) {
   )
 }
 
-function StatTile({ tint, icon, label, value, foot, loading }: {
-  tint: 'mint' | 'peach'; icon: React.ReactNode; label: string
+/**
+ * Ingresos y gastos usan siempre el mismo par de tokens semánticos que el
+ * resto de la app (`--fz-in`/`--fz-out`) — antes este tile pintaba con el
+ * sistema de tintes de categoría (`mint`/`peach`, un verde y un ámbar que no
+ * eran ni el verde ni el rojo del resto de la app), y "gasto" terminaba
+ * viéndose de un color acá y de otro en Movimientos.
+ */
+function StatTile({ tone, icon, label, value, foot, loading }: {
+  tone: 'in' | 'out'; icon: React.ReactNode; label: string
   value: number; foot?: React.ReactNode; loading?: boolean
 }) {
   return (
@@ -313,11 +376,11 @@ function StatTile({ tint, icon, label, value, foot, loading }: {
     */
     <div
       className="min-w-0 rounded-[var(--fz-r-tile)] p-4"
-      style={{ background: `var(--fz-tint-${tint})` }}
+      style={{ background: `var(--fz-${tone}-tint)` }}
     >
       <span
         className="inline-flex items-center justify-center w-9 h-9 rounded-[var(--fz-r-chip)] bg-white/70"
-        style={{ color: `var(--fz-tint-${tint}-fg)` }}
+        style={{ color: `var(--fz-${tone}-text)` }}
         aria-hidden
       >
         {icon}

@@ -114,7 +114,7 @@ async function run() {
   section('fin_categories')
   let comida
   {
-    comida = (await post('fin_categories', { user_id: USER_ID, name: 'Comida', kind: 'gasto', emoji: '🍽️' }).then(r => r.json()))[0]
+    comida = (await post('fin_categories', { user_id: USER_ID, name: 'Comida', kind: 'gasto', icon: 'comida' }).then(r => r.json()))[0]
     ok('crea una categoría', !!comida?.id)
 
     const dup = await post('fin_categories', { user_id: USER_ID, name: 'Comida', kind: 'gasto' })
@@ -302,7 +302,7 @@ async function run() {
     const anon = await fetch(`${URL_}/rest/v1/fin_people?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
     eq('sin sesión no ve personas', anon, [])
 
-    ana = (await post('fin_people', { user_id: USER_ID, name: 'Ana', emoji: '🌿' }).then(r => r.json()))[0]
+    ana = (await post('fin_people', { user_id: USER_ID, name: 'Ana' }).then(r => r.json()))[0]
     juan = (await post('fin_people', { user_id: USER_ID, name: 'Juan' }).then(r => r.json()))[0]
     ok('crea personas', !!ana?.id && !!juan?.id)
 
@@ -443,7 +443,7 @@ async function run() {
     // Sin category_id: `comida` ya se borró en la sección de integridad
     // referencial y la FK lo rechazaría.
     fijo = (await post('fin_recurring', {
-      user_id: USER_ID, name: 'Spotify', emoji: '📱', amount: 11.99,
+      user_id: USER_ID, name: 'Spotify', icon: 'suscripciones', amount: 11.99,
       account_id: airtm.id, frequency: 'mensual', day_of_month: 5,
     }).then(r => r.json()))[0]
     ok('crea una plantilla', !!fijo?.id)

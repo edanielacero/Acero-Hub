@@ -5,7 +5,7 @@ import { MORE_ITEMS, type NavItem } from '../components/nav-items'
 import { useFinanzas } from '../components/data-context'
 import { AmountUSD } from '../components/amount'
 import { PageHeader } from '../components/tx-row'
-import { IconChip, tintFor } from '../components/ui'
+import { IconChip } from '../components/ui'
 import { FzLink } from '../components/router'
 
 /**
@@ -63,7 +63,7 @@ function MoreCard({ item, meta }: { item: NavItem; meta?: React.ReactNode }) {
       href={item.href}
       className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 active:brightness-[0.97] hover:brightness-[0.99] transition-[filter]"
     >
-      <IconChip tint={tintFor(item.label)}>
+      <IconChip>
         <Icon size={20} stroke={1.9} />
       </IconChip>
       <span className="min-w-0 flex-1">

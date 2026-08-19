@@ -7,6 +7,7 @@ import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
+import { CategoryGlyph, CategoryIcon, IconPickerGrid } from './category-icon'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
 import { Btn, ErrorNote, Label, Segmented, SelectField, TextField } from './ui'
 
@@ -27,7 +28,8 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
 
   const [name, setName] = useState(editing?.name ?? '')
-  const [emoji, setEmoji] = useState(editing?.emoji ?? '')
+  const [icon, setIcon] = useState<string | null>(editing?.icon ?? null)
+  const [iconOpen, setIconOpen] = useState(false)
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '')
   const [accountId, setAccountId] = useState(editing?.account_id ?? active[0]?.id ?? '')
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
@@ -81,7 +83,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
-      emoji: emoji || null,
+      icon,
       amount: value,
       account_id: accountId,
       category_id: categoryId || null,
@@ -156,21 +158,32 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
         </div>
 
         <div className="px-5 pb-5 flex flex-col gap-4">
-          <div className="grid grid-cols-[70px_1fr] gap-2">
+          <div className="grid grid-cols-[56px_1fr] gap-2 items-end">
             <div>
-              <Label>Emoji</Label>
-              <TextField
-                value={emoji}
-                onChange={e => setEmoji(e.target.value.slice(0, 2))}
-                placeholder="📱"
-                className="text-center"
-              />
+              <Label>Ícono</Label>
+              <button
+                type="button"
+                onClick={() => setIconOpen(v => !v)}
+                aria-expanded={iconOpen}
+                aria-label="Elegir ícono"
+              >
+                <CategoryIcon slug={icon} name={name || '?'} size={48} />
+              </button>
             </div>
             <div>
               <Label>Nombre</Label>
               <TextField value={name} onChange={e => setName(e.target.value)} placeholder="Spotify" />
             </div>
           </div>
+
+          {iconOpen && (
+            <div className="-mt-2 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
+              <IconPickerGrid
+                value={icon}
+                onChange={slug => { setIcon(slug); setIconOpen(false) }}
+              />
+            </div>
+          )}
 
           <div>
             <Label>Monto {account ? `(${account.currency})` : ''}</Label>
@@ -212,13 +225,14 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
                   key={c.id} type="button"
                   onClick={() => setCategoryId(c.id === categoryId ? '' : c.id)}
                   aria-pressed={c.id === categoryId}
-                  className={`shrink-0 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                  className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
                     c.id === categoryId
                       ? 'bg-[var(--fz-accent)] text-white'
                       : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
                   }`}
                 >
-                  {`${c.emoji ?? ''} ${c.name}`.trim()}
+                  <CategoryGlyph slug={c.icon} />
+                  {c.name}
                 </button>
               ))}
             </div>

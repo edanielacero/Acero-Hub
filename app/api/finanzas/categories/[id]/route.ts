@@ -2,7 +2,7 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 
-const CATEGORY_COLS = 'id, name, kind, emoji, sort_order, archived'
+const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()
@@ -19,7 +19,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!name) return NextResponse.json({ error: 'La categoría necesita un nombre' }, { status: 400 })
     patch.name = name
   }
-  if (body.emoji !== undefined) patch.emoji = body.emoji || null
+  if (body.icon !== undefined) patch.icon = body.icon || null
   if (body.sort_order !== undefined) patch.sort_order = num(body.sort_order)
   if (body.archived !== undefined) patch.archived = Boolean(body.archived)
 

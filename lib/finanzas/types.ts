@@ -89,7 +89,9 @@ export interface Category {
   id: string
   name: string
   kind: CategoryKind
-  emoji: string | null
+  /** Slug de un ícono de línea ('comida', 'transporte', ...), no un emoji.
+      Ver app/finanzas/components/category-icon.tsx. */
+  icon: string | null
   sort_order: number
   archived: boolean
 }
@@ -130,11 +132,13 @@ export interface Transaction extends BalanceMovement {
 /**
  * Alguien con quien compartís gastos. Es una etiqueta, no una cuenta: no hay
  * `auth.users` detrás y nunca lo va a haber — la app es de un solo usuario.
+ *
+ * No tiene ícono propio para elegir: se distingue con un círculo + monograma
+ * (la inicial del nombre), así que nunca hace falta guardar nada.
  */
 export interface Person {
   id: string
   name: string
-  emoji: string | null
   archived: boolean
 }
 
@@ -217,7 +221,8 @@ export type RecurringStatus = 'pendiente' | 'registrado' | 'vencido' | 'pausado'
 export interface Recurring {
   id: string
   name: string
-  emoji: string | null
+  /** Slug de un ícono de línea, igual que `Category.icon`. */
+  icon: string | null
   /** Un default editable al confirmar, no una ley. */
   amount: number
   account_id: string
@@ -242,7 +247,7 @@ export interface RecurringSplit {
 
 export interface RecurringInput {
   name: string
-  emoji?: string | null
+  icon?: string | null
   amount: number
   account_id: string
   category_id?: string | null
@@ -302,21 +307,21 @@ export interface TransactionInput {
 }
 
 /** Las 14 categorías que siembra POST /api/finanzas/seed. */
-export const SEED_CATEGORIES: { name: string; kind: CategoryKind; emoji: string }[] = [
-  { name: 'Comida',         kind: 'gasto',   emoji: '🍽️' },
-  { name: 'Transporte',     kind: 'gasto',   emoji: '🚕' },
-  { name: 'Vivienda',       kind: 'gasto',   emoji: '🏠' },
-  { name: 'Servicios',      kind: 'gasto',   emoji: '💡' },
-  { name: 'Suscripciones',  kind: 'gasto',   emoji: '📱' },
-  { name: 'Salud',          kind: 'gasto',   emoji: '🏥' },
-  { name: 'Personal',       kind: 'gasto',   emoji: '🧴' },
-  { name: 'Ocio',           kind: 'gasto',   emoji: '🎬' },
-  { name: 'Educación',      kind: 'gasto',   emoji: '📚' },
-  { name: 'Otros',          kind: 'gasto',   emoji: '📦' },
-  { name: 'Sueldo',         kind: 'ingreso', emoji: '💼' },
-  { name: 'Freelance',      kind: 'ingreso', emoji: '💻' },
-  { name: 'Extraordinario', kind: 'ingreso', emoji: '🎁' },
-  { name: 'Otros',          kind: 'ingreso', emoji: '📥' },
+export const SEED_CATEGORIES: { name: string; kind: CategoryKind; icon: string }[] = [
+  { name: 'Comida',         kind: 'gasto',   icon: 'comida' },
+  { name: 'Transporte',     kind: 'gasto',   icon: 'transporte' },
+  { name: 'Vivienda',       kind: 'gasto',   icon: 'vivienda' },
+  { name: 'Servicios',      kind: 'gasto',   icon: 'servicios' },
+  { name: 'Suscripciones',  kind: 'gasto',   icon: 'suscripciones' },
+  { name: 'Salud',          kind: 'gasto',   icon: 'salud' },
+  { name: 'Personal',       kind: 'gasto',   icon: 'personal' },
+  { name: 'Ocio',           kind: 'gasto',   icon: 'ocio' },
+  { name: 'Educación',      kind: 'gasto',   icon: 'educacion' },
+  { name: 'Otros',          kind: 'gasto',   icon: 'otros' },
+  { name: 'Sueldo',         kind: 'ingreso', icon: 'sueldo' },
+  { name: 'Freelance',      kind: 'ingreso', icon: 'freelance' },
+  { name: 'Extraordinario', kind: 'ingreso', icon: 'extraordinario' },
+  { name: 'Otros',          kind: 'ingreso', icon: 'otros-ingreso' },
 ]
 
 

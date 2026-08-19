@@ -11,7 +11,7 @@ import type { Currency, Person, DebtWithContext } from './types'
  */
 export const DEBT_CTX_COLS =
   'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, created_at,' +
-  'person:fin_people!fin_debts_person_id_fkey(id,name,emoji,archived),' +
+  'person:fin_people!fin_debts_person_id_fkey(id,name,archived),' +
   'transaction:fin_transactions!fin_debts_transaction_id_fkey(id,date,description,amount,currency,category_id),' +
   'settled:fin_transactions!fin_debts_settled_tx_id_fkey(id,date)'
 
@@ -32,7 +32,7 @@ interface RawDebtRow {
   concept: string | null
   incurred_on: string
   created_at?: string
-  person?: { id: string; name: string; emoji: string | null; archived: boolean } | null
+  person?: { id: string; name: string; archived: boolean } | null
   transaction?: {
     id: string; date: string; description: string | null
     amount: unknown; currency: string; category_id: string | null
@@ -62,7 +62,7 @@ export function mapDebtContext(row: RawDebtRow): DebtWithContext {
     // ramificar cada vez que se calcula una antigüedad o se ordena una lista.
     incurred_on: row.incurred_on,
     state: debtState(row),
-    person: (row.person ?? { id: row.person_id, name: '—', emoji: null, archived: false }) as Person,
+    person: (row.person ?? { id: row.person_id, name: '—', archived: false }) as Person,
     // `null` cuando la deuda no vino de ningún gasto: prestaste efectivo, te
     // deben una cuota. Es el caso que el modelo viejo no podía representar.
     transaction: row.transaction

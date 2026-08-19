@@ -5,6 +5,7 @@ import { IconCheck, IconPlus, IconX } from '@tabler/icons-react'
 import type { Person } from '@/lib/finanzas/types'
 import { normalizeName } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
+import { PersonAvatar } from './ui'
 
 /**
  * Chips de personas para el reparto, con creación al vuelo.
@@ -82,13 +83,13 @@ export function PersonPicker({ selected, onToggle, onCreated }: {
               type="button"
               onClick={() => onToggle(p)}
               aria-pressed={on}
-              className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+              className={`shrink-0 inline-flex items-center gap-1.5 h-10 pl-1.5 pr-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
                 on
                   ? 'bg-[var(--fz-accent)] text-white'
                   : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
               }`}
             >
-              {p.emoji && <span aria-hidden>{p.emoji}</span>}
+              <PersonAvatar name={p.name} size={22} />
               {p.name}
               {p.archived && <span className="text-[11px] font-medium opacity-70">archivada</span>}
               {on && <IconX size={14} stroke={2.4} className="opacity-70" />}

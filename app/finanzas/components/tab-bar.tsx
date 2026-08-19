@@ -73,7 +73,7 @@ export function TabBar() {
           style={{ transform: `translateX(${pill.x}px)`, width: pill.w, opacity: pill.visible ? 1 : 0 }}
         />
         {left.map(renderTab)}
-        <button type="button" onClick={openQuickAdd} className="fz-tab-action" aria-label="Nuevo movimiento">
+        <button type="button" onClick={() => openQuickAdd()} className="fz-tab-action" aria-label="Nuevo movimiento">
           <span className="fz-tab-action-badge"><IconPlus size={24} stroke={2.4} /></span>
         </button>
         {right.map(renderTab)}

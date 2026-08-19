@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { IconPlus, IconUsersGroup } from '@tabler/icons-react'
+import { IconPlus, IconSearch, IconUsersGroup } from '@tabler/icons-react'
 import type { Transaction, TxType } from '@/lib/finanzas/types'
 import { groupByDay, lastMonths, monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
@@ -84,7 +84,7 @@ export function MovimientosScreen() {
             <SelectField value={categoryId} onChange={e => setCategoryId(e.target.value)} aria-label="Categoría">
               <option value="">Todas las categorías</option>
               {categories.filter(c => !c.archived).map(c => (
-                <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </SelectField>
           </div>
@@ -126,7 +126,7 @@ export function MovimientosScreen() {
             <p className="text-[14px] text-[var(--fz-ink-3)] py-8 text-center">Cargando…</p>
           ) : days.length === 0 ? (
             <EmptyState
-              emoji="🔍"
+              icon={IconSearch}
               title="Nada en este período"
               description="Probá con otro mes o quitá algún filtro."
             />

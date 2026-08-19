@@ -36,13 +36,21 @@ body:has(#fz-root) {
   --fz-ink-3:         #9CA1A9;
   --fz-ink-invert:    #FFFFFF;
 
-  /* ── Acento: verde bosque. Solo superficies llenas. ── */
+  /* ── Paleta: 1 color principal + 1 secundario + neutros ──
+     Nada más. Nada de un tinte pastel distinto por categoría: eso es lo que
+     hacía sentir la app infantil, no el ícono. La categoría la dice el
+     glifo de línea; el color queda para tres cosas y nada más: la marca
+     (acento), su contraparte sobre oscuro (lima) y el signo del dinero
+     (§ Semántica de dinero, abajo). */
+
+  /* ── Principal: verde bosque. Solo superficies llenas. ── */
   --fz-accent:        #16613C;
   --fz-accent-press:  #0F4A2D;
   --fz-accent-tint:   #E4F0E9;
 
-  /* Lima: la contraparte del acento sobre superficies OSCURAS.
-     Nunca sobre el canvas claro — 1.3:1, ilegible. */
+  /* ── Secundario: lima, la contraparte del acento sobre superficies
+     OSCURAS. Nunca sobre el canvas claro — 1.3:1, ilegible. Uso deliberadamente
+     escaso: el vidrio de la tab bar y el pie de la sidebar. ── */
   --fz-lime:          #C8F169;
   --fz-lime-ink:      #12281D;
 
@@ -56,22 +64,34 @@ body:has(#fz-root) {
   --fz-glass-pill:    rgba(22,97,60,0.10);
   --fz-glass-ink:     #5A616B;
 
-  /* ── Semántica de dinero ── */
+  /* ── Semántica de dinero: la ÚNICA razón para usar rojo o verde fuera de
+     la marca. Ingreso es siempre este verde, gasto/deuda es siempre este
+     guindo — en el hero, en Home, en Movimientos, en Deudas, en Fijos. Antes
+     el mismo concepto de "gasto" salía rojo en una pantalla y ámbar en otra;
+     ahora hay un solo par de tokens y todo lo demás los reusa, nunca
+     inventa un tercero.
+
+     El rojo original (#E5484D) se cambió por un guindo más oscuro y menos
+     saturado a pedido del usuario — un rojo puro se leía como alarma; el
+     guindo dice "sale plata" sin gritarlo. `--fz-out` (el más claro de los
+     tres) es el único que aparece sobre el hero oscuro, y ahí el contraste
+     baja a ~3:1 — aceptable para una etiqueta semibold de 13px, pero es el
+     límite: no oscurecer más este token sin volver a medirlo. */
   --fz-in:            #16A34A;
   --fz-in-text:       #15803D;
   --fz-in-tint:       #E3F5E9;
-  --fz-out:           #E5484D;
-  --fz-out-text:      #C62A2F;
-  --fz-out-tint:      #FDE9EA;
+  --fz-out:           #B8434A;  /* guindo — íconos, chips, montos grandes, delta del hero */
+  --fz-out-text:      #8B2E33;  /* guindo oscuro — montos chicos sobre blanco, 8.3:1 */
+  --fz-out-tint:      #F5E9E8;
 
-  /* ── Tintes de categoría ── */
-  --fz-tint-lavender: #EDEBFB;   --fz-tint-lavender-fg: #6D5BD0;
-  --fz-tint-peach:    #FDF0DF;   --fz-tint-peach-fg:    #E07C1F;
-  --fz-tint-mint:     #E3F5E9;   --fz-tint-mint-fg:     #15803D;
-  --fz-tint-sky:      #E6F1FD;   --fz-tint-sky-fg:      #1D74D0;
-  --fz-tint-rose:     #FDE9EA;   --fz-tint-rose-fg:     #C62A2F;
-  --fz-tint-sand:     #F6F1E7;   --fz-tint-sand-fg:     #9A7B33;
-  --fz-tint-slate:    #EEEFF2;   --fz-tint-slate-fg:    #5A616B;
+  /* ── Tinte neutro de categoría/persona/nav ──
+     Un solo tono sobrio para todo ícono que no es dinero: chip de categoría,
+     avatar de persona, tarjeta de "Más". El glifo de línea alcanza para
+     diferenciar una cosa de otra — siete pasteles distintos por categoría
+     era la variedad de color que hacía ver la app como una app de juguete,
+     no el emoji en sí. Ver app/finanzas/components/category-icon.tsx. */
+  --fz-tint-neutral:    #EEF0F2;
+  --fz-tint-neutral-fg: #4B5259;
 
   /* ── Radios ── */
   --fz-r-card:   24px;
