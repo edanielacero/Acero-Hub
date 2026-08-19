@@ -666,8 +666,7 @@ function Results({ result, capitalInitial, mode }: { result: MCResult; capitalIn
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function MontecarloPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId } = use(params)
+export function MontecarloScreen({ sessionId }: { sessionId: string }) {
 
   const [pageData, setPageData]     = useState<PageData | null>(null)
   const [loading, setLoading]       = useState(true)

@@ -512,8 +512,7 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function StatsPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId } = use(params)
+export function StatsScreen({ sessionId }: { sessionId: string }) {
   const [data, setData]       = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
 

@@ -1,17 +1,16 @@
 'use client'
 
 import { useState, use } from 'react'
-import { useRouter } from 'next/navigation'
-import { ClientForm } from '../../components/client-form'
-import { ClientAccess } from '../../components/client-access'
-import { ClientProcess } from '../../components/client-process'
-import { linkify } from '../../components/ui'
-import { useMockStore } from '../../components/mock-store'
-import { STATUS_LABEL, STATUS_BADGE_CLS } from '../../status'
+import { ExpLink, useExpRouter } from '../router'
+import { ClientForm } from '../components/client-form'
+import { ClientAccess } from '../components/client-access'
+import { ClientProcess } from '../components/client-process'
+import { linkify } from '../components/ui'
+import { useMockStore } from '../components/mock-store'
+import { STATUS_LABEL, STATUS_BADGE_CLS } from '../status'
 
-export default function ClientDetailPage({ params }: { params: Promise<{ clientId: string }> }) {
-  const { clientId } = use(params)
-  const router = useRouter()
+export function ClientDetailScreen({ clientId }: { clientId: string }) {
+  const { navigate } = useExpRouter()
   const { getClient } = useMockStore()
   const client = getClient(clientId)
   const [showEdit, setShowEdit] = useState(false)
@@ -21,7 +20,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
       <div className="min-h-screen bg-slate-50 dark:bg-[#080808] flex flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="text-[14px] text-slate-500 dark:text-zinc-400">No encontramos este cliente.</p>
         <button
-          onClick={() => router.push('/expandlogy/onboardings')}
+          onClick={() => navigate('/expandlogy/onboardings')}
           className="text-[12px] text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 cursor-pointer transition-colors"
         >
           ← Volver a clientes
@@ -34,7 +33,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
     <div className="min-h-screen bg-slate-50 dark:bg-[#080808] px-4 py-10 pb-20">
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
         <button
-          onClick={() => router.push('/expandlogy/onboardings')}
+          onClick={() => navigate('/expandlogy/onboardings')}
           className="self-start text-[12px] text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 cursor-pointer transition-colors"
         >
           ← Volver a clientes

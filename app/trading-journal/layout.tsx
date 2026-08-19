@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { AccessGate } from '@/components/AccessGate'
+import { TjRouterProvider } from './router'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -24,7 +25,9 @@ const MODE = 'dark'
 export default function TradingLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="tj-root" data-accent={ACCENT} data-mode={MODE} className={`${inter.variable} font-[family-name:var(--font-tj)] min-h-screen`}>
-      <AccessGate project="trading-journal">{children}</AccessGate>
+      <AccessGate project="trading-journal">
+        <TjRouterProvider>{children}</TjRouterProvider>
+      </AccessGate>
     </div>
   )
 }

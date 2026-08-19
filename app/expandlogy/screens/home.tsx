@@ -1,10 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { TabNav } from './components/tab-nav'
-import { useMockStore } from './components/mock-store'
-import type { Client } from './types'
+import { ExpLink, useExpRouter } from '../router'
+import { TabNav } from '../components/tab-nav'
+import { useMockStore } from '../components/mock-store'
+import type { Client } from '../types'
 
 const REMINDER_WINDOW_DAYS = 14
 
@@ -58,8 +58,8 @@ const MANUAL_REMINDERS: { id: string; label: string }[] = [
   { id: 'newsletter-luqman', label: 'Newsletter Luqman' },
 ]
 
-export default function ExpandlogyHomePage() {
-  const router = useRouter()
+export function HomeScreen() {
+  const { navigate } = useExpRouter()
   const { clients } = useMockStore()
 
   const reminders = useMemo<Reminder[]>(() => {
@@ -112,7 +112,7 @@ export default function ExpandlogyHomePage() {
               {reminders.map(({ client, days, severity }) => (
                 <button
                   key={client.id}
-                  onClick={() => router.push(`/expandlogy/clients/${client.id}`)}
+                  onClick={() => navigate(`/expandlogy/clients/${client.id}`)}
                   className={`flex items-center justify-between gap-4 border-l-4 rounded-xl px-4 py-3.5 text-left transition-opacity hover:opacity-90 cursor-pointer ${SEVERITY_CLS[severity]}`}
                 >
                   <div className="min-w-0">

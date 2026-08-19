@@ -394,8 +394,7 @@ function ComparisonTable({ trades }: { trades: Trade[] }) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function SweetSpotPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId } = use(params)
+export function SweetSpotScreen({ sessionId }: { sessionId: string }) {
   const [data, setData]       = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
 

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { use } from 'react'
-import { useRouter } from 'next/navigation'
-import { SessionActions } from './session-actions'
+import { useTjRouter } from '../router'
+import { SessionActions } from '../components/session-actions'
 import { parseCSV, coerceDate, coerceDirection, coerceResult } from '@/lib/trading/csv-parser'
 import {
   calcExpectancy, calcProfitFactor, calcZScore, calcPValue,
@@ -5789,10 +5788,9 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
   )
 }
 
-// ─── Page wrapper (URL-based routing) ─────────────────────────────────────────
+// ─── Screen wrapper ───────────────────────────────────────────────────────────
 
-export default function SessionDashboardPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const router = useRouter()
-  const { sessionId } = use(params)
-  return <SessionDetail sessionId={sessionId} onBack={() => router.push('/trading-journal')} />
+export function DashboardScreen({ sessionId }: { sessionId: string }) {
+  const { navigate } = useTjRouter()
+  return <SessionDetail sessionId={sessionId} onBack={() => navigate('/trading-journal')} />
 }

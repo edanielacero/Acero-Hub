@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { TjLink, useTjPath } from '../router'
 
 interface Tab { label: string; href: string; btOnly?: boolean }
 
@@ -15,7 +14,7 @@ export function SessionNav({ sessionId, sessionType }: {
   sessionId: string
   sessionType: string
 }) {
-  const pathname = usePathname()
+  const pathname = useTjPath()
   const base = `/trading-journal/${sessionId}`
   const tabs = TABS.filter(t => !t.btOnly || sessionType === 'backtesting')
 
@@ -25,7 +24,7 @@ export function SessionNav({ sessionId, sessionType }: {
         const href   = `${base}${tab.href}`
         const active = tab.href === '' ? pathname === base : pathname.startsWith(href)
         return (
-          <Link
+          <TjLink
             key={tab.label}
             href={href}
             className={`shrink-0 px-4 py-2.5 text-[11.5px] font-semibold tracking-wide border-b-2 transition-colors duration-150 ${
@@ -34,7 +33,7 @@ export function SessionNav({ sessionId, sessionType }: {
                 : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-300'
             }`}>
             {tab.label}
-          </Link>
+          </TjLink>
         )
       })}
     </nav>

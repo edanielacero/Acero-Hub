@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { ExpLink, useExpPath } from '../router'
 
 const TABS = [
   { href: '/expandlogy', label: 'Home' },
@@ -12,14 +11,14 @@ const TABS = [
 ]
 
 export function TabNav() {
-  const pathname = usePathname()
+  const pathname = useExpPath()
 
   return (
     <div className="flex gap-1 border-b border-slate-200 dark:border-zinc-800 mb-6 overflow-x-auto">
       {TABS.map(tab => {
         const active = pathname === tab.href
         return (
-          <Link
+          <ExpLink
             key={tab.href}
             href={tab.href}
             className={`shrink-0 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-colors ${
@@ -29,7 +28,7 @@ export function TabNav() {
             }`}
           >
             {tab.label}
-          </Link>
+          </ExpLink>
         )
       })}
     </div>

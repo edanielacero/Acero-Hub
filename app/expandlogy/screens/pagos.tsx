@@ -68,7 +68,7 @@ function formatUSD(n: number): string {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export default function PagosPage() {
+export function PagosScreen() {
   const [selectedId, setSelectedId] = useState(PAYMENT_PEOPLE[0].id)
   const [showMethod, setShowMethod] = useState(false)
 

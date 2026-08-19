@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { AccessGate } from '@/components/AccessGate'
+import { ExpRouterProvider } from './router'
 import { MockDataProvider } from './components/mock-store'
 
 export const metadata: Metadata = {
@@ -18,9 +19,9 @@ const MODE = 'dark'
 export default function ExpandlogyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="exp-root" data-accent={ACCENT} data-mode={MODE} className="min-h-screen">
-      <AccessGate project="expandlogy">
+      <AccessGate project="expandlogy"><ExpRouterProvider>
         <MockDataProvider>{children}</MockDataProvider>
-      </AccessGate>
+      </ExpRouterProvider></AccessGate>
     </div>
   )
 }

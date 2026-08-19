@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { TjLink, useTjRouter } from '../router'
 import { PRESET_VARIABLES } from '@/lib/trading/presets'
-import VariablesContent from './variables-content'
-import { SessionDetail } from './[sessionId]/page'
+import VariablesContent from '../components/variables-content'
+import { SessionDetail } from './dashboard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -332,7 +331,7 @@ function MergeSheet({ session, allSessions, onClose, onDone }: {
   const [name, setName] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const router = useRouter()
+  const { navigate } = useTjRouter()
 
   // Auto-generate name from selected sessions
   useEffect(() => {
@@ -364,7 +363,7 @@ function MergeSheet({ session, allSessions, onClose, onDone }: {
     const data = await res.json()
     if (!res.ok) { setErrorMsg(data.error ?? 'Error al crear'); setStatus('error'); return }
     onDone()
-    router.push(`/trading-journal/${data.session.id}`)
+    navigate(`/trading-journal/${data.session.id}`)
   }
 
   return (
@@ -1316,7 +1315,7 @@ function NotificationsBell() {
   }, [])
 
   return (
-    <Link
+    <TjLink
       href="/trading-journal/notifications"
       aria-label="Notificaciones"
       className="relative min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors">
@@ -1326,7 +1325,7 @@ function NotificationsBell() {
           {unread > 9 ? '9+' : unread}
         </span>
       )}
-    </Link>
+    </TjLink>
   )
 }
 
@@ -1337,7 +1336,7 @@ const SESSIONS_TTL = 30_000
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function TradingJournalPage() {
+export function SessionListScreen() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>(_sessionsCache ?? [])
   const [loading, setLoading] = useState(_sessionsCache === null)

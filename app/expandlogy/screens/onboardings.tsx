@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { ExpLink, useExpRouter } from '../router'
 import { ClientForm } from '../components/client-form'
 import { TabNav } from '../components/tab-nav'
 import { useMockStore } from '../components/mock-store'
 import { STATUS_LABEL, STATUS_BADGE_CLS } from '../status'
 
-export default function OnboardingsPage() {
-  const router = useRouter()
+export function OnboardingsScreen() {
+  const { navigate } = useExpRouter()
   const { clients } = useMockStore()
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -60,7 +60,7 @@ export default function OnboardingsPage() {
             {filtered.map(c => (
               <button
                 key={c.id}
-                onClick={() => router.push(`/expandlogy/clients/${c.id}`)}
+                onClick={() => navigate(`/expandlogy/clients/${c.id}`)}
                 className="group flex flex-col gap-2 bg-white dark:bg-zinc-950 hover:bg-slate-50 dark:hover:bg-zinc-900 border border-slate-200 dark:border-zinc-700/60 hover:border-slate-300 dark:hover:border-zinc-600/60 shadow-sm dark:shadow-none rounded-2xl p-5 text-left transition-all cursor-pointer"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -78,7 +78,7 @@ export default function OnboardingsPage() {
       {showForm && (
         <ClientForm
           onClose={() => setShowForm(false)}
-          onSaved={(client) => { setShowForm(false); router.push(`/expandlogy/clients/${client.id}`) }}
+          onSaved={(client) => { setShowForm(false); navigate(`/expandlogy/clients/${client.id}`) }}
         />
       )}
     </div>

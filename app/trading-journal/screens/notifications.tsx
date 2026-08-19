@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { TjLink, useTjRouter } from '../router'
 
 interface NotifPayload {
   invitationId: string
@@ -55,8 +54,8 @@ function fmtRelative(iso: string) {
   return 'Ahora'
 }
 
-export default function NotificationsPage() {
-  const router = useRouter()
+export function NotificationsScreen() {
+  const { navigate } = useTjRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading]             = useState(true)
   const [processing, setProcessing]       = useState<Record<string, boolean>>({})
@@ -91,7 +90,7 @@ export default function NotificationsPage() {
     if (res.ok && action === 'accept') {
       const d = await res.json()
       if (d.sessionId) {
-        router.push(`/trading-journal/${d.sessionId}`)
+        navigate(`/trading-journal/${d.sessionId}`)
         return
       }
     }
@@ -106,11 +105,11 @@ export default function NotificationsPage() {
         {/* Header */}
         <div className="sticky top-0 z-20 bg-slate-50/90 dark:bg-[#05090f]/90 backdrop-blur-sm">
           <div className="flex items-center gap-3 px-4 pt-5 pb-4">
-            <Link
+            <TjLink
               href="/trading-journal"
               className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/60 dark:hover:bg-white/[0.07] transition-colors">
               <IconChevronLeft />
-            </Link>
+            </TjLink>
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white tracking-tight flex-1">
               Notificaciones
             </h1>

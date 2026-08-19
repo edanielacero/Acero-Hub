@@ -57,7 +57,7 @@ const AD_STATUS_LABEL: Record<AdStatus, string> = {
   pausada: 'Pausada',
 }
 
-export default function CampanasPage() {
+export function CampanasScreen() {
   const alertCount = AD_ACCOUNTS.filter(a => getStatus(a) === 'alerta').length
   const activeCampaignsTotal = AD_ACCOUNTS.reduce((sum, a) => sum + a.activeCampaigns, 0)
 

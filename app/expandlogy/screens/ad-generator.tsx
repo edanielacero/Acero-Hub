@@ -8,7 +8,7 @@ import { useMockStore } from '../components/mock-store'
 
 type Mode = 'anuncios' | 'copys'
 
-export default function AdGeneratorPage() {
+export function AdGeneratorScreen() {
   const { clients } = useMockStore()
   const [clientId, setClientId] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode | null>(null)
