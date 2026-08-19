@@ -75,6 +75,10 @@ export interface Account {
   initial_balance_date: string
   sort_order: number
   archived: boolean
+  /** Sube y baja por el mercado, no por plata real que entró o salió: sus
+      movimientos nacen `flow_type: 'movimiento'` en vez de `'consumo'`, para
+      no ensuciar el gasto/ingreso del mes (§7.1 de contexto_finanzas.md). */
+  is_investment: boolean
 }
 
 /** Cuenta con su saldo derivado (§4.2). El saldo nunca se guarda en la base. */

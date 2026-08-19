@@ -10,7 +10,7 @@ import {
   useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconArchive, IconGripVertical, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { IconArchive, IconChartLine, IconGripVertical, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
 import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
@@ -29,6 +29,7 @@ interface Draft {
   currency: Currency
   initial_balance: string
   initial_balance_date: string
+  is_investment: boolean
 }
 
 const emptyDraft = (): Draft => ({
@@ -36,6 +37,7 @@ const emptyDraft = (): Draft => ({
   currency: 'USD',
   initial_balance: '',
   initial_balance_date: new Date().toISOString().slice(0, 10),
+  is_investment: false,
 })
 
 export function CuentasScreen() {
@@ -87,6 +89,7 @@ export function CuentasScreen() {
       currency: draft.currency,
       initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true, decimals: decimalsFor(draft.currency) }),
       initial_balance_date: draft.initial_balance_date,
+      is_investment: draft.is_investment,
     }
 
     setBusy(true)
@@ -178,6 +181,7 @@ export function CuentasScreen() {
       currency: a.currency,
       initial_balance: String(a.initial_balance),
       initial_balance_date: a.initial_balance_date,
+      is_investment: a.is_investment,
     })
   }
 
@@ -279,6 +283,30 @@ export function CuentasScreen() {
                   onChange={e => setDraft({ ...draft, initial_balance_date: e.target.value })}
                 />
               </div>
+              <div className="min-[900px]:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => setDraft({ ...draft, is_investment: !draft.is_investment })}
+                  aria-pressed={draft.is_investment}
+                  className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
+                    draft.is_investment
+                      ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+                      : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-[14px] font-semibold">
+                    <IconChartLine size={18} stroke={1.8} />
+                    Cuenta de inversión
+                  </span>
+                  <span className="text-[12px] font-bold">{draft.is_investment ? 'Sí' : 'No'}</span>
+                </button>
+                {/* Broker, cripto en cuenta propia, lo que se sume después: el
+                    valor sube y baja por el mercado, no porque entró o salió
+                    plata real (§7.1 de contexto_finanzas.md). */}
+                <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
+                  Sus movimientos no cuentan como ingreso ni gasto real del mes.
+                </p>
+              </div>
             </div>
 
             <div className="mt-4">
@@ -374,6 +402,10 @@ export function CuentasScreen() {
               {viewing.currency !== 'USD' && (
                 <DetailField label="≈ USD" value={hidden ? HIDDEN : formatUSD(viewing.balance_usd)} />
               )}
+              <DetailField
+                label="Cuenta de inversión"
+                value={viewing.is_investment ? 'Sí — sus movimientos no cuentan como ingreso/gasto' : 'No'}
+              />
             </div>
           </>
         )}
@@ -446,7 +478,14 @@ function AccountRow({ account, hidden, onView, onEdit, onArchive, onDelete }: {
       >
         <CurrencyIcon currency={account.currency} size={36} />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold truncate">{account.name}</p>
+          <p className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[15px] font-semibold truncate">{account.name}</span>
+            {account.is_investment && (
+              <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+                <IconChartLine size={11} stroke={2.2} /> Inversión
+              </span>
+            )}
+          </p>
           <p className="text-[12px] text-[var(--fz-ink-3)]">
             {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
           </p>

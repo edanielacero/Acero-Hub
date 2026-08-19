@@ -10,7 +10,7 @@ import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 export async function GET(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -67,7 +67,8 @@ export async function POST(request: Request) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
 
   // La moneda sale de la cuenta, nunca del cliente.
-  const currency = accountsById.get(input.account_id!)!.currency
+  const account = accountsById.get(input.account_id!)!
+  const currency = account.currency
   const frozen = freezeConversion(input.amount!, currency, rates)
 
 
@@ -77,9 +78,11 @@ export async function POST(request: Request) {
       user_id: userId,
       type: input.type,
       // El cliente nunca manda `flow_type`. Un gasto o un ingreso registrados
-      // desde el quick-add son siempre consumo; los movimientos financieros los
-      // crea el server (transferencias y cobros).
-      flow_type: input.type === 'transferencia' ? 'movimiento' : 'consumo',
+      // desde el quick-add son consumo real, salvo que la cuenta sea de
+      // inversión: ahí el mercado mueve el número, no un ingreso o gasto real,
+      // así que nace `'movimiento'` — igual que transferencias, reembolsos y
+      // cobros de deuda (§7.1 de contexto_finanzas.md).
+      flow_type: input.type === 'transferencia' || account.is_investment ? 'movimiento' : 'consumo',
       date: input.date,
       account_id: input.account_id,
       to_account_id: input.type === 'transferencia' ? input.to_account_id : null,

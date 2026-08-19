@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 /** Cuántos movimientos tocan esta cuenta, como origen o como destino. */
 async function txCount(
@@ -54,6 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.initial_balance_date !== undefined) patch.initial_balance_date = body.initial_balance_date
   if (body.sort_order !== undefined) patch.sort_order = num(body.sort_order)
   if (body.archived !== undefined) patch.archived = Boolean(body.archived)
+  if (body.is_investment !== undefined) patch.is_investment = Boolean(body.is_investment)
 
   const { data, error } = await supabase
     .from('fin_accounts')

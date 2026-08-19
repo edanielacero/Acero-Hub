@@ -11,7 +11,7 @@ import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 interface DebtRow {
   id: string
@@ -106,7 +106,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const check = validateInput(merged, accountsById)
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
 
-  const currency = accountsById.get(merged.account_id!)!.currency
+  const account = accountsById.get(merged.account_id!)!
+  const currency = account.currency
+
+  // Igual que en el POST: si la cuenta (nueva o de siempre) es de inversión,
+  // el movimiento pasa a `'movimiento'`. Pero nunca al revés — si ya era
+  // `'movimiento'` por otra razón (reembolso, cobro de deuda) y la cuenta no
+  // es de inversión, se conserva como estaba. Achicar la clasificación acá
+  // podría hacer que editar la fecha de un reembolso lo cuente de golpe como
+  // ingreso real.
+  const flowType = merged.type === 'transferencia' || account.is_investment
+    ? 'movimiento'
+    : current.flow_type
 
   // Un movimiento ya NO sabe crear ni editar deudas. Las deudas se manejan en
   // su propia pantalla: son una entidad aparte, no un detalle del gasto. Lo
@@ -151,7 +162,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_transactions')
     .update({
       type: merged.type,
-      flow_type: merged.type === 'transferencia' ? 'movimiento' : current.flow_type,
+      flow_type: flowType,
       date: merged.date,
       account_id: merged.account_id,
       to_account_id: merged.to_account_id,

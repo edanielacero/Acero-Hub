@@ -235,7 +235,42 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 8 | Objetivos y bolsillos | Requiere 6, 7 | — |
 | 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
 | 10 | Alertas | Requiere 6, 3 | — |
+| 11 | **Cuentas de inversión** (Broker, y las que se sumen después) | Ajustar su valor sin que cuente como gasto/ingreso real del mes | ✅ Construido |
 
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son
 cosas que **ya le están pasando cada mes**. Por eso van antes que presupuesto y
 reportes, que necesitan meses de datos acumulados para valer algo.
+
+### 7.1 Feature 11 — Cuentas de inversión (construido el 2026-08-19)
+
+Antes de esto, la cuenta **Broker** (§2.5) era una cuenta normal: cualquier
+ajuste de su valor cargado como `ingreso`/`gasto` se contaba como consumo real
+(Sprint 1 grababa `flow_type: 'consumo'` siempre para esos dos tipos), así que
+ensuciaba el gasto/ingreso del mes con algo que era solo el mercado moviéndose.
+
+**No es lo mismo que la #9 (Fondo de crecimiento y ROI)** ni que
+`fin_asset_valuations` (documento_maestro_finanzas.md §2, "No entra" — el
+sprint de patrimonio con snapshots históricos y gráfico de evolución). Esta
+#11 fue el recorte chico: solo evitar que el ajuste ensucie los reportes, sin
+guardar histórico de cuánto ganó/perdió cada mes. Eso sigue pendiente.
+
+**Lo construido:**
+- Migración `20260819060000_finanzas_cuentas_inversion.sql`: columna nueva en
+  `fin_accounts`, `is_investment boolean not null default false`.
+- [transactions/route.ts](../../app/api/finanzas/transactions/route.ts) (POST)
+  y [transactions/[id]/route.ts](../../app/api/finanzas/transactions/%5Bid%5D/route.ts)
+  (PATCH) dejan de asumir `'consumo'` siempre: si la cuenta de origen es
+  `is_investment`, graban `flow_type: 'movimiento'` — el mismo mecanismo que ya
+  usan los reembolsos y el cobro de deudas. Cero columnas nuevas en
+  `fin_transactions`. El PATCH nunca *revierte* un `'movimiento'` existente a
+  `'consumo'` (protege reembolsos y cobros editados desde el mismo endpoint).
+- Toggle "Cuenta de inversión" en el formulario de
+  [Cuentas](../../app/finanzas/screens/cuentas.tsx), mismo patrón que
+  `archived`, con un badge en la fila y en el detalle.
+- Aviso en el quick-add cuando la cuenta elegida es de inversión: "esto no
+  cuenta como gasto/ingreso real del mes", antes de guardar.
+- Escala sola a N cuentas: el flag vive en la cuenta, no hay que marcar nada
+  cada vez que se carga un movimiento ahí.
+
+Verificado con `npm run build`, `tsc --noEmit`, y las suites `db` (101/101) y
+`api` (295/295) de `tests/finanzas/`.

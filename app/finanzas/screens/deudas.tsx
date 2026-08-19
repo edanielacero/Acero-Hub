@@ -242,35 +242,41 @@ export function DeudasScreen() {
                             {s.transaction_id ? ' · de un gasto' : s.plan_id ? ' · cuota de un plan' : ''}
                           </span>
                         </button>
-                        {/* El ícono de la moneda de la deuda: una deuda en Bs
-                            y una en dólares se distinguen sin leer el monto. */}
+                        {/* `ml-auto` en el bloque entero, no en el monto
+                            suelto: si el menú de opciones queda afuera de
+                            este `span`, al envolver la fila cae solo a su
+                            propia línea sin `ml-auto` y se ve pegado a la
+                            izquierda en vez de al extremo derecho. */}
                         <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                          {/* El ícono de la moneda de la deuda: una deuda en
+                              Bs y una en dólares se distinguen sin leer el
+                              monto. */}
                           <CurrencyIcon currency={s.currency} size={18} />
                           <span className="fz-num text-[13px] font-semibold">
                             {hidden ? HIDDEN : formatAmount(s.amount, s.currency)}
                           </span>
+                          <RowMenu
+                            items={[
+                              { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => setEditando(s) },
+                              // Solo tiene sentido sobre una deuda suelta que
+                              // todavía no es cuota de nada: no viene de un
+                              // gasto compartido (§ ese caso queda fuera de
+                              // alcance del sprint) y no es ya parte de un plan.
+                              ...(!s.transaction_id && !s.plan_id ? [{
+                                label: 'Planificar en cuotas',
+                                icon: <IconListNumbers size={16} stroke={1.8} />,
+                                onClick: () => setPlanificandoDebt(s),
+                              }] : []),
+                              {
+                                label: 'Perdonar',
+                                icon: <IconCoinOff size={16} stroke={1.8} />,
+                                onClick: () => post('waive', { split_ids: [s.id] }, s.id),
+                                disabled: busy === s.id,
+                              },
+                              { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setEliminando(s), danger: true },
+                            ]}
+                          />
                         </span>
-                        <RowMenu
-                          items={[
-                            { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => setEditando(s) },
-                            // Solo tiene sentido sobre una deuda suelta que
-                            // todavía no es cuota de nada: no viene de un
-                            // gasto compartido (§ ese caso queda fuera de
-                            // alcance del sprint) y no es ya parte de un plan.
-                            ...(!s.transaction_id && !s.plan_id ? [{
-                              label: 'Planificar en cuotas',
-                              icon: <IconListNumbers size={16} stroke={1.8} />,
-                              onClick: () => setPlanificandoDebt(s),
-                            }] : []),
-                            {
-                              label: 'Perdonar',
-                              icon: <IconCoinOff size={16} stroke={1.8} />,
-                              onClick: () => post('waive', { split_ids: [s.id] }, s.id),
-                              disabled: busy === s.id,
-                            },
-                            { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setEliminando(s), danger: true },
-                          ]}
-                        />
                       </div>
                     ))}
                   </div>

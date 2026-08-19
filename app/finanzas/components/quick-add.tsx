@@ -345,6 +345,14 @@ export function QuickAdd() {
                 />
               ))}
             </div>
+            {/* Cuenta de inversión: este movimiento va a sumar al saldo pero no
+                al gasto/ingreso del mes (§7.1 de contexto_finanzas.md) — el
+                usuario tiene que verlo justo antes de guardar, no después. */}
+            {type !== 'transferencia' && from?.is_investment && (
+              <p className="mt-1.5 text-[12px] text-[var(--fz-accent)] px-0.5">
+                {from.name} es de inversión — esto no cuenta como {type === 'gasto' ? 'gasto' : 'ingreso'} real del mes.
+              </p>
+            )}
           </div>
 
           {type === 'transferencia' ? (
