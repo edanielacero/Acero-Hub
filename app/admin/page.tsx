@@ -41,6 +41,12 @@ export default function AdminPage() {
   const [actionFeedback, setActionFeedback] = useState<{ id: string; msg: string; ok: boolean } | null>(null)
   const [deletingInvite, setDeletingInvite] = useState<string | null>(null)
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+
   const router = useRouter()
 
   useEffect(() => { loadData() }, [])
@@ -91,6 +97,52 @@ export default function AdminPage() {
         ? { ...u, projectIds: hasAccess ? u.projectIds.filter(id => id !== projectId) : [...u.projectIds, projectId] }
         : u
     ))
+  }
+
+  function startEdit(user: UserAccess) {
+    setEditingId(user.id)
+    setEditName(user.name || '')
+    setEditEmail(user.email)
+    setEditError('')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditError('')
+  }
+
+  async function saveEdit(userId: string) {
+    const original = users.find(u => u.id === userId)
+    if (!original) return
+
+    const nameTrimmed = editName.trim()
+    const emailTrimmed = editEmail.trim().toLowerCase()
+    const body: { name?: string; email?: string } = {}
+    if (nameTrimmed !== (original.name || '')) body.name = nameTrimmed
+    if (emailTrimmed !== original.email.toLowerCase()) body.email = emailTrimmed
+
+    if (Object.keys(body).length === 0) { setEditingId(null); return }
+
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...body } : u))
+        setEditingId(null)
+      } else {
+        setEditError(data.error || 'Error al guardar')
+      }
+    } catch {
+      setEditError('Error de red. Intenta de nuevo.')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   async function deleteUser(userId: string) {
@@ -276,13 +328,66 @@ export default function AdminPage() {
             {users.map(user => (
               <div key={user.id} className="px-6 py-4 flex items-start gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-[#f5f5f5] truncate">{user.name}</span>
-                    {user.role === 'admin' && (
-                      <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider bg-[#222] px-2 py-0.5 rounded">admin</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[#777] font-[family-name:var(--font-body)] truncate mb-2">{user.email}</p>
+                  {editingId === user.id ? (
+                    <div className="flex flex-col gap-2 mb-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          placeholder="Nombre"
+                          className={inputClass}
+                        />
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={e => setEditEmail(e.target.value)}
+                          placeholder="correo@email.com"
+                          className={inputClass}
+                        />
+                      </div>
+                      {editError && (
+                        <p className="text-xs text-red-400 font-[family-name:var(--font-body)]">{editError}</p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(user.id)}
+                          disabled={editSaving}
+                          className="flex items-center gap-2 bg-[#f5f5f5] text-[#0a0a0a] font-semibold text-xs px-4 py-1.5 rounded-lg hover:bg-white transition-colors disabled:opacity-40 cursor-pointer"
+                        >
+                          {editSaving ? <><span className="w-3 h-3 border border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin" />Guardando...</> : 'Guardar'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={editSaving}
+                          className="text-xs text-[#555] hover:text-[#888] px-3 py-1.5 transition-colors cursor-pointer font-[family-name:var(--font-body)]"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold text-[#f5f5f5] truncate">{user.name}</span>
+                        {user.role === 'admin' && (
+                          <span className="text-[10px] font-medium text-[#888] uppercase tracking-wider bg-[#222] px-2 py-0.5 rounded">admin</span>
+                        )}
+                        <button
+                          onClick={() => startEdit(user)}
+                          className="flex items-center justify-center w-5 h-5 rounded text-[#555] hover:text-[#f5f5f5] transition-colors cursor-pointer shrink-0"
+                          aria-label="Editar usuario"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <p className="text-xs text-[#777] font-[family-name:var(--font-body)] truncate mb-2">{user.email}</p>
+                    </>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {projects.map(project => {
                       const has = user.projectIds.includes(project.id)
