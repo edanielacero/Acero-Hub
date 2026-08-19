@@ -4,7 +4,7 @@ import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { loadTransactions } from '@/lib/finanzas/load'
-import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
+import { flowTypeFor, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
@@ -77,12 +77,9 @@ export async function POST(request: Request) {
     .insert({
       user_id: userId,
       type: input.type,
-      // El cliente nunca manda `flow_type`. Un gasto o un ingreso registrados
-      // desde el quick-add son consumo real, salvo que la cuenta sea de
-      // inversión: ahí el mercado mueve el número, no un ingreso o gasto real,
-      // así que nace `'movimiento'` — igual que transferencias, reembolsos y
-      // cobros de deuda (§7.1 de contexto_finanzas.md).
-      flow_type: input.type === 'transferencia' || account.is_investment ? 'movimiento' : 'consumo',
+      // El cliente nunca manda `flow_type`: lo decide el server según el tipo
+      // y la cuenta (ver `flowTypeFor`).
+      flow_type: flowTypeFor(input.type!, account),
       date: input.date,
       account_id: input.account_id,
       to_account_id: input.type === 'transferencia' ? input.to_account_id : null,

@@ -111,6 +111,26 @@ async function run() {
     ok('RLS impide crear una cuenta a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
   }
 
+  section('fin_accounts.is_investment (Feature 11)')
+  let inversion
+  {
+    eq('sin mandar is_investment, nace en false', airtm.is_investment, false)
+
+    inversion = (await post('fin_accounts', {
+      user_id: USER_ID, name: 'IBKR', currency: 'USD', initial_balance: 500, is_investment: true,
+    }).then(r => r.json()))[0]
+    eq('se puede crear ya marcada como inversión', inversion?.is_investment, true)
+
+    const off = (await as(`/fin_accounts?id=eq.${inversion.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_investment: false }),
+    }).then(r => r.json()))[0]
+    eq('y desmarcarla con un PATCH', off.is_investment, false)
+
+    await as(`/fin_accounts?id=eq.${inversion.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_investment: true }),
+    })
+  }
+
   section('fin_categories')
   let comida
   {

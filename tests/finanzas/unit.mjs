@@ -1,11 +1,12 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
-import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance } from './.fin/transactions.mjs'
+import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
-import { currentUserId, readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
+import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
+import { readSessionClaims } from './.fin/session-claims.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
 /** Tasas de referencia usadas por todas las pruebas. */
@@ -464,6 +465,50 @@ section('SPRINT 2 · flow_type separa consumo de movimiento')
      ingresoUsd([{ type: 'ingreso', amount_usd: 100, debts: [] }]), 100)
 }
 
+section('FEATURE 11 · flowTypeFor — cuentas de inversión (movimiento nuevo)')
+{
+  const normal = { is_investment: false }
+  const broker = { is_investment: true }
+
+  eq('gasto en cuenta normal → consumo', flowTypeFor('gasto', normal), 'consumo')
+  eq('ingreso en cuenta normal → consumo', flowTypeFor('ingreso', normal), 'consumo')
+  eq('gasto en cuenta de inversión → movimiento', flowTypeFor('gasto', broker), 'movimiento')
+  eq('ingreso en cuenta de inversión → movimiento', flowTypeFor('ingreso', broker), 'movimiento')
+  // Una transferencia es movimiento pase lo que pase con la cuenta — la regla
+  // vieja de Sprint 1 no puede quedar pisada por la nueva.
+  eq('transferencia en cuenta normal → movimiento', flowTypeFor('transferencia', normal), 'movimiento')
+  eq('transferencia en cuenta de inversión → movimiento', flowTypeFor('transferencia', broker), 'movimiento')
+}
+
+section('FEATURE 11 · flowTypeOnEdit — nunca degrada un movimiento existente')
+{
+  const normal = { is_investment: false }
+  const broker = { is_investment: true }
+
+  eq('gasto consumo que se pasa a cuenta de inversión → sube a movimiento',
+     flowTypeOnEdit('gasto', broker, 'consumo'), 'movimiento')
+  eq('gasto consumo que se queda en cuenta normal → sigue consumo',
+     flowTypeOnEdit('gasto', normal, 'consumo'), 'consumo')
+
+  // El caso que importa: un cobro de deuda (nace 'movimiento' en
+  // /debts/settle, tipo 'ingreso') se edita acá — cambiar la descripción o la
+  // fecha NO puede volverlo ingreso real solo porque su cuenta no es de
+  // inversión. Bajar la clasificación sería adivinar por qué era movimiento.
+  eq('un cobro de deuda en cuenta normal conserva movimiento al editarse',
+     flowTypeOnEdit('ingreso', normal, 'movimiento'), 'movimiento')
+
+  // Mismo criterio, ahora con la cuenta de inversión: sacarla no lo degrada.
+  eq('un gasto de inversión al que le sacan la cuenta de inversión sigue movimiento',
+     flowTypeOnEdit('gasto', normal, 'movimiento'), 'movimiento')
+
+  // Y el otro sentido de la transferencia: precedente ya existente en Sprint 1,
+  // no algo que esta feature cambie.
+  eq('una transferencia que pasa a gasto en cuenta normal conserva movimiento',
+     flowTypeOnEdit('gasto', normal, 'movimiento'), 'movimiento')
+  eq('una transferencia que pasa a gasto en cuenta de inversión sigue movimiento',
+     flowTypeOnEdit('gasto', broker, 'movimiento'), 'movimiento')
+}
+
 section('SPRINT 2 · gasto bruto, repartido y real')
 {
   // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos perdonado.
@@ -548,6 +593,12 @@ section('SPRINT 2 · agrupado por persona')
    parsea— no rompe nada visible: simplemente vuelve el $0. */
 
 const SUB = '9f8e7d6c-1111-2222-3333-444455556666'
+
+// `currentUserId` salió de snapshot.ts hacia `readSessionClaims` en
+// lib/session-claims.ts (ahora lo comparte el gate de acceso — ver el
+// comentario al inicio de ese archivo). Este shim evita reescribir las ~15
+// pruebas de abajo, que solo necesitaban el `sub`.
+const currentUserId = () => readSessionClaims()?.sub ?? null
 const REF = 'abcdef123456'
 
 const almacen = new Map()

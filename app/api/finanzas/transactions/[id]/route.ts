@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
+import { flowTypeOnEdit, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
@@ -108,16 +108,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const account = accountsById.get(merged.account_id!)!
   const currency = account.currency
-
-  // Igual que en el POST: si la cuenta (nueva o de siempre) es de inversión,
-  // el movimiento pasa a `'movimiento'`. Pero nunca al revés — si ya era
-  // `'movimiento'` por otra razón (reembolso, cobro de deuda) y la cuenta no
-  // es de inversión, se conserva como estaba. Achicar la clasificación acá
-  // podría hacer que editar la fecha de un reembolso lo cuente de golpe como
-  // ingreso real.
-  const flowType = merged.type === 'transferencia' || account.is_investment
-    ? 'movimiento'
-    : current.flow_type
+  const flowType = flowTypeOnEdit(merged.type!, account, current.flow_type)
 
   // Un movimiento ya NO sabe crear ni editar deudas. Las deudas se manejan en
   // su propia pantalla: son una entidad aparte, no un detalle del gasto. Lo

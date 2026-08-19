@@ -335,6 +335,79 @@ async function run() {
          (await api('/accounts/reorder', { method: 'PATCH', body: JSON.stringify({ ids: ['00000000-0000-0000-0000-000000000009'] }) })).status, 400)
     }
 
+    section('Feature 11 · cuentas de inversión (is_investment)')
+    {
+      eq('una cuenta común nace sin marcar', airtm.is_investment, false)
+
+      const ibkr = (await json(await api('/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'IBKR', currency: 'USD', initial_balance: 0, is_investment: true }),
+      }))).account
+      eq('se puede crear ya marcada como inversión', ibkr.is_investment, true)
+
+      // Medido como delta, no contra un número fijo — mismo criterio que la
+      // sección de transferencias: cualquier gasto/ingreso previo en el mes
+      // cambia la base, y la propiedad real es "no se movió", no un valor.
+      const totalesAntes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+
+      const perdida = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'gasto', date: '2026-08-18', account_id: ibkr.id, amount: 200 }),
+      }))).transaction
+      eq('un gasto en cuenta de inversión nace movimiento', perdida.flow_type, 'movimiento')
+
+      const ganancia = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'ingreso', date: '2026-08-18', account_id: ibkr.id, amount: 340 }),
+      }))).transaction
+      eq('un ingreso en cuenta de inversión nace movimiento', ganancia.flow_type, 'movimiento')
+
+      const conIbkr = await json(await api('/accounts'))
+      eq('el saldo SÍ se mueve con esos movimientos: 0 −200 +340',
+         conIbkr.accounts.find(a => a.id === ibkr.id).balance, 140)
+
+      const totalesDespues = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('pero el gasto de inversión no sube el gasto del mes',
+         totalesDespues.total_gasto_usd, totalesAntes.total_gasto_usd)
+      eq('ni el ingreso de inversión sube el ingreso del mes',
+         totalesDespues.total_ingreso_usd, totalesAntes.total_ingreso_usd)
+
+      // Mover un gasto normal HACIA una cuenta de inversión lo sube a movimiento.
+      const reasignable = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'gasto', date: '2026-08-18', account_id: airtm.id, amount: 15 }),
+      }))).transaction
+      eq('nace consumo en una cuenta normal', reasignable.flow_type, 'consumo')
+
+      const movido = (await json(await api(`/transactions/${reasignable.id}`, {
+        method: 'PATCH', body: JSON.stringify({ account_id: ibkr.id }),
+      }))).transaction
+      eq('editar la cuenta hacia inversión sube el movimiento', movido.flow_type, 'movimiento')
+
+      // Y el caso que importa: sacarlo de la cuenta de inversión NO lo vuelve a
+      // bajar. `flowTypeOnEdit` nunca degrada un `'movimiento'` ya asentado —
+      // el endpoint no tiene forma de saber si ese `'movimiento'` sigue
+      // debiéndose a la cuenta o a otra razón (p. ej. un cobro de deuda editado
+      // acá mismo), así que bajarlo sería adivinar. Mismo criterio que ya regía
+      // para una transferencia que cambia de tipo.
+      const devuelto = (await json(await api(`/transactions/${reasignable.id}`, {
+        method: 'PATCH', body: JSON.stringify({ account_id: airtm.id }),
+      }))).transaction
+      eq('sacarlo de la cuenta de inversión NO lo degrada de nuevo a consumo', devuelto.flow_type, 'movimiento')
+
+      // Limpieza: no dejar transacciones sueltas que compliquen leer la cuenta
+      // de prueba a mano si algo falla más abajo.
+      await api(`/transactions/${reasignable.id}`, { method: 'DELETE' })
+      await api(`/transactions/${perdida.id}`, { method: 'DELETE' })
+      await api(`/transactions/${ganancia.id}`, { method: 'DELETE' })
+
+      const offOn = await json(await api(`/accounts/${ibkr.id}`, {
+        method: 'PATCH', body: JSON.stringify({ is_investment: false }),
+      }))
+      eq('PATCH /accounts también puede desmarcarla', offOn.account.is_investment, false)
+      await api(`/accounts/${ibkr.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
+    }
+
     section('PATCH /categories · icon')
     {
       const cats = (await json(await api('/categories'))).categories

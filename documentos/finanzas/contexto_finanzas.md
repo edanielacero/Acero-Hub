@@ -271,6 +271,37 @@ guardar histórico de cuánto ganó/perdió cada mes. Eso sigue pendiente.
   cuenta como gasto/ingreso real del mes", antes de guardar.
 - Escala sola a N cuentas: el flag vive en la cuenta, no hay que marcar nada
   cada vez que se carga un movimiento ahí.
+- `flowTypeFor` / `flowTypeOnEdit` en
+  [transactions.ts](../../lib/finanzas/transactions.ts), compartidas por el
+  POST y el PATCH en vez de repetir la regla en cada ruta — y ahora con
+  pruebas unitarias propias.
 
-Verificado con `npm run build`, `tsc --noEmit`, y las suites `db` (101/101) y
-`api` (295/295) de `tests/finanzas/`.
+#### Bug encontrado en la primera pasada, y corregido
+
+El primer despliegue de esta feature (antes del testing dedicado) rechazaba
+**todo** gasto y buena parte de los ingresos de una cuenta de inversión con
+`"new row for relation fin_transactions violates check constraint
+fin_tx_flow_shape"`. La constraint (`20260818040000_finanzas_compartidos.sql`)
+solo contemplaba tres formas — transferencia, `ingreso` de reembolso sin
+categoría, o consumo normal — y `(type = 'gasto', flow_type = 'movimiento')`
+no encajaba en ninguna. Un `ingreso` de inversión CON categoría (el quick-add
+sí deja elegir una) tampoco.
+
+Arreglado en `20260819070000_finanzas_flow_shape_inversion.sql`: la constraint
+ya no exige `category_id is null` para un `'movimiento'` — esa regla seguía
+viva de todos modos en `/debts/settle`, que graba `category_id: null` él solo
+sin depender de la base para eso.
+
+#### Verificación
+
+`npm run build` y `tsc --noEmit` limpios. Las tres suites de
+`tests/finanzas/` en verde: `unit` (335/335, incluye 18 casos nuevos de
+`flowTypeFor`/`flowTypeOnEdit`), `db` (104/104, incluye el default/toggle de
+`is_investment`) y `api` (306/306, incluye el flujo completo contra el
+endpoint real: gasto e ingreso de inversión excluidos de los totales del mes,
+el saldo sí se mueve, y que sacar la cuenta de inversión de un movimiento ya
+`'movimiento'` no lo degrada a consumo).
+
+De paso, `unit.mjs` traía una suite entera rota desde antes (`currentUserId`
+había salido de `snapshot.ts` hacia `lib/session-claims.ts` sin actualizar el
+test) — quedó corregida para poder correr esta verificación.

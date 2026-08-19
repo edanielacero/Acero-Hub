@@ -1,4 +1,4 @@
-import type { Account, Currency, RateMap, Transaction, TransactionInput, TxType } from './types'
+import type { Account, Currency, FlowType, RateMap, Transaction, TransactionInput, TxType } from './types'
 import { freezeRate, round2, toUsd } from './money'
 
 export interface ValidationResult {
@@ -80,6 +80,39 @@ export function freezeConversion(
   rates: RateMap,
 ): { exchange_rate: number; amount_usd: number } {
   return { exchange_rate: freezeRate(currency, rates), amount_usd: toUsd(amount, currency, rates) }
+}
+
+/**
+ * Qué `flow_type` le corresponde a un movimiento **nuevo**, según su tipo y la
+ * cuenta de origen que va a tener.
+ *
+ * Una transferencia siempre es `'movimiento'`. Un gasto o ingreso en una
+ * cuenta de inversión también: el mercado mueve el número, no es plata real
+ * que entró o salió (Feature 11, §7.1 de `contexto_finanzas.md`). Cualquier
+ * otro caso es consumo real.
+ */
+export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment'>): FlowType {
+  return type === 'transferencia' || account.is_investment ? 'movimiento' : 'consumo'
+}
+
+/**
+ * Qué `flow_type` le corresponde a un movimiento **editado**.
+ *
+ * Sube a `'movimiento'` en las mismas condiciones que `flowTypeFor`. Pero
+ * nunca baja: si ya era `'movimiento'` y la edición no lo justifica más (por
+ * ejemplo, se sacó la cuenta de inversión), se conserva tal cual. Este
+ * endpoint no sabe si ese `'movimiento'` venía de la cuenta o de otra razón
+ * ajena a ella — un cobro de deuda, que nace en `/debts/settle` y se edita acá
+ * mismo — así que bajarlo sería adivinar, no corregir. Mismo criterio que ya
+ * regía para transferencias antes de que existieran las cuentas de inversión:
+ * cambiar el tipo de una transferencia a gasto tampoco la vuelve consumo sola.
+ */
+export function flowTypeOnEdit(
+  type: TxType,
+  account: Pick<Account, 'is_investment'>,
+  current: FlowType,
+): FlowType {
+  return flowTypeFor(type, account) === 'movimiento' ? 'movimiento' : current
 }
 
 /**
