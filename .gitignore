@@ -4,3 +4,6 @@ out/
 .env.local
 .env*.local
 .vercel
+
+# CodeGraph local index (auto-synced, not source of truth)
+.codegraph/
