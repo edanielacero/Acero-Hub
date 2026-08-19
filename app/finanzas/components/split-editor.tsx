@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef } from 'react'
-import type { Currency, Person, RecentSplit } from '@/lib/finanzas/types'
+import type { Currency, Person } from '@/lib/finanzas/types'
 import { evenSplit, shareBreakdown } from '@/lib/finanzas/splits'
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput, roundFor } from '@/lib/finanzas/money'
-import { useFinanzas } from './data-context'
 import { PersonPicker } from './person-picker'
 import { Label, Segmented } from './ui'
 
@@ -33,7 +32,6 @@ export function SplitEditor({
   amount: string
   currency: Currency | undefined
 }) {
-  const { shared } = useFinanzas()
   const decimals = decimalsFor(currency)
   const total = amountFromInput(amount, { decimals })
   const cur = currency ?? 'USD'
@@ -89,33 +87,8 @@ export function SplitEditor({
     )
   }
 
-  /** Carga personas y modo de un reparto anterior. Un tap para Spotify. */
-  function repetir(r: RecentSplit) {
-    setMode(r.even ? 'igual' : 'manual')
-    setDrafts(r.people.map(p => ({ person_id: p.id, name: p.name, amount: '' })))
-    lastKey.current = ''
-  }
-
   return (
     <div className="rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-3">
-      {shared.repartos_recientes.length > 0 && drafts.length === 0 && (
-        <div>
-          <Label>Repetir un reparto</Label>
-          <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-            {shared.repartos_recientes.map(r => (
-              <button
-                key={`${r.label}-${r.people.map(p => p.id).join()}`}
-                type="button"
-                onClick={() => repetir(r)}
-                className="shrink-0 h-9 px-3 rounded-[var(--fz-r-pill)] bg-[var(--fz-surface)] border border-[var(--fz-hairline)] text-[13px] font-semibold whitespace-nowrap"
-              >
-                {r.label} · {r.people.length}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div>
         <Label>Entre</Label>
         <PersonPicker

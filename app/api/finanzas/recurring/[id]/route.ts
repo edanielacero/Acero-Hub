@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { resolvePeople } from '@/lib/finanzas/people'
 import { RECURRING_COLS, readTemplateSplits, validateRecurring } from '../route'
+import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import type { RecurringInput } from '@/lib/finanzas/types'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +41,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const invalid = validateRecurring(merged)
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
 
+  const entrantes = readTemplateSplits(body.splits)
+  if (entrantes !== undefined) {
+    const conocidas = (await supabase.from('fin_people').select('id, name').eq('user_id', userId)).data ?? []
+    const splitCheck = validateTemplateSplits(entrantes, conocidas)
+    if (!splitCheck.ok) return NextResponse.json({ error: splitCheck.error }, { status: 400 })
+  }
+
   const { data, error } = await supabase
     .from('fin_recurring')
     .update({ ...merged, updated_at: new Date().toISOString() })
@@ -62,20 +70,45 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     )
     if (peopleError) return NextResponse.json({ error: peopleError }, { status: 400 })
 
-    const { error: delError } = await supabase
-      .from('fin_recurring_splits').delete().eq('user_id', userId).eq('recurring_id', id)
-    if (delError) return NextResponse.json({ error: delError.message }, { status: 400 })
+    const { data: actuales } = await supabase
+      .from('fin_recurring_splits').select('id, person_id, amount')
+      .eq('user_id', userId).eq('recurring_id', id)
 
-    if (resolved.length > 0) {
-      const { error: insError } = await supabase.from('fin_recurring_splits').insert(
-        resolved.map((r, i) => ({
-          user_id: userId,
-          recurring_id: id,
-          person_id: r.person_id,
-          amount: incoming[i].amount == null || Number.isNaN(incoming[i].amount) ? null : incoming[i].amount,
-        })),
-      )
-      if (insError) return NextResponse.json({ error: insError.message }, { status: 400 })
+    const previos = new Map((actuales ?? []).map(x => [x.person_id, x]))
+    const objetivo = new Map(
+      resolved.map((r, i) => [
+        r.person_id,
+        incoming[i].amount == null || Number.isNaN(incoming[i].amount) ? null : incoming[i].amount,
+      ]),
+    )
+
+    /*
+      Se reconcilia por diferencia en vez de borrar todo y reinsertar.
+      Con el borrado-total, un reparto inválido dejaba la plantilla SIN partes:
+      el delete pasaba, el insert fallaba contra el índice único y el usuario
+      perdía su reparto por haber escrito mal un nombre. Acá lo que no cambia,
+      no se toca.
+    */
+    const aBorrar = (actuales ?? []).filter(x => !objetivo.has(x.person_id)).map(x => x.id)
+    if (aBorrar.length > 0) {
+      const { error: delError } = await supabase
+        .from('fin_recurring_splits').delete().eq('user_id', userId).in('id', aBorrar)
+      if (delError) return NextResponse.json({ error: delError.message }, { status: 400 })
+    }
+
+    for (const [personId, amount] of objetivo) {
+      const prev = previos.get(personId)
+      if (prev) {
+        if (num(prev.amount, NaN) !== num(amount, NaN) && !(prev.amount == null && amount == null)) {
+          const { error } = await supabase
+            .from('fin_recurring_splits').update({ amount }).eq('user_id', userId).eq('id', prev.id)
+          if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+        }
+      } else {
+        const { error } = await supabase.from('fin_recurring_splits')
+          .insert({ user_id: userId, recurring_id: id, person_id: personId, amount })
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      }
     }
   }
 

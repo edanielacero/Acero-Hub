@@ -148,6 +148,7 @@ No volver a preguntar por estas:
 | Suscripciones recurrentes | Solo **recuerdan**. Nunca se auto-postea un gasto |
 | Reparto por encima del costo | **Permitido.** Cobrar de más y ganar la diferencia es una decisión válida; tu parte queda negativa y se llama ganancia |
 | Fijos vs. compartidos | Son atributos **independientes**. Un solo módulo de fijos donde el reparto es opcional, no dos módulos |
+| Deuda vs. compartido | **Conceptos distintos.** Compartido = responsabilidad recurrente sobre un servicio, atributo del fijo. Deuda = alguien te debe plata por lo que sea, entidad propia sin gasto padre obligatorio |
 | Gastos compartidos | Se registra el **bruto**; los reembolsos son movimientos aparte. Detalle **por persona**. Aplica a cualquier gasto, no solo suscripciones |
 | Pasanaku | Modelo completo: participantes, rondas, turno, fechas esperadas |
 | Alertas | Panel in-app + email para las importantes (Resend, ya integrado) |
@@ -222,9 +223,9 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|
 | 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
-| 2 | Compartidos y reembolsos | Spotify, TradingView | ✅ Construido |
+| 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ Construido · modelo corregido el 19/8 |
 | 3 | **Fijos** (era la 8) | Spotify, TradingView, alquiler | ✅ Construido |
-| 3b | Dinero por cobrar | Las cuotas de los $957 | ⏸ Bloqueado por la pregunta #1 |
+| ~~3b~~ | ~~Dinero por cobrar~~ → **absorbido por la feature 2** | Los $957 son una deuda más; solo falta el calendario de cuotas | ⏸ Falta confirmar la pregunta #1 |
 | 4 | Pasanaku | Los 300 Bs mensuales | — |
 | 5 | Presupuesto mensual | Requiere historial del 1 | — |
 | 6 | Reportes | Requiere 2–5 | — |

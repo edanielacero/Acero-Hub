@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeName } from './splits'
-import type { Person, SplitInput } from './types'
+import type { Person, DebtInput } from './types'
 
 export const PERSON_COLS = 'id, name, emoji, archived'
 
@@ -34,7 +34,7 @@ export async function findPersonByName(
 export async function resolvePeople(
   supabase: SupabaseClient,
   userId: string,
-  splits: SplitInput[],
+  splits: DebtInput[],
 ): Promise<{ resolved: { person_id: string; amount: number }[]; error?: string }> {
   const resolved: { person_id: string; amount: number }[] = []
 

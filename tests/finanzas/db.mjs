@@ -319,36 +319,36 @@ async function run() {
     ok('RLS impide crear una persona a nombre de otro', ajena.status >= 400, `HTTP ${ajena.status}`)
   }
 
-  section('SPRINT 2 · fin_splits')
+  section('SPRINT 2 · fin_debts')
   let splitAna, splitJuan
   {
-    const anon = await fetch(`${URL_}/rest/v1/fin_splits?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    const anon = await fetch(`${URL_}/rest/v1/fin_debts?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
     eq('sin sesión no ve repartos', anon, [])
 
-    splitAna = (await post('fin_splits', {
+    splitAna = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
       amount: 11.66, currency: 'BOB', amount_usd: 1.68,
     }).then(r => r.json()))[0]
-    splitJuan = (await post('fin_splits', {
+    splitJuan = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
       amount: 11.66, currency: 'BOB', amount_usd: 1.68,
     }).then(r => r.json()))[0]
     ok('crea repartos', !!splitAna?.id && !!splitJuan?.id)
 
-    const dup = await post('fin_splits', {
+    const dup = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
       amount: 5, currency: 'BOB', amount_usd: 0.72,
     })
     ok('unique (transaction_id, person_id) bloquea a la misma persona dos veces',
        dup.status >= 400, `HTTP ${dup.status}`)
 
-    const cero = await post('fin_splits', {
+    const cero = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
       amount: 0, currency: 'BOB', amount_usd: 0,
     })
     ok('rechaza una parte en cero', cero.status >= 400, `HTTP ${cero.status}`)
 
-    const monedaMala = await post('fin_splits', {
+    const monedaMala = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
       amount: 5, currency: 'EUR', amount_usd: 5,
     })
@@ -360,12 +360,12 @@ async function run() {
       user_id: USER_ID, type: 'gasto', date: '2026-08-18', account_id: btcAcc.id,
       amount: 0.00042195, currency: 'BTC', exchange_rate: 68000, amount_usd: 28.69,
     }).then(r => r.json()))[0]
-    const splitBtc = (await post('fin_splits', {
+    const splitBtc = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: txBtc.id, person_id: ana.id,
       amount: 0.00014065, currency: 'BTC', amount_usd: 9.56,
     }).then(r => r.json()))[0]
     eq('un reparto en BTC conserva los 8 decimales', Number(splitBtc.amount), 0.00014065)
-    await as(`/fin_splits?id=eq.${splitBtc.id}`, { method: 'DELETE' })
+    await as(`/fin_debts?id=eq.${splitBtc.id}`, { method: 'DELETE' })
     await as(`/fin_transactions?id=eq.${txBtc.id}`, { method: 'DELETE' })
   }
 
@@ -378,14 +378,14 @@ async function run() {
     }).then(r => r.json()))[0]
     ok('un reembolso sin categoría sí se acepta', !!cobrado?.id)
 
-    const ambos = await as(`/fin_splits?id=eq.${splitAna.id}`, {
+    const ambos = await as(`/fin_debts?id=eq.${splitAna.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ settled_tx_id: cobrado.id, waived_at: '2026-08-18' }),
     })
     ok('fin_split_settle_shape: no puede estar cobrado Y condonado',
        ambos.status >= 400, `HTTP ${ambos.status}`)
 
-    await as(`/fin_splits?id=eq.${splitAna.id}`, {
+    await as(`/fin_debts?id=eq.${splitAna.id}`, {
       method: 'PATCH', body: JSON.stringify({ settled_tx_id: cobrado.id }),
     })
 
@@ -401,12 +401,12 @@ async function run() {
 
     // on delete set null: borrar el cobro reabre la deuda, no deja huérfanos.
     await as(`/fin_transactions?id=eq.${cobrado.id}`, { method: 'DELETE' })
-    const reabierto = (await rows('fin_splits', `&id=eq.${splitAna.id}`))[0]
+    const reabierto = (await rows('fin_debts', `&id=eq.${splitAna.id}`))[0]
     eq('borrar el cobro devuelve el reparto a pendiente', reabierto.settled_tx_id, null)
     ok('y el reparto sigue existiendo', !!reabierto.id)
   }
 
-  section('SPRINT 2 · RLS de escritura sobre fin_people y fin_splits')
+  section('SPRINT 2 · RLS de escritura sobre fin_people y fin_debts')
   {
     const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
 
@@ -421,15 +421,15 @@ async function run() {
     const anaIntacta = (await rows('fin_people', `&id=eq.${ana.id}`))[0]
     ok('sin sesión no puede modificar una persona', anaIntacta.name === 'Ana', `HTTP ${updateAnon.status}`)
 
-    await fetch(`${URL_}/rest/v1/fin_splits?id=eq.${splitJuan.id}`, { method: 'DELETE', headers: noSession })
-    const sigue = await rows('fin_splits', `&id=eq.${splitJuan.id}`)
+    await fetch(`${URL_}/rest/v1/fin_debts?id=eq.${splitJuan.id}`, { method: 'DELETE', headers: noSession })
+    const sigue = await rows('fin_debts', `&id=eq.${splitJuan.id}`)
     eq('sin sesión no puede borrar un reparto', sigue.length, 1)
   }
 
   section('SPRINT 2 · limpieza del reparto antes del borrado en cascada')
   {
-    await as(`/fin_splits?transaction_id=eq.${gasto.id}`, { method: 'DELETE' })
-    const quedan = await rows('fin_splits', `&transaction_id=eq.${gasto.id}`)
+    await as(`/fin_debts?transaction_id=eq.${gasto.id}`, { method: 'DELETE' })
+    const quedan = await rows('fin_debts', `&transaction_id=eq.${gasto.id}`)
     eq('sin repartos colgando', quedan.length, 0)
   }
 

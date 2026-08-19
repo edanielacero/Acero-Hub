@@ -107,7 +107,10 @@ body:has(#fz-root) {
    ──────────────────────────────────────────────────────────────────────────── */
 #fz-root .fz-tabbar {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom) + 6px);
+  /* Medio safe-area en vez de safe-area completo: con el inset entero (34px en
+     iPhone) más el margen, la barra quedaba flotando demasiado alta. El max()
+     mantiene un piso de 4px en pantallas sin notch, donde el inset es 0. */
+  bottom: max(4px, calc(env(safe-area-inset-bottom) / 2));
   left: 20px;
   right: 20px;
   width: auto;                     /* no max-content: llega casi a los bordes */
@@ -218,8 +221,9 @@ body:has(#fz-root) {
 /* Reserva para que el contenido no quede debajo de la barra.
    Va como padding del contenedor y no como un div al final: un spacer suelto
    agrega 68px de scroll fantasma incluso en páginas que entran en pantalla.
-   6 (separación del borde) + 8 + 52 + 8 = 74, más aire = 82 */
-#fz-root .fz-content-pad { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
+   8 + 52 + 8 (alto de la barra) = 68, más aire = 76, más lo que la barra se
+   separa del borde inferior. */
+#fz-root .fz-content-pad { padding-bottom: calc(76px + max(4px, env(safe-area-inset-bottom) / 2)); }
 
 /* Es un patrón mobile: a partir del corte app/dashboard se cambia por sidebar. */
 @media (min-width: 900px) {
@@ -230,6 +234,59 @@ body:has(#fz-root) {
      con `100dvh - 40px`. Con 0, la derecha llegaba al borde y la izquierda no. */
   #fz-root .fz-content-pad { padding-bottom: 20px; }
 }
+
+/* ─── Campo de fecha ───────────────────────────────────────────────────────
+   `input[type=date]` no se comporta como los demás campos, por dos motivos que
+   se ven juntos:
+
+   · Su contenido vive en un shadow DOM con ancho propio —el del formato largo
+     más el ícono del calendario— que no encoge por más que la caja diga
+     `width:100%`. Donde ese mínimo no entraba (pantallas angostas, o el campo
+     adentro de una grilla) se salía por la derecha; y como los sheets tienen
+     `overflow-y:auto`, que según spec vuelve `auto` también el eje X, eso se
+     traducía en scroll horizontal de todo el formulario.
+   · En iOS el valor se dibuja en su propia caja con márgenes automáticos, así
+     que el texto quedaba corrido respecto del resto de los campos.
+
+   Se normaliza acá, y no campo por campo, porque son cinco los formularios de
+   la mini-app que piden una fecha. */
+#fz-root input[type='date'] {
+  min-width: 0;
+  max-width: 100%;
+  /* Cinturón: si el shadow DOM igual pide más ancho, que se recorte adentro
+     del campo en vez de empujar el layout. */
+  overflow: hidden;
+}
+
+/* iOS: el valor viene centrado por su propio margen. */
+#fz-root input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+  min-width: 0;
+}
+
+/* Los tres segmentos (dd/mm/aaaa) no deben forzar el ancho del input. */
+#fz-root input[type='date']::-webkit-datetime-edit {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* El calendario queda pegado al borde derecho y no suma ancho al contenido. */
+#fz-root input[type='date']::-webkit-calendar-picker-indicator {
+  margin: 0 0 0 auto;
+  padding: 0;
+  flex: 0 0 auto;
+  opacity: 0.45;
+  cursor: pointer;
+}
+#fz-root input[type='date']::-webkit-calendar-picker-indicator:hover { opacity: 0.8; }
+
+/* Sobran en un campo que siempre tiene valor, y ocupan ancho. */
+#fz-root input[type='date']::-webkit-inner-spin-button,
+#fz-root input[type='date']::-webkit-clear-button { display: none; }
 
 /* ─── Sheet / modal ───────────────────────────────────────────────────────── */
 #fz-root .fz-sheet {

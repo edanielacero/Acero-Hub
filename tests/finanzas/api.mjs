@@ -404,294 +404,200 @@ async function run() {
       eq('y nadie debe nada todavía', lista.people.every(p => p.open_usd === 0), true)
     }
 
-    section('SPRINT 2 · gasto compartido')
-    let spotify
-    {
-      // Contra el saldo del momento, no contra un número fijo: las secciones
-      // anteriores ya movieron Airtm y hardcodear acá haría fallar esta prueba
-      // cada vez que alguien agregue un movimiento más arriba.
-      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+    const saldoAhora = async () =>
+      (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
 
+    section('SPRINT 2 · una deuda existe sin ningún gasto detrás')
+    let deudaAna
+    {
+      const saldoPrevio = await saldoAhora()
+      // El corazón del cambio del 2026-08-19: antes una deuda necesitaba un
+      // gasto padre. Prestar efectivo no tiene gasto padre.
+      const r = await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 20, currency: 'USD',
+        concept: 'Le presté para el pasaje', incurred_on: '2026-08-05',
+      })})
+      eq('crea una deuda suelta', r.status, 201)
+      deudaAna = (await json(r)).debt
+      eq('sin gasto padre', deudaAna.transaction_id, null)
+      eq('con su concepto', deudaAna.concept, 'Le presté para el pasaje')
+      eq('y su conversión congelada', Number(deudaAna.amount_usd), 20)
+
+      // Una deuda suelta NO toca el saldo: nadie pagó nada todavía.
+      eq('el patrimonio no se mueve', round2(saldoPrevio - (await saldoAhora())), 0)
+    }
+
+    section('SPRINT 2 · validación del alta de deuda')
+    {
+      eq('sin persona → 400', (await api('/debts', { method: 'POST', body: JSON.stringify({
+        amount: 10, currency: 'USD', concept: 'x' }) })).status, 400)
+      eq('sin concepto → 400', (await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 10, currency: 'USD' }) })).status, 400)
+      eq('monto cero → 400', (await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 0, currency: 'USD', concept: 'x' }) })).status, 400)
+      eq('moneda inválida → 400', (await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 10, currency: 'EUR', concept: 'x' }) })).status, 400)
+
+      // Persona al vuelo, igual que en el resto de la app.
+      const conNombre = await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_name: 'Carlos', amount: 5, currency: 'USD', concept: 'Café' }) })
+      eq('crea la persona al vuelo', conNombre.status, 201)
+      ok('y ahora existe', (await json(await api('/people'))).people.some(p => p.name === 'Carlos'))
+      await api(`/debts/${(await json(conNombre)).debt.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 2 · un movimiento ya NO sabe crear deudas')
+    {
+      // Se sacó el toggle "Es compartido": un gasto es un gasto. Mandar
+      // `splits` ahora se ignora en vez de crear nada.
       const r = await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 11.99,
-        description: 'Spotify',
-        splits: [{ person_id: ana.id, amount: 3 }, { person_id: juan.id, amount: 3 },
-                 { person_name: 'Carlos', amount: 3 }],
+        type: 'gasto', date: '2026-08-06', account_id: airtm.id, amount: 10, description: 'Suelto',
+        splits: [{ person_id: ana.id, amount: 5 }],
       })})
-      eq('crea el gasto con reparto', r.status, 201)
-      spotify = (await json(r)).transaction
-      eq('tres partes', spotify.splits.length, 3)
-      eq('Carlos se creó al vuelo', (await json(await api('/people'))).people.length, 3)
-
-      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
-      eq('el saldo baja el BRUTO ($11.99), no tu parte ($2.99)',
-         round2(saldoAntes - saldoDespues), 11.99)
-
-      const lista = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
-      eq('el gasto bruto del mes incluye Spotify entero', lista.total_gasto_usd, 17.02)
-      eq('lo repartido son $9', lista.total_repartido_usd, 9)
-      eq('el gasto real descuenta lo de otros', lista.total_gasto_real_usd, 8.02)
-
-      const soloCompartidos = await json(await api('/transactions?shared=1'))
-      eq('el filtro shared=1 devuelve solo el compartido', soloCompartidos.transactions.length, 1)
+      eq('el gasto se crea igual', r.status, 201)
+      const creado = (await json(r)).transaction
+      eq('pero sin deudas', creado.debts.length, 0)
+      await api(`/transactions/${creado.id}`, { method: 'DELETE' })
     }
 
-    section('SPRINT 2 · validación del reparto')
+    section('SPRINT 2 · GET /debts')
     {
-      // Regla CAMBIADA en el Sprint 3: repartir por encima del gasto es válido
-      // (cobrás de más y ganás la diferencia). Se limpia para no ensuciar los
-      // conteos de las secciones que siguen.
-      const sobra = await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
-        splits: [{ person_id: ana.id, amount: 20 }],
-      })})
-      eq('repartir más que el gasto ya no se rechaza', sobra.status, 201)
-      await api(`/transactions/${(await json(sobra)).transaction.id}`, { method: 'DELETE' })
-
-      const enIngreso = await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'ingreso', date: '2026-08-05', account_id: airtm.id, amount: 100,
-        splits: [{ person_id: ana.id, amount: 10 }],
-      })})
-      eq('un ingreso no se reparte → 400', enIngreso.status, 400)
-
-      const repetida = await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
-        splits: [{ person_id: ana.id, amount: 2 }, { person_id: ana.id, amount: 2 }],
-      })})
-      eq('la misma persona dos veces → 400', repetida.status, 400)
-
-      const fantasma = await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-05', account_id: airtm.id, amount: 10,
-        splits: [{ person_id: '00000000-0000-0000-0000-000000000009', amount: 2 }],
-      })})
-      eq('una persona que no existe → 400', fantasma.status, 400)
-
-      // Si el reparto falla, el gasto no debe quedar suelto.
-      eq('y ninguno de esos intentos dejó un gasto colgado',
-         (await json(await api('/transactions?from=2026-08-05&to=2026-08-05'))).transactions.length, 1)
-    }
-
-    section('SPRINT 2 · GET /shared')
-    {
-      const sh = await json(await api('/shared'))
-      eq('te deben $9', sh.por_cobrar_usd, 9)
-      eq('repartido entre tres personas', sh.por_persona.length, 3)
-      eq('cada una debe $3', sh.por_persona.every(p => p.open_usd === 3), true)
-      ok('con la antigüedad calculada', sh.por_persona.every(p => typeof p.oldest_days === 'number'))
+      const sh = await json(await api('/debts'))
+      eq('te deben $20', sh.por_cobrar_usd, 20)
+      eq('una sola persona', sh.por_persona.length, 1)
+      eq('con su antigüedad calculada', typeof sh.por_persona[0].oldest_days, 'number')
       eq('nada cobrado todavía', sh.cobrado_mes_usd, 0)
-      eq('un reparto reciente para repetir', sh.repartos_recientes.length, 1)
-      eq('con las tres personas', sh.repartos_recientes[0].people.length, 3)
-      eq('y detectado como parejo', sh.repartos_recientes[0].even, true)
+    }
+
+    section('SPRINT 2 · editar y borrar una deuda')
+    {
+      const p = await api(`/debts/${deudaAna.id}`, { method: 'PATCH', body: JSON.stringify({ amount: 25 }) })
+      eq('cambiar el monto', p.status, 200)
+      eq('recalcula el USD con su propia tasa', Number((await json(p)).debt.amount_usd), 25)
+
+      eq('vaciar el concepto de una suelta → 400', (await api(`/debts/${deudaAna.id}`, {
+        method: 'PATCH', body: JSON.stringify({ concept: '  ' }) })).status, 400)
+
+      const temp = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 3, currency: 'USD', concept: 'Temporal' }) }))).debt
+      eq('se borra', (await api(`/debts/${temp.id}`, { method: 'DELETE' })).status, 200)
+      eq('y desaparece del total', (await json(await api('/debts'))).por_cobrar_usd, 25)
     }
 
     section('SPRINT 2 · cobrar')
-    let cobroTx
     {
-      const sh = await json(await api('/shared'))
-      const deAna = sh.por_persona.find(p => p.person.id === ana.id)
-      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      const saldoAntes = await saldoAhora()
 
-      const r = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: deAna.splits.map(x => x.id), account_id: airtm.id, amount: 3, date: '2026-08-18',
+      const r = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deudaAna.id], account_id: airtm.id, amount: 25, date: '2026-08-18',
       })})
       eq('registra el cobro', r.status, 201)
-      const body = await json(r)
-      cobroTx = body.transaction
-      eq('como ingreso', cobroTx.type, 'ingreso')
-      eq('pero marcado como movimiento', cobroTx.flow_type, 'movimiento')
-      eq('y sin categoría', cobroTx.category_id ?? null, null)
+      const tx = (await json(r)).transaction
+      eq('como ingreso', tx.type, 'ingreso')
+      eq('pero marcado como movimiento', tx.flow_type, 'movimiento')
 
-      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
-      eq('el saldo sube los $3 que entraron', round2(saldoDespues - saldoAntes), 3)
+      eq('el saldo sube', round2((await saldoAhora()) - saldoAntes), 25)
 
-      // La prueba que define el sprint.
+      // La prueba que define la feature: cobrar no es ganar.
       const lista = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
       eq('el ingreso del mes NO se mueve', lista.total_ingreso_usd, 28.69)
-      eq('y el gasto real tampoco: cobrar no cambia de quién es el gasto', lista.total_gasto_real_usd, 8.02)
 
-      const sh2 = await json(await api('/shared'))
-      eq('te deben $6', sh2.por_cobrar_usd, 6)
-      eq('cobrado este mes: $3', sh2.cobrado_mes_usd, 3)
-      eq('Ana sale de las deudas abiertas', sh2.por_persona.length, 2)
-      eq('y entra al historial', sh2.historial.length, 1)
-      eq('marcada como cobrada', sh2.historial[0].state, 'cobrado')
+      const sh = await json(await api('/debts'))
+      eq('ya no te deben nada', sh.por_cobrar_usd, 0)
+      eq('cobrado este mes: $25', sh.cobrado_mes_usd, 25)
+      eq('y entra al historial', sh.historial.length, 1)
+
+      eq('editar una deuda ya cobrada → 409', (await api(`/debts/${deudaAna.id}`, {
+        method: 'PATCH', body: JSON.stringify({ amount: 5 }) })).status, 409)
+      eq('borrarla también → 409', (await api(`/debts/${deudaAna.id}`, { method: 'DELETE' })).status, 409)
     }
 
     section('SPRINT 2 · cobrar · errores')
     {
-      const sh = await json(await api('/shared'))
-      const deJuan = sh.por_persona.find(p => p.person.id === juan.id)
-      const otro = sh.por_persona.find(p => p.person.id !== juan.id)
-      const yaCobrada = sh.historial[0]
-
-      eq('sin deudas → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+      eq('sin deudas → 400', (await api('/debts/settle', { method: 'POST', body: JSON.stringify({
         split_ids: [], account_id: airtm.id, amount: 3 }) })).status, 400)
-
-      eq('sin cuenta → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: [deJuan.splits[0].id], amount: 3 }) })).status, 400)
-
-      eq('monto en cero → 400', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: [deJuan.splits[0].id], account_id: airtm.id, amount: 0 }) })).status, 400)
-
-      eq('una deuda que no existe → 404', (await api('/shared/settle', { method: 'POST', body: JSON.stringify({
+      eq('sin cuenta → 400', (await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deudaAna.id], amount: 3 }) })).status, 400)
+      eq('una deuda que no existe → 404', (await api('/debts/settle', { method: 'POST', body: JSON.stringify({
         split_ids: ['00000000-0000-0000-0000-000000000009'], account_id: airtm.id, amount: 3 }) })).status, 404)
+      eq('una ya cobrada → 400', (await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deudaAna.id], account_id: airtm.id, amount: 3 }) })).status, 400)
 
-      const yaCerrada = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: [yaCobrada.id], account_id: airtm.id, amount: 3 }) })
-      eq('una deuda ya cobrada → 400', yaCerrada.status, 400)
-      ok('con el gasto nombrado en el error', (await json(yaCerrada)).error.includes('Spotify'))
-
-      const mezcla = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: [deJuan.splits[0].id, otro.splits[0].id], account_id: airtm.id, amount: 6 }) })
-      eq('mezclar dos personas en un cobro → 400', mezcla.status, 400)
-
-      // Ninguno de esos rechazos debe haber dejado un movimiento suelto.
-      const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
-      eq('ningún cobro fallido dejó un movimiento colgado',
-         ingresos.filter(t => t.flow_type === 'movimiento').length, 1)
+      const otra = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 4, currency: 'USD', concept: 'Otra' }) }))).debt
+      const mezcla = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [deudaAna.id, otra.id], account_id: airtm.id, amount: 10 }) })
+      eq('mezclar dos personas → 400', mezcla.status, 400)
+      await api(`/debts/${otra.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 2 · un cobro salda varias deudas')
     {
-      // Un segundo gasto compartido con Juan: dos deudas, un solo pago.
-      const segundo = (await json(await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-06', account_id: airtm.id, amount: 8, description: 'Cena',
-        splits: [{ person_id: juan.id, amount: 4 }],
-      })}))).transaction
+      const a = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 3, currency: 'USD', concept: 'Julio' }) }))).debt
+      const b = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 4, currency: 'USD', concept: 'Agosto' }) }))).debt
 
-      const sh = await json(await api('/shared'))
-      const deJuan = sh.por_persona.find(p => p.person.id === juan.id)
-      eq('Juan debe dos cosas', deJuan.splits.length, 2)
-
-      const r = await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: deJuan.splits.map(x => x.id), account_id: airtm.id, amount: 7, date: '2026-08-18',
-      })})
+      const r = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [a.id, b.id], account_id: airtm.id, amount: 7 }) })
       eq('un solo cobro las salda a las dos', (await json(r)).settled, 2)
 
       const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
       eq('y crea un solo movimiento', ingresos.filter(t => t.flow_type === 'movimiento').length, 2)
 
-      // "Cena" queda viva a propósito: con su parte ya cobrada no se puede
-      // borrar (esa es justamente la regla), y las secciones siguientes la usan
-      // como el reparto que sobrevive a Spotify.
-      eq('y ahora no se puede borrar: tiene una parte cobrada',
-         (await api(`/transactions/${segundo.id}`, { method: 'DELETE' })).status, 409)
+      // Deshacer una sola NO debe borrar el movimiento: todavía salda la otra.
+      const u = await json(await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [a.id], delete_transaction: true }) }))
+      eq('reabre una', u.reopened, 1)
+      eq('sin borrar el movimiento que aún salda la otra', u.deleted_transactions, 0)
+
+      await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [b.id], delete_transaction: true }) })
+      await api(`/debts/${a.id}`, { method: 'DELETE' })
+      await api(`/debts/${b.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 2 · condonar')
     {
-      const antes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
-      const sh = await json(await api('/shared'))
-      const carlos = sh.por_persona[0]
+      const d = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 6, currency: 'USD', concept: 'Se la regalo' }) }))).debt
 
-      const r = await api('/shared/waive', { method: 'POST', body: JSON.stringify({
-        split_ids: [carlos.splits[0].id] }) })
+      const r = await api('/debts/waive', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], note: 'se lo regalo' }) })
       eq('condona', (await json(r)).waived, 1)
 
       const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
-      eq('sin crear ningún movimiento nuevo', ingresos.filter(t => t.flow_type === 'movimiento').length, 2)
+      eq('sin crear ningún movimiento', ingresos.filter(t => t.flow_type === 'movimiento').length, 1)
 
-      const despues = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
-      ok('el gasto real SUBE: te hiciste cargo vos',
-         despues.total_gasto_real_usd > antes.total_gasto_real_usd,
-         `${antes.total_gasto_real_usd} → ${despues.total_gasto_real_usd}`)
+      const sh = await json(await api('/debts'))
+      eq('sale de las deudas abiertas', sh.por_persona.filter(p => p.person.id === juan.id).length, 0)
+      eq('condonado este mes: $6', sh.condonado_mes_usd, 6)
 
-      const sh2 = await json(await api('/shared'))
-      eq('ya no te debe nada', sh2.por_cobrar_usd, 0)
-      eq('condonado este mes: $3', sh2.condonado_mes_usd, 3)
+      eq('condonar algo ya cerrado → 400', (await api('/debts/waive', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id] }) })).status, 400)
 
-      eq('condonar algo ya cerrado → 400', (await api('/shared/waive', { method: 'POST', body: JSON.stringify({
-        split_ids: [carlos.splits[0].id] }) })).status, 400)
+      await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({ split_ids: [d.id] }) })
+      const tras = await json(await api('/debts'))
+      eq('deshacer la condonación la reabre', tras.por_cobrar_usd, 6)
+      await api(`/debts/${d.id}`, { method: 'DELETE' })
     }
 
-    section('SPRINT 2 · deshacer')
+    section('SPRINT 2 · deshacer un cobro devuelve el saldo')
     {
-      const sh = await json(await api('/shared'))
-      const cobrado = sh.historial.find(x => x.state === 'cobrado' && x.person.id === ana.id)
+      const d = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 9, currency: 'USD', concept: 'Para deshacer' }) }))).debt
+      await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], account_id: airtm.id, amount: 9 }) })
 
-      const saldoAntes = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      const antes = await saldoAhora()
+      const u = await json(await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], delete_transaction: true }) }))
+      eq('borra el movimiento del cobro', u.deleted_transactions, 1)
 
-      const r = await api('/shared/unsettle', { method: 'POST', body: JSON.stringify({
-        split_ids: [cobrado.id], delete_transaction: true }) })
-      const body = await json(r)
-      eq('reabre la deuda', body.reopened, 1)
-      eq('y borra el movimiento del cobro', body.deleted_transactions, 1)
-
-      const saldoDespues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
-      eq('el saldo devuelve exactamente los $3 del cobro', round2(saldoAntes - saldoDespues), 3)
-
-      const sh2 = await json(await api('/shared'))
-      eq('Ana vuelve a deber $3', sh2.por_cobrar_usd, 3)
-
-      // Borrar el movimiento del cobro directamente también reabre la deuda:
-      // es el `on delete set null` visto desde la API.
-      const shJuan = await json(await api('/shared'))
-      const cobradoJuan = shJuan.historial.find(x => x.state === 'cobrado')
-      await api(`/transactions/${cobradoJuan.settled_tx_id}`, { method: 'DELETE' })
-      const sh3 = await json(await api('/shared'))
-      ok('borrar el movimiento del cobro reabre la deuda sola',
-         sh3.por_cobrar_usd > sh2.por_cobrar_usd, `${sh2.por_cobrar_usd} → ${sh3.por_cobrar_usd}`)
+      eq('y el saldo vuelve atrás', round2(antes - (await saldoAhora())), 9)
+      await api(`/debts/${d.id}`, { method: 'DELETE' })
     }
 
-    section('SPRINT 2 · PATCH del reparto')
-    {
-      eq('sin `splits` en el body el reparto queda intacto',
-         (await json(await api(`/transactions/${spotify.id}`, {
-           method: 'PATCH', body: JSON.stringify({ description: 'Spotify familiar' }),
-         }))).transaction.splits.length, 3)
-
-      // Regla CAMBIADA en el Sprint 3: bajar el gasto por debajo de lo repartido
-      // es válido — pasás a cobrar por encima del costo. Se restaura el monto
-      // para no alterar los totales de las secciones siguientes.
-      const bajar = await api(`/transactions/${spotify.id}`, {
-        method: 'PATCH', body: JSON.stringify({ amount: 5 }) })
-      eq('bajar el monto por debajo del reparto ya no se rechaza', bajar.status, 200)
-      await api(`/transactions/${spotify.id}`, { method: 'PATCH', body: JSON.stringify({ amount: 11.99 }) })
-
-      const reemplazo = await api(`/transactions/${spotify.id}`, {
-        method: 'PATCH', body: JSON.stringify({ splits: [{ person_id: ana.id, amount: 3 }, { person_id: juan.id, amount: 5 }] }) })
-      const tras = (await json(reemplazo)).transaction
-      eq('reemplaza el reparto entero', tras.splits.length, 2)
-      eq('actualizando el que cambió de monto',
-         Number(tras.splits.find(x => x.person_id === juan.id).amount), 5)
-
-      const cambiarTipo = await api(`/transactions/${spotify.id}`, {
-        method: 'PATCH', body: JSON.stringify({ type: 'ingreso' }) })
-      eq('no se puede cambiar de tipo con reparto → 400', cambiarTipo.status, 400)
-    }
-
-    section('SPRINT 2 · borrar un gasto compartido')
-    {
-      // Con una parte cobrada, no se puede.
-      const sh = await json(await api('/shared'))
-      const deAna = sh.por_persona.find(p => p.person.id === ana.id)
-      await api('/shared/settle', { method: 'POST', body: JSON.stringify({
-        split_ids: [deAna.splits[0].id], account_id: airtm.id, amount: 3 }) })
-
-      const bloqueado = await api(`/transactions/${spotify.id}`, { method: 'DELETE' })
-      eq('con una parte cobrada → 409', bloqueado.status, 409)
-      ok('y el mensaje explica qué hacer', (await json(bloqueado)).error.includes('Deshac'))
-
-      const sh2 = await json(await api('/shared'))
-      const cobrado = sh2.historial.find(x => x.state === 'cobrado')
-      await api('/shared/unsettle', { method: 'POST', body: JSON.stringify({
-        split_ids: [cobrado.id], delete_transaction: true }) })
-
-      const antes = await json(await api('/shared'))
-      const deudaSpotify = antes.por_persona
-        .flatMap(p => p.splits)
-        .filter(x => x.transaction.id === spotify.id)
-        .reduce((n, x) => n + x.amount_usd, 0)
-
-      eq('sin cobros, borra el gasto y su reparto',
-         (await api(`/transactions/${spotify.id}`, { method: 'DELETE' })).status, 200)
-
-      const despues = await json(await api('/shared'))
-      eq('desaparecen las deudas de ESE gasto',
-         round2(antes.por_cobrar_usd - despues.por_cobrar_usd), round2(deudaSpotify))
-      eq('y ninguna queda apuntando al gasto borrado',
-         despues.por_persona.flatMap(p => p.splits).filter(x => x.transaction.id === spotify.id).length, 0)
-    }
 
     section('SPRINT 2 · personas · PATCH y DELETE')
     {
@@ -702,8 +608,11 @@ async function run() {
       eq('una persona que no existe → 404', (await api('/people/00000000-0000-0000-0000-000000000009', {
         method: 'PATCH', body: JSON.stringify({ name: 'X' }) })).status, 404)
 
-      // Juan es el que conserva historial: su parte de "Cena" sigue viva. Los
-      // repartos de Ana se borraron junto con Spotify.
+      // Se le deja una deuda viva a propósito: el 409 es justamente "esta
+      // persona tiene historial".
+      await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 2, currency: 'USD', concept: 'Historial' }) })
+
       const conHistorial = await api(`/people/${juan.id}`, { method: 'DELETE' })
       eq('con historial de repartos → 409', conHistorial.status, 409)
       ok('sugiriendo archivar', ((await json(conHistorial))?.error ?? '').includes('Archival'))
@@ -720,10 +629,10 @@ async function run() {
       for (const [label, path, init] of [
         ['GET /people', '/people', {}],
         ['POST /people', '/people', { method: 'POST', body: '{}' }],
-        ['GET /shared', '/shared', {}],
-        ['POST /shared/settle', '/shared/settle', { method: 'POST', body: '{}' }],
-        ['POST /shared/waive', '/shared/waive', { method: 'POST', body: '{}' }],
-        ['POST /shared/unsettle', '/shared/unsettle', { method: 'POST', body: '{}' }],
+        ['GET /shared', '/debts', {}],
+        ['POST /shared/settle', '/debts/settle', { method: 'POST', body: '{}' }],
+        ['POST /shared/waive', '/debts/waive', { method: 'POST', body: '{}' }],
+        ['POST /shared/unsettle', '/debts/unsettle', { method: 'POST', body: '{}' }],
       ]) {
         const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
         eq(`${label} sin cookie → 401`, r.status, 401)
@@ -745,7 +654,7 @@ async function run() {
         json(await api('/accounts')),
         json(await api('/categories')),
         json(await api('/people')),
-        json(await api(`/shared?${RANGE}`)),
+        json(await api(`/debts?${RANGE}`)),
         json(await api(`/transactions?${RANGE}&limit=500`)),
       ])
 
@@ -775,26 +684,26 @@ async function run() {
        SPRINT 3 · Fijos
        ══════════════════════════════════════════════════════════════════════ */
 
-    section('SPRINT 3 · repartir por encima del gasto')
+    section('SPRINT 3 · cobrar por encima del costo, desde un fijo')
     {
-      const tx = (await json(await api('/transactions', { method: 'POST', body: JSON.stringify({
-        type: 'gasto', date: '2026-08-20', account_id: airtm.id, amount: 11.99, description: 'Margen',
-        splits: [{ person_id: ana.id, amount: 4.5 }, { person_id: juan.id, amount: 4.5 }],
-      })}))).transaction
-      eq('cobrar más que el costo ya no se rechaza', tx.splits.length, 2)
+      // Con el toggle fuera del quick-add, el margen vive donde tiene sentido:
+      // en el fijo compartido. Le cobrás a cada uno un poco más que su parte.
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Margen', amount: 10, account_id: airtm.id, day_of_month: 3,
+        splits: [{ person_id: ana.id, amount: 8 }, { person_id: juan.id, amount: 8 }],
+      })}))).recurring
 
-      const lista = await json(await api('/transactions?from=2026-08-20&to=2026-08-20'))
-      eq('el bruto es lo que pagaste', lista.total_gasto_usd, 11.99)
-      eq('lo repartido puede superarlo', lista.total_repartido_usd, 9)
-      eq('y el real baja en consecuencia', lista.total_gasto_real_usd, 2.99)
+      const tx = (await json(await api(`/recurring/${t.id}/register`, {
+        method: 'POST', body: JSON.stringify({}) }))).transaction
 
-      // Y hasta puede dar negativo: eso es ganancia.
-      await api(`/transactions/${tx.id}`, { method: 'PATCH', body: JSON.stringify({
-        splits: [{ person_id: ana.id, amount: 7 }, { person_id: juan.id, amount: 7 }] }) })
-      const conGanancia = await json(await api('/transactions?from=2026-08-20&to=2026-08-20'))
-      eq('el gasto real da negativo: ganaste', conGanancia.total_gasto_real_usd, -2.01)
+      eq('el reparto puede superar al gasto', tx.debts.map(d => Number(d.amount)), [8, 8])
+      eq('el gasto sigue siendo lo que pagaste', Number(tx.amount), 10)
+
+      const mia = Number(tx.amount) - tx.debts.reduce((n, d) => n + Number(d.amount), 0)
+      eq('y tu parte queda negativa: ganaste', round2(mia), -6)
 
       await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 3 · POST /recurring')
@@ -836,8 +745,8 @@ async function run() {
       eq('como gasto de consumo', `${tx.type}·${tx.flow_type}`, 'gasto·consumo')
       eq('apuntando a su plantilla', tx.recurring_id, spotifyFijo.id)
       eq('con la descripción del fijo', tx.description, 'Spotify')
-      eq('y genera las dos deudas', tx.splits.length, 2)
-      eq('$11.99 entre 3 → $3.99 cada uno', tx.splits.map(sp => Number(sp.amount)), [3.99, 3.99])
+      eq('y genera las dos deudas', tx.debts.length, 2)
+      eq('$11.99 entre 3 → $3.99 cada uno', tx.debts.map(sp => Number(sp.amount)), [3.99, 3.99])
 
       const despues = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
       eq('el saldo baja el bruto', round2(antes - despues), 11.99)
@@ -876,7 +785,7 @@ async function run() {
         amount: 34.95, update_template: true }) })
       const tx = (await json(r)).transaction
       eq('el monto del mes manda', Number(tx.amount), 34.95)
-      eq('y la parte pareja se recalcula con ÉL', Number(tx.splits[0].amount), 17.47)
+      eq('y la parte pareja se recalcula con ÉL', Number(tx.debts[0].amount), 17.47)
 
       const lista = await json(await api('/recurring'))
       eq('la plantilla se actualizó porque se pidió',
@@ -920,6 +829,50 @@ async function run() {
       const despues = (await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))).transactions
       ok('los gastos siguen ahí', despues.some(t => t.description?.includes('Spotify')))
       eq('pero sin vínculo', despues.filter(t => t.recurring_id === spotifyFijo.id).length, 0)
+    }
+
+
+    section('SPRINT 3 · errores legibles y sin pérdida de datos')
+    {
+      // Personas propias de esta sección: `ana` y `juan` ya fueron renombradas
+      // y archivadas por las pruebas del Sprint 2, y el cruce por nombre
+      // depende justamente del nombre vigente.
+      const pepe = (await json(await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Pepe' }) }))).person
+      const lola = (await json(await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Lola' }) }))).person
+
+      const dup = await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Dup', amount: 10, account_id: airtm.id,
+        splits: [{ person_id: pepe.id, amount: null }, { person_id: pepe.id, amount: null }] }) })
+      eq('la misma persona dos veces en la plantilla → 400', dup.status, 400)
+      ok('con un mensaje legible, no el de Postgres',
+         !(await json(dup)).error.includes('constraint'))
+
+      const cruzado = await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Dup2', amount: 10, account_id: airtm.id,
+        splits: [{ person_id: pepe.id, amount: null }, { person_name: 'pepe', amount: null }] }) })
+      eq('por id y por nombre, la misma → 400', cruzado.status, 400)
+
+      eq('una parte en cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Cero', amount: 10, account_id: airtm.id,
+        splits: [{ person_id: pepe.id, amount: 0 }] }) })).status, 400)
+
+      eq('y ninguno de esos intentos dejó una plantilla colgada',
+         (await json(await api('/recurring'))).recurring.filter(x => x.name.startsWith('Dup') || x.name === 'Cero').length, 0)
+
+      // El bug caro: un PATCH inválido borraba el reparto y DESPUÉS fallaba.
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Intacto', amount: 10, account_id: airtm.id,
+        splits: [{ person_id: pepe.id, amount: null }] }) }))).recurring
+
+      const malo = await api(`/recurring/${t.id}`, { method: 'PATCH', body: JSON.stringify({
+        splits: [{ person_id: lola.id, amount: null }, { person_id: lola.id, amount: null }] }) })
+      eq('un PATCH con persona repetida → 400', malo.status, 400)
+
+      const tras = (await json(await api('/recurring'))).recurring.find(x => x.id === t.id)
+      eq('y el reparto sobrevive intacto', tras.splits.length, 1)
+      eq('con la persona original', tras.splits[0].person_id, pepe.id)
+
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 3 · autenticación de las rutas nuevas')

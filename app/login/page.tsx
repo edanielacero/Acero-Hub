@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
+import { readSessionClaims } from '@/lib/session-claims'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
@@ -10,6 +11,12 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  // Antes lo hacía proxy.ts: quien ya tiene sesión no ve el formulario. Se lee
+  // de la cookie, sin red — mismo criterio que <AccessGate>.
+  useEffect(() => {
+    if (readSessionClaims()) router.replace('/')
+  }, [router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()

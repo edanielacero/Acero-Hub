@@ -4,10 +4,8 @@ import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, validateInput } from '@/lib/finanzas/transactions'
-import { freezeSplitUsd, validateSplits } from '@/lib/finanzas/splits'
-import { assertOwnedPeople, resolvePeople } from '@/lib/finanzas/people'
-import { SPLIT_COLS } from '@/lib/finanzas/shared'
-import { readSplitInput } from '../route'
+import { freezeDebtUsd } from '@/lib/finanzas/splits'
+import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
@@ -15,7 +13,7 @@ const TX_COLS =
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived'
 
-interface SplitRow {
+interface DebtRow {
   id: string
   person_id: string
   amount: number
@@ -25,14 +23,14 @@ interface SplitRow {
   waived_at: string | null
 }
 
-async function readSplits(
+async function readDebts(
   supabase: Awaited<ReturnType<typeof requireUser>>['supabase'],
   userId: string,
   txId: string,
-): Promise<SplitRow[]> {
+): Promise<DebtRow[]> {
   const { data } = await supabase
-    .from('fin_splits')
-    .select(SPLIT_COLS)
+    .from('fin_debts')
+    .select(DEBT_COLS)
     .eq('user_id', userId)
     .eq('transaction_id', txId)
 
@@ -63,7 +61,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       .eq('user_id', userId)
       .maybeSingle(),
     supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
-    readSplits(supabase, userId, id),
+    readDebts(supabase, userId, id),
   ])
 
   if (!current) return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 })
@@ -110,36 +108,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const currency = accountsById.get(merged.account_id!)!.currency
 
-  /* ─── Reparto ─────────────────────────────────────────────────────────────
-     Mandar `splits` reemplaza el reparto completo. No mandarlo lo deja intacto:
-     editar la descripción de un gasto compartido no debería obligar a reenviar
-     todo el reparto. */
-
-  const incoming = readSplitInput(body.splits)
-  const settled = existingSplits.filter(s => s.settled_tx_id)
-
-  if (existingSplits.length > 0 && merged.type !== 'gasto') {
+  // Un movimiento ya NO sabe crear ni editar deudas. Las deudas se manejan en
+  // su propia pantalla: son una entidad aparte, no un detalle del gasto. Lo
+  // único que este PATCH sigue haciendo con ellas es recongelarlas si la tasa
+  // del gasto padre cambió (más abajo), para que las partes no dejen de sumar.
+  const conDeudas = existingSplits.length > 0
+  if (conDeudas && merged.type !== 'gasto') {
     return NextResponse.json(
-      { error: 'Este gasto tiene un reparto. Quitalo antes de cambiarle el tipo.' },
+      { error: 'Este gasto tiene deudas asociadas. Borralas antes de cambiarle el tipo.' },
       { status: 400 },
     )
   }
-
-  if (incoming !== undefined) {
-    const conocidas = (await supabase.from('fin_people').select('id, name').eq('user_id', userId)).data ?? []
-
-    const splitCheck = validateSplits(incoming, merged.type!, merged.amount!, currency, conocidas)
-    if (!splitCheck.ok) return NextResponse.json({ error: splitCheck.error }, { status: 400 })
-
-    const ownedError = await assertOwnedPeople(
-      supabase, userId,
-      incoming.map(s => s.person_id).filter((x): x is string => Boolean(x)),
-    )
-    if (ownedError) return NextResponse.json({ error: ownedError }, { status: 400 })
-  }
-  // Bajar el gasto por debajo de lo repartido ya no se rechaza: el reparto
-  // puede superar al gasto a propósito (le cobrás de más y ganás la
-  // diferencia). Lo que antes era un error ahora es una decisión válida.
 
   // La tasa se recongela solo si cambió algo que la involucra: el monto, la
   // cuenta (y con ella la moneda), o una tasa enviada explícitamente desde el
@@ -192,87 +171,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  /* ─── Reconciliar el reparto ─────────────────────────────────────────────── */
-
   const rateChanged = exchange_rate !== num(current.exchange_rate) || currency !== current.currency
 
-  if (incoming !== undefined) {
-    const { resolved, error: peopleError } = await resolvePeople(supabase, userId, incoming)
-    if (peopleError) return NextResponse.json({ error: peopleError }, { status: 400 })
-
-    const byPerson = new Map(existingSplits.map(s => [s.person_id, s]))
-    const target = new Map(resolved.map(r => [r.person_id, r.amount]))
-
-    // Un split cobrado no se puede borrar ni cambiar de monto: hay un
-    // movimiento real apuntándolo. Primero hay que deshacer el cobro.
-    const bloqueado = settled.find(s => !target.has(s.person_id) || target.get(s.person_id) !== s.amount)
-    if (bloqueado) {
-      return NextResponse.json(
-        { error: 'Hay partes ya cobradas en este gasto. Deshacé el cobro antes de cambiar el reparto.' },
-        { status: 409 },
-      )
-    }
-
-    // Cada escritura se revisa. Sin esto, un insert rechazado por la base
-    // devolvía 200 y el usuario veía "guardado" con un reparto a medias.
-    let fallo: string | null = null
-
-    const toDelete = existingSplits.filter(s => !target.has(s.person_id)).map(s => s.id)
-    if (toDelete.length > 0) {
-      const { error: delError } = await supabase
-        .from('fin_splits').delete().eq('user_id', userId).in('id', toDelete)
-      if (delError) fallo = delError.message
-    }
-
-    for (const [personId, amount] of target) {
-      if (fallo) break
-      const prev = byPerson.get(personId)
-      const payload = {
-        amount,
-        currency,
-        amount_usd: freezeSplitUsd(amount, exchange_rate),
-      }
-      if (prev) {
-        if (prev.amount !== amount || rateChanged) {
-          const { error: upError } = await supabase
-            .from('fin_splits').update(payload).eq('user_id', userId).eq('id', prev.id)
-          if (upError) fallo = upError.message
-        }
-      } else {
-        const { error: insError } = await supabase.from('fin_splits').insert({
-          user_id: userId, transaction_id: id, person_id: personId, ...payload,
-        })
-        if (insError) fallo = insError.message
-      }
-    }
-
-    if (fallo) {
-      // El movimiento ya se actualizó y el reparto puede haber quedado a
-      // medias. Se devuelve el estado real junto al error para que la pantalla
-      // muestre lo que de verdad hay en la base, no lo que se intentó guardar.
-      return NextResponse.json(
-        {
-          error: `El movimiento se guardó, pero el reparto quedó incompleto: ${fallo}`,
-          transaction: { ...data, splits: await readSplits(supabase, userId, id) },
-        },
-        { status: 409 },
-      )
-    }
-  } else if (rateChanged && existingSplits.length > 0) {
-    // El reparto no cambió, pero el gasto se recongeló con otra tasa. Si las
-    // partes conservaran la vieja, dejarían de sumar al total y "cuánto es
-    // realmente mío" quedaría mal por la diferencia.
-    for (const s of existingSplits) {
+  if (rateChanged && existingSplits.length > 0) {
+    // El gasto se recongeló con otra tasa. Si las deudas conservaran la vieja,
+    // dejarían de sumar al total y "cuánto es realmente mío" quedaría mal.
+    for (const d of existingSplits) {
       const { error: reError } = await supabase
-        .from('fin_splits')
-        .update({ currency, amount_usd: freezeSplitUsd(s.amount, exchange_rate) })
+        .from('fin_debts')
+        .update({ currency, amount_usd: freezeDebtUsd(d.amount, exchange_rate) })
         .eq('user_id', userId)
-        .eq('id', s.id)
+        .eq('id', d.id)
       if (reError) {
         return NextResponse.json(
           {
-            error: `El movimiento se guardó, pero no se pudo recongelar el reparto: ${reError.message}`,
-            transaction: { ...data, splits: await readSplits(supabase, userId, id) },
+            error: `El movimiento se guardó, pero no se pudo recongelar la deuda: ${reError.message}`,
+            transaction: { ...data, debts: await readDebts(supabase, userId, id) },
           },
           { status: 409 },
         )
@@ -280,8 +194,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
-  const splits = await readSplits(supabase, userId, id)
-  return NextResponse.json({ transaction: { ...data, splits } })
+  const splits = await readDebts(supabase, userId, id)
+  return NextResponse.json({ transaction: { ...data, debts: splits } })
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -289,7 +203,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const splits = await readSplits(supabase, userId, id)
+  const splits = await readDebts(supabase, userId, id)
 
   // Un split cobrado cuyo gasto padre desaparece dejaría un ingreso en la
   // cuenta sin nada que lo explique. El `on delete restrict` de la base lo
@@ -304,7 +218,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   if (splits.length > 0) {
     const { error: splitError } = await supabase
-      .from('fin_splits')
+      .from('fin_debts')
       .delete()
       .eq('user_id', userId)
       .eq('transaction_id', id)

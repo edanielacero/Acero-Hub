@@ -5,10 +5,11 @@ import { IconCheck, IconX } from '@tabler/icons-react'
 import type { PersonDebt } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, round2, roundFor } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { debtLabel } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { formatDayLabel } from './ui'
-import { Btn, ErrorNote, Label, TextField } from './ui'
+import { Btn, DateField, ErrorNote, Label, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -27,7 +28,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
   const { accounts, rates } = useFinanzas()
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
 
-  const [picked, setPicked] = useState<string[]>(() => debt.splits.map(s => s.id))
+  const [picked, setPicked] = useState<string[]>(() => debt.debts.map(s => s.id))
   const [accountId, setAccountId] = useState(() => {
     const last = typeof window !== 'undefined' ? window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? '' : ''
     return active.some(a => a.id === last) ? last : (active[0]?.id ?? '')
@@ -42,7 +43,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
   const account = active.find(a => a.id === accountId)
   const decimals = decimalsFor(account?.currency)
 
-  const elegidos = debt.splits.filter(s => picked.includes(s.id))
+  const elegidos = debt.debts.filter(s => picked.includes(s.id))
   const totalUsd = round2(elegidos.reduce((n, s) => n + s.amount_usd, 0))
 
   /**
@@ -94,7 +95,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
 
     setSaving(true)
-    const res = await fetch('/api/finanzas/shared/settle', {
+    const res = await fetch('/api/finanzas/debts/settle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -125,7 +126,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
         role="dialog"
         aria-modal="true"
         aria-label={`Cobrar a ${debt.person.name}`}
-        className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
+        className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
           <span className="w-9 h-1 rounded-full bg-[var(--fz-hairline)]" />
@@ -145,7 +146,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
 
         <div className="px-5 pb-5 flex flex-col gap-4">
           <div className="flex flex-col rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-1">
-            {debt.splits.map(s => {
+            {debt.debts.map(s => {
               const on = picked.includes(s.id)
               return (
                 <button
@@ -165,10 +166,10 @@ export function SettleSheet({ debt, onClose, onDone }: {
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[14px] font-semibold truncate">
-                      {s.transaction.description || 'Sin descripción'}
+                      {debtLabel(s)}
                     </span>
                     <span className="block text-[12px] text-[var(--fz-ink-2)]">
-                      {formatDayLabel(s.transaction.date, hoy)}
+                      {formatDayLabel(s.incurred_on, hoy)}
                     </span>
                   </span>
                   <span className="fz-num text-[14px] font-semibold shrink-0">
@@ -229,7 +230,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
 
           <div>
             <Label>Fecha</Label>
-            <TextField type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <DateField value={date} onChange={setDate} today={hoy} />
           </div>
 
           <div>

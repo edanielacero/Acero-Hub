@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { SPLIT_COLS } from '@/lib/finanzas/shared'
+import { DEBT_COLS } from '@/lib/finanzas/shared'
 
 /**
  * Deshacer un cobro o una condonación: la deuda vuelve a estar abierta.
@@ -20,8 +20,8 @@ export async function POST(request: Request) {
   if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda' }, { status: 400 })
 
   const { data: rows } = await supabase
-    .from('fin_splits')
-    .select(SPLIT_COLS)
+    .from('fin_debts')
+    .select(DEBT_COLS)
     .eq('user_id', userId)
     .in('id', ids)
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   // La nota se limpia junto con el estado: describía por qué se condonó, y
   // una deuda que vuelve a estar abierta no tiene ese motivo.
   const { error } = await supabase
-    .from('fin_splits')
+    .from('fin_debts')
     .update({ settled_tx_id: null, waived_at: null, note: null })
     .eq('user_id', userId)
     .in('id', ids)
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     // movimiento, borrarlo las abriría a todas sin que nadie lo haya pedido —
     // así que solo se borra el que ya no salda nada.
     const { data: still } = await supabase
-      .from('fin_splits')
+      .from('fin_debts')
       .select('settled_tx_id')
       .eq('user_id', userId)
       .in('settled_tx_id', txIds)

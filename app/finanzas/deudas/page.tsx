@@ -1,19 +1,23 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconChevronDown, IconCoinOff, IconReceiptRefund, IconRotateClockwise } from '@tabler/icons-react'
-import type { PersonDebt, SplitWithContext } from '@/lib/finanzas/types'
+import { IconChevronDown, IconCoinOff, IconPencil, IconPlus, IconReceiptRefund, IconRotateClockwise } from '@tabler/icons-react'
+import type { DebtWithContext, PersonDebt } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
+import { debtLabel } from '@/lib/finanzas/splits'
 import { useFinanzas } from '../components/data-context'
+import { DebtSheet } from '../components/debt-sheet'
 import { SettleSheet } from '../components/settle-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel, SectionTitle, Skeleton, tintFor } from '../components/ui'
 
-export default function CompartidosPage() {
+export default function DeudasPage() {
   const { shared, hidden, loading, reload } = useFinanzas()
   const [cobrando, setCobrando] = useState<PersonDebt | null>(null)
+  const [creando, setCreando] = useState(false)
+  const [editando, setEditando] = useState<DebtWithContext | null>(null)
   const [verHistorial, setVerHistorial] = useState(false)
   const [busy, setBusy] = useState('')
 
@@ -22,7 +26,7 @@ export default function CompartidosPage() {
 
   async function post(path: string, body: unknown, key: string) {
     setBusy(key)
-    await fetch(`/api/finanzas/shared/${path}`, {
+    await fetch(`/api/finanzas/debts/${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -34,9 +38,16 @@ export default function CompartidosPage() {
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
       <PageHeader
-        title="Compartidos"
-        subtitle="Lo que pagaste completo y te tienen que devolver"
-        action={<HideToggle />}
+        title="Deudas"
+        subtitle="Lo que te deben, venga de donde venga"
+        action={
+          <>
+            <HideToggle />
+            <Btn size="sm" onClick={() => setCreando(true)}>
+              <IconPlus size={18} stroke={2} /> Nueva
+            </Btn>
+          </>
+        }
       />
 
       <div className="flex flex-col gap-4">
@@ -54,7 +65,8 @@ export default function CompartidosPage() {
             <EmptyState
               emoji="🤝"
               title="Nadie te debe nada"
-              description="Cuando registres un gasto y lo marques como compartido, las deudas aparecen acá."
+              description="Las deudas aparecen acá de dos formas: cuando registrás un fijo compartido, o cuando cargás una a mano."
+              action={<Btn onClick={() => setCreando(true)}>Registrar una deuda</Btn>}
             />
           ) : (
             <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
@@ -65,7 +77,7 @@ export default function CompartidosPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-[15px] font-semibold truncate">{d.person.name}</p>
                       <p className="text-[12px] text-[var(--fz-ink-3)]">
-                        {d.splits.length} {d.splits.length === 1 ? 'deuda' : 'deudas'}
+                        {d.debts.length} {d.debts.length === 1 ? 'deuda' : 'deudas'}
                         {d.oldest_days != null && d.oldest_days > 0 && ` · la más vieja hace ${d.oldest_days} días`}
                       </p>
                     </div>
@@ -76,16 +88,23 @@ export default function CompartidosPage() {
                   </div>
 
                   <div className="mt-1.5 ml-[52px] flex flex-col">
-                    {d.splits.map(s => (
+                    {d.debts.map(s => (
                       <div key={s.id} className="flex items-center gap-2 py-1.5">
-                        <span className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setEditando(s)}
+                          className="flex-1 min-w-0 text-left"
+                        >
                           <span className="block text-[13px] font-medium truncate">
-                            {s.transaction.description || 'Sin descripción'}
+                            {debtLabel(s)}
                           </span>
                           <span className="block text-[12px] text-[var(--fz-ink-3)]">
-                            {formatDayLabel(s.transaction.date, hoy)}
+                            {formatDayLabel(s.incurred_on, hoy)}
+                            {/* Saber de dónde salió importa: una suelta se
+                                edita y se borra, una de un fijo no. */}
+                            {s.transaction_id ? ' · de un gasto' : ''}
                           </span>
-                        </span>
+                        </button>
                         <span className="fz-num text-[13px] font-semibold shrink-0">
                           {hidden ? HIDDEN : formatAmount(s.amount, s.currency)}
                         </span>
@@ -145,6 +164,14 @@ export default function CompartidosPage() {
         )}
       </div>
 
+      {(creando || editando) && (
+        <DebtSheet
+          editing={editando}
+          onClose={() => { setCreando(false); setEditando(null) }}
+          onSaved={() => { setCreando(false); setEditando(null) }}
+        />
+      )}
+
       {cobrando && (
         <SettleSheet
           debt={cobrando}
@@ -157,7 +184,7 @@ export default function CompartidosPage() {
 }
 
 function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
-  split: SplitWithContext; hidden: boolean; hoy: string; busy: boolean; onUndo: () => void
+  split: DebtWithContext; hidden: boolean; hoy: string; busy: boolean; onUndo: () => void
 }) {
   const cobrado = split.state === 'cobrado'
   return (
@@ -167,7 +194,7 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
       </IconChip>
       <span className="flex-1 min-w-0">
         <span className="block text-[14px] font-semibold truncate">
-          {split.person.name} · {split.transaction.description || 'Sin descripción'}
+          {split.person.name} · {debtLabel(split)}
         </span>
         <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">
           {cobrado ? 'Cobrado' : 'Condonado'}

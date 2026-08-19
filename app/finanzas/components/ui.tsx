@@ -136,6 +136,68 @@ export function SelectField(props: React.SelectHTMLAttributes<HTMLSelectElement>
   )
 }
 
+/* ─── Campo de fecha ───────────────────────────────────────────────────────
+   Un `input[type=date]` pelado obliga a abrir el picker y elegir el día aun
+   cuando la respuesta es "hoy", que es lo que se contesta casi siempre al
+   cargar un movimiento. Los atajos resuelven ese caso —y el de "me olvidé de
+   anotarlo ayer"— en un toque, y dejan el picker para el resto.
+
+   El `flex-wrap` no es decorativo: en las pantallas más angostas los atajos
+   bajan a una segunda línea en vez de empujar el campo fuera del sheet. */
+
+/** Suma días a una fecha ISO respetando el calendario local (fines de mes, DST). */
+function addDaysISO(iso: string, days: number): string {
+  const d = parseISO(iso)
+  d.setDate(d.getDate() + days)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export function DateField({ value, onChange, today }: {
+  value: string
+  onChange: (value: string) => void
+  /** Hoy en ISO local — se recibe hecho para no recalcularlo en cada render. */
+  today: string
+}) {
+  const yesterday = addDaysISO(today, -1)
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* `flex` en forma larga y no `flex-1` + `basis-*`: la abreviada pisa al
+          basis y el campo volvería a arrancar en 0. El basis chico es el que
+          hace que la fila se parta en dos antes que desbordar el sheet. */}
+      <input
+        type="date"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={`${fieldClass} h-12 flex-[1_1_150px]`}
+      />
+      <div className="flex gap-1.5 shrink-0">
+        <DayShortcut label="Hoy" active={value === today} onClick={() => onChange(today)} />
+        <DayShortcut label="Ayer" active={value === yesterday} onClick={() => onChange(yesterday)} />
+      </div>
+    </div>
+  )
+}
+
+function DayShortcut({ label, active, onClick }: {
+  label: string; active: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`h-12 px-3 rounded-[var(--fz-r-field)] text-[13px] font-semibold whitespace-nowrap transition-colors ${
+        active
+          ? 'bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+          : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
 /* ─── Control segmentado ───────────────────────────────────────────────────── */
 
 export function Segmented<T extends string>({ options, value, onChange }: {

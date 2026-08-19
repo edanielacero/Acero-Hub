@@ -3,7 +3,7 @@
 import { ReactNode } from 'react'
 import { IconArrowsExchange, IconReceiptRefund, IconUsersGroup } from '@tabler/icons-react'
 import type { AccountWithBalance, Category, Transaction } from '@/lib/finanzas/types'
-import { myShare } from '@/lib/finanzas/splits'
+import { shareBreakdown } from '@/lib/finanzas/splits'
 import { formatAmount } from '@/lib/finanzas/money'
 import { SignedAmount } from './amount'
 import { IconChip, tintFor } from './ui'
@@ -44,8 +44,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
   const isReembolso = tx.type === 'ingreso' && tx.flow_type === 'movimiento'
-  const splits = tx.splits ?? []
-  const compartido = splits.length > 0
+  const deudas = tx.debts ?? []
+  const generoDeudas = deudas.length > 0
 
   const title = isTransfer
     ? `${account?.name ?? 'Cuenta'} → ${toAccount?.name ?? 'Cuenta'}`
@@ -57,7 +57,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       : [category?.name, account?.name].filter(Boolean).join(' · ')
 
   const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
-  const miParte = compartido ? myShare(tx.amount, splits, tx.currency) : 0
+  const parte = generoDeudas ? shareBreakdown(tx.amount, deudas, tx.currency) : null
 
   return (
     <button
@@ -76,13 +76,13 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       <span className="flex-1 min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="text-[15px] font-semibold truncate">{title}</span>
-          {compartido && (
+          {generoDeudas && (
             <span
               className="shrink-0 inline-flex items-center gap-0.5 h-[18px] px-1.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold"
-              title={`Compartido con ${splits.length} ${splits.length === 1 ? 'persona' : 'personas'}`}
+              title={`Generó ${deudas.length} ${deudas.length === 1 ? 'deuda' : 'deudas'}`}
             >
               <IconUsersGroup size={11} stroke={2.2} />
-              {splits.length}
+              {deudas.length}
             </span>
           )}
         </span>
@@ -96,9 +96,15 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           type={tx.type}
           className="block text-[15px]"
         />
-        {compartido ? (
-          <span className="block text-[12px] text-[var(--fz-ink-3)] fz-num">
-            tu parte {formatAmount(miParte, tx.currency)}
+        {generoDeudas ? (
+          <span
+            className="block text-[12px] fz-num"
+            style={{ color: parte!.kind === 'ganas' ? 'var(--fz-in-text)' : 'var(--fz-ink-3)' }}
+          >
+            {/* Si repartiste por encima del costo, la resta da negativo: eso
+                no es "tu parte −$2.01", es plata que ganaste. */}
+            {parte!.kind === 'ganas' ? 'ganás ' : 'tu parte '}
+            {formatAmount(Math.abs(parte!.mine), tx.currency)}
           </span>
         ) : tx.currency !== 'USD' ? (
           <span className="block text-[12px] text-[var(--fz-ink-3)] fz-num">

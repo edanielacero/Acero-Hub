@@ -4,14 +4,14 @@ import { num, round2 } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
-import { SPLIT_COLS, readSplits, settledOn } from './shared'
+import { DEBT_COLS, readDebts, settledOn } from './shared'
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { monthRange, todayISO } from './transactions'
 import type {
   AccountWithBalance, Category, Currency, PersonWithDebt,
-  Person, RateMap, RecentSplit, Recurring, RecurringSplit, RecurringSummary,
-  RecurringWithState, SharedSummary, Split, SplitWithContext, Transaction,
+  Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
+  RecurringWithState, SharedSummary, Debt, DebtWithContext, Transaction,
 } from './types'
 
 /**
@@ -88,7 +88,7 @@ export async function loadPeople(supabase: SupabaseClient, userId: string): Prom
   const [{ data: people }, { data: splits }] = await Promise.all([
     supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId).order('name'),
     supabase
-      .from('fin_splits')
+      .from('fin_debts')
       .select('person_id, amount_usd, settled_tx_id, waived_at')
       .eq('user_id', userId),
   ])
@@ -121,11 +121,11 @@ export async function loadShared(
   userId: string,
   range: { from: string; to: string } = monthRange(),
 ): Promise<SharedSummary> {
-  const { rows, raw } = await readSplits(supabase, userId)
+  const { rows, raw } = await readDebts(supabase, userId)
   const today = todayISO()
 
   const byId = new Map(raw.map(r => [r.id, r]))
-  const inMonth = (s: SplitWithContext) => {
+  const inMonth = (s: DebtWithContext) => {
     const on = settledOn(byId.get(s.id) ?? { settled: null, waived_at: s.waived_at })
     return on !== null && on >= range.from && on <= range.to
   }
@@ -151,57 +151,14 @@ export async function loadShared(
     ),
     por_persona: groupByPerson(abiertos, today),
     historial,
-    repartos_recientes: buildRecent(rows),
   }
 }
 
-/**
- * Los últimos 3 repartos distintos, para el "Repetir reparto" del quick-add.
- *
- * Se derivan de los splits que la misma respuesta ya trajo — sin tabla de
- * plantillas, que es el Sprint 8. Para Spotify y TradingView, los dos casos
- * reales de hoy, alcanza y sobra.
- */
-function buildRecent(rows: SplitWithContext[], limit = 3): RecentSplit[] {
-  const byTx = new Map<string, SplitWithContext[]>()
-  for (const s of rows) {
-    const list = byTx.get(s.transaction_id)
-    if (list) list.push(s)
-    else byTx.set(s.transaction_id, [s])
-  }
-
-  const out: RecentSplit[] = []
-  const seen = new Set<string>()
-
-  // `rows` ya viene del gasto más nuevo al más viejo.
-  for (const s of rows) {
-    const group = byTx.get(s.transaction_id)
-    if (!group) continue
-    byTx.delete(s.transaction_id)
-
-    const key = group.map(g => g.person_id).sort().join('|')
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    const people: Person[] = group
-      .map(g => g.person)
-      .sort((a, b) => a.name.localeCompare(b.name))
-
-    out.push({
-      label: group[0].transaction.description?.trim() || 'Sin descripción',
-      people,
-      even: new Set(group.map(g => g.amount.toFixed(8))).size === 1,
-    })
-    if (out.length >= limit) break
-  }
-
-  return out
-}
 
 /* ─── Movimientos ──────────────────────────────────────────────────────────── */
 
-/** La forma que devuelve el embed de `fin_splits` en la lista de movimientos. */
-interface SplitRow {
+/** La forma que devuelve el embed de `fin_debts` en la lista de movimientos. */
+interface DebtRow {
   id: string
   transaction_id: string
   person_id: string
@@ -264,8 +221,8 @@ export async function loadRecurring(
         .not('recurring_id', 'is', null),
       supabase.from('fin_accounts').select('id, currency').eq('user_id', userId),
       supabase
-        .from('fin_splits')
-        .select('amount_usd, settled_tx_id, waived_at, transaction:fin_transactions!fin_splits_transaction_id_fkey(recurring_id)')
+        .from('fin_debts')
+        .select('amount_usd, settled_tx_id, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(recurring_id)')
         .eq('user_id', userId),
     ])
 
@@ -345,7 +302,7 @@ export async function loadTransactions(
 
   let query = supabase
     .from('fin_transactions')
-    .select(`${TX_COLS}, splits:fin_splits!fin_splits_transaction_id_fkey(${SPLIT_COLS})`)
+    .select(`${TX_COLS}, debts:fin_debts!fin_debts_transaction_id_fkey(${DEBT_COLS})`)
     .eq('user_id', userId)
     .order('date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -367,14 +324,14 @@ export async function loadTransactions(
     to_amount: t.to_amount === null ? null : num(t.to_amount),
     exchange_rate: num(t.exchange_rate),
     amount_usd: num(t.amount_usd),
-    splits: ((t.splits ?? []) as unknown as SplitRow[]).map(s => ({
+    debts: (((t as { debts?: unknown }).debts ?? []) as DebtRow[]).map(s => ({
       ...s,
       amount: num(s.amount),
       amount_usd: num(s.amount_usd),
     })),
-  })) as unknown as (Transaction & { splits: Split[] })[]
+  })) as unknown as (Transaction & { debts: Debt[] })[]
 
-  if (f.sharedOnly) transactions = transactions.filter(t => t.splits.length > 0)
+  if (f.sharedOnly) transactions = transactions.filter(t => t.debts.length > 0)
 
   // Un reembolso (`flow_type = 'movimiento'`) sube el saldo pero no es plata
   // que ganaste: queda fuera de los totales de ingreso. Es la razón de ser de
@@ -385,7 +342,7 @@ export async function loadTransactions(
   const total_gasto_usd = round2(gastos.reduce((s, t) => s + t.amount_usd, 0))
   // Los condonados no se descuentan: perdonar una deuda es hacerse cargo de ella.
   const total_repartido_usd = round2(
-    gastos.flatMap(t => t.splits).filter(s => !s.waived_at).reduce((s, x) => s + num(x.amount_usd), 0),
+    gastos.flatMap(t => t.debts).filter(s => !s.waived_at).reduce((s, x) => s + num(x.amount_usd), 0),
   )
 
   return {

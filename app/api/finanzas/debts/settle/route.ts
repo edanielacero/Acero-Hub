@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
-import { isOpen, splitState } from '@/lib/finanzas/splits'
-import { SPLIT_COLS } from '@/lib/finanzas/shared'
+import { isOpen, debtState } from '@/lib/finanzas/splits'
+import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency } from '@/lib/finanzas/types'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -41,8 +41,8 @@ export async function POST(request: Request) {
 
   const [{ data: splits }, { data: account }] = await Promise.all([
     supabase
-      .from('fin_splits')
-      .select(`${SPLIT_COLS}, person:fin_people!fin_splits_person_id_fkey(name), transaction:fin_transactions!fin_splits_transaction_id_fkey(description)`)
+      .from('fin_debts')
+      .select(`${DEBT_COLS}, person:fin_people!fin_debts_person_id_fkey(name), transaction:fin_transactions!fin_debts_transaction_id_fkey(description)`)
       .eq('user_id', userId)
       .in('id', ids),
     supabase.from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', accountId).maybeSingle(),
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const yaCerrada = rows.find(s => !isOpen(s))
   if (yaCerrada) {
     const label = (yaCerrada as { transaction?: { description?: string } }).transaction?.description || 'ese gasto'
-    const estado = splitState(yaCerrada) === 'cobrado' ? 'ya está cobrada' : 'está condonada'
+    const estado = debtState(yaCerrada) === 'cobrado' ? 'ya está cobrada' : 'está condonada'
     return NextResponse.json({ error: `La deuda de ${label} ${estado}` }, { status: 400 })
   }
 
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
   // la misma deuda entre la lectura y esta escritura, el update no la toca y
   // el conteo de abajo lo detecta.
   const { data: updated, error: linkError } = await supabase
-    .from('fin_splits')
+    .from('fin_debts')
     .update({ settled_tx_id: tx.id })
     .eq('user_id', userId)
     .in('id', ids)

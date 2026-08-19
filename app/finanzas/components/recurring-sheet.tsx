@@ -130,7 +130,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
       <div
         role="dialog" aria-modal="true" aria-label={editing ? 'Editar fijo' : 'Nuevo fijo'}
-        className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
+        className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
           <span className="w-9 h-1 rounded-full bg-[var(--fz-hairline)]" />

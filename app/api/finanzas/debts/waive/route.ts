@@ -2,7 +2,7 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { isOpen } from '@/lib/finanzas/splits'
-import { SPLIT_COLS } from '@/lib/finanzas/shared'
+import { DEBT_COLS } from '@/lib/finanzas/shared'
 
 /**
  * Condonar: perdonás la deuda.
@@ -23,8 +23,8 @@ export async function POST(request: Request) {
   if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda para condonar' }, { status: 400 })
 
   const { data: rows } = await supabase
-    .from('fin_splits')
-    .select(SPLIT_COLS)
+    .from('fin_debts')
+    .select(DEBT_COLS)
     .eq('user_id', userId)
     .in('id', ids)
 
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const note = typeof body?.note === 'string' ? body.note.trim() || null : null
 
   const { data, error } = await supabase
-    .from('fin_splits')
+    .from('fin_debts')
     .update({ waived_at: todayISO(), ...(note ? { note } : {}) })
     .eq('user_id', userId)
     .in('id', ids)

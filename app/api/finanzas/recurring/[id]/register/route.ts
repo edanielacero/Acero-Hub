@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
-import { freezeSplitUsd } from '@/lib/finanzas/splits'
+import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { periodOf, resolveSplits } from '@/lib/finanzas/recurring'
-import { SPLIT_COLS } from '@/lib/finanzas/shared'
+import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency, Recurring, RecurringSplit } from '@/lib/finanzas/types'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -131,19 +131,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     currency,
   )
 
-  let splits: unknown[] = []
+  let debts: unknown[] = []
   if (partes.length > 0) {
     const { data: creados, error: splitError } = await supabase
-      .from('fin_splits')
+      .from('fin_debts')
       .insert(partes.map(pt => ({
         user_id: userId,
         transaction_id: tx.id,
         person_id: pt.person_id,
         amount: pt.amount,
         currency,
-        amount_usd: freezeSplitUsd(pt.amount, frozen.exchange_rate),
+        amount_usd: freezeDebtUsd(pt.amount, frozen.exchange_rate),
       })))
-      .select(SPLIT_COLS)
+      .select(DEBT_COLS)
 
     if (splitError) {
       // Misma compensación que en el Sprint 2: si el reparto no entra, el gasto
@@ -151,7 +151,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       await supabase.from('fin_transactions').delete().eq('id', tx.id).eq('user_id', userId)
       return NextResponse.json({ error: `No se pudo guardar el reparto: ${splitError.message}` }, { status: 400 })
     }
-    splits = creados ?? []
+    debts = creados ?? []
   }
 
   // "Spotify subió de precio": actualizar la plantilla es explícito, nunca un
@@ -162,5 +162,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .eq('id', id).eq('user_id', userId)
   }
 
-  return NextResponse.json({ transaction: { ...tx, splits } }, { status: 201 })
+  return NextResponse.json({ transaction: { ...tx, debts } }, { status: 201 })
 }

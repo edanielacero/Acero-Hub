@@ -10,6 +10,7 @@ import type { TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { clearSnapshots, currentUserId, readSnapshot, writeSnapshot, type Snapshot } from '@/lib/finanzas/snapshot'
+import { createClient } from '@/lib/supabase'
 
 export type { TxResult }
 
@@ -72,7 +73,7 @@ const EMPTY_RECURRING: RecurringSummary = { recurring: [], done: 0, total: 0, pe
 
 const EMPTY_SHARED: SharedSummary = {
   por_cobrar_usd: 0, cobrado_mes_usd: 0, condonado_mes_usd: 0,
-  por_persona: [], historial: [], repartos_recientes: [],
+  por_persona: [], historial: [],
 }
 
 const EMPTY: TxResult = {
@@ -185,9 +186,27 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    // Un 401 no significa "no tenés sesión": lo más común es abrir la app
+    // después de horas con el access token vencido pero el refresh token vivo.
+    // Antes esto no se veía porque el proxy refrescaba antes de que la página
+    // cargara; sin él, el primer /bootstrap sale con el token viejo. Borrar el
+    // snapshot acá dejaba al usuario sin sus datos por un token de una hora.
     if (res.status === 401) {
-      // La sesión ya no existe: lo cacheado no le pertenece a quien esté por
-      // entrar ahora.
+      const { data } = await createClient().auth.refreshSession()
+      if (data.session) {
+        try {
+          res = await fetch(`/api/finanzas/bootstrap?${qs}`)
+        } catch {
+          setError(true)
+          setPending(false)
+          return
+        }
+      }
+    }
+
+    if (res.status === 401) {
+      // Reintentado y sigue sin sesión: ahora sí está muerta, y lo cacheado no
+      // le pertenece a quien esté por entrar.
       clearSnapshots()
       setError(true)
       setPending(false)

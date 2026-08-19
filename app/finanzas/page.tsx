@@ -35,9 +35,9 @@ export default function HomePage() {
   const ingresoMes = mes.data.total_ingreso_usd
   const recent = ultimos.data.transactions
 
-  // Los bloques de compartidos son condicionales: si no compartís nada, la Home
-  // se ve exactamente igual que antes del Sprint 2. La feature no le cobra
-  // espacio a quien no la usa.
+  // Los dos bloques son condicionales: si no tenés deudas ni fijos, la Home se
+  // ve exactamente igual que antes. La feature no le cobra espacio a quien no
+  // la usa.
   const teDeben = shared.por_cobrar_usd > 0
   const hayReparto = gastoRealMes !== gastoMes
   const hayFijos = recurring.total > 0
@@ -182,7 +182,7 @@ export default function HomePage() {
 
           {teDeben && (
             <Link
-              href="/finanzas/compartidos"
+              href="/finanzas/deudas"
               className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
             >
               <span

@@ -41,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 /**
  * Borra la persona. Si tiene historial de repartos, el `on delete restrict` de
- * `fin_splits.person_id` lo impide y devolvemos 409 sugiriendo archivar — la
+ * `fin_debts.person_id` lo impide y devolvemos 409 sugiriendo archivar — la
  * misma regla que las cuentas con movimientos.
  */
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -51,7 +51,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { id } = await params
 
   const { count } = await supabase
-    .from('fin_splits')
+    .from('fin_debts')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('person_id', id)

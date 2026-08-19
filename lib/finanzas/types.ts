@@ -122,7 +122,7 @@ export interface Transaction extends BalanceMovement {
   /** La plantilla de fijo que lo generó, si vino de una. */
   recurring_id?: string | null
   /** Reparto del gasto entre personas. Vacío en un gasto normal. */
-  splits?: Split[]
+  debts?: Debt[]
 }
 
 /* ─── Compartidos (Sprint 2) ────────────────────────────────────────────── */
@@ -150,11 +150,12 @@ export interface PersonWithDebt extends Person {
  * "cobrado" sin que exista el movimiento que lo cobró. Un enum persistido sí
  * puede desincronizarse del hecho que describe.
  */
-export type SplitState = 'pendiente' | 'cobrado' | 'condonado'
+export type DebtState = 'pendiente' | 'cobrado' | 'condonado'
 
-export interface Split {
+export interface Debt {
   id: string
-  transaction_id: string
+  /** `null` cuando la deuda no viene de ningún gasto: es suelta. */
+  transaction_id: string | null
   person_id: string
   amount: number
   currency: Currency
@@ -163,9 +164,13 @@ export interface Split {
   settled_tx_id: string | null
   waived_at: string | null
   note: string | null
+  /** De qué es. Obligatorio cuando no hay gasto padre. */
+  concept: string | null
+  /** Cuándo nació la deuda. Del gasto padre, o puesta a mano si es suelta. */
+  incurred_on: string
 }
 
-export interface SplitInput {
+export interface DebtInput {
   /** Uno de los dos. `person_name` crea la persona al vuelo. */
   person_id?: string
   person_name?: string
@@ -173,9 +178,10 @@ export interface SplitInput {
 }
 
 /** Un split con el gasto que lo originó, para las pantallas de Compartidos. */
-export interface SplitWithContext extends Split {
-  state: SplitState
+export interface DebtWithContext extends Debt {
+  state: DebtState
   person: Person
+  /** `null` si la deuda es suelta. */
   transaction: {
     id: string
     date: string
@@ -183,7 +189,7 @@ export interface SplitWithContext extends Split {
     amount: number
     currency: Currency
     category_id: string | null
-  }
+  } | null
 }
 
 /** Lo que le debe una persona, agrupado. */
@@ -192,15 +198,7 @@ export interface PersonDebt {
   open_usd: number
   /** Días desde el gasto más viejo sin saldar. `null` si no debe nada. */
   oldest_days: number | null
-  splits: SplitWithContext[]
-}
-
-/** Un reparto reciente, para el "Repetir reparto" del quick-add. */
-export interface RecentSplit {
-  label: string
-  people: Person[]
-  /** Si los montos eran todos iguales entre sí. */
-  even: boolean
+  debts: DebtWithContext[]
 }
 
 /* ─── Fijos / recurrentes (Sprint 3) ───────────────────────────────────────
@@ -280,8 +278,7 @@ export interface SharedSummary {
   cobrado_mes_usd: number
   condonado_mes_usd: number
   por_persona: PersonDebt[]
-  historial: SplitWithContext[]
-  repartos_recientes: RecentSplit[]
+  historial: DebtWithContext[]
 }
 
 export interface TransactionInput {
@@ -296,7 +293,7 @@ export interface TransactionInput {
   /** Solo lo setea el server. El cliente nunca manda `flow_type`. */
   flow_type?: FlowType
   /** Reparto entre personas. Solo válido en `gasto`. */
-  splits?: SplitInput[]
+  splits?: DebtInput[]
 }
 
 /** Las 14 categorías que siembra POST /api/finanzas/seed. */

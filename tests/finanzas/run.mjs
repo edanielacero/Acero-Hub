@@ -26,11 +26,23 @@ const suites = ['unit', 'db', 'api'].filter(s => !only || s === only)
 // para importarla desde los tests sin agregar dependencias al proyecto.
 console.log('Compilando lib/finanzas…')
 rmSync(fin, { recursive: true, force: true })
+// Se compila con `--rootDir lib` y después se aplana. Sin `--rootDir`, tsc
+// deduce el directorio raíz común de las entradas: basta con que UN archivo
+// importe algo de `lib/` —hoy `snapshot.ts` con `../session-claims`— para que
+// todo se anide bajo `.fin/finanzas/` y los imports de las suites dejen de
+// resolver, con el compilador terminando en verde. El error aparecía recién al
+// correr los tests y no decía por qué.
+const entradas = readdirSync(join(ROOT, 'lib/finanzas')).map(f => join('lib/finanzas', f))
 execFileSync('npx', [
-  'tsc', ...readdirSync(join(ROOT, 'lib/finanzas')).map(f => join('lib/finanzas', f)),
-  '--ignoreConfig', '--outDir', fin, '--module', 'esnext',
+  'tsc', ...entradas, 'lib/session-claims.ts',
+  '--ignoreConfig', '--outDir', fin, '--rootDir', 'lib', '--module', 'esnext',
   '--target', 'es2022', '--moduleResolution', 'bundler', '--skipLibCheck',
 ], { cwd: ROOT, stdio: 'inherit' })
+
+// Aplanar: las suites importan './.fin/x.mjs', no './.fin/finanzas/x.mjs'.
+const anidado = join(fin, 'finanzas')
+for (const f of readdirSync(anidado)) renameSync(join(anidado, f), join(fin, f))
+rmSync(anidado, { recursive: true, force: true })
 
 // tsc emite .js con imports relativos sin extensión; Node ESM necesita ambas cosas.
 for (const f of readdirSync(fin).filter(f => f.endsWith('.js'))) {
@@ -38,7 +50,10 @@ for (const f of readdirSync(fin).filter(f => f.endsWith('.js'))) {
 }
 for (const f of readdirSync(fin).filter(f => f.endsWith('.mjs'))) {
   const p = join(fin, f)
-  writeFileSync(p, readFileSync(p, 'utf8').replace(/from '\.\/([a-z]+)'/g, "from './$1.mjs'"))
+  writeFileSync(p, readFileSync(p, 'utf8')
+    .replace(/from '\.\/([a-z-]+)'/g, "from './$1.mjs'")
+    // `../session-claims` quedó al lado después de aplanar.
+    .replace(/from '\.\.\/([a-z-]+)'/g, "from './$1.mjs'"))
 }
 
 let failed = 0

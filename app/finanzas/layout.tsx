@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { AccessGate } from '@/components/AccessGate'
 import { Shell } from './components/shell'
 import './theme.css'
 
@@ -17,13 +18,15 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 }
 
-// El gate vive en proxy.ts, contra los permisos firmados en el token. Este
+// El gate vive en <AccessGate>, contra los permisos firmados en el token. Este
 // layout no toca la base a propósito: en cuanto lo hiciera, la ruta pasaría a
 // dinámica y cada navegación costaría un viaje al servidor.
 export default function FinanzasLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="fz-root">
-      <Shell>{children}</Shell>
+      <AccessGate project="finanzas">
+        <Shell>{children}</Shell>
+      </AccessGate>
     </div>
   )
 }

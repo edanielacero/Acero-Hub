@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { loadRecurring } from '@/lib/finanzas/load'
+import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import { resolvePeople } from '@/lib/finanzas/people'
 import type { Frequency, RecurringInput } from '@/lib/finanzas/types'
 
@@ -79,6 +80,15 @@ export async function POST(request: Request) {
     .from('fin_accounts').select('id').eq('user_id', userId).eq('id', input.account_id!).maybeSingle()
   if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
 
+  // El reparto se valida ANTES de crear nada: si no, un nombre repetido creaba
+  // la plantilla, fallaba al insertar las partes y había que compensar.
+  const splitsPre = readTemplateSplits(body.splits) ?? []
+  const conocidas = splitsPre.length > 0
+    ? (await supabase.from('fin_people').select('id, name').eq('user_id', userId)).data ?? []
+    : []
+  const splitCheck = validateTemplateSplits(splitsPre, conocidas)
+  if (!splitCheck.ok) return NextResponse.json({ error: splitCheck.error }, { status: 400 })
+
   const { data, error } = await supabase
     .from('fin_recurring')
     .insert({ user_id: userId, ...input })
@@ -87,7 +97,7 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  const splits = readTemplateSplits(body.splits) ?? []
+  const splits = splitsPre
   if (splits.length > 0) {
     const { resolved, error: peopleError } = await resolvePeople(
       supabase, userId,

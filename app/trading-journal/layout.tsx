@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import { AccessGate } from '@/components/AccessGate'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -19,11 +20,11 @@ export const metadata: Metadata = {
 const ACCENT = 'blue'
 const MODE = 'dark'
 
-// El gate vive en proxy.ts. Sin consultas acá, la ruta se sirve estática.
+// El gate vive en <AccessGate>. Sin consultas acá, la ruta se sirve estática.
 export default function TradingLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="tj-root" data-accent={ACCENT} data-mode={MODE} className={`${inter.variable} font-[family-name:var(--font-tj)] min-h-screen`}>
-      {children}
+      <AccessGate project="trading-journal">{children}</AccessGate>
     </div>
   )
 }

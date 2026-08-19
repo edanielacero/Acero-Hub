@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { AccessGate } from '@/components/AccessGate'
 import { MockDataProvider } from './components/mock-store'
 
 export const metadata: Metadata = {
@@ -12,12 +13,14 @@ export const metadata: Metadata = {
 const ACCENT = 'blue'
 const MODE = 'dark'
 
-// El gate vive en proxy.ts. Este layout no toca la base para que la ruta pueda
-// servirse estática y navegar no cueste un viaje al servidor.
+// El gate vive en <AccessGate>. Este layout no toca la base para que la ruta
+// pueda servirse estática y navegar no cueste un viaje al servidor.
 export default function ExpandlogyLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="exp-root" data-accent={ACCENT} data-mode={MODE} className="min-h-screen">
-      <MockDataProvider>{children}</MockDataProvider>
+      <AccessGate project="expandlogy">
+        <MockDataProvider>{children}</MockDataProvider>
+      </AccessGate>
     </div>
   )
 }

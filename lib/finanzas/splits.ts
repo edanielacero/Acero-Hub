@@ -1,6 +1,5 @@
 import type {
-  Currency, Person, RecentSplit, Split, SplitInput, SplitState, SplitWithContext,
-  Transaction, TxType,
+  Currency, Debt, DebtInput, DebtState, DebtWithContext, Transaction, TxType,
 } from './types'
 import { round2, roundFor } from './money'
 import { decimalsFor } from './money'
@@ -62,14 +61,14 @@ export function myShare(amount: number, splits: { amount: number }[], currency: 
  * propósito: un enum guardado puede desincronizarse del hecho que describe,
  * dos punteros no.
  */
-export function splitState(split: Pick<Split, 'settled_tx_id' | 'waived_at'>): SplitState {
+export function debtState(split: Pick<Debt, 'settled_tx_id' | 'waived_at'>): DebtState {
   if (split.settled_tx_id) return 'cobrado'
   if (split.waived_at) return 'condonado'
   return 'pendiente'
 }
 
-export function isOpen(split: Pick<Split, 'settled_tx_id' | 'waived_at'>): boolean {
-  return splitState(split) === 'pendiente'
+export function isOpen(split: Pick<Debt, 'settled_tx_id' | 'waived_at'>): boolean {
+  return debtState(split) === 'pendiente'
 }
 
 /**
@@ -81,7 +80,7 @@ export function isOpen(split: Pick<Split, 'settled_tx_id' | 'waived_at'>): boole
  * y "cuánto es realmente mío" quedaría mal por la diferencia. La parte de un
  * gasto tiene que estar congelada con la misma foto que el gasto.
  */
-export function freezeSplitUsd(amount: number, parentExchangeRate: number): number {
+export function freezeDebtUsd(amount: number, parentExchangeRate: number): number {
   return round2(amount * parentExchangeRate)
 }
 
@@ -94,8 +93,8 @@ export function normalizeName(name: string): string {
  * Valida un reparto contra su gasto. Misma jerarquía que `validateInput`: la
  * base es la última línea de defensa, acá el mensaje se puede leer.
  */
-export function validateSplits(
-  splits: SplitInput[] | undefined | null,
+export function validateDebts(
+  splits: DebtInput[] | undefined | null,
   type: TxType,
   amount: number,
   currency: Currency,
@@ -204,7 +203,7 @@ export function repartidoUsd(txs: Transaction[]): number {
   return round2(
     txs
       .filter(t => t.type === 'gasto' && t.flow_type !== 'movimiento')
-      .flatMap(t => t.splits ?? [])
+      .flatMap(t => t.debts ?? [])
       .filter(s => !s.waived_at)
       .reduce((s, x) => s + x.amount_usd, 0),
   )
@@ -219,7 +218,7 @@ export function gastoRealUsd(txs: Transaction[]): number {
  * Lo que te deben, sin filtrar por mes: es un saldo acumulado, no un flujo.
  * Una deuda de marzo sigue siendo una deuda en agosto.
  */
-export function porCobrarUsd(splits: Pick<Split, 'settled_tx_id' | 'waived_at' | 'amount_usd'>[]): number {
+export function porCobrarUsd(splits: Pick<Debt, 'settled_tx_id' | 'waived_at' | 'amount_usd'>[]): number {
   return round2(splits.filter(isOpen).reduce((s, x) => s + x.amount_usd, 0))
 }
 
@@ -235,9 +234,9 @@ export function daysBetween(fromISO: string, toISO: string): number {
 /* ─── Agrupado para la pantalla de Compartidos ─────────────────────────────── */
 
 /** Agrupa las deudas abiertas por persona, de la que más debe a la que menos. */
-export function groupByPerson(splits: SplitWithContext[], todayISO: string) {
-  const map = new Map<string, SplitWithContext[]>()
-  for (const s of splits) {
+export function groupByPerson(debts: DebtWithContext[], todayISO: string) {
+  const map = new Map<string, DebtWithContext[]>()
+  for (const s of debts) {
     const list = map.get(s.person_id)
     if (list) list.push(s)
     else map.set(s.person_id, [s])
@@ -245,52 +244,24 @@ export function groupByPerson(splits: SplitWithContext[], todayISO: string) {
 
   return [...map.values()]
     .map(items => {
-      const sorted = [...items].sort((a, b) => (a.transaction.date < b.transaction.date ? -1 : 1))
-      const oldest = sorted[0]?.transaction.date
+      const sorted = [...items].sort((a, b) => (a.incurred_on < b.incurred_on ? -1 : 1))
+      const oldest = sorted[0]?.incurred_on
       return {
         person: sorted[0].person,
         open_usd: round2(sorted.reduce((s, x) => s + x.amount_usd, 0)),
         oldest_days: oldest ? daysBetween(oldest, todayISO) : null,
-        splits: sorted,
+        debts: sorted,
       }
     })
     .sort((a, b) => b.open_usd - a.open_usd)
 }
 
 /**
- * Los últimos repartos distintos, para el "Repetir reparto" del quick-add.
+ * Cómo se llama una deuda en pantalla.
  *
- * Es el sustituto barato de las plantillas del Sprint 8: para Spotify y
- * TradingView — los dos casos reales de hoy — resuelve el problema con un tap
- * y cero tablas nuevas. Se deriva de los gastos que la pantalla ya trajo.
+ * Si vino de un gasto, la describe el gasto. Si es suelta, el concepto que
+ * escribió el usuario — que por eso es obligatorio en ese caso.
  */
-export function recentSplits(
-  txs: (Transaction & { splits?: Split[] })[],
-  peopleById: Map<string, Person>,
-  limit = 3,
-): RecentSplit[] {
-  const out: RecentSplit[] = []
-  const seen = new Set<string>()
-
-  for (const tx of txs) {
-    const splits = tx.splits ?? []
-    if (splits.length === 0) continue
-
-    const ids = splits.map(s => s.person_id).sort()
-    const key = ids.join('|')
-    if (seen.has(key)) continue
-
-    const people = ids.map(id => peopleById.get(id)).filter((p): p is Person => Boolean(p))
-    if (people.length !== ids.length) continue
-
-    seen.add(key)
-    out.push({
-      label: tx.description?.trim() || 'Sin descripción',
-      people,
-      even: new Set(splits.map(s => roundFor(s.amount, tx.currency))).size === 1,
-    })
-    if (out.length >= limit) break
-  }
-
-  return out
+export function debtLabel(d: Pick<DebtWithContext, 'concept' | 'transaction'>): string {
+  return d.transaction?.description?.trim() || d.concept?.trim() || 'Sin descripción'
 }

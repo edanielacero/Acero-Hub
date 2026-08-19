@@ -23,7 +23,7 @@ export default function MovimientosPage() {
   const [type, setType] = useState<TypeFilter>('todos')
   const [accountId, setAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
-  const [soloCompartidos, setSoloCompartidos] = useState(false)
+  const [soloConDeuda, setSoloCompartidos] = useState(false)
 
   const range = useMemo(() => {
     const [y, m] = month.split('-').map(Number)
@@ -37,7 +37,7 @@ export default function MovimientosPage() {
     type: type === 'todos' ? undefined : type,
     account_id: accountId || undefined,
     category_id: categoryId || undefined,
-    shared: soloCompartidos ? '1' : undefined,
+    shared: soloConDeuda ? '1' : undefined,
   })
 
   const txs = data.transactions
@@ -92,15 +92,15 @@ export default function MovimientosPage() {
           <button
             type="button"
             onClick={() => setSoloCompartidos(v => !v)}
-            aria-pressed={soloCompartidos}
+            aria-pressed={soloConDeuda}
             className={`mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold transition-colors ${
-              soloCompartidos
+              soloConDeuda
                 ? 'bg-[var(--fz-accent)] text-white'
                 : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
             }`}
           >
             <IconUsersGroup size={15} stroke={2} />
-            Solo compartidos
+            Con deuda
           </button>
 
           <div className="grid grid-cols-2 gap-3 mt-4">

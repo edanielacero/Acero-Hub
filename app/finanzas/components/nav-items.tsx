@@ -1,5 +1,5 @@
 import {
-  IconCoin, IconCoinFilled, IconHome2, IconHome2Filled,
+  IconCoin, IconCoinFilled, IconDots, IconDotsFilled, IconHome2, IconHome2Filled,
   IconReceipt, IconReceiptFilled, IconSettings, IconSettingsFilled,
   IconUsersGroup, IconRepeat,
 } from '@tabler/icons-react'
@@ -9,28 +9,67 @@ export interface NavItem {
   label: string
   exact?: boolean
   /**
-   * Si aparece en la tab bar. La tab bar son 4 pestañas + el FAB central: una
-   * quinta baja los targets de 44px y descentra el botón de acción. Compartidos
-   * vive en la sidebar y se llega desde la Home, que en móvil es donde
-   * naturalmente lo buscás.
+   * Si ocupa una de las 4 ranuras de la tab bar. Son 4 y no más porque la
+   * quinta baja los targets de 44px y descentra el botón de acción del medio.
+   * Todo lo que no lleva `tab` cae automáticamente en "Más": agregar una
+   * sección nueva a NAV_ITEMS es lo único que hace falta para que aparezca ahí.
    */
-  mobile: boolean
+  tab?: boolean
+  /** Bajada de la card en /finanzas/mas. La tab bar solo muestra el label. */
+  description?: string
   Icon: typeof IconHome2
   IconActive: typeof IconHome2
 }
 
+/** Todos los destinos reales, en el orden de la sidebar de escritorio. */
 export const NAV_ITEMS: NavItem[] = [
-  { href: '/finanzas',              label: 'Inicio',       exact: true, mobile: true,  Icon: IconHome2,      IconActive: IconHome2Filled },
-  { href: '/finanzas/movimientos',  label: 'Movimientos',               mobile: true,  Icon: IconReceipt,    IconActive: IconReceiptFilled },
-  { href: '/finanzas/fijos',        label: 'Fijos',                     mobile: false, Icon: IconRepeat,     IconActive: IconRepeat },
-  { href: '/finanzas/compartidos',  label: 'Compartidos',               mobile: false, Icon: IconUsersGroup, IconActive: IconUsersGroup },
-  { href: '/finanzas/cuentas',      label: 'Cuentas',                   mobile: true,  Icon: IconCoin,       IconActive: IconCoinFilled },
-  { href: '/finanzas/ajustes',      label: 'Ajustes',                   mobile: true,  Icon: IconSettings,   IconActive: IconSettingsFilled },
+  { href: '/finanzas',              label: 'Inicio',       exact: true, tab: true, Icon: IconHome2,   IconActive: IconHome2Filled },
+  { href: '/finanzas/movimientos',  label: 'Movimientos',               tab: true, Icon: IconReceipt, IconActive: IconReceiptFilled },
+  {
+    href: '/finanzas/fijos', label: 'Fijos',
+    description: 'Lo que pagás todos los meses',
+    Icon: IconRepeat, IconActive: IconRepeat,
+  },
+  {
+    href: '/finanzas/deudas', label: 'Deudas',
+    description: 'Lo que te deben, venga de donde venga',
+    Icon: IconUsersGroup, IconActive: IconUsersGroup,
+  },
+  { href: '/finanzas/cuentas',      label: 'Cuentas',                   tab: true, Icon: IconCoin,    IconActive: IconCoinFilled },
+  {
+    href: '/finanzas/ajustes', label: 'Ajustes',
+    description: 'Tasas de cambio, categorías y personas',
+    Icon: IconSettings, IconActive: IconSettingsFilled,
+  },
 ]
 
-/** Los 4 destinos de la tab bar, en orden. */
-export const TAB_ITEMS: NavItem[] = NAV_ITEMS.filter(i => i.mobile)
+/**
+ * "Más" no es una sección: es la puerta a las que no entran en la tab bar.
+ * Por eso vive fuera de NAV_ITEMS — en escritorio la sidebar lista los
+ * destinos reales y este ítem no tiene nada que hacer ahí.
+ */
+export const MORE_ITEM: NavItem = {
+  href: '/finanzas/mas', label: 'Más',
+  Icon: IconDots, IconActive: IconDotsFilled,
+}
+
+/** Lo que se muestra como cards dentro de /finanzas/mas. */
+export const MORE_ITEMS: NavItem[] = NAV_ITEMS.filter(i => !i.tab)
+
+/** Los 4 destinos de la tab bar, en orden. El (+) parte el array en dos y dos. */
+export const TAB_ITEMS: NavItem[] = [...NAV_ITEMS.filter(i => i.tab), MORE_ITEM]
 
 export function isActive(pathname: string, href: string, exact?: boolean): boolean {
   return exact ? pathname === href : pathname.startsWith(href)
+}
+
+/**
+ * Qué pestaña se pinta activa. Estando en Fijos, Deudas o Ajustes ninguna
+ * de las 4 coincide con la URL, pero la barra no puede quedarse sin pestaña
+ * activa: en ese caso el pill va a "Más", que es de donde saliste.
+ */
+export function activeTabHref(pathname: string): string | undefined {
+  const direct = TAB_ITEMS.find(t => isActive(pathname, t.href, t.exact))
+  if (direct) return direct.href
+  return MORE_ITEMS.some(i => isActive(pathname, i.href, i.exact)) ? MORE_ITEM.href : undefined
 }

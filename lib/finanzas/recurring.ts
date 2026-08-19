@@ -1,5 +1,5 @@
 import type { Currency, Person, RecurringSplit, Recurring, RecurringStatus, RecurringWithState } from './types'
-import { evenSplit } from './splits'
+import { evenSplit, normalizeName } from './splits'
 import { roundFor } from './money'
 
 /** Último día del mes, para no proponer un 31 de febrero. */
@@ -114,6 +114,58 @@ export function resolveSplits(
   const out = fijos.map(s => ({ person_id: s.person_id, amount: roundFor(s.amount!, currency) }))
   parejos.forEach((s, i) => out.push({ person_id: s.person_id, amount: shares[i] ?? 0 }))
   return out.filter(s => s.amount > 0)
+}
+
+
+/**
+ * Valida el reparto por defecto de una plantilla.
+ *
+ * A diferencia del de un movimiento, acá `amount` puede ser `null` — eso es una
+ * parte pareja. Lo que no puede es ser cero o negativo, ni repetir persona.
+ *
+ * Existe porque sin esto los dos errores llegaban a la base y volvían como
+ * `duplicate key value violates unique constraint "fin_recurring_splits_..."`,
+ * que no le dice nada a nadie.
+ */
+export function validateTemplateSplits(
+  splits: { person_id?: string; person_name?: string; amount?: number | null }[] | undefined | null,
+  knownPeople?: { id: string; name: string }[],
+): { ok: boolean; error?: string } {
+  if (!splits || splits.length === 0) return { ok: true }
+
+  const nameById = new Map((knownPeople ?? []).map(p => [p.id, normalizeName(p.name)] as const))
+  const seenIds = new Set<string>()
+  const seenNames = new Set<string>()
+
+  for (const s of splits) {
+    const id = s.person_id?.trim()
+    const name = s.person_name?.trim()
+
+    if (!id && !name) return { ok: false, error: 'Cada parte necesita una persona' }
+
+    if (id) {
+      if (seenIds.has(id)) return { ok: false, error: 'Una persona no puede aparecer dos veces en el reparto' }
+      seenIds.add(id)
+    }
+    // La clave por nombre cruza los dos caminos: una fila con el id de Ana y
+    // otra con `person_name: "ana"` son la misma persona.
+    const key = id ? nameById.get(id) : normalizeName(name!)
+    if (key) {
+      if (seenNames.has(key)) {
+        return { ok: false, error: `${name ?? 'Esa persona'} aparece dos veces en el reparto`.trim() }
+      }
+      seenNames.add(key)
+    }
+
+    // `null` es válido y significa pareja. Cero y negativo, no.
+    if (s.amount != null) {
+      if (!Number.isFinite(s.amount) || s.amount <= 0) {
+        return { ok: false, error: 'Una parte con monto tiene que ser mayor a cero' }
+      }
+    }
+  }
+
+  return { ok: true }
 }
 
 /** Pendientes y vencidos primero, después por fecha de vencimiento. */

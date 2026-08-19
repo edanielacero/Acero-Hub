@@ -8,8 +8,12 @@
 > Este documento especifica **únicamente el Sprint 2** — lo suficiente para
 > empezar a programar sin volver a decidir nada.
 >
-> Última actualización: 2026-08-18 · Estado: **construido**, 486 pruebas en verde
-> (§8), verificado en navegador real. Pendiente: probarlo en el iPhone (§8).
+> Última actualización: 2026-08-19 · Estado: **construido y corregido**.
+>
+> ⚠️ **Este documento describe el modelo original, que se corrigió el
+> 2026-08-19.** Lo que cambió está en §0.5 y manda sobre el resto del
+> documento: donde acá se lee "reparto de un gasto compartido", hoy se lee
+> "deuda", y donde se lee `fin_splits`, hoy es `fin_debts`.
 
 ---
 
@@ -26,6 +30,60 @@ especificar:
 | ¿Solo suscripciones o cualquier gasto? | **Cualquier gasto.** Marcar un gasto como compartido es una casilla en el quick-add. Spotify y TradingView son dos casos de uso, no el mecanismo |
 
 `contexto_finanzas.md` ya quedó actualizado con las tres (§4, §5 y §7).
+
+---
+
+## 0.5 Corrección del modelo · 2026-08-19
+
+Este sprint mezcló dos conceptos que en la vida real son distintos. El usuario
+lo señaló así:
+
+> *"Compartido no es tratado como deuda. Deuda es dinero que me deben por
+> cualquier situación. Compartido es que todos pagamos un servicio de forma
+> recurrente — Spotify es una responsabilidad de todos, recurrente. La deuda no
+> es recurrente, puede pasar de forma espontánea."*
+
+Tenía razón, y el error estaba en la base: `fin_splits.transaction_id` era
+**NOT NULL**. Una deuda no podía existir sin un gasto que la originara. Eso
+obligaba a inventar un gasto padre para deudas que no lo tienen — y era la razón
+por la que los $957 que le deben necesitaban un sprint entero aparte.
+
+### Qué cambió
+
+| Antes | Ahora |
+|---|---|
+| `fin_splits`, el reparto de un gasto | **`fin_debts`**, entidad de primera clase |
+| `transaction_id NOT NULL` | **Nullable**: una deuda puede no venir de ningún gasto |
+| Casilla "Es compartido" en el quick-add | **Eliminada.** Un gasto es un gasto |
+| Las deudas nacían al repartir un gasto | Nacen de **dos** formas: registrar un fijo compartido, o cargarlas a mano |
+| Pantalla "Compartidos" | Pantalla **"Deudas"** (`/finanzas/deudas`) |
+| `POST /transactions` con `splits` | El endpoint ya no sabe crear deudas. Hay **`POST /api/finanzas/debts`** |
+| Tipos `Split*` | Tipos `Debt*` |
+
+Columnas nuevas en `fin_debts`:
+
+- **`concept`** — de qué es. Obligatorio cuando no hay gasto padre; con gasto
+  padre, lo describe el gasto. Lo garantiza `fin_debt_origin_shape`.
+- **`incurred_on`** — la fecha canónica de la deuda. Con padre se hereda de él,
+  suelta la pone el usuario. Guardarla siempre evita ramificar cada vez que se
+  ordena una lista o se calcula una antigüedad.
+
+### Lo que NO cambió
+
+Un fijo compartido **sigue generando sus deudas al registrarse**, enlazadas al
+gasto. Ahí el vínculo sí existe, y es lo que sostiene el cálculo de gasto real
+(bruto − lo que le toca a otros). El margen (§4.3 del Sprint 3) también sigue
+vivo: se cobra por encima del costo desde el reparto del fijo.
+
+### Qué desbloquea
+
+**El sprint 3b "Dinero por cobrar" deja de existir como sprint.** Los $957 son
+una deuda más: persona, monto, concepto, fecha. Lo único que le falta a ese caso
+es el calendario de cuotas — no un modelo nuevo.
+
+⚠️ Sigue bloqueado por la pregunta #1 del contexto: si la última cuota es de $57
+o son 10 de $100. Eso hay que confirmarlo con el deudor.
+
 
 ---
 

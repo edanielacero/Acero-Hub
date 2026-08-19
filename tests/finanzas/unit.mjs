@@ -2,8 +2,8 @@ import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
-import { evenSplit, floorTo, myShare, shareBreakdown, splitState, isOpen, freezeSplitUsd, validateSplits, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
-import { periodOf, statusOf, resolveSplits, sortRecurring, progress } from './.fin/recurring.mjs'
+import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, validateDebts, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
+import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits } from './.fin/recurring.mjs'
 import { currentUserId, readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
@@ -408,9 +408,9 @@ eq('sin reparto, tuyo es todo', myShare(35, [], 'BOB'), 35)
 eq('reparto completo deja cero', myShare(10, [{ amount: 10 }], 'USD'), 0)
 
 section('SPRINT 2 · estado derivado de dos punteros')
-eq('sin nada → pendiente', splitState({ settled_tx_id: null, waived_at: null }), 'pendiente')
-eq('con movimiento → cobrado', splitState({ settled_tx_id: 'tx-1', waived_at: null }), 'cobrado')
-eq('con fecha de perdón → condonado', splitState({ settled_tx_id: null, waived_at: '2026-08-18' }), 'condonado')
+eq('sin nada → pendiente', debtState({ settled_tx_id: null, waived_at: null }), 'pendiente')
+eq('con movimiento → cobrado', debtState({ settled_tx_id: 'tx-1', waived_at: null }), 'cobrado')
+eq('con fecha de perdón → condonado', debtState({ settled_tx_id: null, waived_at: '2026-08-18' }), 'condonado')
 eq('solo el pendiente está abierto', [
   isOpen({ settled_tx_id: null, waived_at: null }),
   isOpen({ settled_tx_id: 'tx-1', waived_at: null }),
@@ -422,22 +422,22 @@ section('SPRINT 2 · la parte hereda la tasa CONGELADA del gasto padre')
   // Gasto de Bs 350 registrado a 6.96 → factor 0.14367816.
   const factor = freezeRate('BOB', R)
   eq('el gasto entero da $50.29', round2(350 * factor), 50.29)
-  eq('la parte de Ana (116.66) da $16.76', freezeSplitUsd(116.66, factor), 16.76)
+  eq('la parte de Ana (116.66) da $16.76', freezeDebtUsd(116.66, factor), 16.76)
 
   // Tres días después el dólar está a 7.50. La parte NO puede recalcularse.
   const hoy = freezeRate('BOB', { ...R, BOB: 7.5 })
-  ok('con la tasa de hoy daría otra cosa', freezeSplitUsd(116.66, hoy) !== 16.76,
-     `hoy daría ${freezeSplitUsd(116.66, hoy)}`)
-  eq('pero la congelada no se mueve', freezeSplitUsd(116.66, factor), 16.76)
+  ok('con la tasa de hoy daría otra cosa', freezeDebtUsd(116.66, hoy) !== 16.76,
+     `hoy daría ${freezeDebtUsd(116.66, hoy)}`)
+  eq('pero la congelada no se mueve', freezeDebtUsd(116.66, factor), 16.76)
 
   // Tu parte en USD NO se congela por separado: es el resto. Congelar las tres
   // por su cuenta daría 16.76 × 3 = 50.28 contra un gasto de 50.29, y ese
   // centavo tiene que caer en algún lado. Cae del lado del que pagó, igual que
   // en la división pareja en moneda nativa.
-  const ajenas = [116.66, 116.66].map(a => freezeSplitUsd(a, factor))
+  const ajenas = [116.66, 116.66].map(a => freezeDebtUsd(a, factor))
   eq('las dos partes ajenas suman $33.52', round2(ajenas[0] + ajenas[1]), 33.52)
   eq('tu parte en USD es el resto, y absorbe el centavo', round2(50.29 - 33.52), 16.77)
-  ok('congelarla aparte daría un centavo menos', freezeSplitUsd(116.68, factor) === 16.76)
+  ok('congelarla aparte daría un centavo menos', freezeDebtUsd(116.68, factor) === 16.76)
 
   // En moneda nativa no hay deriva: ahí sí cierra exacto.
   eq('en Bs el reparto cierra sin resto', round2(116.66 * 2 + 116.68), 350)
@@ -448,29 +448,29 @@ section('SPRINT 2 · validación del reparto')
   const ana = { person_id: 'p1', amount: 3 }
   const juan = { person_id: 'p2', amount: 3 }
 
-  eq('sin reparto es válido', validateSplits([], 'gasto', 11.99, 'USD').ok, true)
-  eq('undefined también', validateSplits(undefined, 'gasto', 11.99, 'USD').ok, true)
-  eq('reparto normal', validateSplits([ana, juan], 'gasto', 11.99, 'USD').ok, true)
-  eq('reparto que suma justo el total', validateSplits([{ person_id: 'p1', amount: 11.99 }], 'gasto', 11.99, 'USD').ok, true)
+  eq('sin reparto es válido', validateDebts([], 'gasto', 11.99, 'USD').ok, true)
+  eq('undefined también', validateDebts(undefined, 'gasto', 11.99, 'USD').ok, true)
+  eq('reparto normal', validateDebts([ana, juan], 'gasto', 11.99, 'USD').ok, true)
+  eq('reparto que suma justo el total', validateDebts([{ person_id: 'p1', amount: 11.99 }], 'gasto', 11.99, 'USD').ok, true)
 
-  eq('un ingreso no se reparte', validateSplits([ana], 'ingreso', 100, 'USD').ok, false)
-  eq('una transferencia tampoco', validateSplits([ana], 'transferencia', 100, 'USD').ok, false)
+  eq('un ingreso no se reparte', validateDebts([ana], 'ingreso', 100, 'USD').ok, false)
+  eq('una transferencia tampoco', validateDebts([ana], 'transferencia', 100, 'USD').ok, false)
 
   // Regla CAMBIADA en el Sprint 3: repartir por encima del gasto es válido.
   // Es cobrar un poco más y ganar la diferencia. Ver la sección del Sprint 3.
   eq('repartir más que el gasto ya no se rechaza',
-     validateSplits([{ person_id: 'p1', amount: 20 }], 'gasto', 11.99, 'USD').ok, true)
+     validateDebts([{ person_id: 'p1', amount: 20 }], 'gasto', 11.99, 'USD').ok, true)
 
-  eq('la misma persona dos veces', validateSplits([ana, { person_id: 'p1', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('el mismo nombre nuevo dos veces', validateSplits(
+  eq('la misma persona dos veces', validateDebts([ana, { person_id: 'p1', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('el mismo nombre nuevo dos veces', validateDebts(
     [{ person_name: 'Ana', amount: 2 }, { person_name: ' ana ', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte sin persona', validateSplits([{ amount: 3 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte en cero', validateSplits([{ person_id: 'p1', amount: 0 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte negativa', validateSplits([{ person_id: 'p1', amount: -3 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte sin persona', validateDebts([{ amount: 3 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte en cero', validateDebts([{ person_id: 'p1', amount: 0 }], 'gasto', 11.99, 'USD').ok, false)
+  eq('una parte negativa', validateDebts([{ person_id: 'p1', amount: -3 }], 'gasto', 11.99, 'USD').ok, false)
 
   // Tres partes de 116.66 + tu 116.68 suman 350 exacto; el ruido binario no
   // debe hacer fallar un reparto que en realidad cierra.
-  eq('tolera el ruido de coma flotante', validateSplits(
+  eq('tolera el ruido de coma flotante', validateDebts(
     [{ person_id: 'p1', amount: 116.66 }, { person_id: 'p2', amount: 116.66 }], 'gasto', 233.32, 'BOB').ok, true)
 }
 
@@ -480,10 +480,10 @@ eq('"ana" y "Ana" chocan', normalizeName('ana') === normalizeName('Ana'), true)
 
 section('SPRINT 2 · flow_type separa consumo de movimiento')
 {
-  const gastoNormal = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, splits: [] }
-  const sueldo = { type: 'ingreso', flow_type: 'consumo', amount_usd: 900, splits: [] }
-  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 8.99, splits: [] }
-  const transfer = { type: 'transferencia', flow_type: 'movimiento', amount_usd: 100, splits: [] }
+  const gastoNormal = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, debts: [] }
+  const sueldo = { type: 'ingreso', flow_type: 'consumo', amount_usd: 900, debts: [] }
+  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 8.99, debts: [] }
+  const transfer = { type: 'transferencia', flow_type: 'movimiento', amount_usd: 100, debts: [] }
 
   const todos = [gastoNormal, sueldo, reembolso, transfer]
   eq('un reembolso NO es ingreso del mes', ingresoUsd(todos), 900)
@@ -491,7 +491,7 @@ section('SPRINT 2 · flow_type separa consumo de movimiento')
 
   // Una fila sin flow_type — de antes de la migración — es consumo.
   eq('fila vieja sin flow_type cuenta como consumo',
-     ingresoUsd([{ type: 'ingreso', amount_usd: 100, splits: [] }]), 100)
+     ingresoUsd([{ type: 'ingreso', amount_usd: 100, debts: [] }]), 100)
 }
 
 section('SPRINT 2 · gasto bruto, repartido y real')
@@ -499,14 +499,14 @@ section('SPRINT 2 · gasto bruto, repartido y real')
   // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos condonado.
   const spotify = {
     type: 'gasto', flow_type: 'consumo', amount_usd: 11.99,
-    splits: [
+    debts: [
       { amount_usd: 2.99, settled_tx_id: 'tx-c', waived_at: null },  // cobrado
       { amount_usd: 2.99, settled_tx_id: null, waived_at: null },    // pendiente
       { amount_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // condonado
     ],
   }
-  const comida = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, splits: [] }
-  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 2.99, splits: [] }
+  const comida = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, debts: [] }
+  const reembolso = { type: 'ingreso', flow_type: 'movimiento', amount_usd: 2.99, debts: [] }
   const mes = [spotify, comida, reembolso]
 
   eq('bruto: lo que salió del bolsillo', gastoBrutoUsd(mes), 61.99)
@@ -514,7 +514,7 @@ section('SPRINT 2 · gasto bruto, repartido y real')
   eq('gasto real', gastoRealUsd(mes), 56.01)
 
   // Condonar es hacerse cargo: sin el condonado, el real bajaría a 53.02.
-  const sinCondonar = [{ ...spotify, splits: spotify.splits.map(s => ({ ...s, waived_at: null })) }, comida, reembolso]
+  const sinCondonar = [{ ...spotify, debts: spotify.debts.map(s => ({ ...s, waived_at: null })) }, comida, reembolso]
   eq('si nada estuviera condonado, el real es menor', gastoRealUsd(sinCondonar), 53.02)
   ok('condonar SUBE el gasto real', gastoRealUsd(mes) > gastoRealUsd(sinCondonar))
 }
@@ -542,8 +542,10 @@ eq('un año entero', daysBetween('2025-08-18', '2026-08-18'), 365)
 
 section('SPRINT 2 · agrupado por persona')
 {
+  // `incurred_on` es la fecha canónica: con gasto padre se hereda de él, y
+  // suelta la pone el usuario. Ordenar y envejecer usan esa, no la del gasto.
   const mk = (id, person, usd, date) => ({
-    id, person_id: person, amount_usd: usd,
+    id, person_id: person, amount_usd: usd, incurred_on: date, concept: null,
     person: { id: person, name: person, emoji: null, archived: false },
     transaction: { id: 't' + id, date, description: 'x', amount: usd, currency: 'USD', category_id: null },
     settled_tx_id: null, waived_at: null, amount: usd, currency: 'USD', transaction_id: 't' + id, note: null,
@@ -560,7 +562,14 @@ section('SPRINT 2 · agrupado por persona')
   eq('Ana suma sus dos deudas', g[1].open_usd, 5.5)
   eq('y la antigüedad es la de la más vieja', g[1].oldest_days, 48)
   eq('las deudas de cada uno van de la más vieja a la más nueva',
-     g[1].splits.map(s => s.transaction.date), ['2026-07-01', '2026-08-05'])
+     g[1].debts.map(s => s.incurred_on), ['2026-07-01', '2026-08-05'])
+
+  // Una deuda SUELTA no tiene gasto padre. Antes esto era imposible de
+  // representar; es la corrección del modelo del 2026-08-19.
+  const suelta = { ...mk('4', 'Ana', 20, '2026-06-01'), transaction: null, transaction_id: null, concept: 'Le presté efectivo' }
+  const conSueltas = groupByPerson([mk('1', 'Ana', 3, '2026-08-05'), suelta], '2026-08-18')
+  eq('agrupa deudas sin gasto padre', conSueltas[0].open_usd, 23)
+  eq('y envejece por la fecha de la deuda', conSueltas[0].oldest_days, 78)
 }
 
 /* ─── Snapshot del dispositivo ──────────────────────────────────────────────
@@ -667,7 +676,7 @@ eq('y no toca las otras preferencias', almacen.get('fz:hidden'), '1')
 section('SPRINT 3 · repartir de más o de menos es una decisión, no un error')
 {
   // Spotify cuesta 11.99 y les cobrás 4.50 a cada uno: ganás 1.51.
-  const cobrandoDeMas = validateSplits(
+  const cobrandoDeMas = validateDebts(
     [{ person_id: 'a', amount: 4.5 }, { person_id: 'b', amount: 4.5 }, { person_id: 'c', amount: 4.5 }],
     'gasto', 11.99, 'USD')
   eq('cobrar por encima del costo es válido', cobrandoDeMas.ok, true)
@@ -686,20 +695,20 @@ section('SPRINT 3 · repartir de más o de menos es una decisión, no un error')
   eq('y se nombra distinto', justo.kind, 'exacto')
 
   // Lo que SIGUE siendo inválido.
-  eq('una parte en cero', validateSplits([{ person_id: 'a', amount: 0 }], 'gasto', 10, 'USD').ok, false)
-  eq('una parte negativa', validateSplits([{ person_id: 'a', amount: -3 }], 'gasto', 10, 'USD').ok, false)
-  eq('repartir un ingreso', validateSplits([{ person_id: 'a', amount: 3 }], 'ingreso', 10, 'USD').ok, false)
+  eq('una parte en cero', validateDebts([{ person_id: 'a', amount: 0 }], 'gasto', 10, 'USD').ok, false)
+  eq('una parte negativa', validateDebts([{ person_id: 'a', amount: -3 }], 'gasto', 10, 'USD').ok, false)
+  eq('repartir un ingreso', validateDebts([{ person_id: 'a', amount: 3 }], 'ingreso', 10, 'USD').ok, false)
 }
 
 section('SPRINT 3 · la misma persona por id Y por nombre')
 {
   const conocidas = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Juan' }]
-  const choca = validateSplits(
+  const choca = validateDebts(
     [{ person_id: 'p1', amount: 2 }, { person_name: 'ana', amount: 3 }],
     'gasto', 11.99, 'USD', conocidas)
   eq('se detecta antes de llegar a la base', choca.ok, false)
 
-  eq('dos personas distintas siguen valiendo', validateSplits(
+  eq('dos personas distintas siguen valiendo', validateDebts(
     [{ person_id: 'p1', amount: 2 }, { person_name: 'Carlos', amount: 3 }],
     'gasto', 11.99, 'USD', conocidas).ok, true)
 }
@@ -790,6 +799,37 @@ section('SPRINT 3 · orden y progreso de la lista')
 
   eq('el progreso ignora los pausados', progress(orden), { done: 1, total: 4, pending: 3 })
   eq('sin fijos no divide por cero', progress([]), { done: 0, total: 0, pending: 0 })
+}
+
+section('SPRINT 3 · validación del reparto de una plantilla')
+{
+  const conocidas = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Juan' }]
+
+  eq('sin reparto es válido', validateTemplateSplits([], conocidas).ok, true)
+  eq('undefined también', validateTemplateSplits(undefined, conocidas).ok, true)
+
+  // `null` es válido acá y significa "parte pareja" — es la diferencia con el
+  // reparto de un movimiento.
+  eq('una parte pareja (null) es válida',
+     validateTemplateSplits([{ person_id: 'p1', amount: null }], conocidas).ok, true)
+  eq('y una con monto también',
+     validateTemplateSplits([{ person_id: 'p1', amount: 4.5 }], conocidas).ok, true)
+
+  eq('cero no', validateTemplateSplits([{ person_id: 'p1', amount: 0 }], conocidas).ok, false)
+  eq('negativo tampoco', validateTemplateSplits([{ person_id: 'p1', amount: -3 }], conocidas).ok, false)
+
+  eq('la misma persona dos veces',
+     validateTemplateSplits([{ person_id: 'p1', amount: null }, { person_id: 'p1', amount: null }], conocidas).ok, false)
+
+  // El caso que antes solo detectaba la base, con un error ilegible.
+  const cruzado = validateTemplateSplits(
+    [{ person_id: 'p1', amount: null }, { person_name: 'ana', amount: null }], conocidas)
+  eq('por id Y por nombre son la misma persona', cruzado.ok, false)
+  ok('con un mensaje que se puede leer', !cruzado.error.includes('constraint'), cruzado.error)
+
+  eq('una parte sin persona', validateTemplateSplits([{ amount: 5 }], conocidas).ok, false)
+  eq('dos personas distintas sí',
+     validateTemplateSplits([{ person_id: 'p1', amount: null }, { person_name: 'Carlos', amount: null }], conocidas).ok, true)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { IconPlus } from '@tabler/icons-react'
-import { TAB_ITEMS, isActive } from './nav-items'
+import { TAB_ITEMS, activeTabHref } from './nav-items'
 import { useQuickAdd } from './quick-add-context'
 
 /**
@@ -19,7 +19,7 @@ export function TabBar() {
   const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const [pill, setPill] = useState<{ x: number; w: number; visible: boolean }>({ x: 0, w: 0, visible: false })
 
-  const activeHref = TAB_ITEMS.find(t => isActive(pathname, t.href, t.exact))?.href
+  const activeHref = activeTabHref(pathname)
 
   // Se mide en coordenadas de viewport con getBoundingClientRect(), no con
   // offsetLeft, para no depender de dónde cae el borde o el padding del

@@ -1,6 +1,7 @@
 import type { AccountWithBalance, Category, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from './types'
 import type { RateDetail } from './rates'
 import type { TxResult } from './load'
+import { readSessionClaims } from '../session-claims'
 
 /**
  * La última respuesta de /bootstrap, guardada en el dispositivo.
@@ -37,59 +38,10 @@ function keyFor(uid: string): string {
   return `${PREFIX}${VERSION}:${uid}`
 }
 
-/* ─── Identidad ────────────────────────────────────────────────────────────
-   El snapshot se guarda por usuario. Sin eso, dos cuentas en el mismo
-   navegador se verían el patrimonio de la otra durante el primer frame —
-   RLS protege los datos reales, pero no un caché mal llaveado. */
-
-function b64ToText(b64: string): string {
-  const norm = b64.replace(/-/g, '+').replace(/_/g, '/')
-  const bin = atob(norm.padEnd(Math.ceil(norm.length / 4) * 4, '='))
-  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
-  return new TextDecoder().decode(bytes)
-}
-
-/** `sb-<ref>-auth-token`, y sus trozos `.0`, `.1`… cuando no entra en una cookie. */
-const AUTH_COOKIE = /^sb-.+-auth-token(?:\.(\d+))?$/
-
-/**
- * El `sub` del JWT, leído de la cookie de sesión sin tocar la red.
- *
- * Tiene que ser síncrono: si hubiera que esperar a `getSession()`, el snapshot
- * llegaría después del primer frame y no habría servido de nada.
- *
- * La cookie se busca por forma y no por nombre exacto para no depender de tener
- * la URL del proyecto disponible en el bundle del navegador.
- */
+/** El `sub` de la sesión. Envuelve a readSessionClaims() para no cambiar a los
+    llamadores, que solo necesitan saber de quién es el snapshot. */
 export function currentUserId(): string | null {
-  try {
-    let entera = ''
-    const trozos: { i: number; v: string }[] = []
-
-    for (const cookie of document.cookie.split('; ')) {
-      const corte = cookie.indexOf('=')
-      if (corte < 0) continue
-
-      const match = AUTH_COOKIE.exec(cookie.slice(0, corte))
-      if (!match) continue
-
-      const valor = decodeURIComponent(cookie.slice(corte + 1))
-      if (match[1] === undefined) entera = valor
-      else trozos.push({ i: Number(match[1]), v: valor })
-    }
-
-    const raw = entera || trozos.sort((a, b) => a.i - b.i).map(t => t.v).join('')
-    if (!raw) return null
-
-    const json = raw.startsWith('base64-') ? b64ToText(raw.slice(7)) : raw
-    const token = JSON.parse(json)?.access_token
-    if (typeof token !== 'string') return null
-
-    const sub = JSON.parse(b64ToText(token.split('.')[1]))?.sub
-    return typeof sub === 'string' ? sub : null
-  } catch {
-    return null
-  }
+  return readSessionClaims()?.sub ?? null
 }
 
 /* ─── Lectura y escritura ──────────────────────────────────────────────────── */
