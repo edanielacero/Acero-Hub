@@ -998,6 +998,211 @@ async function run() {
       }
     }
 
+    section('SPRINT 4 · POST /debt-plans · no hay plan sin deuda primero')
+    let planManual, deudaManual
+    {
+      // Sin deuda, no hay nada que planificar.
+      deudaManual = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 250, currency: 'USD', concept: 'Préstamo en cuotas', incurred_on: '2026-08-05',
+      })}))).debt
+
+      const r = await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaManual.id, installments: 3, starts_on: '2026-09-05', mode: 'manual',
+        cuotas: [
+          { amount: 100, incurred_on: '2026-09-05' },
+          { amount: 100, incurred_on: '2026-10-05' },
+          { amount: 50, incurred_on: '2026-11-05' },
+        ],
+      })})
+      eq('crea el plan a partir de la deuda', r.status, 201)
+      planManual = (await json(r)).plan
+      eq('sin gasto padre en ninguna cuota', planManual.cuotas.every(c => c.transaction_id === null), true)
+      eq('la última cuota tiene el monto que se tipeó a mano', Number(planManual.cuotas[2].amount), 50)
+      eq('la suma da exactamente el capital de la deuda original',
+         round2(planManual.cuotas.reduce((s, c) => s + Number(c.amount), 0)), 250)
+
+      const original = await api(`/debts/${deudaManual.id}`, { method: 'PATCH', body: '{}' })
+      eq('la deuda original desaparece: la reemplazan sus cuotas', original.status, 404)
+    }
+
+    section('SPRINT 4 · POST /debt-plans · validación')
+    {
+      eq('sin debt_id → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        installments: 1, starts_on: '2026-09-05' }) })).status, 400)
+      eq('una deuda que no existe → 404', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: '00000000-0000-0000-0000-000000000009', installments: 1, starts_on: '2026-09-05' }) })).status, 404)
+
+      const deudaValidacion = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 100, currency: 'USD', concept: 'Para validar', incurred_on: '2026-08-05',
+      })}))).debt
+
+      eq('cero cuotas → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaValidacion.id, installments: 0, starts_on: '2026-09-05' }) })).status, 400)
+      eq('interés negativo → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaValidacion.id, installments: 1, starts_on: '2026-09-05', interest_rate: -1 }) })).status, 400)
+      eq('manual con menos cuotas de las prometidas → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaValidacion.id, installments: 3, starts_on: '2026-09-05',
+        mode: 'manual', cuotas: [{ amount: 50, incurred_on: '2026-09-05' }] }) })).status, 400)
+
+      // Una deuda que vino de un gasto compartido no es plannable: los planes
+      // son para deudas sueltas.
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'ConGasto', amount: 12, account_id: airtm.id, day_of_month: 9,
+        splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
+      const tx = (await json(await api(`/recurring/${t.id}/register`, {
+        method: 'POST', body: JSON.stringify({}) }))).transaction
+      eq('deuda de un gasto compartido → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: tx.debts[0].id, installments: 1, starts_on: '2026-09-05' }) })).status, 400)
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
+
+      // Una cuota que ya es de un plan no puede volver a planificarse.
+      const paraEncadenar = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 40, currency: 'USD', concept: 'Encadenada', incurred_on: '2026-08-05',
+      })}))).debt
+      const planCuota = await json(await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: paraEncadenar.id, installments: 1, starts_on: '2026-09-05', mode: 'iguales',
+      })}))
+      eq('una cuota de un plan no puede volver a planificarse → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: planCuota.plan.cuotas[0].id, installments: 1, starts_on: '2026-09-05' }) })).status, 400)
+      await api(`/debt-plans/${planCuota.plan.id}`, { method: 'DELETE' })
+
+      // Una deuda ya cerrada tampoco.
+      const paraCerrar = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 20, currency: 'USD', concept: 'Se cierra', incurred_on: '2026-08-05',
+      })}))).debt
+      await api('/debts/waive', { method: 'POST', body: JSON.stringify({ split_ids: [paraCerrar.id] }) })
+      eq('una deuda ya cerrada no se puede planificar → 400', (await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: paraCerrar.id, installments: 1, starts_on: '2026-09-05' }) })).status, 400)
+
+      await api(`/debts/${deudaValidacion.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 4 · POST /debt-plans · modo iguales, con y sin interés')
+    let planIguales
+    {
+      const deudaIguales = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 100, currency: 'USD', concept: 'Cien entre tres', incurred_on: '2026-08-05',
+      })}))).debt
+      const sinInteres = await json(await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaIguales.id, installments: 3, starts_on: '2026-09-01', mode: 'iguales',
+      })}))
+      planIguales = sinInteres.plan
+      eq('el resto del redondeo va a la última cuota',
+         planIguales.cuotas.map(c => Number(c.amount)), [33.33, 33.33, 33.34])
+
+      const deudaInteres = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 100, currency: 'USD', concept: 'Con interés', incurred_on: '2026-08-05',
+      })}))).debt
+      const conInteres = await json(await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaInteres.id, interest_rate: 10, installments: 2, starts_on: '2026-09-01', mode: 'iguales',
+      })}))
+      eq('10% de interés en 2 cuotas: $55 cada una',
+         conInteres.plan.cuotas.map(c => Number(c.amount)), [55, 55])
+      await api(`/debt-plans/${conInteres.plan.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 4 · GET /debt-plans refleja los rollups')
+    {
+      const lista = await json(await api('/debt-plans'))
+      const mio = lista.plans.find(p => p.id === planIguales.id)
+      eq('total_usd', mio.total_usd, 100)
+      eq('nada pagado todavía', mio.pagado_usd, 0)
+      eq('todo pendiente', mio.pendiente_usd, 100)
+      eq('no está cerrado', mio.cerrado, false)
+    }
+
+    section('SPRINT 4 · una cuota se cobra y se condona con los endpoints de Deudas — sin ningún cambio')
+    {
+      const cuota1 = planIguales.cuotas[0]
+      const settle = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [cuota1.id], account_id: airtm.id, amount: 33.33, date: '2026-09-01',
+      })})
+      eq('cobrar una cuota funciona igual que cualquier deuda', settle.status, 201)
+
+      const waive = await api('/debts/waive', { method: 'POST', body: JSON.stringify({
+        split_ids: [planIguales.cuotas[1].id],
+      })})
+      eq('condonar también', waive.status, 200)
+
+      const lista = await json(await api('/debt-plans'))
+      const mio = lista.plans.find(p => p.id === planIguales.id)
+      eq('pagado_usd sube', mio.pagado_usd, 33.33)
+      eq('perdonado_usd también', mio.perdonado_usd, 33.33)
+      eq('pendiente_usd baja a lo que queda', mio.pendiente_usd, 33.34)
+      eq('todavía no está cerrado: falta una cuota', mio.cerrado, false)
+    }
+
+    section('SPRINT 4 · la moneda de una cuota no se cambia — es la del plan')
+    {
+      const cuota = planIguales.cuotas[2]
+      const bloqueado = await api(`/debts/${cuota.id}`, { method: 'PATCH', body: JSON.stringify({ currency: 'BOB' }) })
+      eq('rechazado', bloqueado.status, 400)
+    }
+
+    section('SPRINT 4 · DELETE /debt-plans')
+    {
+      // Con cuotas cobradas o perdonadas: no se borra, hay que regenerar.
+      const conHistoria = await api(`/debt-plans/${planIguales.id}`, { method: 'DELETE' })
+      eq('409 si ya tiene cuotas cobradas o perdonadas', conHistoria.status, 409)
+
+      // Todo pendiente: se borra entero, plan y cuotas.
+      const deudaLimpia = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 30, currency: 'USD', concept: 'Para borrar', incurred_on: '2026-08-05',
+      })}))).debt
+      const limpio = await json(await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaLimpia.id, installments: 1, starts_on: '2026-09-01', mode: 'iguales',
+      })}))
+      const del = await api(`/debt-plans/${limpio.plan.id}`, { method: 'DELETE' })
+      eq('se borra si nada fue tocado', del.status, 200)
+      eq('y su cuota desaparece', (await api(`/debts/${limpio.plan.cuotas[0].id}`, { method: 'PATCH', body: '{}' })).status, 404)
+    }
+
+    section('SPRINT 4 · POST /debt-plans/[id]/regenerate')
+    {
+      const deudaRenegociada = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 90, currency: 'USD', concept: 'Renegociado', incurred_on: '2026-08-05',
+      })}))).debt
+      const original = await json(await api('/debt-plans', { method: 'POST', body: JSON.stringify({
+        debt_id: deudaRenegociada.id, installments: 3, starts_on: '2026-09-01', mode: 'iguales',
+      })}))
+      const p = original.plan
+
+      // Se cobra la primera: esa no se puede tocar al regenerar.
+      await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [p.cuotas[0].id], account_id: airtm.id, amount: 30, date: '2026-09-01',
+      })})
+
+      const regen = await api(`/debt-plans/${p.id}/regenerate`, { method: 'POST', body: JSON.stringify({
+        installments: 2, starts_on: '2026-10-01', mode: 'iguales',
+      })})
+      eq('regenera con el saldo pendiente como capital sugerido', regen.status, 200)
+
+      const lista = await json(await api('/debt-plans'))
+      const actualizado = lista.plans.find(x => x.id === p.id)
+      eq('la cuota cobrada sigue estando', actualizado.cuotas.some(c => c.id === p.cuotas[0].id && c.state === 'cobrado'), true)
+      eq('las 2 pendientes viejas ya no están',
+         actualizado.cuotas.some(c => c.id === p.cuotas[1].id || c.id === p.cuotas[2].id), false)
+      eq('ahora hay 3 cuotas en total: 1 vieja cobrada + 2 nuevas', actualizado.cuotas.length, 3)
+      eq('las nuevas suman el saldo restante (60)',
+         round2(actualizado.cuotas.filter(c => c.state === 'pendiente').reduce((s, c) => s + Number(c.amount), 0)), 60)
+
+      await api(`/debt-plans/${p.id}/regenerate`, { method: 'POST', body: JSON.stringify({}) })
+        .then(r => eq('regenerate sin body → 400 (falta installments/starts_on)', r.status, 400))
+    }
+
+    section('SPRINT 4 · autenticación de las rutas nuevas')
+    {
+      for (const [label, path, init] of [
+        ['GET /debt-plans', '/debt-plans', {}],
+        ['POST /debt-plans', '/debt-plans', { method: 'POST', body: '{}' }],
+        ['POST /debt-plans/[id]/regenerate', '/debt-plans/x/regenerate', { method: 'POST', body: '{}' }],
+      ]) {
+        const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
+        eq(`${label} sin cookie → 401`, r.status, 401)
+      }
+    }
+
     section('DELETE /transactions')
     await api(`/transactions/${gasto.id}`, { method: 'DELETE' })
     const final = await json(await api('/accounts'))

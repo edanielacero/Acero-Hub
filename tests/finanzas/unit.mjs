@@ -4,6 +4,7 @@ import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gast
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods } from './.fin/recurring.mjs'
+import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
 import { currentUserId, readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
@@ -828,6 +829,75 @@ section('SPRINT 3 · los programados no cuentan en el progreso')
   eq('2 de 3, y el programado afuera',
      progress([mk('1', 'registrado'), mk('2', 'registrado'), mk('3', 'vencido'), mk('4', 'programado')]),
      { done: 2, total: 3, pending: 1 })
+}
+
+section('SPRINT 4 · fin_debt_plans — interés y reparto de cuotas')
+{
+  eq('sin interés, el total es el capital tal cual', planTotal(100, null, 'USD'), 100)
+  eq('interés en cero también es "solo capital"', planTotal(100, 0, 'USD'), 100)
+  eq('10% simple sobre 100 da 110', planTotal(100, 10, 'USD'), 110)
+  eq('el interés es simple, no compuesto: una sola vez sobre el capital', planTotal(957, 5, 'USD'), 1004.85)
+
+  eq('100 entre 3 cuotas iguales: el resto va a la ÚLTIMA',
+     equalInstallments(100, 3, 'USD'), [33.33, 33.33, 33.34])
+  eq('la suma nunca se pasa del total', equalInstallments(100, 3, 'USD').reduce((s, n) => s + n, 0), 100)
+  eq('957 entre 10 (los $957 reales, sin interés)',
+     equalInstallments(planTotal(957, null, 'USD'), 10, 'USD'),
+     [95.7, 95.7, 95.7, 95.7, 95.7, 95.7, 95.7, 95.7, 95.7, 95.7])
+  eq('110 entre 2 cuotas iguales de un plan con 10% de interés',
+     equalInstallments(planTotal(100, 10, 'USD'), 2, 'USD'), [55, 55])
+  eq('una sola cuota es el total entero', equalInstallments(250, 1, 'USD'), [250])
+  eq('sin capital no hay cuotas', equalInstallments(0, 3, 'USD'), [])
+}
+
+section('SPRINT 4 · fechas de cada cuota')
+{
+  eq('mensual: enero 31 → febrero 28 (no hay 31 en febrero)',
+     installmentDate('2026-01-31', 'mensual', 1), '2026-02-28')
+  eq('mensual: enero 31 → marzo 31 (marzo sí tiene 31)',
+     installmentDate('2026-01-31', 'mensual', 2), '2026-03-31')
+  eq('mensual: cuota 0 es la fecha de arranque', installmentDate('2026-09-05', 'mensual', 0), '2026-09-05')
+  eq('mensual cruza de año', installmentDate('2026-11-15', 'mensual', 3), '2027-02-15')
+
+  eq('quincenal suma 15 días por cuota', installmentDate('2026-08-05', 'quincenal', 1), '2026-08-20')
+  eq('quincenal cruza de mes', installmentDate('2026-08-20', 'quincenal', 1), '2026-09-04')
+
+  eq('semanal suma 7 días por cuota', installmentDate('2026-08-05', 'semanal', 1), '2026-08-12')
+  eq('semanal cuota 0', installmentDate('2026-08-05', 'semanal', 0), '2026-08-05')
+}
+
+section('SPRINT 4 · generateEqualPlan — el calendario completo')
+{
+  const plan = generateEqualPlan(957, null, 10, 'mensual', '2026-09-05', 'USD')
+  eq('genera 10 cuotas', plan.length, 10)
+  eq('suman exactamente el capital (sin interés)',
+     Math.round(plan.reduce((s, c) => s + c.amount, 0) * 100) / 100, 957)
+  eq('la primera cuota vence en la fecha de arranque', plan[0].incurred_on, '2026-09-05')
+  eq('la segunda un mes después', plan[1].incurred_on, '2026-10-05')
+
+  const conInteres = generateEqualPlan(100, 10, 2, 'mensual', '2026-09-01', 'USD')
+  eq('con interés, cada cuota ya lo incluye', conInteres.map(c => c.amount), [55, 55])
+}
+
+section('SPRINT 4 · plan cerrado y sus totales — derivados, nunca guardados')
+{
+  const cuota = (state, amount_usd) => ({
+    amount_usd,
+    state,
+    settled_tx_id: state === 'cobrado' ? 'tx-1' : null,
+    waived_at: state === 'perdonado' ? '2026-08-18' : null,
+  })
+
+  eq('todas cobradas o perdonadas: cerrado', planCerrado([cuota('cobrado', 100), cuota('perdonado', 57)]), true)
+  eq('una sola pendiente alcanza para no estar cerrado',
+     planCerrado([cuota('cobrado', 100), cuota('pendiente', 57)]), false)
+  eq('sin cuotas no está "cerrado": no hay nada que cerrar', planCerrado([]), false)
+
+  const rollup = planRollup([cuota('cobrado', 100), cuota('pendiente', 300), cuota('perdonado', 57)])
+  eq('total_usd suma todo', rollup.total_usd, 457)
+  eq('pagado_usd solo lo cobrado', rollup.pagado_usd, 100)
+  eq('pendiente_usd solo lo pendiente', rollup.pendiente_usd, 300)
+  eq('perdonado_usd solo lo condonado', rollup.perdonado_usd, 57)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

@@ -14,12 +14,14 @@ import { IconArchive, IconGripVertical, IconPencil, IconPlus, IconTrash, IconX }
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
 import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
+import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CurrencyIcon } from '../components/currency-icon'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
+import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, Label, Panel, RowMenu, SectionTitle, TextField } from '../components/ui'
+import { Btn, ErrorNote, formatDayLabel, Label, Panel, RowMenu, SectionTitle, TextField } from '../components/ui'
 
 interface Draft {
   id?: string
@@ -42,6 +44,7 @@ export function CuentasScreen() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [viewing, setViewing] = useState<AccountWithBalance | null>(null)
   const [deleting, setDeleting] = useState<AccountWithBalance | null>(null)
   const [confirming, setConfirming] = useState(false)
 
@@ -167,6 +170,17 @@ export function CuentasScreen() {
     setDeleting(null)
   }
 
+  function openEdit(a: AccountWithBalance) {
+    setError('')
+    setDraft({
+      id: a.id,
+      name: a.name,
+      currency: a.currency,
+      initial_balance: String(a.initial_balance),
+      initial_balance_date: a.initial_balance_date,
+    })
+  }
+
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
       <PageHeader
@@ -290,16 +304,8 @@ export function CuentasScreen() {
                       key={a.id}
                       account={a}
                       hidden={hidden}
-                      onEdit={() => {
-                        setError('')
-                        setDraft({
-                          id: a.id,
-                          name: a.name,
-                          currency: a.currency,
-                          initial_balance: String(a.initial_balance),
-                          initial_balance_date: a.initial_balance_date,
-                        })
-                      }}
+                      onView={() => setViewing(a)}
+                      onEdit={() => openEdit(a)}
                       onArchive={() => patch(a.id, { archived: true })}
                       onDelete={() => setDeleting(a)}
                     />
@@ -344,6 +350,35 @@ export function CuentasScreen() {
         )}
       </div>
 
+      <DetailSheet
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title="Cuenta"
+        onEdit={() => { const a = viewing!; setViewing(null); openEdit(a) }}
+        onDelete={() => { const a = viewing!; setViewing(null); setDeleting(a) }}
+      >
+        {viewing && (
+          <>
+            <DeletePreview
+              icon={<CurrencyIcon currency={viewing.currency} size={40} />}
+              title={viewing.name}
+              subtitle={CURRENCY_META[viewing.currency].name}
+              amount={hidden ? HIDDEN : formatAmount(viewing.balance, viewing.currency)}
+            />
+            <div>
+              <DetailField
+                label="Saldo inicial"
+                value={hidden ? HIDDEN : formatAmount(viewing.initial_balance, viewing.currency)}
+              />
+              <DetailField label="Desde" value={formatDayLabel(viewing.initial_balance_date, todayISO())} />
+              {viewing.currency !== 'USD' && (
+                <DetailField label="≈ USD" value={hidden ? HIDDEN : formatUSD(viewing.balance_usd)} />
+              )}
+            </div>
+          </>
+        )}
+      </DetailSheet>
+
       <DeleteConfirmSheet
         open={!!deleting}
         onClose={() => setDeleting(null)}
@@ -364,9 +399,10 @@ export function CuentasScreen() {
   )
 }
 
-function AccountRow({ account, hidden, onEdit, onArchive, onDelete }: {
+function AccountRow({ account, hidden, onView, onEdit, onArchive, onDelete }: {
   account: AccountWithBalance
   hidden: boolean
+  onView: () => void
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
@@ -403,24 +439,30 @@ function AccountRow({ account, hidden, onEdit, onArchive, onDelete }: {
         <IconGripVertical size={16} stroke={1.8} />
       </button>
 
-      <CurrencyIcon currency={account.currency} size={36} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-semibold truncate">{account.name}</p>
-        <p className="text-[12px] text-[var(--fz-ink-3)]">
-          {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
-        </p>
-      </div>
-
-      <div className="text-right shrink-0">
-        <p className="text-[15px] font-semibold fz-num">
-          {hidden ? HIDDEN : formatAmount(account.balance, account.currency)}
-        </p>
-        {account.currency !== 'USD' && (
-          <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
-            {hidden ? '' : `≈ ${formatUSD(account.balance_usd)}`}
+      <button
+        type="button"
+        onClick={onView}
+        className="flex-1 min-w-0 flex items-center gap-2 min-[900px]:gap-3 py-1 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
+      >
+        <CurrencyIcon currency={account.currency} size={36} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold truncate">{account.name}</p>
+          <p className="text-[12px] text-[var(--fz-ink-3)]">
+            {CURRENCY_META[account.currency].name} · inicial {hidden ? HIDDEN : formatAmount(account.initial_balance, account.currency)}
           </p>
-        )}
-      </div>
+        </div>
+
+        <div className="text-right shrink-0">
+          <p className="text-[15px] font-semibold fz-num">
+            {hidden ? HIDDEN : formatAmount(account.balance, account.currency)}
+          </p>
+          {account.currency !== 'USD' && (
+            <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
+              {hidden ? '' : `≈ ${formatUSD(account.balance_usd)}`}
+            </p>
+          )}
+        </div>
+      </button>
 
       <RowMenu
         items={[

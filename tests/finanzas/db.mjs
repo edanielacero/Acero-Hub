@@ -555,6 +555,122 @@ async function run() {
     await as(`/fin_recurring?id=eq.${otro.id}`, { method: 'DELETE' })
   }
 
+  section('SPRINT 4 · fin_debt_plans')
+  let plan
+  {
+    const anon = await fetch(`${URL_}/rest/v1/fin_debt_plans?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve planes', anon, [])
+
+    plan = (await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'Deuda de Ana',
+      principal: 957, currency: 'USD', installments: 10,
+      frequency: 'mensual', starts_on: '2026-09-05',
+    }).then(r => r.json()))[0]
+    ok('crea un plan sin interés (interest_rate queda null)', !!plan?.id && plan.interest_rate === null)
+
+    const capitalCero = await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'X', principal: 0,
+      currency: 'USD', installments: 1, starts_on: '2026-09-05',
+    })
+    ok('rechaza capital en cero', capitalCero.status >= 400, `HTTP ${capitalCero.status}`)
+
+    const sinCuotas = await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'X', principal: 100,
+      currency: 'USD', installments: 0, starts_on: '2026-09-05',
+    })
+    ok('rechaza cero cuotas', sinCuotas.status >= 400, `HTTP ${sinCuotas.status}`)
+
+    const interesNegativo = await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'X', principal: 100,
+      currency: 'USD', installments: 1, starts_on: '2026-09-05', interest_rate: -5,
+    })
+    ok('rechaza interés negativo', interesNegativo.status >= 400, `HTTP ${interesNegativo.status}`)
+
+    const monedaMala = await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'X', principal: 100,
+      currency: 'EUR', installments: 1, starts_on: '2026-09-05',
+    })
+    ok('rechaza moneda fuera del enum', monedaMala.status >= 400, `HTTP ${monedaMala.status}`)
+
+    const frecuenciaMala = await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'X', principal: 100,
+      currency: 'USD', installments: 1, starts_on: '2026-09-05', frequency: 'diaria',
+    })
+    ok('rechaza frecuencia fuera del enum', frecuenciaMala.status >= 400, `HTTP ${frecuenciaMala.status}`)
+
+    const borrarPersona = await as(`/fin_people?id=eq.${ana.id}`, { method: 'DELETE' })
+    ok('on delete restrict protege a la persona con un plan', borrarPersona.status >= 400, `HTTP ${borrarPersona.status}`)
+  }
+
+  section('SPRINT 4 · fin_debts como cuota de un plan')
+  let cuota1, cuota2
+  {
+    cuota1 = (await post('fin_debts', {
+      user_id: USER_ID, transaction_id: null, person_id: ana.id,
+      amount: 100, currency: 'USD', amount_usd: 100, concept: 'Deuda de Ana · cuota 1/10',
+      incurred_on: '2026-09-05', plan_id: plan.id, plan_installment_no: 1,
+    }).then(r => r.json()))[0]
+    ok('crea una cuota enlazada al plan', !!cuota1?.id && cuota1.plan_id === plan.id)
+
+    cuota2 = (await post('fin_debts', {
+      user_id: USER_ID, transaction_id: null, person_id: ana.id,
+      amount: 100, currency: 'USD', amount_usd: 100, concept: 'Deuda de Ana · cuota 2/10',
+      incurred_on: '2026-10-05', plan_id: plan.id, plan_installment_no: 2,
+    }).then(r => r.json()))[0]
+    ok('y una segunda', !!cuota2?.id)
+
+    const numeroCero = await post('fin_debts', {
+      user_id: USER_ID, transaction_id: null, person_id: ana.id,
+      amount: 50, currency: 'USD', amount_usd: 50, concept: 'X',
+      incurred_on: '2026-09-05', plan_id: plan.id, plan_installment_no: 0,
+    })
+    ok('fin_debt_plan_shape rechaza un número de cuota en cero',
+       numeroCero.status >= 400, `HTTP ${numeroCero.status}`)
+
+    // Cobrar y condonar son los endpoints de Deudas SIN NINGÚN CAMBIO: una
+    // cuota es una fila de fin_debts como cualquier otra.
+    await as(`/fin_debts?id=eq.${cuota1.id}`, { method: 'PATCH', body: JSON.stringify({ waived_at: '2026-09-06' }) })
+    const perdonada = (await rows('fin_debts', `&id=eq.${cuota1.id}`))[0]
+    eq('una cuota se condona igual que cualquier deuda', perdonada.waived_at, '2026-09-06')
+
+    // Borrar el plan: on delete SET NULL en plan_id, y el fix de la migración
+    // 20260819050000 permite que plan_installment_no quede colgando sin que
+    // el propio SET NULL viole el constraint.
+    await as(`/fin_debt_plans?id=eq.${plan.id}`, { method: 'DELETE' })
+    const huerfana = (await rows('fin_debts', `&id=eq.${cuota2.id}`))[0]
+    eq('borrar el plan libera plan_id de sus cuotas', huerfana.plan_id, null)
+    eq('la cuota (historia real) sigue existiendo', huerfana.id, cuota2.id)
+    eq('el número de cuota queda colgando sin romper nada', Number(huerfana.plan_installment_no), 2)
+
+    await as(`/fin_debts?id=eq.${cuota1.id}`, { method: 'DELETE' })
+    await as(`/fin_debts?id=eq.${cuota2.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 4 · RLS de escritura sobre fin_debt_plans')
+  {
+    const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
+    const otroPlan = (await post('fin_debt_plans', {
+      user_id: USER_ID, person_id: ana.id, concept: 'Otro plan', principal: 50,
+      currency: 'USD', installments: 1, starts_on: '2026-09-05',
+    }).then(r => r.json()))[0]
+
+    const ins = await fetch(`${URL_}/rest/v1/fin_debt_plans`, {
+      method: 'POST', headers: noSession,
+      body: JSON.stringify({ user_id: USER_ID, person_id: ana.id, concept: 'Intruso', principal: 10, currency: 'USD', installments: 1, starts_on: '2026-09-05' }),
+    })
+    ok('sin sesión no puede insertar un plan', ins.status >= 400, `HTTP ${ins.status}`)
+
+    await fetch(`${URL_}/rest/v1/fin_debt_plans?id=eq.${otroPlan.id}`, {
+      method: 'PATCH', headers: noSession, body: JSON.stringify({ concept: 'Hackeado' }),
+    })
+    eq('ni modificarlo', (await rows('fin_debt_plans', `&id=eq.${otroPlan.id}`))[0].concept, 'Otro plan')
+
+    await fetch(`${URL_}/rest/v1/fin_debt_plans?id=eq.${otroPlan.id}`, { method: 'DELETE', headers: noSession })
+    eq('ni borrarlo', (await rows('fin_debt_plans', `&id=eq.${otroPlan.id}`)).length, 1)
+
+    await as(`/fin_debt_plans?id=eq.${otroPlan.id}`, { method: 'DELETE' })
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

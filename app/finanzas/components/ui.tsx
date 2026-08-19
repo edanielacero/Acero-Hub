@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { IconDotsVertical, type TablerIcon } from '@tabler/icons-react'
+import { IconCheck, IconChevronDown, IconDotsVertical, type TablerIcon } from '@tabler/icons-react'
 
 /* ─── Tinte de chip ────────────────────────────────────────────────────────
    Tres valores y no siete: 'neutral' es el único que usan categoría, persona
@@ -150,6 +150,96 @@ export function SelectField(props: React.SelectHTMLAttributes<HTMLSelectElement>
   )
 }
 
+/* ─── Filtro desplegable ───────────────────────────────────────────────────
+   Un `<select>` pelado abre el picker nativo del sistema operativo — en iOS,
+   una rueda que no tiene nada que ver con el resto de la app (feedback del
+   usuario: "su propia UI, no un selector del sistema operativo"). Mismo
+   patrón de popover que <RowMenu> (cierra solo, clic afuera o Escape), pero
+   con el valor elegido a la vista en vez de un ⋮. */
+
+export interface DropdownOption<T extends string> {
+  value: T
+  label: string
+}
+
+export function DropdownField<T extends string>({ label, value, options, onChange, placeholder }: {
+  /** Rótulo accesible del control — no se dibuja, es el `aria-label`. */
+  label: string
+  value: T
+  options: DropdownOption<T>[]
+  onChange: (v: T) => void
+  /** Qué mostrar cuando `value` no matchea ninguna opción (p. ej. "Todos"). */
+  placeholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const current = options.find(o => o.value === value)
+
+  return (
+    <div ref={ref} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`w-full h-12 min-w-0 px-3.5 rounded-[var(--fz-r-field)] border text-[14px] font-semibold flex items-center gap-1.5 transition-colors bg-[var(--fz-surface-sunk)] ${
+          open ? 'border-[var(--fz-accent)]' : 'border-[var(--fz-hairline)]'
+        } ${current ? 'text-[var(--fz-ink)]' : 'text-[var(--fz-ink-3)]'}`}
+      >
+        <span className="flex-1 min-w-0 truncate text-left">{current?.label ?? placeholder}</span>
+        <IconChevronDown
+          size={16} stroke={2}
+          className={`shrink-0 text-[var(--fz-ink-3)] transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="absolute left-0 top-full mt-1 z-10 w-full min-w-[172px] max-h-64 overflow-y-auto rounded-[var(--fz-r-field)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)] border border-[var(--fz-hairline)] py-1.5"
+        >
+          {options.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              className={`w-full flex items-center justify-between gap-2 px-3.5 h-10 text-[14px] font-medium text-left truncate transition-colors ${
+                o.value === value
+                  ? 'text-[var(--fz-accent)]'
+                  : 'text-[var(--fz-ink)] hover:bg-[var(--fz-surface-sunk)]'
+              }`}
+            >
+              <span className="truncate">{o.label}</span>
+              {o.value === value && <IconCheck size={16} stroke={2.4} className="shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── Campo de fecha ───────────────────────────────────────────────────────
    Un `input[type=date]` pelado obliga a abrir el picker y elegir el día aun
    cuando la respuesta es "hoy", que es lo que se contesta casi siempre al
@@ -215,7 +305,11 @@ function DayShortcut({ label, active, onClick }: {
 /* ─── Control segmentado ───────────────────────────────────────────────────── */
 
 export function Segmented<T extends string>({ options, value, onChange }: {
-  options: { value: T; label: string }[]
+  /** `icon` es opcional: úsalo cuando cada opción es su propia categoría
+      visual (Gasto/Ingreso/Transferir) y ayuda distinguirlas de un vistazo;
+      sin él el segmento se ve como antes (solo texto). El ícono hereda
+      `currentColor`, así que ya sale blanco cuando está seleccionado. */
+  options: { value: T; label: string; icon?: ReactNode }[]
   value: T
   onChange: (v: T) => void
 }) {
@@ -227,12 +321,13 @@ export function Segmented<T extends string>({ options, value, onChange }: {
           type="button"
           onClick={() => onChange(o.value)}
           aria-pressed={value === o.value}
-          className={`flex-1 h-9 rounded-[var(--fz-r-pill)] text-[13px] font-semibold transition-colors ${
+          className={`flex-1 h-9 inline-flex items-center justify-center gap-1.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold transition-colors ${
             value === o.value
               ? 'bg-[var(--fz-accent)] text-white'
               : 'text-[var(--fz-ink-2)] hover:text-[var(--fz-ink)]'
           }`}
         >
+          {o.icon}
           {o.label}
         </button>
       ))}
@@ -329,7 +424,10 @@ export function formatDayLabel(iso: string, todayISO: string): string {
    arriba a la derecha de la fila" signifique siempre lo mismo.
 
    Cierra solo (clic afuera o Escape): nada de un backdrop a pantalla completa
-   por un menú de dos o tres líneas. */
+   por un menú de dos o tres líneas.
+
+   Es el atajo directo para quien ya sabe qué quiere hacer; tocar la fila en
+   sí abre <DetailSheet> (detail-sheet.tsx) con el resumen primero. */
 
 export interface RowMenuItem {
   label: string

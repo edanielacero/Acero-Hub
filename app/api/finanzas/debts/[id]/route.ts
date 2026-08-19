@@ -34,13 +34,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const patch: Record<string, unknown> = {}
 
-  // Cambiar la moneda solo tiene sentido en una deuda suelta: si vino de un
-  // gasto, la moneda es la del gasto y cambiarla acá la desincronizaría.
+  // Cambiar la moneda solo tiene sentido en una deuda suelta que no viene de
+  // ningún lado: si vino de un gasto, la moneda es la del gasto; si es una
+  // cuota de un plan, es la del plan (Sprint 4 §4.5) — cambiarla acá
+  // desincronizaría a las dos de su origen.
   let currency = current.currency as Currency
   if (body.currency !== undefined && body.currency !== current.currency) {
     if (current.transaction_id) {
       return NextResponse.json(
         { error: 'Esta deuda vino de un gasto: la moneda se cambia en el gasto.' },
+        { status: 400 },
+      )
+    }
+    if (current.plan_id) {
+      return NextResponse.json(
+        { error: 'Esta cuota es de un plan: la moneda se cambia regenerando el plan.' },
         { status: 400 },
       )
     }

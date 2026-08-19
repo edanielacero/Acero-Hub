@@ -14,6 +14,8 @@
 export interface SessionClaims {
   sub: string
   role: string | null
+  /** Nombre completo cargado en el perfil, si lo hay. */
+  name: string | null
   /** Slugs de las mini-apps permitidas, firmados en el token. */
   projects: string[]
 }
@@ -73,6 +75,7 @@ export function readSessionClaims(): SessionClaims | null {
     return {
       sub: payload.sub,
       role: typeof meta.role === 'string' ? meta.role : null,
+      name: typeof meta.name === 'string' ? meta.name : null,
       projects: Array.isArray(meta.projects) ? meta.projects : [],
     }
   } catch {

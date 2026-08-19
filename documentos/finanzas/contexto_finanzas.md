@@ -228,7 +228,7 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
 | 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ Construido · modelo corregido el 19/8 |
 | 3 | **Fijos** (era la 8; incluye Recurrentes) | Spotify, TradingView, alquiler | ✅ Construido |
-| 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | 📝 Especificado en `sprint_4_planes_de_pago.md` |
+| 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | ✅ Construido |
 | 5 | Pasanaku | Los 300 Bs mensuales | — |
 | 6 | Presupuesto mensual | Requiere historial del 1 | — |
 | 7 | Reportes | Requiere 2–6 | — |

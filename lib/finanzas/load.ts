@@ -4,14 +4,16 @@ import { num, round2 } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
-import { DEBT_COLS, readDebts, settledOn } from './shared'
+import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type RawDebtRow } from './shared'
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
+import { planCerrado, planRollup } from './plans'
 import { monthRange, todayISO } from './transactions'
 import type {
   AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
-  RecurringWithState, SharedSummary, Debt, DebtWithContext, Transaction,
+  RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
+  DebtWithContext, Transaction,
 } from './types'
 
 /**
@@ -154,6 +156,64 @@ export async function loadShared(
   }
 }
 
+
+const DEBT_PLAN_COLS =
+  'id, person_id, concept, principal, currency, interest_rate, installments, frequency, starts_on, note'
+
+/**
+ * Los planes de pago con sus cuotas ya resueltas.
+ *
+ * Cada cuota es una fila de `fin_debts` con `plan_id`: se traen todas de una
+ * sola vez y se agrupan en memoria en vez de una consulta por plan — mismo
+ * criterio que `loadRecurring` con los movimientos de cada plantilla.
+ */
+export async function loadDebtPlans(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<DebtPlanWithCuotas[]> {
+  const [{ data: planRows }, { data: peopleRows }, { data: cuotaRows }] = await Promise.all([
+    supabase
+      .from('fin_debt_plans')
+      .select(DEBT_PLAN_COLS)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false }),
+    supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId),
+    supabase
+      .from('fin_debts')
+      .select(DEBT_CTX_COLS)
+      .eq('user_id', userId)
+      .not('plan_id', 'is', null)
+      .order('plan_installment_no'),
+  ])
+
+  const peopleById = new Map((peopleRows ?? []).map(p => [p.id, p as Person]))
+
+  const cuotasByPlan = new Map<string, DebtWithContext[]>()
+  for (const row of (cuotaRows ?? []) as unknown as RawDebtRow[]) {
+    const mapped = mapDebtContext(row)
+    const list = cuotasByPlan.get(row.plan_id!)
+    if (list) list.push(mapped)
+    else cuotasByPlan.set(row.plan_id!, [mapped])
+  }
+
+  return (planRows ?? []).map(r => {
+    const plan = {
+      ...(r as unknown as DebtPlan),
+      principal: num(r.principal),
+      interest_rate: r.interest_rate === null ? null : num(r.interest_rate),
+    }
+    const cuotas = (cuotasByPlan.get(plan.id) ?? [])
+      .sort((a, b) => (a.plan_installment_no ?? 0) - (b.plan_installment_no ?? 0))
+
+    return {
+      ...plan,
+      person: peopleById.get(plan.person_id) ?? { id: plan.person_id, name: '—', archived: false },
+      ...planRollup(cuotas),
+      cerrado: planCerrado(cuotas),
+      cuotas,
+    }
+  })
+}
 
 /* ─── Movimientos ──────────────────────────────────────────────────────────── */
 

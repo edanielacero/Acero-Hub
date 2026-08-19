@@ -42,8 +42,13 @@ export function DebtSheet({ editing, onClose, onSaved }: {
   const [removing, setRemoving] = useState(false)
 
   // Una deuda que vino de un gasto hereda de él la persona y la moneda: eso no
-  // se toca desde acá, se toca en el gasto.
+  // se toca desde acá, se toca en el gasto. Una cuota de un plan tampoco
+  // cambia de moneda sola — la moneda es la del plan (Sprint 4 §4.5) — y el
+  // server la rechaza igual; sin este chequeo el selector se mostraba
+  // editable y el error solo aparecía después de guardar.
   const desdeGasto = Boolean(editing?.transaction_id)
+  const esCuotaDePlan = Boolean(editing?.plan_id)
+  const monedaFija = desdeGasto || esCuotaDePlan
   const decimals = decimalsFor(currency)
 
   const hoy = todayISO()
@@ -143,6 +148,11 @@ export function DebtSheet({ editing, onClose, onSaved }: {
                   Vino de un gasto: la persona y la moneda se cambian ahí.
                 </p>
               )}
+              {esCuotaDePlan && (
+                <p className="text-[12px] text-[var(--fz-ink-3)] mt-1">
+                  Es una cuota de un plan: la moneda se cambia regenerando el plan.
+                </p>
+              )}
             </div>
           ) : (
             <div>
@@ -172,7 +182,7 @@ export function DebtSheet({ editing, onClose, onSaved }: {
               />
               {/* Al editar una suelta también: te equivocaste de moneda y no
                   tenés por qué borrar la deuda para corregirlo. */}
-              {!desdeGasto && (
+              {!monedaFija && (
                 <div className="fz-scroll-x flex gap-1.5 overflow-x-auto max-w-full">
                   {CURRENCIES.map(c => (
                     <button

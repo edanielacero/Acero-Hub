@@ -10,16 +10,16 @@ import type { Currency, Person, DebtWithContext } from './types'
  * claves foráneas seguir.
  */
 export const DEBT_CTX_COLS =
-  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, created_at,' +
+  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no, created_at,' +
   'person:fin_people!fin_debts_person_id_fkey(id,name,archived),' +
   'transaction:fin_transactions!fin_debts_transaction_id_fkey(id,date,description,amount,currency,category_id),' +
   'settled:fin_transactions!fin_debts_settled_tx_id_fkey(id,date)'
 
 /** Lo mismo, sin los embeds: para las rutas que solo escriben. */
 export const DEBT_COLS =
-  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on'
+  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no'
 
-interface RawDebtRow {
+export interface RawDebtRow {
   id: string
   transaction_id: string
   person_id: string
@@ -31,6 +31,8 @@ interface RawDebtRow {
   note: string | null
   concept: string | null
   incurred_on: string
+  plan_id: string | null
+  plan_installment_no: number | null
   created_at?: string
   person?: { id: string; name: string; archived: boolean } | null
   transaction?: {
@@ -61,6 +63,8 @@ export function mapDebtContext(row: RawDebtRow): DebtWithContext {
     // hereda de él, y suelta la pone el usuario. Guardarla siempre evita
     // ramificar cada vez que se calcula una antigüedad o se ordena una lista.
     incurred_on: row.incurred_on,
+    plan_id: row.plan_id,
+    plan_installment_no: row.plan_installment_no,
     state: debtState(row),
     person: (row.person ?? { id: row.person_id, name: '—', archived: false }) as Person,
     // `null` cuando la deuda no vino de ningún gasto: prestaste efectivo, te

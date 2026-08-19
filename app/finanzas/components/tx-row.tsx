@@ -5,11 +5,13 @@ import { IconArrowsExchange, IconPencil, IconReceiptRefund, IconTrash, IconUsers
 import type { AccountWithBalance, Category, Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { formatAmount } from '@/lib/finanzas/money'
+import { todayISO } from '@/lib/finanzas/transactions'
 import { SignedAmount } from './amount'
 import { CategoryIcon } from './category-icon'
 import { useFinanzas } from './data-context'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
-import { IconChip, RowMenu } from './ui'
+import { DetailField, DetailSheet } from './detail-sheet'
+import { formatDayLabel, IconChip, RowMenu } from './ui'
 
 export function PageHeader({ title, subtitle, action }: {
   title: ReactNode; subtitle?: ReactNode; action?: ReactNode
@@ -31,7 +33,8 @@ interface TxRowProps {
   tx: Transaction
   accounts: AccountWithBalance[]
   categories: Category[]
-  /** Abre la edición. También es lo que dispara "Editar" desde el menú de ⋮. */
+  /** Abre la edición: lo dispara "Editar" desde el ⋮ y desde el resumen que
+      abre el tap en la fila. */
   onClick?: () => void
 }
 
@@ -39,12 +42,14 @@ interface TxRowProps {
  * `[chip] título / subtítulo ........ monto [⋮]`
  * Una transferencia no tiene categoría, así que muestra el par origen → destino.
  *
- * El ⋮ da acceso directo a Eliminar sin pasar por el formulario de edición —
- * misma idea que en Cuentas: el borrado vive en la fila, no escondido adentro
- * de otra pantalla (feedback del usuario, "para todas las listas").
+ * Tocar la fila abre un resumen (<DetailSheet>) y no el formulario de edición
+ * directo — un toque no debería poder cambiar ni borrar nada por accidente
+ * (feedback del usuario: "para todas las listas"). El ⋮ sigue siendo el
+ * atajo directo a Editar/Eliminar para quien ya sabe lo que quiere hacer.
  */
 export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
-  const { reload } = useFinanzas()
+  const { reload, hidden } = useFinanzas()
+  const [showDetail, setShowDetail] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -92,7 +97,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
     <div className="w-full flex items-center gap-1 min-h-16">
       <button
         type="button"
-        onClick={onClick}
+        onClick={() => setShowDetail(true)}
         className="flex-1 min-w-0 flex items-center gap-3 py-2.5 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
       >
         {isTransfer ? (
@@ -129,7 +134,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
               {parte!.kind === 'ganas' ? 'ganás ' : 'tu parte '}
               {formatAmount(Math.abs(parte!.mine), tx.currency)}
             </span>
-          ) : tx.currency !== 'USD' ? (
+          ) : tx.currency !== 'USD' && !hidden ? (
             <span className="block text-[12px] text-[var(--fz-ink-3)] fz-num">
               ≈ ${tx.amount_usd.toFixed(2)}
             </span>
@@ -143,6 +148,42 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setConfirmDelete(true), danger: true },
         ]}
       />
+
+      <DetailSheet
+        open={showDetail}
+        onClose={() => setShowDetail(false)}
+        title={isTransfer ? 'Transferencia' : isReembolso ? 'Reembolso' : tx.type === 'ingreso' ? 'Ingreso' : 'Gasto'}
+        onEdit={onClick ? () => { setShowDetail(false); onClick() } : undefined}
+        onDelete={() => { setShowDetail(false); setConfirmDelete(true) }}
+      >
+        <DeletePreview
+          icon={
+            isTransfer
+              ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+              : isReembolso
+                ? <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
+                : <CategoryIcon slug={category?.icon} name={label} />
+          }
+          title={title}
+          subtitle={subtitle}
+          amount={<SignedAmount value={tx.amount} currency={tx.currency} type={tx.type} />}
+        />
+        <div>
+          <DetailField label="Fecha" value={formatDayLabel(tx.date, todayISO())} />
+          {!isTransfer && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
+          <DetailField label={isTransfer ? 'De' : 'Cuenta'} value={account?.name} />
+          {isTransfer && <DetailField label="A" value={toAccount?.name} />}
+          {tx.currency !== 'USD' && !hidden && (
+            <DetailField label="≈ USD" value={`$${tx.amount_usd.toFixed(2)}`} />
+          )}
+          {generoDeudas && (
+            <DetailField
+              label={parte!.kind === 'ganas' ? 'Ganás' : 'Tu parte'}
+              value={formatAmount(Math.abs(parte!.mine), tx.currency)}
+            />
+          )}
+        </div>
+      </DetailSheet>
 
       <DeleteConfirmSheet
         open={confirmDelete}

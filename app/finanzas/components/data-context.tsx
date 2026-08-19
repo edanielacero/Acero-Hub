@@ -4,12 +4,13 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect,
   useMemo, useRef, useState,
 } from 'react'
-import type { AccountWithBalance, Category, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
+import type { AccountWithBalance, Category, DebtPlanWithCuotas, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
 import type { RateDetail } from '@/lib/finanzas/rates'
 import type { TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
-import { clearSnapshots, currentUserId, readSnapshot, writeSnapshot, type Snapshot } from '@/lib/finanzas/snapshot'
+import { clearSnapshots, readSnapshot, writeSnapshot, type Snapshot } from '@/lib/finanzas/snapshot'
+import { readSessionClaims } from '@/lib/session-claims'
 import { createClient } from '@/lib/supabase'
 
 export type { TxResult }
@@ -32,6 +33,8 @@ interface FinanzasData {
   shared: SharedSummary
   /** Los fijos con su estado en el período vigente. */
   recurring: RecurringSummary
+  /** Los planes de pago con sus cuotas ya resueltas. */
+  plans: DebtPlanWithCuotas[]
   totalUsd: number
   /**
    * No hay **nada** que mostrar todavía. Quien lo consulta tiene que pintar un
@@ -55,6 +58,8 @@ interface FinanzasData {
   seed: number
   hidden: boolean
   toggleHidden: () => void
+  /** Nombre del usuario logueado, para saludos. Null hasta leer la sesión. */
+  userName: string | null
 }
 
 const Ctx = createContext<FinanzasData | null>(null)
@@ -120,6 +125,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [people, setPeople] = useState<PersonWithDebt[]>([])
   const [shared, setShared] = useState<SharedSummary>(EMPTY_SHARED)
   const [recurring, setRecurring] = useState<RecurringSummary>(EMPTY_RECURRING)
+  const [plans, setPlans] = useState<DebtPlanWithCuotas[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(true)
@@ -127,6 +133,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [version, setVersion] = useState(0)
   const [seed, setSeed] = useState(0)
   const [hidden, setHidden] = useState(false)
+  const [userName, setUserName] = useState<string | null>(null)
   const uid = useRef<string | null>(null)
   const firstLoad = useRef(true)
 
@@ -138,6 +145,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     setPeople(snap.people)
     setShared(snap.shared)
     setRecurring(snap.recurring ?? EMPTY_RECURRING)
+    setPlans(snap.plans ?? [])
     setTotal(snap.total_usd)
     for (const [key, data] of Object.entries(snap.tx)) {
       if (data) txCache.set(key, { v, data })
@@ -149,7 +157,10 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   useIsoLayoutEffect(() => {
     setHidden(window.localStorage.getItem(HIDDEN_KEY) === '1')
 
-    uid.current = currentUserId()
+    const claims = readSessionClaims()
+    uid.current = claims?.sub ?? null
+    setUserName(claims?.name ?? null)
+
     const snap = readSnapshot(uid.current)
     if (!snap) return
 
@@ -239,6 +250,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       people: data.people ?? [],
       shared: data.shared ?? EMPTY_SHARED,
       recurring: data.recurring ?? EMPTY_RECURRING,
+      plans: data.plans ?? [],
       tx,
     }
 
@@ -270,12 +282,12 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<FinanzasData>(
     () => ({
-      accounts, categories, rates, rateList, people, shared, recurring, totalUsd,
+      accounts, categories, rates, rateList, people, shared, recurring, plans, totalUsd,
       loading, stale: pending && !loading, pending, error,
-      reload, version, seed, hidden, toggleHidden,
+      reload, version, seed, hidden, toggleHidden, userName,
     }),
-    [accounts, categories, rates, rateList, people, shared, recurring, totalUsd,
-     loading, pending, error, reload, version, seed, hidden, toggleHidden],
+    [accounts, categories, rates, rateList, people, shared, recurring, plans, totalUsd,
+     loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

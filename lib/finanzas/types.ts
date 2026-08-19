@@ -172,6 +172,10 @@ export interface Debt {
   concept: string | null
   /** Cuándo nació la deuda. Del gasto padre, o puesta a mano si es suelta. */
   incurred_on: string
+  /** El plan de pago que la generó, si vino de uno (Sprint 4). */
+  plan_id: string | null
+  /** "Cuota 3 de 10". `null` cuando la deuda no es una cuota. */
+  plan_installment_no: number | null
 }
 
 export interface DebtInput {
@@ -289,6 +293,66 @@ export interface SharedSummary {
   perdonado_mes_usd: number
   por_persona: PersonDebt[]
   historial: DebtWithContext[]
+}
+
+/* ─── Planes de pago (Sprint 4) ─────────────────────────────────────────────
+
+   Un plan es una intención de cobro sobre UNA persona: capital, interés
+   opcional, N cuotas. Genera cuotas que son filas normales de `fin_debts` —
+   cobrar, condonar y deshacer usan los endpoints de Deudas tal cual. */
+
+export type PlanFrequency = 'semanal' | 'quincenal' | 'mensual'
+export const PLAN_FREQUENCIES: PlanFrequency[] = ['semanal', 'quincenal', 'mensual']
+
+/** Cómo se reparte el total entre las cuotas al crear o regenerar un plan. */
+export type PlanMode = 'iguales' | 'manual'
+
+export interface DebtPlan {
+  id: string
+  person_id: string
+  concept: string
+  principal: number
+  currency: Currency
+  /** `null` = solo capital, sin interés. */
+  interest_rate: number | null
+  installments: number
+  frequency: PlanFrequency
+  starts_on: string
+  note: string | null
+}
+
+/** Una cuota manual, tal como la tipea el usuario. */
+export interface PlanInstallmentDraft {
+  amount: number
+  incurred_on: string
+}
+
+export interface DebtPlanInput {
+  /** Uno de los dos. `person_name` crea la persona al vuelo. */
+  person_id?: string
+  person_name?: string
+  concept: string
+  principal: number
+  currency: Currency
+  interest_rate?: number | null
+  installments: number
+  frequency?: PlanFrequency
+  starts_on: string
+  mode: PlanMode
+  /** Solo cuando `mode = 'manual'`: una entrada por cuota. */
+  cuotas?: PlanInstallmentDraft[]
+}
+
+/** Un plan con sus cuotas ya resueltas, para la pantalla de Deudas. */
+export interface DebtPlanWithCuotas extends DebtPlan {
+  person: Person
+  total_usd: number
+  pagado_usd: number
+  pendiente_usd: number
+  perdonado_usd: number
+  /** Derivado: `true` cuando todas las cuotas están cobradas o perdonadas. */
+  cerrado: boolean
+  cuotas: DebtWithContext[]
 }
 
 export interface TransactionInput {

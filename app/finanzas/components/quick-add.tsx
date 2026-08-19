@@ -10,15 +10,19 @@ import { CurrencyIcon } from './currency-icon'
 import { CategoryGlyph, CategoryIcon } from './category-icon'
 import { SignedAmount } from './amount'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
+import { IconGasto, IconIngreso } from './flow-icon'
 import { useQuickAddApi } from './quick-add-context'
 import { Btn, DateField, ErrorNote, IconChip, Label, Segmented, TextArea, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
-const TYPE_OPTIONS: { value: TxType; label: string }[] = [
-  { value: 'gasto', label: 'Gasto' },
-  { value: 'ingreso', label: 'Ingreso' },
-  { value: 'transferencia', label: 'Transferir' },
+// Mismos íconos que los tres botones de acción rápida de la Home (§ home.tsx
+// <QuickAction>): el segmento de acá arriba es la misma elección, así que
+// tiene que reconocerse igual de un vistazo.
+const TYPE_OPTIONS: { value: TxType; label: string; icon: ReactNode }[] = [
+  { value: 'gasto', label: 'Gasto', icon: <IconGasto size={15} stroke={2.2} /> },
+  { value: 'ingreso', label: 'Ingreso', icon: <IconIngreso size={15} stroke={2.2} /> },
+  { value: 'transferencia', label: 'Transferir', icon: <IconArrowsExchange size={15} stroke={2.2} /> },
 ]
 
 const NEW_TITLES: Record<TxType, string> = {
@@ -333,11 +337,11 @@ export function QuickAdd() {
             <Label>{type === 'transferencia' ? 'Desde' : 'Cuenta'}</Label>
             <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
               {active.map(a => (
-                <ChipButton
+                <AccountCard
                   key={a.id}
+                  account={a}
                   selected={a.id === accountId}
                   onClick={() => setAccountId(a.id)}
-                  label={`${a.name} · ${a.currency}`}
                 />
               ))}
             </div>
@@ -349,11 +353,11 @@ export function QuickAdd() {
                 <Label>Hacia</Label>
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
                   {active.filter(a => a.id !== accountId).map(a => (
-                    <ChipButton
+                    <AccountCard
                       key={a.id}
+                      account={a}
                       selected={a.id === toAccountId}
                       onClick={() => setToAccountId(a.id)}
-                      label={`${a.name} · ${a.currency}`}
                     />
                   ))}
                 </div>
@@ -478,6 +482,39 @@ export function QuickAdd() {
         )}
       </DeleteConfirmSheet>
     </div>
+  )
+}
+
+/**
+ * Elegir cuenta es elegir "de dónde sale la plata" — un pill con solo el
+ * nombre no alcanza para eso, hace falta ver cuánto queda ahí antes de
+ * tocarlo (feedback del usuario). El card se queda chico a propósito: bandera
+ * + código de moneda arriba, nombre, disponible — nada que no haga falta
+ * para decidir entre dos cuentas.
+ */
+function AccountCard({ account, selected, onClick }: {
+  account: AccountWithBalance; selected: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`shrink-0 w-[132px] rounded-[var(--fz-r-tile)] p-3 text-left border transition-colors ${
+        selected
+          ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)]'
+          : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)]'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <CurrencyIcon currency={account.currency} size={24} />
+        <span className="text-[11px] font-bold text-[var(--fz-ink-3)] tracking-wide">{account.currency}</span>
+      </div>
+      <p className="mt-2 text-[13px] font-semibold truncate">{account.name}</p>
+      <p className="text-[12px] text-[var(--fz-ink-3)] fz-num truncate">
+        {formatAmount(account.balance, account.currency)}
+      </p>
+    </button>
   )
 }
 

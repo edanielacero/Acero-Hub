@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import {
-  IconArrowDownLeft, IconArrowsLeftRight, IconArrowUpRight, IconBuildingBank,
+  IconArrowsLeftRight, IconBuildingBank,
   IconChevronRight, IconNotes, IconRepeat, IconUsersGroup, IconWifiOff,
 } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
@@ -12,6 +12,7 @@ import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { CurrencyIcon } from '../components/currency-icon'
+import { IconGasto, IconIngreso } from '../components/flow-icon'
 import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, EmptyState, monthName, Panel, SectionTitle, Skeleton } from '../components/ui'
 import { FzLink, useFzRouter } from '../components/router'
@@ -23,8 +24,13 @@ function greeting(): string {
   return 'Buenas noches'
 }
 
+/** Solo el primero: en el título grande "Daniel Acero" no entra ni hace falta. */
+function firstName(name: string | null): string {
+  return name?.trim().split(/\s+/)[0] || 'Finanzas'
+}
+
 export function HomeScreen() {
-  const { accounts, categories, shared, recurring, totalUsd, rates, loading, stale, error, reload, hidden } = useFinanzas()
+  const { accounts, categories, shared, recurring, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
@@ -90,7 +96,7 @@ export function HomeScreen() {
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0" aria-busy={loading}>
       <PageHeader
-        title="Daniel"
+        title={firstName(userName)}
         subtitle={greeting()}
         action={<HideToggle />}
       />
@@ -149,9 +155,9 @@ export function HomeScreen() {
                 botón abre el sheet con el tipo ya fijado. Fila de 3 en
                 mobile; columna de 3 al lado del hero desde 900px. */}
             <div className="grid grid-cols-3 gap-2.5 min-[900px]:flex min-[900px]:flex-col min-[900px]:h-full">
-              <QuickAction label="Gasto" Icon={IconArrowUpRight} onClick={() => openQuickAdd('gasto')} />
-              <QuickAction label="Ingreso" Icon={IconArrowDownLeft} onClick={() => openQuickAdd('ingreso')} />
-              <QuickAction label="Transferir" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
+              <QuickAction label="Ingreso" Icon={IconIngreso} onClick={() => openQuickAdd('ingreso')} />
+              <QuickAction label="Gasto" Icon={IconGasto} onClick={() => openQuickAdd('gasto')} />
+              <QuickAction label="Mover" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
             </div>
           </div>
 
@@ -162,14 +168,14 @@ export function HomeScreen() {
           <div className="grid grid-cols-2 gap-3 min-[900px]:grid-cols-4">
             <StatTile
               tone="in"
-              icon={<IconArrowDownLeft size={18} stroke={2} />}
+              icon={<IconIngreso size={18} stroke={2} />}
               label={`Ingresos de ${monthName(now.getMonth())}`}
               value={ingresoMes}
               loading={mes.loading}
             />
             <StatTile
               tone="out"
-              icon={<IconArrowUpRight size={18} stroke={2} />}
+              icon={<IconGasto size={18} stroke={2} />}
               label={`Gastos de ${monthName(now.getMonth())}`}
               value={gastoMes}
               loading={mes.loading}

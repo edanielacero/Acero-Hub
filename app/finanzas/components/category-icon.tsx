@@ -4,7 +4,7 @@ import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconToolsKitchen2, IconCoffee, IconCar, IconGasStation, IconBus, IconBike,
   IconHome, IconBolt, IconDroplet, IconDeviceMobile, IconHeartbeat, IconDumbbell,
-  IconSparkles, IconMovie, IconMusic, IconBook2, IconShoppingBag, IconPaw,
+  IconBarbell, IconSparkles, IconMovie, IconMusic, IconBook2, IconShoppingBag, IconPaw,
   IconPlane, IconGift, IconTool, IconPackage, IconBriefcase, IconDeviceLaptop,
   IconChartBar, IconPigMoney, IconCoins, IconCreditCard, IconWallet, IconTag,
 } from '@tabler/icons-react'
@@ -33,6 +33,7 @@ export const CATEGORY_ICONS: Record<string, TablerIcon> = {
   suscripciones: IconDeviceMobile,
   salud: IconHeartbeat,
   deporte: IconDumbbell,
+  gym: IconBarbell,
   personal: IconSparkles,
   ocio: IconMovie,
   musica: IconMusic,

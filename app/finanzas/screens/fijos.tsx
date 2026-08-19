@@ -9,6 +9,7 @@ import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
+import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { RecurringSheet } from '../components/recurring-sheet'
 import { RegisterSheet } from '../components/register-sheet'
 import { PageHeader } from '../components/tx-row'
@@ -16,6 +17,7 @@ import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '.
 
 export function FijosScreen() {
   const { recurring, hidden, loading, reload } = useFinanzas()
+  const [viendo, setViendo] = useState<RecurringWithState | null>(null)
   const [editando, setEditando] = useState<RecurringWithState | null>(null)
   const [creando, setCreando] = useState(false)
   const [registrando, setRegistrando] = useState<RecurringWithState | null>(null)
@@ -110,6 +112,7 @@ export function FijosScreen() {
                   hidden={hidden}
                   hoy={hoy}
                   busy={busy === r.id}
+                  onView={() => setViendo(r)}
                   onRegister={() => setRegistrando(r)}
                   onEdit={() => setEditando(r)}
                   onTogglePause={() => togglePause(r)}
@@ -137,6 +140,53 @@ export function FijosScreen() {
         />
       )}
 
+      <DetailSheet
+        open={!!viendo}
+        onClose={() => setViendo(null)}
+        title="Fijo"
+        onEdit={() => { const r = viendo!; setViendo(null); setEditando(r) }}
+        onDelete={() => { const r = viendo!; setViendo(null); setEliminando(r) }}
+      >
+        {viendo && (
+          <>
+            <DeletePreview
+              icon={<CategoryIcon slug={viendo.icon} name={viendo.name} size={40} />}
+              title={viendo.name}
+              subtitle={viendo.frequency === 'anual' ? 'Cada año' : 'Cada mes'}
+              amount={hidden ? HIDDEN : formatAmount(viendo.amount, viendo.currency)}
+            />
+            <div>
+              <DetailField
+                label={viendo.status === 'programado' ? 'Arranca' : 'Vence'}
+                value={formatDayLabel(viendo.due, hoy)}
+              />
+              <DetailField
+                label="Estado"
+                value={
+                  !viendo.active ? 'Pausado'
+                    : viendo.status === 'registrado' ? 'Listo este período'
+                    : viendo.status === 'programado' ? 'Programado'
+                    : viendo.status === 'vencido' ? `Vencido hace ${viendo.days_late} días`
+                    : 'Pendiente'
+                }
+              />
+              {viendo.pending.length > 1 && (
+                <DetailField label="Meses sin registrar" value={viendo.pending.length} />
+              )}
+              {viendo.splits.length > 0 && (
+                <DetailField
+                  label="Compartido con"
+                  value={`${viendo.splits.length} ${viendo.splits.length === 1 ? 'persona' : 'personas'}`}
+                />
+              )}
+              {viendo.open_usd > 0 && (
+                <DetailField label="Te deben" value={hidden ? HIDDEN : formatUSD(viendo.open_usd)} />
+              )}
+            </div>
+          </>
+        )}
+      </DetailSheet>
+
       <DeleteConfirmSheet
         open={!!eliminando}
         onClose={() => setEliminando(null)}
@@ -157,11 +207,12 @@ export function FijosScreen() {
   )
 }
 
-function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause, onDelete }: {
+function Row({ r, hidden, hoy, busy, onView, onRegister, onEdit, onTogglePause, onDelete }: {
   r: RecurringWithState
   hidden: boolean
   hoy: string
   busy: boolean
+  onView: () => void
   onRegister: () => void
   onEdit: () => void
   onTogglePause: () => void
@@ -181,7 +232,7 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause, onDelete
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 py-3 ${r.active ? '' : 'opacity-50'}`}>
       <CategoryIcon slug={r.icon} name={r.name} />
 
-      <button type="button" onClick={onEdit} className="flex-1 min-w-[55%] text-left">
+      <button type="button" onClick={onView} className="flex-1 min-w-[55%] text-left">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="text-[15px] font-semibold truncate">{r.name}</span>
           {compartido && (
