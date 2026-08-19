@@ -1,16 +1,16 @@
 'use client'
 
 import { useMemo } from 'react'
-import Link from 'next/link'
 import { IconArrowDownLeft, IconArrowUpRight, IconChevronRight, IconPlus, IconRepeat, IconUsersGroup } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
-import { AmountUSD, HideToggle } from './components/amount'
-import { monthQuery, useFinanzas, useTransactions } from './components/data-context'
-import { useQuickAdd, useQuickEdit } from './components/quick-add-context'
-import { CurrencyIcon } from './components/currency-icon'
-import { PageHeader, TxRow } from './components/tx-row'
-import { Btn, EmptyState, monthName, Panel, SectionTitle, Skeleton } from './components/ui'
+import { AmountUSD, HideToggle } from '../components/amount'
+import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
+import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
+import { CurrencyIcon } from '../components/currency-icon'
+import { PageHeader, TxRow } from '../components/tx-row'
+import { Btn, EmptyState, monthName, Panel, SectionTitle, Skeleton } from '../components/ui'
+import { FzLink, useFzRouter } from '../components/router'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -19,10 +19,11 @@ function greeting(): string {
   return 'Buenas noches'
 }
 
-export default function HomePage() {
+export function HomeScreen() {
   const { accounts, categories, shared, recurring, totalUsd, loading, stale, error, reload, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
+  const { navigate } = useFzRouter()
 
   const now = useMemo(() => new Date(), [])
   const range = useMemo(() => monthRange(now), [now])
@@ -71,7 +72,7 @@ export default function HomePage() {
             emoji="🏦"
             title="Empezá por tus cuentas"
             description="Cargá dónde tenés tu plata hoy — efectivo, banco, broker, cripto. Sin cuentas, un movimiento no tiene de dónde salir."
-            action={<Btn onClick={() => { window.location.href = '/finanzas/cuentas' }}>Crear mi primera cuenta</Btn>}
+            action={<Btn onClick={() => navigate('/finanzas/cuentas')}>Crear mi primera cuenta</Btn>}
           />
         </Panel>
       </div>
@@ -147,7 +148,7 @@ export default function HomePage() {
           </div>
 
           {hayFijos && (
-            <Link
+            <FzLink
               href="/finanzas/fijos"
               className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
             >
@@ -177,11 +178,11 @@ export default function HomePage() {
                 </span>
               )}
               <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0" />
-            </Link>
+            </FzLink>
           )}
 
           {teDeben && (
-            <Link
+            <FzLink
               href="/finanzas/deudas"
               className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
             >
@@ -202,15 +203,15 @@ export default function HomePage() {
                 {shared.por_persona.length} {shared.por_persona.length === 1 ? 'persona' : 'personas'}
               </span>
               <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0" />
-            </Link>
+            </FzLink>
           )}
 
           <Panel>
             <SectionTitle
               action={
-                <Link href="/finanzas/movimientos" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+                <FzLink href="/finanzas/movimientos" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
                   Ver todos <IconChevronRight size={14} stroke={2} />
-                </Link>
+                </FzLink>
               }
             >
               Movimientos
@@ -240,9 +241,9 @@ export default function HomePage() {
         <Panel className="min-w-0 min-[1280px]:sticky min-[1280px]:top-5">
           <SectionTitle
             action={
-              <Link href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+              <FzLink href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
                 Ver todas <IconChevronRight size={14} stroke={2} />
-              </Link>
+              </FzLink>
             }
           >
             Cuentas

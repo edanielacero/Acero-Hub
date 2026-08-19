@@ -26,7 +26,7 @@ const emptyDraft = (): Draft => ({
   initial_balance_date: new Date().toISOString().slice(0, 10),
 })
 
-export default function CuentasPage() {
+export function CuentasScreen() {
   const { accounts, totalUsd, hidden, reload } = useFinanzas()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState('')

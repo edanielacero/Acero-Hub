@@ -1,11 +1,10 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { NAV_ITEMS, isActive } from './nav-items'
 import { CURRENCY_META } from '@/lib/finanzas/types'
 import { CurrencyIcon } from './currency-icon'
 import { useFinanzas } from './data-context'
+import { FzLink, useFzPath } from './router'
 
 /**
  * Sidebar del modo dashboard. Al pie va la tarjeta de tipo de cambio — el slot
@@ -23,7 +22,7 @@ import { useFinanzas } from './data-context'
  * scroll container (a diferencia de `hidden`), que sí rompería este sticky.
  */
 export function Sidebar() {
-  const pathname = usePathname()
+  const pathname = useFzPath()
   const { rates, rateList } = useFinanzas()
 
   // Solo las que se mueven: mostrar "1.00 USD por 1 USDT" no le sirve a nadie.
@@ -43,7 +42,7 @@ export function Sidebar() {
           const active = isActive(pathname, item.href, item.exact)
           const Glyph = active ? item.IconActive : item.Icon
           return (
-            <Link
+            <FzLink
               key={item.href}
               href={item.href}
               aria-current={active ? 'page' : undefined}
@@ -55,13 +54,13 @@ export function Sidebar() {
             >
               <Glyph size={20} stroke={1.8} />
               {item.label}
-            </Link>
+            </FzLink>
           )
         })}
       </nav>
 
       <div className="mt-auto pt-4 flex flex-col gap-3">
-        <Link
+        <FzLink
           href="/finanzas/ajustes"
           className="block rounded-[var(--fz-r-tile)] bg-[var(--fz-hero)] p-4 text-white hover:brightness-110 transition-[filter]"
         >
@@ -80,7 +79,7 @@ export function Sidebar() {
               </span>
             </span>
           ))}
-        </Link>
+        </FzLink>
       </div>
     </aside>
   )

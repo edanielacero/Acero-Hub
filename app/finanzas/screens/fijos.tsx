@@ -12,7 +12,7 @@ import { RegisterSheet } from '../components/register-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel, SectionTitle, tintFor } from '../components/ui'
 
-export default function FijosPage() {
+export function FijosScreen() {
   const { recurring, hidden, loading, reload } = useFinanzas()
   const [editando, setEditando] = useState<RecurringWithState | null>(null)
   const [creando, setCreando] = useState(false)

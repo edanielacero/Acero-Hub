@@ -1,12 +1,12 @@
 'use client'
 
-import Link from 'next/link'
 import { IconChevronRight } from '@tabler/icons-react'
 import { MORE_ITEMS, type NavItem } from '../components/nav-items'
 import { useFinanzas } from '../components/data-context'
 import { AmountUSD } from '../components/amount'
 import { PageHeader } from '../components/tx-row'
 import { IconChip, tintFor } from '../components/ui'
+import { FzLink } from '../components/router'
 
 /**
  * Índice de las secciones que no entran en la tab bar (§6: son 4 pestañas y el
@@ -17,7 +17,7 @@ import { IconChip, tintFor } from '../components/ui'
  * redundante pero válido — no se esconde: llegar por URL no debería dar 404
  * visual.
  */
-export default function MasPage() {
+export function MasScreen() {
   const { shared, recurring, loading } = useFinanzas()
 
   // El menú no es una lista muerta: los datos ya están en el contexto, así que
@@ -59,7 +59,7 @@ export default function MasPage() {
 function MoreCard({ item, meta }: { item: NavItem; meta?: React.ReactNode }) {
   const { Icon } = item
   return (
-    <Link
+    <FzLink
       href={item.href}
       className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 active:brightness-[0.97] hover:brightness-[0.99] transition-[filter]"
     >
@@ -80,6 +80,6 @@ function MoreCard({ item, meta }: { item: NavItem; meta?: React.ReactNode }) {
         )}
       </span>
       <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0 self-center" />
-    </Link>
+    </FzLink>
   )
 }

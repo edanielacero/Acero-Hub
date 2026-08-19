@@ -1,11 +1,10 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { IconPlus } from '@tabler/icons-react'
 import { TAB_ITEMS, activeTabHref } from './nav-items'
 import { useQuickAdd } from './quick-add-context'
+import { FzLink, useFzPath } from './router'
 
 /**
  * Tab bar de vidrio, a todo el ancho y anclada al borde inferior.
@@ -13,7 +12,7 @@ import { useQuickAdd } from './quick-add-context'
  * El (+) va al medio, partiendo los 4 items en dos y dos.
  */
 export function TabBar() {
-  const pathname = usePathname()
+  const pathname = useFzPath()
   const openQuickAdd = useQuickAdd()
   const navRef = useRef<HTMLElement | null>(null)
   const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
@@ -51,7 +50,7 @@ export function TabBar() {
     const active = item.href === activeHref
     const Glyph = active ? item.IconActive : item.Icon
     return (
-      <Link
+      <FzLink
         key={item.href}
         href={item.href}
         ref={el => { tabRefs.current[item.href] = el }}
@@ -60,7 +59,7 @@ export function TabBar() {
       >
         <Glyph size={22} stroke={1.8} />
         <span className="fz-tab-label">{item.label}</span>
-      </Link>
+      </FzLink>
     )
   }
 

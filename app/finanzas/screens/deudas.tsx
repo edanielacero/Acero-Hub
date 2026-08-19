@@ -13,7 +13,7 @@ import { SettleSheet } from '../components/settle-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel, SectionTitle, Skeleton, tintFor } from '../components/ui'
 
-export default function DeudasPage() {
+export function DeudasScreen() {
   const { shared, hidden, loading, reload } = useFinanzas()
   const [cobrando, setCobrando] = useState<PersonDebt | null>(null)
   const [creando, setCreando] = useState(false)

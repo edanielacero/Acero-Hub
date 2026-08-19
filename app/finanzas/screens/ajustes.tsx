@@ -21,7 +21,7 @@ function relativo(iso: string): string {
   return `hace ${Math.round(hs / 24)} d`
 }
 
-export default function AjustesPage() {
+export function AjustesScreen() {
   const { categories, people, rates, rateList, reload } = useFinanzas()
 
   const [draftRates, setDraftRates] = useState<Partial<Record<Currency, string>>>({})

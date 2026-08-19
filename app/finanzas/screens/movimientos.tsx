@@ -13,7 +13,7 @@ import { Btn, EmptyState, formatDayLabel, Panel, SelectField } from '../componen
 
 type TypeFilter = TxType | 'todos'
 
-export default function MovimientosPage() {
+export function MovimientosScreen() {
   const { accounts, categories, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
