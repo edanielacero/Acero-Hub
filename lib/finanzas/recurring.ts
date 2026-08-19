@@ -40,6 +40,49 @@ export function periodOf(
   }
 }
 
+
+/**
+ * Los períodos que faltan registrar, del más viejo al más nuevo.
+ *
+ * Un fijo puede arrancar antes de hoy — lo cargaste tarde y querés recuperar
+ * los meses que ya pasaron — o después, porque el servicio empieza el mes que
+ * viene. `starts_on` es lo que separa los dos casos, y esta función traduce eso
+ * a "qué te falta".
+ *
+ * El tope de 24 evita que un `starts_on` mal tipeado (2019) genere una lista
+ * infinita: si hace dos años que no registrás algo, el problema no es la lista.
+ */
+export function pendingPeriods(
+  r: Pick<Recurring, 'frequency' | 'day_of_month' | 'month_of_year' | 'starts_on'>,
+  registeredDates: string[],
+  todayISO: string,
+  max = 24,
+): string[] {
+  const out: string[] = []
+  const [sy, sm] = r.starts_on.split('-').map(Number)
+  const [ty, tm] = todayISO.split('-').map(Number)
+
+  if (r.frequency === 'anual') {
+    for (let y = sy; y <= ty && out.length < max; y++) {
+      const { from, to, due } = periodOf(r, `${y}-01-01`)
+      // Un período que todavía no llegó no está "pendiente": está por venir.
+      if (due > todayISO && y >= ty) break
+      if (!registeredDates.some(d => d >= from && d <= to)) out.push(due)
+    }
+    return out
+  }
+
+  let total = sy * 12 + (sm - 1)
+  const fin = ty * 12 + (tm - 1)
+  for (; total <= fin && out.length < max; total++) {
+    const y = Math.floor(total / 12)
+    const m = (total % 12) + 1
+    const { from, to, due } = periodOf(r, `${y}-${String(m).padStart(2, '0')}-01`)
+    if (!registeredDates.some(d => d >= from && d <= to)) out.push(due)
+  }
+  return out
+}
+
 /**
  * Estado de una plantilla en su período vigente.
  *
@@ -49,28 +92,38 @@ export function periodOf(
  * deudas del Sprint 2.
  */
 export function statusOf(
-  r: Pick<Recurring, 'frequency' | 'day_of_month' | 'month_of_year' | 'active'>,
+  r: Pick<Recurring, 'frequency' | 'day_of_month' | 'month_of_year' | 'active' | 'starts_on'>,
   registeredDates: string[],
   todayISO: string,
-): { status: RecurringStatus; due: string; days_late: number } {
-  const { from, to, due } = periodOf(r, todayISO)
+): { status: RecurringStatus; due: string; days_late: number; pending: string[] } {
+  const actual = periodOf(r, todayISO)
 
   // Pausado gana sobre registrado: en la lista, un fijo pausado que muestre
   // "Listo" se lee como activo y al día. Lo que le importa al usuario de un
   // pausado es que no se lo van a volver a pedir.
-  if (!r.active) return { status: 'pausado', due, days_late: 0 }
+  if (!r.active) return { status: 'pausado', due: actual.due, days_late: 0, pending: [] }
 
-  if (registeredDates.some(d => d >= from && d <= to)) {
-    return { status: 'registrado', due, days_late: 0 }
+  // Todavía no arrancó: el servicio empieza el mes que viene. No es que esté
+  // atrasado, es que no le toca.
+  if (r.starts_on > actual.to) {
+    const inicio = periodOf(r, r.starts_on)
+    return { status: 'programado', due: inicio.due, days_late: 0, pending: [] }
   }
 
-  // `vencido` solo cuando la fecha ya pasó. Antes de eso está pendiente y no
-  // hay nada que reclamar: Spotify del 5 no está "atrasado" el día 2.
+  const pending = pendingPeriods(r, registeredDates, todayISO)
+  if (pending.length === 0) {
+    return { status: 'registrado', due: actual.due, days_late: 0, pending }
+  }
+
+  // El más viejo sin registrar es el que se propone: si cargaste el fijo tarde,
+  // primero se recupera marzo y después abril, no al revés.
+  const due = pending[0]
   const late = todayISO > due
   return {
     status: late ? 'vencido' : 'pendiente',
     due,
     days_late: late ? diffDays(due, todayISO) : 0,
+    pending,
   }
 }
 
@@ -170,14 +223,15 @@ export function validateTemplateSplits(
 
 /** Pendientes y vencidos primero, después por fecha de vencimiento. */
 export function sortRecurring(items: RecurringWithState[]): RecurringWithState[] {
-  const rank: Record<RecurringStatus, number> = { vencido: 0, pendiente: 1, registrado: 2, pausado: 3 }
+  const rank: Record<RecurringStatus, number> = { vencido: 0, pendiente: 1, programado: 2, registrado: 3, pausado: 4 }
   return [...items].sort((a, b) =>
     rank[a.status] - rank[b.status] || (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))
 }
 
 /** "1 de 3 registrados" para el panel de la Home. */
 export function progress(items: RecurringWithState[]): { done: number; total: number; pending: number } {
-  const activos = items.filter(r => r.active)
+  // Los que todavía no arrancaron no cuentan: no hay nada que registrar.
+  const activos = items.filter(r => r.active && r.status !== 'programado')
   const done = activos.filter(r => r.status === 'registrado').length
   return { done, total: activos.length, pending: activos.length - done }
 }

@@ -57,8 +57,10 @@ export async function POST(request: Request) {
 
   const yaCerrada = rows.find(s => !isOpen(s))
   if (yaCerrada) {
-    const label = (yaCerrada as { transaction?: { description?: string } }).transaction?.description || 'ese gasto'
-    const estado = debtState(yaCerrada) === 'cobrado' ? 'ya está cobrada' : 'está condonada'
+    // Una deuda suelta no tiene gasto que la nombre: la nombra su concepto.
+    const fila = yaCerrada as { concept?: string | null; transaction?: { description?: string } | null }
+    const label = fila.transaction?.description?.trim() || fila.concept?.trim() || 'esa deuda'
+    const estado = debtState(yaCerrada) === 'cobrado' ? 'ya está cobrada' : 'está perdonada'
     return NextResponse.json({ error: `La deuda de ${label} ${estado}` }, { status: 400 })
   }
 

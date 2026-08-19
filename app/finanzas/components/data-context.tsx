@@ -72,7 +72,7 @@ const MONTH_LIMIT = '500'
 const EMPTY_RECURRING: RecurringSummary = { recurring: [], done: 0, total: 0, pending: 0 }
 
 const EMPTY_SHARED: SharedSummary = {
-  por_cobrar_usd: 0, cobrado_mes_usd: 0, condonado_mes_usd: 0,
+  por_cobrar_usd: 0, cobrado_mes_usd: 0, perdonado_mes_usd: 0,
   por_persona: [], historial: [],
 }
 

@@ -146,8 +146,8 @@ export async function loadShared(
     cobrado_mes_usd: round2(
       rows.filter(s => s.state === 'cobrado' && inMonth(s)).reduce((n, s) => n + s.amount_usd, 0),
     ),
-    condonado_mes_usd: round2(
-      rows.filter(s => s.state === 'condonado' && inMonth(s)).reduce((n, s) => n + s.amount_usd, 0),
+    perdonado_mes_usd: round2(
+      rows.filter(s => s.state === 'perdonado' && inMonth(s)).reduce((n, s) => n + s.amount_usd, 0),
     ),
     por_persona: groupByPerson(abiertos, today),
     historial,
@@ -185,7 +185,7 @@ export interface TxResult {
   transactions: Transaction[]
   total_gasto_usd: number
   total_ingreso_usd: number
-  /** Lo que de ese gasto le toca a otras personas y no está condonado. */
+  /** Lo que de ese gasto le toca a otras personas y no está perdonado. */
   total_repartido_usd: number
   /** Bruto menos repartido: lo que realmente te costó. */
   total_gasto_real_usd: number
@@ -193,7 +193,7 @@ export interface TxResult {
 
 
 const RECURRING_COLS =
-  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note'
+  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const RECURRING_SPLIT_COLS = 'id, recurring_id, person_id, amount'
 
@@ -273,7 +273,7 @@ export async function loadRecurring(
       day_of_month: num(r.day_of_month, 1),
       month_of_year: r.month_of_year === null ? null : num(r.month_of_year),
     }
-    const { status, due, days_late } = statusOf(base, datesByRec.get(r.id) ?? [], todayISO)
+    const { status, due, days_late, pending } = statusOf(base, datesByRec.get(r.id) ?? [], todayISO)
     const { from, to } = periodOf(base, todayISO)
 
     return {
@@ -283,6 +283,7 @@ export async function loadRecurring(
       status,
       due,
       days_late,
+      pending,
       registered_tx_id: (txByRec.get(r.id) ?? []).find(t => t.date >= from && t.date <= to)?.id ?? null,
       open_usd: round2(openByRec.get(r.id) ?? 0),
     }
@@ -340,7 +341,7 @@ export async function loadTransactions(
   const gastos = transactions.filter(t => t.type === 'gasto' && esConsumo(t))
 
   const total_gasto_usd = round2(gastos.reduce((s, t) => s + t.amount_usd, 0))
-  // Los condonados no se descuentan: perdonar una deuda es hacerse cargo de ella.
+  // Los perdonados no se descuentan: perdonar una deuda es hacerse cargo de ella.
   const total_repartido_usd = round2(
     gastos.flatMap(t => t.debts).filter(s => !s.waived_at).reduce((s, x) => s + num(x.amount_usd), 0),
   )

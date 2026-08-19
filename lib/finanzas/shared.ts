@@ -40,7 +40,7 @@ interface RawDebtRow {
   settled?: { id: string; date: string } | null
 }
 
-/** La fecha en que se saldó: la del cobro, o la de la condonación. */
+/** La fecha en que se saldó: la del cobro, o la de la perdón. */
 export function settledOn(row: { settled?: { date: string } | null; waived_at: string | null }): string | null {
   return row.settled?.date ?? row.waived_at ?? null
 }

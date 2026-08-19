@@ -382,7 +382,7 @@ async function run() {
       method: 'PATCH',
       body: JSON.stringify({ settled_tx_id: cobrado.id, waived_at: '2026-08-18' }),
     })
-    ok('fin_split_settle_shape: no puede estar cobrado Y condonado',
+    ok('fin_split_settle_shape: no puede estar cobrado Y perdonado',
        ambos.status >= 400, `HTTP ${ambos.status}`)
 
     await as(`/fin_debts?id=eq.${splitAna.id}`, {

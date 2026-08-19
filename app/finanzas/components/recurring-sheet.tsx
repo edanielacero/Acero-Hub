@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
 import type { Frequency, RecurringWithState } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/money'
+import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
@@ -32,6 +33,11 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
   const [frequency, setFrequency] = useState<Frequency>(editing?.frequency ?? 'mensual')
   const [day, setDay] = useState(String(editing?.day_of_month ?? 1))
+  // Se trabaja en meses (YYYY-MM) y no en fechas: "desde marzo" es la pregunta,
+  // el día ya lo define `day_of_month`.
+  const [desde, setDesde] = useState(
+    () => (editing?.starts_on ?? todayISO()).slice(0, 7),
+  )
   const [month, setMonth] = useState(String(editing?.month_of_year ?? 1))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -81,6 +87,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
       category_id: categoryId || null,
       frequency,
       day_of_month: Number(day) || 1,
+      starts_on: `${desde}-01`,
       month_of_year: frequency === 'anual' ? Number(month) || 1 : null,
       // En modo parejo el monto va en null: se recalcula con el precio de cada
       // mes, así una suba de Spotify se reparte sola.
@@ -218,6 +225,18 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           </div>
 
           <Segmented options={FREQ_OPTIONS} value={frequency} onChange={setFrequency} />
+
+          <div>
+            <Label>Empezar desde</Label>
+            <TextField type="month" value={desde} onChange={e => setDesde(e.target.value)} />
+            <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
+              {desde > todayISO().slice(0, 7)
+                ? 'Todavía no arranca: no te lo va a pedir hasta ese mes.'
+                : desde < todayISO().slice(0, 7)
+                  ? 'Vas a poder registrar también los meses que ya pasaron, de a uno.'
+                  : 'Arranca este mes.'}
+            </p>
+          </div>
 
           <div className={`grid gap-2 ${frequency === 'anual' ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {frequency === 'anual' && (

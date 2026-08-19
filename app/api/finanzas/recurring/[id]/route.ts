@@ -34,6 +34,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         : (body.month_of_year == null ? null : num(body.month_of_year)),
     active: body.active === undefined ? current.active : Boolean(body.active),
     note: body.note === undefined ? current.note : (typeof body.note === 'string' ? body.note.trim() || null : null),
+    starts_on: typeof body.starts_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.starts_on)
+      ? body.starts_on
+      : current.starts_on,
   }
   // Pasar a mensual limpia el mes; sin esto el check constraint rechaza el update.
   if (merged.frequency === 'mensual') merged.month_of_year = null

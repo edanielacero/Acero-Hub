@@ -7,6 +7,7 @@ import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { debtLabel } from '@/lib/finanzas/splits'
+import { CurrencyIcon } from '../components/currency-icon'
 import { useFinanzas } from '../components/data-context'
 import { DebtSheet } from '../components/debt-sheet'
 import { SettleSheet } from '../components/settle-sheet'
@@ -87,13 +88,27 @@ export function DeudasScreen() {
                     <Btn size="sm" onClick={() => setCobrando(d)}>Cobrar</Btn>
                   </div>
 
-                  <div className="mt-1.5 ml-[52px] flex flex-col">
+                  {/*
+                    Una línea tenue entre deuda y deuda. Sin separador, dos
+                    deudas de la misma persona se leen como una sola de varias
+                    líneas — sobre todo desde que la fila envuelve en móvil.
+                    `divide-y` y no un borde por fila: no dibuja línea después
+                    de la última, que colgaría suelta contra el separador de la
+                    persona siguiente.
+                  */}
+                  <div className="mt-1.5 ml-[52px] flex flex-col divide-y divide-[var(--fz-hairline)]">
                     {d.debts.map(s => (
-                      <div key={s.id} className="flex items-center gap-2 py-1.5">
+                      /*
+                        `flex-wrap` + `ml-auto`: a 390px el monto y "Perdonar"
+                        bajan solos en vez de estrujar el concepto. Sin esto
+                        "Le presté en efectivo" se cortaba en "Le presté en …",
+                        que es justo el dato que dice de qué es la deuda.
+                      */
+                      <div key={s.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
                         <button
                           type="button"
                           onClick={() => setEditando(s)}
-                          className="flex-1 min-w-0 text-left"
+                          className="flex-1 min-w-[60%] text-left"
                         >
                           <span className="block text-[13px] font-medium truncate">
                             {debtLabel(s)}
@@ -105,18 +120,25 @@ export function DeudasScreen() {
                             {s.transaction_id ? ' · de un gasto' : ''}
                           </span>
                         </button>
-                        <span className="fz-num text-[13px] font-semibold shrink-0">
-                          {hidden ? HIDDEN : formatAmount(s.amount, s.currency)}
+                        {/* El ícono de la moneda de la deuda: una deuda en Bs
+                            y una en dólares se distinguen sin leer el monto. */}
+                        <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                          <CurrencyIcon currency={s.currency} size={18} />
+                          <span className="fz-num text-[13px] font-semibold">
+                            {hidden ? HIDDEN : formatAmount(s.amount, s.currency)}
+                          </span>
                         </span>
+                        {/* Con texto y no un ícono: "perdonar" no es evidente,
+                            y una moneda tachada menos. En el celular tampoco
+                            hay hover que muestre el tooltip. */}
                         <button
                           type="button"
                           disabled={busy === s.id}
                           onClick={() => post('waive', { split_ids: [s.id] }, s.id)}
-                          title="Condonar: te hacés cargo vos de esta parte"
-                          className="shrink-0 grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-out-text)] disabled:opacity-40"
-                          aria-label={`Condonar la deuda de ${d.person.name}`}
+                          title="Darla por saldada sin que te paguen"
+                          className="shrink-0 h-7 px-2 rounded-[var(--fz-r-pill)] text-[12px] font-semibold text-[var(--fz-ink-3)] hover:bg-[var(--fz-out-tint)] hover:text-[var(--fz-out-text)] disabled:opacity-40"
                         >
-                          <IconCoinOff size={16} stroke={1.8} />
+                          Perdonar
                         </button>
                       </div>
                     ))}
@@ -197,7 +219,7 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
           {split.person.name} · {debtLabel(split)}
         </span>
         <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">
-          {cobrado ? 'Cobrado' : 'Condonado'}
+          {cobrado ? 'Cobrado' : 'Perdonada'}
           {split.waived_at ? ` · ${formatDayLabel(split.waived_at, hoy)}` : ''}
           {/* La nota explica POR QUÉ se condonó. Se guardaba y no se mostraba
               en ninguna pantalla: era un dato de solo escritura. */}

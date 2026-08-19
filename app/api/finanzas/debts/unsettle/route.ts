@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 
 /**
- * Deshacer un cobro o una condonación: la deuda vuelve a estar abierta.
+ * Deshacer un cobro o una perdón: la deuda vuelve a estar abierta.
  *
  * `delete_transaction` borra además el movimiento del cobro, que es lo que casi
  * siempre querés: si la deuda vuelve a estar abierta, esa plata no entró.

@@ -2,8 +2,8 @@ import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
-import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, validateDebts, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
-import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits } from './.fin/recurring.mjs'
+import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
+import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods } from './.fin/recurring.mjs'
 import { currentUserId, readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
@@ -410,7 +410,7 @@ eq('reparto completo deja cero', myShare(10, [{ amount: 10 }], 'USD'), 0)
 section('SPRINT 2 · estado derivado de dos punteros')
 eq('sin nada → pendiente', debtState({ settled_tx_id: null, waived_at: null }), 'pendiente')
 eq('con movimiento → cobrado', debtState({ settled_tx_id: 'tx-1', waived_at: null }), 'cobrado')
-eq('con fecha de perdón → condonado', debtState({ settled_tx_id: null, waived_at: '2026-08-18' }), 'condonado')
+eq('con fecha de perdón → perdonado', debtState({ settled_tx_id: null, waived_at: '2026-08-18' }), 'perdonado')
 eq('solo el pendiente está abierto', [
   isOpen({ settled_tx_id: null, waived_at: null }),
   isOpen({ settled_tx_id: 'tx-1', waived_at: null }),
@@ -443,37 +443,6 @@ section('SPRINT 2 · la parte hereda la tasa CONGELADA del gasto padre')
   eq('en Bs el reparto cierra sin resto', round2(116.66 * 2 + 116.68), 350)
 }
 
-section('SPRINT 2 · validación del reparto')
-{
-  const ana = { person_id: 'p1', amount: 3 }
-  const juan = { person_id: 'p2', amount: 3 }
-
-  eq('sin reparto es válido', validateDebts([], 'gasto', 11.99, 'USD').ok, true)
-  eq('undefined también', validateDebts(undefined, 'gasto', 11.99, 'USD').ok, true)
-  eq('reparto normal', validateDebts([ana, juan], 'gasto', 11.99, 'USD').ok, true)
-  eq('reparto que suma justo el total', validateDebts([{ person_id: 'p1', amount: 11.99 }], 'gasto', 11.99, 'USD').ok, true)
-
-  eq('un ingreso no se reparte', validateDebts([ana], 'ingreso', 100, 'USD').ok, false)
-  eq('una transferencia tampoco', validateDebts([ana], 'transferencia', 100, 'USD').ok, false)
-
-  // Regla CAMBIADA en el Sprint 3: repartir por encima del gasto es válido.
-  // Es cobrar un poco más y ganar la diferencia. Ver la sección del Sprint 3.
-  eq('repartir más que el gasto ya no se rechaza',
-     validateDebts([{ person_id: 'p1', amount: 20 }], 'gasto', 11.99, 'USD').ok, true)
-
-  eq('la misma persona dos veces', validateDebts([ana, { person_id: 'p1', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('el mismo nombre nuevo dos veces', validateDebts(
-    [{ person_name: 'Ana', amount: 2 }, { person_name: ' ana ', amount: 2 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte sin persona', validateDebts([{ amount: 3 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte en cero', validateDebts([{ person_id: 'p1', amount: 0 }], 'gasto', 11.99, 'USD').ok, false)
-  eq('una parte negativa', validateDebts([{ person_id: 'p1', amount: -3 }], 'gasto', 11.99, 'USD').ok, false)
-
-  // Tres partes de 116.66 + tu 116.68 suman 350 exacto; el ruido binario no
-  // debe hacer fallar un reparto que en realidad cierra.
-  eq('tolera el ruido de coma flotante', validateDebts(
-    [{ person_id: 'p1', amount: 116.66 }, { person_id: 'p2', amount: 116.66 }], 'gasto', 233.32, 'BOB').ok, true)
-}
-
 section('SPRINT 2 · normalizeName')
 eq('recorta y baja', normalizeName('  Ana  '), 'ana')
 eq('"ana" y "Ana" chocan', normalizeName('ana') === normalizeName('Ana'), true)
@@ -496,13 +465,13 @@ section('SPRINT 2 · flow_type separa consumo de movimiento')
 
 section('SPRINT 2 · gasto bruto, repartido y real')
 {
-  // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos condonado.
+  // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos perdonado.
   const spotify = {
     type: 'gasto', flow_type: 'consumo', amount_usd: 11.99,
     debts: [
       { amount_usd: 2.99, settled_tx_id: 'tx-c', waived_at: null },  // cobrado
       { amount_usd: 2.99, settled_tx_id: null, waived_at: null },    // pendiente
-      { amount_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // condonado
+      { amount_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // perdonado
     ],
   }
   const comida = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, debts: [] }
@@ -510,13 +479,13 @@ section('SPRINT 2 · gasto bruto, repartido y real')
   const mes = [spotify, comida, reembolso]
 
   eq('bruto: lo que salió del bolsillo', gastoBrutoUsd(mes), 61.99)
-  eq('repartido descuenta cobrado Y pendiente, no condonado', repartidoUsd(mes), 5.98)
+  eq('repartido descuenta cobrado Y pendiente, no perdonado', repartidoUsd(mes), 5.98)
   eq('gasto real', gastoRealUsd(mes), 56.01)
 
-  // Condonar es hacerse cargo: sin el condonado, el real bajaría a 53.02.
-  const sinCondonar = [{ ...spotify, debts: spotify.debts.map(s => ({ ...s, waived_at: null })) }, comida, reembolso]
-  eq('si nada estuviera condonado, el real es menor', gastoRealUsd(sinCondonar), 53.02)
-  ok('condonar SUBE el gasto real', gastoRealUsd(mes) > gastoRealUsd(sinCondonar))
+  // Perdonar es hacerse cargo: sin el perdonado, el real bajaría a 53.02.
+  const sinPerdonar = [{ ...spotify, debts: spotify.debts.map(s => ({ ...s, waived_at: null })) }, comida, reembolso]
+  eq('si nada estuviera perdonado, el real es menor', gastoRealUsd(sinPerdonar), 53.02)
+  ok('perdonar SUBE el gasto real', gastoRealUsd(mes) > gastoRealUsd(sinPerdonar))
 }
 
 section('SPRINT 2 · lo que te deben es un saldo, no un flujo')
@@ -676,10 +645,6 @@ eq('y no toca las otras preferencias', almacen.get('fz:hidden'), '1')
 section('SPRINT 3 · repartir de más o de menos es una decisión, no un error')
 {
   // Spotify cuesta 11.99 y les cobrás 4.50 a cada uno: ganás 1.51.
-  const cobrandoDeMas = validateDebts(
-    [{ person_id: 'a', amount: 4.5 }, { person_id: 'b', amount: 4.5 }, { person_id: 'c', amount: 4.5 }],
-    'gasto', 11.99, 'USD')
-  eq('cobrar por encima del costo es válido', cobrandoDeMas.ok, true)
 
   const g = shareBreakdown(11.99, [{ amount: 4.5 }, { amount: 4.5 }, { amount: 4.5 }], 'USD')
   eq('tu parte queda negativa', g.mine, -1.51)
@@ -694,23 +659,6 @@ section('SPRINT 3 · repartir de más o de menos es una decisión, no un error')
   eq('reparto exacto: no ponés nada', justo.mine, 0)
   eq('y se nombra distinto', justo.kind, 'exacto')
 
-  // Lo que SIGUE siendo inválido.
-  eq('una parte en cero', validateDebts([{ person_id: 'a', amount: 0 }], 'gasto', 10, 'USD').ok, false)
-  eq('una parte negativa', validateDebts([{ person_id: 'a', amount: -3 }], 'gasto', 10, 'USD').ok, false)
-  eq('repartir un ingreso', validateDebts([{ person_id: 'a', amount: 3 }], 'ingreso', 10, 'USD').ok, false)
-}
-
-section('SPRINT 3 · la misma persona por id Y por nombre')
-{
-  const conocidas = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Juan' }]
-  const choca = validateDebts(
-    [{ person_id: 'p1', amount: 2 }, { person_name: 'ana', amount: 3 }],
-    'gasto', 11.99, 'USD', conocidas)
-  eq('se detecta antes de llegar a la base', choca.ok, false)
-
-  eq('dos personas distintas siguen valiendo', validateDebts(
-    [{ person_id: 'p1', amount: 2 }, { person_name: 'Carlos', amount: 3 }],
-    'gasto', 11.99, 'USD', conocidas).ok, true)
 }
 
 section('SPRINT 3 · períodos')
@@ -732,7 +680,9 @@ section('SPRINT 3 · períodos')
 
 section('SPRINT 3 · estado derivado, nunca guardado')
 {
-  const r = { frequency: 'mensual', day_of_month: 5, month_of_year: null, active: true }
+  // `starts_on` siempre existe: la columna es NOT NULL con default. Acá se fija
+  // viejo para que el período de agosto esté dentro del rango del fijo.
+  const r = { frequency: 'mensual', day_of_month: 5, month_of_year: null, active: true, starts_on: '2026-08-01' }
 
   eq('sin movimiento y antes de la fecha: pendiente',
      statusOf(r, [], '2026-08-02').status, 'pendiente')
@@ -746,8 +696,10 @@ section('SPRINT 3 · estado derivado, nunca guardado')
   // Un movimiento de OTRO mes no cuenta: cada período se resuelve solo.
   eq('el de julio no registra agosto',
      statusOf(r, ['2026-07-05'], '2026-08-18').status, 'vencido')
+  // Con el fijo arrancando en julio, ese mismo movimiento sí lo cierra.
+  const desdeJulio = { ...r, starts_on: '2026-07-01' }
   eq('pero sí registra julio',
-     statusOf(r, ['2026-07-05'], '2026-07-20').status, 'registrado')
+     statusOf(desdeJulio, ['2026-07-05'], '2026-07-20').status, 'registrado')
 
   eq('pausado no reclama nada',
      statusOf({ ...r, active: false }, [], '2026-08-18').status, 'pausado')
@@ -830,6 +782,52 @@ section('SPRINT 3 · validación del reparto de una plantilla')
   eq('una parte sin persona', validateTemplateSplits([{ amount: 5 }], conocidas).ok, false)
   eq('dos personas distintas sí',
      validateTemplateSplits([{ person_id: 'p1', amount: null }, { person_name: 'Carlos', amount: null }], conocidas).ok, true)
+}
+
+section('SPRINT 3 · desde cuándo corre un fijo')
+{
+  const base = { frequency: 'mensual', day_of_month: 5, month_of_year: null, active: true }
+
+  // Arranca el mes que viene: no está atrasado, todavía no le toca.
+  const futuro = { ...base, starts_on: '2026-09-01' }
+  eq('un fijo que empieza después no reclama nada',
+     statusOf(futuro, [], '2026-08-18').status, 'programado')
+  eq('y muestra cuándo arranca', statusOf(futuro, [], '2026-08-18').due, '2026-09-05')
+  eq('sin períodos pendientes', statusOf(futuro, [], '2026-08-18').pending, [])
+
+  // Cargado tarde: hay meses que recuperar.
+  const atrasado = { ...base, starts_on: '2026-06-01' }
+  eq('lista junio, julio y agosto',
+     pendingPeriods(atrasado, [], '2026-08-18'), ['2026-06-05', '2026-07-05', '2026-08-05'])
+  eq('propone el MÁS VIEJO primero', statusOf(atrasado, [], '2026-08-18').due, '2026-06-05')
+  eq('y lo marca vencido', statusOf(atrasado, [], '2026-08-18').status, 'vencido')
+
+  eq('lo ya registrado sale de la lista',
+     pendingPeriods(atrasado, ['2026-06-05', '2026-07-05'], '2026-08-18'), ['2026-08-05'])
+  eq('con todo al día, no queda nada',
+     pendingPeriods(atrasado, ['2026-06-05', '2026-07-05', '2026-08-05'], '2026-08-18'), [])
+  eq('y el estado pasa a registrado',
+     statusOf(atrasado, ['2026-06-05', '2026-07-05', '2026-08-05'], '2026-08-18').status, 'registrado')
+
+  // Un starts_on absurdo no genera una lista infinita.
+  ok('el tope corta en 24 períodos',
+     pendingPeriods({ ...base, starts_on: '2019-01-01' }, [], '2026-08-18').length === 24)
+
+  // Anual.
+  const anual = { frequency: 'anual', day_of_month: 3, month_of_year: 3, active: true, starts_on: '2025-01-01' }
+  eq('un anual lista un período por año',
+     pendingPeriods(anual, [], '2026-08-18'), ['2025-03-03', '2026-03-03'])
+
+  eq('pausado sigue ganando sobre todo',
+     statusOf({ ...atrasado, active: false }, [], '2026-08-18').status, 'pausado')
+}
+
+section('SPRINT 3 · los programados no cuentan en el progreso')
+{
+  const mk = (id, status, active = true) => ({ id, status, due: '2026-08-05', active })
+  eq('2 de 3, y el programado afuera',
+     progress([mk('1', 'registrado'), mk('2', 'registrado'), mk('3', 'vencido'), mk('4', 'programado')]),
+     { done: 2, total: 3, pending: 1 })
 }
 
 process.exit(summary() === 0 ? 0 : 1)

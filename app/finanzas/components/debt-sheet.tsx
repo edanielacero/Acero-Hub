@@ -72,7 +72,7 @@ export function DebtSheet({ editing, onClose, onSaved }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           editing
-            ? { amount: value, concept: concept.trim() || null, incurred_on: date }
+            ? { amount: value, currency, concept: concept.trim() || null, incurred_on: date }
             : { person_id: personId, amount: value, currency, concept: concept.trim(), incurred_on: date },
         ),
       },
@@ -149,14 +149,22 @@ export function DebtSheet({ editing, onClose, onSaved }: {
 
           <div>
             <Label>Monto</Label>
-            <div className="flex gap-2">
+            {/* Mismo `flex-wrap` que <DateField>, y por lo mismo: el selector de
+                moneda mide 264px fijos (5 botones de 48), así que en una sola
+                línea le comía todo el ancho al monto —63px en un iPhone SE, 34
+                en uno de 320px, o sea cero lugar para escribir. Con wrap el
+                selector baja a su propia línea en el teléfono y vuelve al lado
+                del campo en el sheet de escritorio (480px), donde sí entra. */}
+            <div className="flex flex-wrap items-center gap-2">
               <TextField
                 value={amount}
                 onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-                inputMode="decimal" placeholder="0.00" className="fz-num flex-1"
+                inputMode="decimal" placeholder="0.00" className="fz-num flex-[1_1_150px]"
               />
-              {!editing && (
-                <div className="fz-scroll-x flex gap-1.5 overflow-x-auto">
+              {/* Al editar una suelta también: te equivocaste de moneda y no
+                  tenés por qué borrar la deuda para corregirlo. */}
+              {!desdeGasto && (
+                <div className="fz-scroll-x flex gap-1.5 overflow-x-auto max-w-full">
                   {CURRENCIES.map(c => (
                     <button
                       key={c} type="button" onClick={() => setCurrency(c)}

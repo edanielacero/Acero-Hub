@@ -63,7 +63,7 @@ export function myShare(amount: number, splits: { amount: number }[], currency: 
  */
 export function debtState(split: Pick<Debt, 'settled_tx_id' | 'waived_at'>): DebtState {
   if (split.settled_tx_id) return 'cobrado'
-  if (split.waived_at) return 'condonado'
+  if (split.waived_at) return 'perdonado'
   return 'pendiente'
 }
 
@@ -87,73 +87,6 @@ export function freezeDebtUsd(amount: number, parentExchangeRate: number): numbe
 /** Normaliza un nombre para comparar: es la misma regla que el índice único. */
 export function normalizeName(name: string): string {
   return name.trim().toLowerCase()
-}
-
-/**
- * Valida un reparto contra su gasto. Misma jerarquía que `validateInput`: la
- * base es la última línea de defensa, acá el mensaje se puede leer.
- */
-export function validateDebts(
-  splits: DebtInput[] | undefined | null,
-  type: TxType,
-  amount: number,
-  currency: Currency,
-  /** Las personas del usuario, para cruzar los que llegan por id con los que llegan por nombre. */
-  knownPeople?: { id: string; name: string }[],
-): SplitValidation {
-  if (!splits || splits.length === 0) return { ok: true }
-
-  if (type !== 'gasto') {
-    return { ok: false, error: 'Solo un gasto se puede repartir entre personas' }
-  }
-
-  const seenIds = new Set<string>()
-  const seenNames = new Set<string>()
-
-  // Los nombres de las personas ya conocidas, para poder detectar la fila que
-  // llega por id y la que llega por nombre apuntando a la MISMA persona.
-  const nameById = new Map(
-    (knownPeople ?? []).map(p => [p.id, normalizeName(p.name)] as const),
-  )
-
-  for (const s of splits) {
-    const id = s.person_id?.trim()
-    const name = s.person_name?.trim()
-
-    if (!id && !name) return { ok: false, error: 'Cada parte necesita una persona' }
-
-    // Dos filas de la misma persona chocarían contra `unique (transaction_id,
-    // person_id)` con un error de Postgres ilegible. Mejor acá.
-    const key = id ? nameById.get(id) : normalizeName(name!)
-
-    if (id) {
-      if (seenIds.has(id)) return { ok: false, error: 'Una persona no puede aparecer dos veces en el reparto' }
-      seenIds.add(id)
-    }
-    // La clave por nombre es la que cruza los dos caminos: una fila con
-    // `person_id` de Ana y otra con `person_name: "Ana"` son la misma persona,
-    // y sin esto solo se enteraba la base.
-    if (key) {
-      if (seenNames.has(key)) {
-        return { ok: false, error: `${name ?? 'Esa persona'} aparece dos veces en el reparto`.trim() }
-      }
-      seenNames.add(key)
-    }
-
-    if (typeof s.amount !== 'number' || !Number.isFinite(s.amount) || s.amount <= 0) {
-      return { ok: false, error: 'Cada parte tiene que ser mayor a cero' }
-    }
-  }
-
-  // El reparto PUEDE superar al gasto, y es a propósito: pagás el plan de
-  // Spotify y les cobrás un poco más a los tres. Tu parte pasa a ser negativa,
-  // que es la forma correcta de decir "gané algo". Al revés también vale:
-  // repartir de menos es invitar vos una parte.
-  //
-  // La única cota es la del sentido común, y la pone `maxTotal` desde la ruta
-  // cuando hace falta. Acá no se topea nada más.
-
-  return { ok: true }
 }
 
 /**
@@ -196,7 +129,7 @@ export function gastoBrutoUsd(txs: Transaction[]): number {
  * al cobro, el gasto real del mes cambiaría solo, semanas después, sin que vos
  * hayas hecho nada.
  *
- * Excluye los **condonados**: perdonarle los $3 a Ana es exactamente decidir
+ * Excluye los **perdonados**: perdonarle los $3 a Ana es exactamente decidir
  * gastarlos vos, y por eso vuelven al gasto real.
  */
 export function repartidoUsd(txs: Transaction[]): number {

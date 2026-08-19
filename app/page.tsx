@@ -82,7 +82,14 @@ export default function Home() {
       </div>
 
       {/* Grid */}
-      <div className="w-full max-w-4xl grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+      {/* `min(280px,100%)` y no `280px` pelado: el mínimo de un minmax() es un
+          piso duro, así que en una pantalla de 320px las tarjetas seguían
+          midiendo 280 dentro de una pista de 272 y se salían 8px por la
+          derecha. Acá no hay `overflow-x` que lo recorte —eso solo existe
+          dentro de Finanzas—, así que el Hub ganaba scroll horizontal. Con el
+          min() el piso cede cuando no entra; de 360px para arriba no cambia
+          nada. */}
+      <div className="w-full max-w-4xl grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3">
         {projects.map(slug => {
           const assets = PROJECT_ASSETS[slug]
           return (

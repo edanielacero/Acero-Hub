@@ -94,7 +94,7 @@ export function HomeScreen() {
         }
       />
 
-      <div className="grid gap-5 min-[1280px]:grid-cols-[1fr_320px] items-start">
+      <div className="grid grid-cols-1 gap-5 min-[1280px]:grid-cols-[1fr_320px] items-start">
         <div className="flex flex-col gap-5 min-w-0">
           {/* Hero: el único bloque oscuro de la pantalla. */}
           <div className="rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">

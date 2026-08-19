@@ -155,7 +155,15 @@ export function CuentasScreen() {
               {draft.id ? 'Editar cuenta' : 'Nueva cuenta'}
             </SectionTitle>
 
-            <div className="grid gap-3 min-[900px]:grid-cols-2">
+            {/* `grid-cols-1` no es redundante: sin él la grilla queda con una
+                columna implícita `auto`, cuyo ancho lo fija el hijo de mayor
+                min-content. El carrusel de monedas mide sus 5 chips enteros
+                (~490px), así que la columna se estiraba a ese ancho y arrastraba
+                a TODOS los campos fuera de la pantalla —y de paso el carrusel
+                dejaba de scrollear, porque ya le entraba todo. `grid-cols-1` es
+                `minmax(0,1fr)`: mínimo 0, y la columna vuelve a valer el ancho
+                de la card. */}
+            <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2">
               <div className="min-[900px]:col-span-2">
                 <Label>Nombre</Label>
                 <TextField

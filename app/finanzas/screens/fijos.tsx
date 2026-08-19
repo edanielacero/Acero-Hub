@@ -163,7 +163,10 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
           {' · '}
           {r.frequency === 'anual' ? 'cada año' : 'cada mes'}
           {' · '}
-          {formatDayLabel(r.due, hoy)}
+          {r.status === 'programado' ? `arranca ${formatDayLabel(r.due, hoy)}` : formatDayLabel(r.due, hoy)}
+          {/* Un fijo cargado tarde tiene varios meses que recuperar. Se
+              registran de a uno, del más viejo al más nuevo. */}
+          {r.pending.length > 1 && ` · ${r.pending.length} meses sin registrar`}
           {r.open_usd > 0 && !hidden && ` · te deben ${formatUSD(r.open_usd)}`}
         </span>
       </button>
@@ -171,6 +174,8 @@ function Row({ r, hidden, hoy, busy, onRegister, onEdit, onTogglePause }: {
       <span className="ml-auto shrink-0 flex items-center gap-1.5">
         {!r.active ? (
           <span className="text-[12px] font-medium text-[var(--fz-ink-3)]">Pausado</span>
+        ) : r.status === 'programado' ? (
+          <span className="text-[12px] font-medium text-[var(--fz-ink-3)]">Programado</span>
         ) : r.status === 'registrado' ? (
           <span
             className="inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-1 rounded-[var(--fz-r-pill)]"

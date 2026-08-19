@@ -5,11 +5,11 @@ import { isOpen } from '@/lib/finanzas/splits'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 
 /**
- * Condonar: perdonás la deuda.
+ * Perdonar: perdonás la deuda.
  *
  * **No crea ningún movimiento** — no se movió plata. Lo que cambia es de quién
  * es el gasto: perdonarle los $3 a Ana es exactamente decidir gastarlos vos, y
- * por eso el split condonado vuelve a contar en `gasto_real_usd`.
+ * por eso el split perdonado vuelve a contar en `gasto_real_usd`.
  */
 export async function POST(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     ? body.split_ids.filter((x: unknown) => typeof x === 'string')
     : []
 
-  if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda para condonar' }, { status: 400 })
+  if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda para perdonar' }, { status: 400 })
 
   const { data: rows } = await supabase
     .from('fin_debts')

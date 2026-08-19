@@ -150,7 +150,7 @@ export interface PersonWithDebt extends Person {
  * "cobrado" sin que exista el movimiento que lo cobró. Un enum persistido sí
  * puede desincronizarse del hecho que describe.
  */
-export type DebtState = 'pendiente' | 'cobrado' | 'condonado'
+export type DebtState = 'pendiente' | 'cobrado' | 'perdonado'
 
 export interface Debt {
   id: string
@@ -211,7 +211,7 @@ export interface PersonDebt {
 export type Frequency = 'mensual' | 'anual'
 
 /** Derivado, nunca guardado: sale de si existe el movimiento del período. */
-export type RecurringStatus = 'pendiente' | 'registrado' | 'vencido' | 'pausado'
+export type RecurringStatus = 'pendiente' | 'registrado' | 'vencido' | 'pausado' | 'programado'
 
 /** Una plantilla: literalmente "un gasto que todavía no pasó". */
 export interface Recurring {
@@ -227,6 +227,8 @@ export interface Recurring {
   month_of_year: number | null
   active: boolean
   note: string | null
+  /** Primer período que cuenta. Anterior a hoy = hay meses para recuperar. */
+  starts_on: string
 }
 
 /** Una parte del reparto por defecto. `amount` null = parte pareja. */
@@ -249,6 +251,7 @@ export interface RecurringInput {
   month_of_year?: number | null
   active?: boolean
   note?: string | null
+  starts_on?: string
   splits?: { person_id?: string; person_name?: string; amount?: number | null }[]
 }
 
@@ -260,6 +263,8 @@ export interface RecurringWithState extends Recurring {
   /** Cuándo cae en el período vigente, topeado al largo del mes. */
   due: string
   days_late: number
+  /** Los períodos sin registrar, del más viejo al más nuevo. */
+  pending: string[]
   /** El movimiento que ya la registró en este período, si existe. */
   registered_tx_id: string | null
   /** Lo que todavía te deben de este fijo, en USD, sumando todos los períodos. */
@@ -276,7 +281,7 @@ export interface RecurringSummary {
 export interface SharedSummary {
   por_cobrar_usd: number
   cobrado_mes_usd: number
-  condonado_mes_usd: number
+  perdonado_mes_usd: number
   por_persona: PersonDebt[]
   historial: DebtWithContext[]
 }

@@ -8,7 +8,7 @@ import { resolvePeople } from '@/lib/finanzas/people'
 import type { Frequency, RecurringInput } from '@/lib/finanzas/types'
 
 export const RECURRING_COLS =
-  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note'
+  'id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const FREQUENCIES: Frequency[] = ['mensual', 'anual']
 
@@ -69,6 +69,11 @@ export async function POST(request: Request) {
     day_of_month: body.day_of_month === undefined ? 1 : num(body.day_of_month),
     month_of_year: body.month_of_year == null ? null : num(body.month_of_year),
     note: typeof body.note === 'string' ? body.note.trim() || null : null,
+    // Desde cuándo corre. Anterior a hoy = hay meses para recuperar; posterior
+    // = todavía no arrancó. El default es hoy, que es "empieza ya".
+    starts_on: typeof body.starts_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.starts_on)
+      ? body.starts_on
+      : todayISO(),
   }
   if (input.frequency === 'mensual') input.month_of_year = null
 

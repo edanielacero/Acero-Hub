@@ -557,28 +557,28 @@ async function run() {
       await api(`/debts/${b.id}`, { method: 'DELETE' })
     }
 
-    section('SPRINT 2 · condonar')
+    section('SPRINT 2 · perdonar')
     {
       const d = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
         person_id: juan.id, amount: 6, currency: 'USD', concept: 'Se la regalo' }) }))).debt
 
       const r = await api('/debts/waive', { method: 'POST', body: JSON.stringify({
         split_ids: [d.id], note: 'se lo regalo' }) })
-      eq('condona', (await json(r)).waived, 1)
+      eq('perdona', (await json(r)).waived, 1)
 
       const ingresos = (await json(await api('/transactions?type=ingreso'))).transactions
       eq('sin crear ningún movimiento', ingresos.filter(t => t.flow_type === 'movimiento').length, 1)
 
       const sh = await json(await api('/debts'))
       eq('sale de las deudas abiertas', sh.por_persona.filter(p => p.person.id === juan.id).length, 0)
-      eq('condonado este mes: $6', sh.condonado_mes_usd, 6)
+      eq('perdonado este mes: $6', sh.perdonado_mes_usd, 6)
 
-      eq('condonar algo ya cerrado → 400', (await api('/debts/waive', { method: 'POST', body: JSON.stringify({
+      eq('perdonar algo ya cerrado → 400', (await api('/debts/waive', { method: 'POST', body: JSON.stringify({
         split_ids: [d.id] }) })).status, 400)
 
       await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({ split_ids: [d.id] }) })
       const tras = await json(await api('/debts'))
-      eq('deshacer la condonación la reabre', tras.por_cobrar_usd, 6)
+      eq('deshacer la perdón la reabre', tras.por_cobrar_usd, 6)
       await api(`/debts/${d.id}`, { method: 'DELETE' })
     }
 
@@ -598,6 +598,44 @@ async function run() {
       await api(`/debts/${d.id}`, { method: 'DELETE' })
     }
 
+
+    section('SPRINT 2 · la deuda de un fijo nace el día del GASTO')
+    {
+      // Bug encontrado el 19/8: la deuda tomaba `current_date`, así que
+      // registrar Spotify tarde la hacía parecer más nueva de lo que es y la
+      // lista de Deudas quedaba mal ordenada.
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Fecha', amount: 12, account_id: airtm.id, day_of_month: 5,
+        splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
+
+      const tx = (await json(await api(`/recurring/${t.id}/register`, {
+        method: 'POST', body: JSON.stringify({}) }))).transaction
+
+      eq('la deuda hereda la fecha del gasto', tx.debts[0].incurred_on, tx.date)
+      ok('que no es hoy', tx.date !== new Date().toISOString().slice(0, 10),
+         `el gasto cayó ${tx.date}`)
+
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 2 · el error nombra la deuda, tenga gasto o no')
+    {
+      const d = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 10, currency: 'USD', concept: 'Le presté para el taxi' }) }))).debt
+      await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], account_id: airtm.id, amount: 10 }) })
+
+      const otra = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], account_id: airtm.id, amount: 10 }) })
+      const msg = (await json(otra)).error
+      ok('usa el concepto de la deuda suelta', msg.includes('taxi'), msg)
+      ok('y no habla de un gasto que no existe', !msg.includes('ese gasto'), msg)
+
+      await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [d.id], delete_transaction: true }) })
+      await api(`/debts/${d.id}`, { method: 'DELETE' })
+    }
 
     section('SPRINT 2 · personas · PATCH y DELETE')
     {
@@ -873,6 +911,79 @@ async function run() {
       eq('con la persona original', tras.splits[0].person_id, pepe.id)
 
       await api(`/recurring/${t.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 3 · desde cuándo corre un fijo')
+    {
+      // Empieza el mes que viene: no reclama nada todavía.
+      const futuro = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Futuro', amount: 5, account_id: airtm.id, day_of_month: 5,
+        starts_on: '2026-12-01' }) }))).recurring
+      const f = (await json(await api('/recurring'))).recurring.find(x => x.id === futuro.id)
+      eq('queda programado', f.status, 'programado')
+      eq('sin nada pendiente', f.pending.length, 0)
+
+      // Cargado tarde: hay meses que recuperar, del más viejo al más nuevo.
+      const viejo = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Atrasado', amount: 7, account_id: airtm.id, day_of_month: 5,
+        starts_on: '2026-06-01' }) }))).recurring
+      const v = (await json(await api('/recurring'))).recurring.find(x => x.id === viejo.id)
+      eq('tres meses sin registrar', v.pending.length, 3)
+      eq('y propone el más viejo', v.due, '2026-06-05')
+
+      // Registrar el más viejo deja los otros dos.
+      const tx = (await json(await api(`/recurring/${viejo.id}/register`, {
+        method: 'POST', body: JSON.stringify({ date: '2026-06-05' }) }))).transaction
+      eq('el gasto cae en junio', tx.date, '2026-06-05')
+
+      const v2 = (await json(await api('/recurring'))).recurring.find(x => x.id === viejo.id)
+      eq('quedan dos', v2.pending.length, 2)
+      eq('y ahora propone julio', v2.due, '2026-07-05')
+
+      // Idempotencia por PERÍODO PEDIDO, no por el de hoy: sin esto, junio se
+      // podía registrar dos veces estando en agosto.
+      eq('junio no se puede registrar de nuevo', (await api(`/recurring/${viejo.id}/register`, {
+        method: 'POST', body: JSON.stringify({ date: '2026-06-20' }) })).status, 409)
+      eq('pero julio sí', (await api(`/recurring/${viejo.id}/register`, {
+        method: 'POST', body: JSON.stringify({ date: '2026-07-05' }) })).status, 201)
+
+      const v3 = (await json(await api('/recurring'))).recurring.find(x => x.id === viejo.id)
+      eq('queda solo agosto', v3.pending.length, 1)
+
+      for (const t of (await json(await api('/transactions?from=2026-06-01&to=2026-07-31'))).transactions) {
+        await api(`/transactions/${t.id}`, { method: 'DELETE' })
+      }
+      await api(`/recurring/${viejo.id}`, { method: 'DELETE' })
+      await api(`/recurring/${futuro.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 2 · cambiar la moneda de una deuda')
+    {
+      const d = (await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: ana.id, amount: 100, currency: 'USD', concept: 'Moneda' }) }))).debt
+      eq('nace en USD', Number(d.amount_usd), 100)
+
+      const r = await api(`/debts/${d.id}`, { method: 'PATCH', body: JSON.stringify({
+        amount: 348, currency: 'BOB' }) })
+      eq('se puede pasar a Bs', r.status, 200)
+      const tras = (await json(r)).debt
+      eq('con la moneda nueva', tras.currency, 'BOB')
+      eq('y la conversión rehecha a la tasa de hoy', Number(tras.amount_usd), 50)
+
+      // Una deuda que vino de un gasto no: su moneda es la del gasto.
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'ConGasto', amount: 12, account_id: airtm.id, day_of_month: 9,
+        splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
+      const tx = (await json(await api(`/recurring/${t.id}/register`, {
+        method: 'POST', body: JSON.stringify({}) }))).transaction
+
+      const bloqueado = await api(`/debts/${tx.debts[0].id}`, {
+        method: 'PATCH', body: JSON.stringify({ currency: 'BOB' }) })
+      eq('la de un gasto no cambia de moneda → 400', bloqueado.status, 400)
+
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
+      await api(`/debts/${d.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 3 · autenticación de las rutas nuevas')

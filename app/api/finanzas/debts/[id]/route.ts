@@ -1,8 +1,11 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, round2 } from '@/lib/finanzas/money'
+import { ensureRates } from '@/lib/finanzas/rates'
+import { toUsd } from '@/lib/finanzas/money'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import { isOpen } from '@/lib/finanzas/splits'
+import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
 /**
  * Editar una deuda.
@@ -19,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const { data: current } = await supabase
-    .from('fin_debts').select(`${DEBT_COLS}, exchange:transaction_id`).eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debts').select(DEBT_COLS).eq('id', id).eq('user_id', userId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Deuda no encontrada' }, { status: 404 })
 
   if (!isOpen(current)) {
@@ -31,16 +34,44 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const patch: Record<string, unknown> = {}
 
-  if (body.amount !== undefined) {
-    const amount = num(body.amount, NaN)
+  // Cambiar la moneda solo tiene sentido en una deuda suelta: si vino de un
+  // gasto, la moneda es la del gasto y cambiarla acá la desincronizaría.
+  let currency = current.currency as Currency
+  if (body.currency !== undefined && body.currency !== current.currency) {
+    if (current.transaction_id) {
+      return NextResponse.json(
+        { error: 'Esta deuda vino de un gasto: la moneda se cambia en el gasto.' },
+        { status: 400 },
+      )
+    }
+    if (!CURRENCIES.includes(body.currency)) {
+      return NextResponse.json({ error: 'Moneda inválida' }, { status: 400 })
+    }
+    currency = body.currency as Currency
+    patch.currency = currency
+  }
+
+  const amountChanged = body.amount !== undefined
+  const currencyChanged = patch.currency !== undefined
+
+  if (amountChanged || currencyChanged) {
+    const amount = amountChanged ? num(body.amount, NaN) : num(current.amount)
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
     }
     patch.amount = amount
-    // La deuda conserva su propia conversión congelada: si vino de un gasto,
-    // con la tasa de ese gasto; si es suelta, con la del día que se creó.
-    const factor = num(current.amount) > 0 ? num(current.amount_usd) / num(current.amount) : 1
-    patch.amount_usd = round2(amount * factor)
+
+    if (currencyChanged) {
+      // Moneda nueva, conversión nueva: se congela con la tasa de hoy, porque
+      // la vieja era de otra moneda y no dice nada sobre esta.
+      const { rates } = await ensureRates(supabase, userId)
+      patch.amount_usd = toUsd(amount, currency, rates)
+    } else {
+      // Solo cambió el monto: se conserva la tasa con la que nació la deuda —
+      // la del gasto padre, o la del día que la cargaste.
+      const factor = num(current.amount) > 0 ? num(current.amount_usd) / num(current.amount) : 1
+      patch.amount_usd = round2(amount * factor)
+    }
   }
 
   if (body.concept !== undefined) {

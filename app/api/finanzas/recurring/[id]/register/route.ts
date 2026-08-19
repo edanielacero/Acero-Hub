@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [{ data: plantilla }, { data: templateSplits }] = await Promise.all([
     supabase
       .from('fin_recurring')
-      .select('id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note')
+      .select('id, name, emoji, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on')
       .eq('id', id).eq('user_id', userId).maybeSingle(),
     supabase
       .from('fin_recurring_splits')
@@ -53,12 +53,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const hoy = todayISO()
-  const { from, to, due } = periodOf(base, hoy)
 
-  // La fecha por defecto es la que le toca en el período, no hoy: si Spotify
-  // cobra el 5 y lo registrás el 18, el cargo fue el 5. Anotarlo hoy correría
-  // el gasto de mes en los bordes y ensuciaría cualquier reporte futuro.
-  const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : due
+  // La fecha por defecto es la que le toca en el período vigente, no hoy: si
+  // Spotify cobra el 5 y lo registrás el 18, el cargo fue el 5. Anotarlo hoy
+  // correría el gasto de mes en los bordes y ensuciaría cualquier reporte.
+  const date = typeof body.date === 'string' && ISO_DATE.test(body.date)
+    ? body.date
+    : periodOf(base, hoy).due
+
+  // El período se calcula sobre la fecha PEDIDA, no sobre hoy. Con un fijo que
+  // arranca meses atrás se registra marzo estando en agosto, y comparar contra
+  // el período de hoy dejaría duplicar marzo cuantas veces se quisiera.
+  const { from, to } = periodOf(base, date)
 
   // Idempotencia: dos toques al botón no generan dos gastos. Se chequea contra
   // el período, no contra la fecha exacta, porque el segundo toque podría traer
@@ -73,7 +79,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if ((yaEsta ?? []).length > 0) {
       return NextResponse.json(
-        { error: `${base.name} ya está registrado en este período`, transaction_id: yaEsta![0].id },
+        { error: `${base.name} ya está registrado en ese período`, transaction_id: yaEsta![0].id },
         { status: 409 },
       )
     }
@@ -142,6 +148,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         amount: pt.amount,
         currency,
         amount_usd: freezeDebtUsd(pt.amount, frozen.exchange_rate),
+        // La deuda nace el día del gasto, no el día que lo registraste. Sin
+        // esto, registrar Spotify tarde hacía que la deuda pareciera más nueva
+        // de lo que es: "hace 1 día" cuando en realidad son 14. Y la lista de
+        // Deudas ordena por esta fecha, así que también salía mal ordenada.
+        incurred_on: date,
       })))
       .select(DEBT_COLS)
 

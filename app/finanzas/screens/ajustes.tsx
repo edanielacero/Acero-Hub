@@ -290,7 +290,7 @@ export function AjustesScreen() {
             Categorías
           </SectionTitle>
 
-          <div className="grid gap-2 min-[900px]:grid-cols-[80px_1fr_150px_auto] items-end">
+          <div className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-[80px_1fr_150px_auto] items-end">
             <div>
               <Label>Emoji</Label>
               <TextField
@@ -323,7 +323,7 @@ export function AjustesScreen() {
               Todavía no hay categorías. Sembrá las 14 iniciales o creá la tuya.
             </p>
           ) : (
-            <div className="grid gap-5 min-[900px]:grid-cols-2 mt-5">
+            <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-2 mt-5">
               <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} />
               <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} />
             </div>
@@ -336,7 +336,7 @@ export function AjustesScreen() {
             Con quiénes compartís gastos. Son etiquetas tuyas: nadie más las ve ni entra a la app.
           </p>
 
-          <div className="grid gap-2 min-[900px]:grid-cols-[1fr_auto] items-end">
+          <div className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-[1fr_auto] items-end">
             <div>
               <Label>Nombre</Label>
               <TextField
