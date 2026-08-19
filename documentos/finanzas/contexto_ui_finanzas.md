@@ -1061,3 +1061,29 @@ filas a dos).
   sobre el hero oscuro (delta negativo del mes) y ahí el contraste baja a
   ~3:1 — el límite aceptable para una etiqueta chica; no oscurecer más este
   token sin volver a medirlo contra `--fz-hero`.
+
+---
+
+## 22. Home desktop: bento, no mobile estirado (2026-08-19, 3)
+
+El Home en desktop repetía la composición de mobile con más aire alrededor —
+todo apilado en una sola columna angosta, aunque el viewport fuera de 1440px.
+Se probaron 3 propuestas de lado a lado (previews en el chat); se eligió
+**"Hero + acciones al lado"**. Todo lo de abajo sigue siendo el mismo flujo
+que scrollea con la sidebar fija — nada de esto agrega una zona con scroll
+propio (§20 sigue mandando).
+
+- **Hero + acciones rápidas comparten fila** desde 900px, en un grid
+  `[1fr_240px]`. En mobile siguen apiladas (grid de 1 columna: mismo
+  resultado que dos bloques sueltos). `<QuickAction>` se reacomoda de
+  ícono-sobre-etiqueta a ícono-etiqueta-chevron en fila, y se estira con
+  `flex-1` para repartir el alto del hero entre las tres.
+- **Ingresos/Gastos/Fijos/Deudas en una fila de 4** desde 900px
+  (`grid-cols-2 → grid-cols-4`). Fijos y Deudas ganaron una versión tile
+  (`<SummaryLinkTile>`, mismo cuerpo que `<StatTile>` con un chevron) que
+  **solo se muestra desde 900px**; la barra ancha de siempre se queda para
+  mobile sin tocar un solo pixel (`min-[900px]:hidden` de un lado,
+  `hidden min-[900px]:block` del otro — nunca los dos visibles a la vez).
+- **Movimientos + Cuentas lado a lado** desde 900px (`[1fr_320px]`),
+  Movimientos más ancho por ser la lista que más se lee. En mobile, grid de 1
+  columna con el mismo orden que ya fijó §21 (Movimientos primero).

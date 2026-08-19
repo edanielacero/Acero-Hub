@@ -96,60 +96,70 @@ export function HomeScreen() {
       />
 
       <div className="flex flex-col gap-5 min-w-0">
-          {/* Hero: el único bloque oscuro de la pantalla. */}
-          <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
-            />
+          {/* Fila superior: hero + acciones rápidas. En mobile se apilan (grid
+              de 1 columna, igual que antes); desde 900px comparten fila — el
+              hero manda el alto y las acciones se estiran a juego (§22). */}
+          <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-[1fr_240px] min-[900px]:items-stretch">
+            {/* Hero: el único bloque oscuro de la pantalla. */}
+            <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
+              />
 
-            <p className="relative text-[13px] font-medium text-white/60">Patrimonio total</p>
+              <p className="relative text-[13px] font-medium text-white/60">Patrimonio total</p>
 
-            {loading ? (
-              <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
-            ) : (
-              <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
-                {hidden ? HIDDEN : formatUSD(totalUsd)}
-              </p>
-            )}
-
-            {/* Reemplaza a la barra de proporción ingreso/gasto: un número con
-                signo dice más que una barra sin escala (§16.1 / §18). Mismo
-                verde/rojo que el resto de la app — nunca lima para "entró
-                plata": ese es el color de marca, no el semántico. */}
-            {!loading && !hidden && !mes.loading && (
-              <p
-                className="relative mt-2 text-[13px] font-semibold fz-num"
-                style={{ color: netoMes >= 0 ? 'var(--fz-in)' : 'var(--fz-out)' }}
-              >
-                {netoMes >= 0 ? '↗ +' : '↘ −'}{formatUSD(Math.abs(netoMes))} este mes
-              </p>
-            )}
-
-            <p className="relative mt-2 text-[13px] text-white/50">
-              {loading ? 'Cargando tus cuentas…' : (
-                <>
-                  {visible.length} {visible.length === 1 ? 'cuenta' : 'cuentas'} ·{' '}
-                  {/* La tasa del día es un dato que se mira seguido en Bolivia:
-                      decirla es más útil que decir que se usó (§16.1). */}
-                  {stale ? 'actualizando…' : `1 USD = Bs ${(rates.BOB ?? 6.96).toFixed(2)}`}
-                </>
+              {loading ? (
+                <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
+              ) : (
+                <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+                  {hidden ? HIDDEN : formatUSD(totalUsd)}
+                </p>
               )}
-            </p>
+
+              {/* Reemplaza a la barra de proporción ingreso/gasto: un número con
+                  signo dice más que una barra sin escala (§16.1 / §18). Mismo
+                  verde/rojo que el resto de la app — nunca lima para "entró
+                  plata": ese es el color de marca, no el semántico. */}
+              {!loading && !hidden && !mes.loading && (
+                <p
+                  className="relative mt-2 text-[13px] font-semibold fz-num"
+                  style={{ color: netoMes >= 0 ? 'var(--fz-in)' : 'var(--fz-out)' }}
+                >
+                  {netoMes >= 0 ? '↗ +' : '↘ −'}{formatUSD(Math.abs(netoMes))} este mes
+                </p>
+              )}
+
+              <p className="relative mt-2 text-[13px] text-white/50">
+                {loading ? 'Cargando tus cuentas…' : (
+                  <>
+                    {visible.length} {visible.length === 1 ? 'cuenta' : 'cuentas'} ·{' '}
+                    {/* La tasa del día es un dato que se mira seguido en Bolivia:
+                        decirla es más útil que decir que se usó (§16.1). */}
+                    {stale ? 'actualizando…' : `1 USD = Bs ${(rates.BOB ?? 6.96).toFixed(2)}`}
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Única puerta de entrada para registrar: no hay un "Nuevo
+                movimiento" aparte, que llevaría al mismo panel y volvería
+                redundante elegir Gasto/Ingreso/Transferir acá (§16.3). Cada
+                botón abre el sheet con el tipo ya fijado. Fila de 3 en
+                mobile; columna de 3 al lado del hero desde 900px. */}
+            <div className="grid grid-cols-3 gap-2.5 min-[900px]:flex min-[900px]:flex-col min-[900px]:h-full">
+              <QuickAction label="Gasto" Icon={IconArrowUpRight} onClick={() => openQuickAdd('gasto')} />
+              <QuickAction label="Ingreso" Icon={IconArrowDownLeft} onClick={() => openQuickAdd('ingreso')} />
+              <QuickAction label="Transferir" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
+            </div>
           </div>
 
-          {/* Única puerta de entrada para registrar: no hay un "Nuevo
-              movimiento" aparte, que llevaría al mismo panel y volvería
-              redundante elegir Gasto/Ingreso/Transferir acá (§16.3). Cada
-              botón abre el sheet con el tipo ya fijado. */}
-          <div className="grid grid-cols-3 gap-2.5">
-            <QuickAction label="Gasto" Icon={IconArrowUpRight} onClick={() => openQuickAdd('gasto')} />
-            <QuickAction label="Ingreso" Icon={IconArrowDownLeft} onClick={() => openQuickAdd('ingreso')} />
-            <QuickAction label="Transferir" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          {/* Fila de resumen: Ingresos y Gastos siempre; Fijos y Deudas se
+              suman cuando aplican. En mobile son 2 columnas (Fijos/Deudas
+              siguen abajo como barra ancha, sin cambios); desde 900px los
+              cuatro entran en una sola fila de 4 (§22). */}
+          <div className="grid grid-cols-2 gap-3 min-[900px]:grid-cols-4">
             <StatTile
               tone="in"
               icon={<IconArrowDownLeft size={18} stroke={2} />}
@@ -175,12 +185,44 @@ export function HomeScreen() {
                   : undefined
               }
             />
+
+            {/* Mismo destino y mismo dato que la barra ancha de abajo, en
+                formato tile para la fila de 4 — solo visible desde 900px, así
+                que en mobile no hay contenido duplicado en el DOM visible. */}
+            {hayFijos && (
+              <div className="hidden min-[900px]:block">
+                <SummaryLinkTile
+                  href="/finanzas/fijos"
+                  tone={recurring.pending > 0 ? 'out' : 'in'}
+                  icon={<IconRepeat size={18} stroke={1.9} />}
+                  label={`Fijos de ${monthName(now.getMonth())}`}
+                  value={<>{recurring.done}<span className="text-[14px] font-semibold text-[var(--fz-ink-3)]">/{recurring.total}</span></>}
+                  meta={recurring.pending > 0
+                    ? `${recurring.pending} ${recurring.pending === 1 ? 'pendiente' : 'pendientes'}`
+                    : 'al día'}
+                />
+              </div>
+            )}
+            {teDeben && (
+              <div className="hidden min-[900px]:block">
+                <SummaryLinkTile
+                  href="/finanzas/deudas"
+                  tone="out"
+                  icon={<IconUsersGroup size={18} stroke={1.9} />}
+                  label="Te deben"
+                  value={<AmountUSD value={shared.por_cobrar_usd} />}
+                  meta={`${shared.por_persona.length} ${shared.por_persona.length === 1 ? 'persona' : 'personas'}`}
+                />
+              </div>
+            )}
           </div>
 
+          {/* Mismas barras anchas de siempre, pero solo hasta 900px: desde ahí
+              las reemplaza el tile de la fila de arriba. */}
           {hayFijos && (
             <FzLink
               href="/finanzas/fijos"
-              className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
+              className="min-[900px]:hidden flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
             >
               <span
                 className="grid place-items-center w-10 h-10 rounded-[var(--fz-r-chip)] shrink-0"
@@ -214,7 +256,7 @@ export function HomeScreen() {
           {teDeben && (
             <FzLink
               href="/finanzas/deudas"
-              className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
+              className="min-[900px]:hidden flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 hover:brightness-[0.99] transition-[filter]"
             >
               <span
                 className="grid place-items-center w-10 h-10 rounded-[var(--fz-r-chip)] shrink-0"
@@ -236,106 +278,148 @@ export function HomeScreen() {
             </FzLink>
           )}
 
-          {/* Movimientos antes que Cuentas: es lo que se quiere ver primero al
-              entrar (§21). Antes Cuentas vivía en una tercera columna fija al
-              lado de Movimientos; en desktop ese rail no scrolleaba con el
-              resto y quedaba como un bloque aparte. Ahora los dos son paneles
-              del mismo flujo: sidebar fija a la izquierda, todo lo demás en
-              una sola columna que scrollea junto (§20). */}
-          <Panel>
-            <SectionTitle
-              action={
-                <FzLink href="/finanzas/movimientos" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
-                  Ver todos <IconChevronRight size={14} stroke={2} />
-                </FzLink>
-              }
-            >
-              Movimientos
-            </SectionTitle>
+          {/* Movimientos y Cuentas: en mobile apilados (grid de 1 columna,
+              Movimientos primero — §21); desde 900px lado a lado, Movimientos
+              más ancho porque es la lista que más se lee. Los dos siguen
+              siendo parte del mismo flujo que scrollea con la página — no hay
+              una columna con scroll propio (§20 / §22). */}
+          <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-[1fr_320px] min-[900px]:items-start">
+            <Panel>
+              <SectionTitle
+                action={
+                  <FzLink href="/finanzas/movimientos" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+                    Ver todos <IconChevronRight size={14} stroke={2} />
+                  </FzLink>
+                }
+              >
+                Movimientos
+              </SectionTitle>
 
-            {/* El estado vacío también es una afirmación: "no registraste nada"
-                mientras la lista viaja es tan falso como un $0. */}
-            {ultimos.loading ? (
-              <RowSkeletons n={4} />
-            ) : recent.length === 0 ? (
-              <EmptyState
-                icon={IconNotes}
-                title="Todavía no registraste nada"
-                description="Tocá el + y anotá tu primer gasto."
-              />
-            ) : (
-              <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-                {recent.map(tx => (
-                  <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx)} />
-                ))}
-              </div>
-            )}
-          </Panel>
+              {/* El estado vacío también es una afirmación: "no registraste nada"
+                  mientras la lista viaja es tan falso como un $0. */}
+              {ultimos.loading ? (
+                <RowSkeletons n={4} />
+              ) : recent.length === 0 ? (
+                <EmptyState
+                  icon={IconNotes}
+                  title="Todavía no registraste nada"
+                  description="Tocá el + y anotá tu primer gasto."
+                />
+              ) : (
+                <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
+                  {recent.map(tx => (
+                    <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx)} />
+                  ))}
+                </div>
+              )}
+            </Panel>
 
-          <Panel>
-            <SectionTitle
-              action={
-                <FzLink href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
-                  Ver todas <IconChevronRight size={14} stroke={2} />
-                </FzLink>
-              }
-            >
-              Cuentas
-            </SectionTitle>
+            <Panel>
+              <SectionTitle
+                action={
+                  <FzLink href="/finanzas/cuentas" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+                    Ver todas <IconChevronRight size={14} stroke={2} />
+                  </FzLink>
+                }
+              >
+                Cuentas
+              </SectionTitle>
 
-            {loading ? (
-              <div className="flex gap-3 overflow-hidden">
-                {Array.from({ length: 3 }, (_, i) => (
-                  <Skeleton key={i} w={148} h={104} radius="var(--fz-r-tile)" className="shrink-0" />
-                ))}
-              </div>
-            ) : (
-              /* Carrusel horizontal con peek en vez de una lista truncada a 3:
-                 con muchas cuentas se scrollea en vez de esconderse detrás de
-                 "Ver todas" (§16.4). `snap-mandatory` para que cada tarjeta
-                 quede prolija al soltar el dedo. */
-              <div className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1">
-                {visible.map(a => (
-                  <div
-                    key={a.id}
-                    className="snap-start shrink-0 w-[148px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-2.5"
-                  >
-                    <CurrencyIcon currency={a.currency} size={30} />
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">{a.name}</p>
-                      <p className="text-[16px] font-bold tracking-[-0.01em] fz-num truncate">
-                        {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
-                      </p>
-                      {a.currency !== 'USD' && (
-                        <p className="text-[11px] text-[var(--fz-ink-3)] fz-num truncate">
-                          {hidden ? '' : <>≈ <AmountUSD value={a.balance_usd} /></>}
+              {loading ? (
+                <div className="flex gap-3 overflow-hidden">
+                  {Array.from({ length: 3 }, (_, i) => (
+                    <Skeleton key={i} w={148} h={104} radius="var(--fz-r-tile)" className="shrink-0" />
+                  ))}
+                </div>
+              ) : (
+                /* Carrusel horizontal con peek en vez de una lista truncada a 3:
+                   con muchas cuentas se scrollea en vez de esconderse detrás de
+                   "Ver todas" (§16.4). `snap-mandatory` para que cada tarjeta
+                   quede prolija al soltar el dedo. */
+                <div className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1">
+                  {visible.map(a => (
+                    <div
+                      key={a.id}
+                      className="snap-start shrink-0 w-[148px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-2.5"
+                    >
+                      <CurrencyIcon currency={a.currency} size={30} />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">{a.name}</p>
+                        <p className="text-[16px] font-bold tracking-[-0.01em] fz-num truncate">
+                          {hidden ? HIDDEN : formatAmount(a.balance, a.currency)}
                         </p>
-                      )}
+                        {a.currency !== 'USD' && (
+                          <p className="text-[11px] text-[var(--fz-ink-3)] fz-num truncate">
+                            {hidden ? '' : <>≈ <AmountUSD value={a.balance_usd} /></>}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          </div>
       </div>
     </div>
   )
 }
 
-/** Un botón de acción rápida: chip circular + etiqueta, al estilo Pay/Transfer
-    /Receive de la referencia de wallet (§14, referencia 5). */
+/**
+ * Un botón de acción rápida. En mobile: chip circular + etiqueta apilados, al
+ * estilo Pay/Transfer/Receive de la referencia de wallet (§14, referencia 5).
+ * Desde 900px, dentro de la columna al lado del hero, se reacomoda a fila —
+ * ícono, etiqueta y chevron, como un ítem de lista — y se estira con
+ * `flex-1` para repartirse el alto disponible en partes iguales (§22).
+ */
 function QuickAction({ label, Icon, onClick }: { label: string; Icon: TablerIcon; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] transition-transform active:scale-[0.97]"
+      className="flex flex-col items-center gap-1.5 py-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] transition-transform active:scale-[0.97] min-[900px]:flex-1 min-[900px]:w-full min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-start min-[900px]:gap-3 min-[900px]:px-4 min-[900px]:py-0"
     >
-      <span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+      <span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] shrink-0">
         <Icon size={19} stroke={1.8} />
       </span>
-      <span className="text-[12px] font-semibold text-[var(--fz-ink-2)]">{label}</span>
+      <span className="text-[12px] font-semibold text-[var(--fz-ink-2)] min-[900px]:text-[14px] min-[900px]:text-[var(--fz-ink)]">
+        {label}
+      </span>
+      <IconChevronRight size={16} stroke={2} className="hidden min-[900px]:block ml-auto text-[var(--fz-ink-3)]" />
     </button>
+  )
+}
+
+/**
+ * Tile de resumen que además es un link — la versión "de escritorio" de la
+ * barra ancha de Fijos/Deudas (§22), pensada para convivir con `<StatTile>`
+ * en la misma fila de 4. Mismo tamaño de chip, mismo cuerpo de monto: la
+ * única diferencia visual es el chevron, que dice "esto lleva a otro lado".
+ */
+function SummaryLinkTile({ href, tone, icon, label, value, meta }: {
+  href: string; tone: 'in' | 'out'; icon: React.ReactNode; label: string
+  value: React.ReactNode; meta?: React.ReactNode
+}) {
+  return (
+    <FzLink
+      href={href}
+      className="block min-w-0 rounded-[var(--fz-r-tile)] p-4 hover:brightness-[0.99] transition-[filter]"
+      style={{ background: `var(--fz-${tone}-tint)` }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span
+          className="inline-flex items-center justify-center w-9 h-9 rounded-[var(--fz-r-chip)] bg-white/70"
+          style={{ color: `var(--fz-${tone}-text)` }}
+          aria-hidden
+        >
+          {icon}
+        </span>
+        <IconChevronRight size={16} stroke={2} className="text-[var(--fz-ink-3)] mt-1.5 shrink-0" />
+      </div>
+      <p className="mt-3 text-[13px] font-medium text-[var(--fz-ink-2)] truncate">{label}</p>
+      <p className="text-[21px] min-[400px]:text-[26px] font-bold tracking-[-0.01em] fz-num truncate">{value}</p>
+      {meta && <p className="text-[12px] font-medium text-[var(--fz-ink-2)] fz-num truncate">{meta}</p>}
+    </FzLink>
   )
 }
 
