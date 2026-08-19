@@ -14,10 +14,14 @@ import { PersonAvatar } from './ui'
  * hubiera que ir primero a Ajustes, la mitad de las veces el gasto se
  * registraría sin marcar como compartido y la feature quedaría sin usar.
  */
-export function PersonPicker({ selected, onToggle, onCreated }: {
+export function PersonPicker({ selected, onToggle, onCreated, showMe = true }: {
   selected: string[]
   onToggle: (person: Person) => void
   onCreated: (person: Person) => void
+  /** El chip "Yo" solo tiene sentido repartiendo un gasto: ahí siempre
+      participás. En una deuda no — no podés deberte a vos mismo — así que
+      quien arma un picker para elegir "quién te debe" lo apaga. */
+  showMe?: boolean
 }) {
   const { people, reload } = useFinanzas()
   const [adding, setAdding] = useState(false)
@@ -70,10 +74,12 @@ export function PersonPicker({ selected, onToggle, onCreated }: {
         {/* "Yo" no es una persona: no existe en fin_people ni genera fila de
             reparto. Está acá porque cuenta para dividir, y sacarlo dejaría la
             división pareja sin sentido visual. */}
-        <span className="shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-hero)] text-white text-[14px] font-semibold">
-          <IconCheck size={15} stroke={2.4} className="text-[var(--fz-lime)]" />
-          Yo
-        </span>
+        {showMe && (
+          <span className="shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-hero)] text-white text-[14px] font-semibold">
+            <IconCheck size={15} stroke={2.4} className="text-[var(--fz-lime)]" />
+            Yo
+          </span>
+        )}
 
         {activos.map(p => {
           const on = selected.includes(p.id)

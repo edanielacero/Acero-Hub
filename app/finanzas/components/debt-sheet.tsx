@@ -157,11 +157,13 @@ export function DebtSheet({ editing, onClose, onSaved }: {
           ) : (
             <div>
               <Label>Quién te debe</Label>
-              {/* Una deuda es de UNA persona: elegir otra reemplaza. */}
+              {/* Una deuda es de UNA persona: elegir otra reemplaza. Sin "Yo":
+                  no podés deberte a vos mismo. */}
               <PersonPicker
                 selected={seleccion}
                 onToggle={(p: Person) => setPersonId(prev => (prev === p.id ? '' : p.id))}
                 onCreated={(p: Person) => setPersonId(p.id)}
+                showMe={false}
               />
             </div>
           )}
