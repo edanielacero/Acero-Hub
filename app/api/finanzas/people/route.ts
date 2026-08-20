@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
+import { num } from '@/lib/finanzas/money'
 import { loadPeople } from '@/lib/finanzas/load'
 import { PERSON_COLS, findPersonByName } from '@/lib/finanzas/people'
 
@@ -31,7 +32,10 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from('fin_people')
-    .insert({ user_id: userId, name })
+    // 99 y no el default de la columna (0): una persona nueva se agrega al
+    // final de un orden ya curado a mano, no se cuela adelante — mismo
+    // criterio que ya usa la creación de categorías.
+    .insert({ user_id: userId, name, sort_order: num(body?.sort_order, 99) })
     .select(PERSON_COLS)
     .single()
 

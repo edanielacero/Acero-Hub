@@ -5,10 +5,11 @@ import { todayISO } from '@/lib/finanzas/transactions'
 import { loadRecurring } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import { resolvePeople } from '@/lib/finanzas/people'
+import { CURRENCIES } from '@/lib/finanzas/types'
 import type { Frequency, RecurringInput } from '@/lib/finanzas/types'
 
 export const RECURRING_COLS =
-  'id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const FREQUENCIES: Frequency[] = ['mensual', 'anual']
 
@@ -26,7 +27,9 @@ export function readTemplateSplits(raw: unknown) {
 
 export function validateRecurring(body: Partial<RecurringInput>): string | null {
   if (!body.name || !body.name.trim()) return 'El fijo necesita un nombre'
-  if (!body.account_id) return 'Elegí de qué cuenta sale'
+  // La cuenta se elige recién al registrar cada instancia (§ RegisterSheet):
+  // la plantilla solo necesita saber en qué moneda está el monto.
+  if (!body.currency || !CURRENCIES.includes(body.currency)) return 'Elegí una moneda'
   if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) {
     return 'El monto debe ser mayor a cero'
   }
@@ -63,7 +66,10 @@ export async function POST(request: Request) {
     name: typeof body.name === 'string' ? body.name.trim() : '',
     icon: typeof body.icon === 'string' ? body.icon || null : null,
     amount: num(body.amount, NaN),
-    account_id: body.account_id,
+    currency: body.currency,
+    // Opcional: se puede fijar de entrada, pero la UI normal la deja en blanco
+    // y la pide recién al registrar la primera instancia.
+    account_id: typeof body.account_id === 'string' && body.account_id ? body.account_id : null,
     category_id: body.category_id ?? null,
     frequency: body.frequency ?? 'mensual',
     day_of_month: body.day_of_month === undefined ? 1 : num(body.day_of_month),
@@ -77,13 +83,22 @@ export async function POST(request: Request) {
   }
   if (input.frequency === 'mensual') input.month_of_year = null
 
+  // La cuenta es opcional en la plantilla — se elige recién al registrar cada
+  // instancia. Si de todos modos viene una, tiene que ser tuya; y si no vino
+  // moneda explícita, se infiere de ahí — mismo comportamiento de siempre,
+  // de cuando la cuenta era la única fuente de la moneda.
+  if (input.account_id) {
+    const { data: account } = await supabase
+      .from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', input.account_id).maybeSingle()
+    if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
+    if (!input.currency) input.currency = account.currency
+    else if (account.currency !== input.currency) {
+      return NextResponse.json({ error: 'La cuenta elegida es de otra moneda' }, { status: 400 })
+    }
+  }
+
   const invalid = validateRecurring(input)
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
-
-  // La cuenta tiene que ser tuya: de ella sale la moneda del fijo.
-  const { data: account } = await supabase
-    .from('fin_accounts').select('id').eq('user_id', userId).eq('id', input.account_id!).maybeSingle()
-  if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
 
   // El reparto se valida ANTES de crear nada: si no, un nombre repetido creaba
   // la plantilla, fallaba al insertar las partes y había que compensar.

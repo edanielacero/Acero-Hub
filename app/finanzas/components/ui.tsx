@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { IconCheck, IconChevronDown, IconDotsVertical, type TablerIcon } from '@tabler/icons-react'
+import { IconCheck, IconChevronDown, IconDotsVertical, IconSearch, IconX, type TablerIcon } from '@tabler/icons-react'
 
 /* ─── Tinte de chip ────────────────────────────────────────────────────────
    Tres valores y no siete: 'neutral' es el único que usan categoría, persona
@@ -140,6 +140,43 @@ export function TextField(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={`${fieldClass} py-3 leading-snug resize-y ${props.className ?? ''}`} />
+}
+
+/**
+ * Buscar por nombre. Un solo componente para Cuentas y para cada lugar donde
+ * se elige una cuenta al registrar un movimiento — mismo look, mismo botón de
+ * limpiar, en vez de reinventarlo en cada pantalla.
+ */
+export function SearchField({ value, onChange, placeholder = 'Buscar…' }: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  return (
+    <div className="relative">
+      <IconSearch
+        size={17} stroke={2}
+        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--fz-ink-3)]"
+      />
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className={`${fieldClass} h-11 pl-10 ${value ? 'pr-9' : 'pr-4'}`}
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Limpiar búsqueda"
+          className="absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center w-7 h-7 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface)] hover:text-[var(--fz-ink)]"
+        >
+          <IconX size={14} stroke={2} />
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function SelectField(props: React.SelectHTMLAttributes<HTMLSelectElement>) {

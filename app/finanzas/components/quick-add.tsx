@@ -12,7 +12,7 @@ import { SignedAmount } from './amount'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { IconGasto, IconIngreso } from './flow-icon'
 import { useQuickAddApi } from './quick-add-context'
-import { Btn, DateField, ErrorNote, IconChip, Label, Segmented, TextArea, TextField } from './ui'
+import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, Segmented, TextArea, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -42,6 +42,8 @@ export function QuickAdd() {
   const [toAmountTouched, setToAmountTouched] = useState(false)
   const [accountId, setAccountId] = useState('')
   const [toAccountId, setToAccountId] = useState('')
+  const [accountSearch, setAccountSearch] = useState('')
+  const [toAccountSearch, setToAccountSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [date, setDate] = useState(todayISO())
   const [description, setDescription] = useState('')
@@ -80,6 +82,8 @@ export function QuickAdd() {
       setDate(todayISO())
       setDescription('')
     }
+    setAccountSearch('')
+    setToAccountSearch('')
     const t = setTimeout(() => amountRef.current?.focus(), 120)
     return () => clearTimeout(t)
     // `active` queda fuera de las dependencias a propósito: es un array nuevo
@@ -158,6 +162,17 @@ export function QuickAdd() {
   const visibleCategories = useMemo(
     () => categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto')),
     [categories, type],
+  )
+
+  const accountOptions = useMemo(
+    () => active.filter(a => a.name.toLowerCase().includes(accountSearch.trim().toLowerCase())),
+    [active, accountSearch],
+  )
+  const toAccountOptions = useMemo(
+    () => active
+      .filter(a => a.id !== accountId)
+      .filter(a => a.name.toLowerCase().includes(toAccountSearch.trim().toLowerCase())),
+    [active, accountId, toAccountSearch],
   )
 
 
@@ -335,8 +350,13 @@ export function QuickAdd() {
 
           <div>
             <Label>{type === 'transferencia' ? 'Desde' : 'Cuenta'}</Label>
+            {active.length > 4 && (
+              <div className="mb-2">
+                <SearchField value={accountSearch} onChange={setAccountSearch} placeholder="Buscar cuenta…" />
+              </div>
+            )}
             <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-              {active.map(a => (
+              {accountOptions.map(a => (
                 <AccountCard
                   key={a.id}
                   account={a}
@@ -344,6 +364,9 @@ export function QuickAdd() {
                   onClick={() => setAccountId(a.id)}
                 />
               ))}
+              {accountOptions.length === 0 && (
+                <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+              )}
             </div>
             {/* Cuenta de inversión: este movimiento va a sumar al saldo pero no
                 al gasto/ingreso del mes (§7.1 de contexto_finanzas.md) — el
@@ -359,8 +382,13 @@ export function QuickAdd() {
             <>
               <div>
                 <Label>Hacia</Label>
+                {active.length > 4 && (
+                  <div className="mb-2">
+                    <SearchField value={toAccountSearch} onChange={setToAccountSearch} placeholder="Buscar cuenta…" />
+                  </div>
+                )}
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                  {active.filter(a => a.id !== accountId).map(a => (
+                  {toAccountOptions.map(a => (
                     <AccountCard
                       key={a.id}
                       account={a}
@@ -368,6 +396,9 @@ export function QuickAdd() {
                       onClick={() => setToAccountId(a.id)}
                     />
                   ))}
+                  {toAccountOptions.length === 0 && (
+                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+                  )}
                 </div>
               </div>
 

@@ -21,7 +21,7 @@ import { CurrencyIcon } from '../components/currency-icon'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, ErrorNote, formatDayLabel, Label, Panel, RowMenu, SectionTitle, TextField } from '../components/ui'
+import { Btn, ErrorNote, formatDayLabel, Label, Panel, RowMenu, SearchField, SectionTitle, TextField } from '../components/ui'
 
 interface Draft {
   id?: string
@@ -50,8 +50,23 @@ export function CuentasScreen() {
   const [deleting, setDeleting] = useState<AccountWithBalance | null>(null)
   const [confirming, setConfirming] = useState(false)
 
-  const visible = accounts.filter(a => !a.archived)
-  const archived = accounts.filter(a => a.archived)
+  const [search, setSearch] = useState('')
+  const [currencyFilter, setCurrencyFilter] = useState<Currency | 'todas'>('todas')
+  // Solo las monedas que el usuario realmente tiene — no tiene sentido un chip
+  // de BTC si nunca cargó una cuenta en BTC.
+  const monedas = useMemo(() => Array.from(new Set(accounts.map(a => a.currency))), [accounts])
+  const hayFiltro = !!search.trim() || currencyFilter !== 'todas'
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return accounts.filter(a =>
+      (currencyFilter === 'todas' || a.currency === currencyFilter) &&
+      (!q || a.name.toLowerCase().includes(q)),
+    )
+  }, [accounts, search, currencyFilter])
+
+  const visible = filtered.filter(a => !a.archived)
+  const archived = filtered.filter(a => a.archived)
 
   /**
    * Orden optimista durante y justo después de un drag: sin esto, la fila
@@ -318,11 +333,82 @@ export function CuentasScreen() {
         )}
 
         <Panel>
-          <SectionTitle>Activas</SectionTitle>
+          <SectionTitle
+            action={
+              hayFiltro && (
+                <button
+                  type="button"
+                  onClick={() => { setSearch(''); setCurrencyFilter('todas') }}
+                  className="inline-flex items-center gap-1 text-[13px] font-semibold text-[var(--fz-accent)]"
+                >
+                  <IconX size={14} stroke={2.4} /> Limpiar
+                </button>
+              )
+            }
+          >
+            Activas
+          </SectionTitle>
+
+          {accounts.length > 0 && (
+            <div className="flex flex-col gap-2 mb-3.5">
+              <SearchField value={search} onChange={setSearch} placeholder="Buscar cuenta…" />
+              {monedas.length > 1 && (
+                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                  <button
+                    type="button" onClick={() => setCurrencyFilter('todas')}
+                    aria-pressed={currencyFilter === 'todas'}
+                    className={`shrink-0 h-9 px-3.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                      currencyFilter === 'todas'
+                        ? 'bg-[var(--fz-accent)] text-white'
+                        : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  {monedas.map(c => (
+                    <button
+                      key={c} type="button" onClick={() => setCurrencyFilter(c)}
+                      aria-pressed={currencyFilter === c}
+                      className={`shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                        currencyFilter === c
+                          ? 'bg-[var(--fz-accent)] text-white'
+                          : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                      }`}
+                    >
+                      <CurrencyIcon currency={c} size={16} />
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {visible.length === 0 ? (
             <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
-              Todavía no hay cuentas. Creá la primera para empezar a registrar.
+              {accounts.length === 0
+                ? 'Todavía no hay cuentas. Creá la primera para empezar a registrar.'
+                : 'Ninguna cuenta coincide con la búsqueda.'}
             </p>
+          ) : hayFiltro ? (
+            // Con un filtro activo el orden por arrastre no es confiable —
+            // "soltar entre A y B" no significa nada cuando A y B dejaron de
+            // ser vecinos reales de la lista completa. Se ve la misma card,
+            // sin el handle, hasta que se limpia el filtro.
+            <div className="flex flex-col gap-2.5">
+              {visible.map(a => (
+                <AccountRow
+                  key={a.id}
+                  account={a}
+                  hidden={hidden}
+                  sortable={false}
+                  onView={() => setViewing(a)}
+                  onEdit={() => openEdit(a)}
+                  onArchive={() => patch(a.id, { archived: true })}
+                  onDelete={() => setDeleting(a)}
+                />
+              ))}
+            </div>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedVisible.map(a => a.id)} strategy={verticalListSortingStrategy}>
@@ -335,6 +421,7 @@ export function CuentasScreen() {
                       key={a.id}
                       account={a}
                       hidden={hidden}
+                      sortable
                       onView={() => setViewing(a)}
                       onEdit={() => openEdit(a)}
                       onArchive={() => patch(a.id, { archived: true })}
@@ -437,22 +524,29 @@ export function CuentasScreen() {
   )
 }
 
-function AccountRow({ account, hidden, onView, onEdit, onArchive, onDelete }: {
+function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDelete }: {
   account: AccountWithBalance
   hidden: boolean
+  /** Falso mientras hay un buscador/filtro activo: sin handle, sin drag. */
+  sortable: boolean
   onView: () => void
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
 }) {
+  // Fuera de un <DndContext> (lista filtrada) el hook queda inerte: dnd-kit
+  // provee un contexto default para justamente este caso, así que llamarlo
+  // siempre acá adentro es seguro aunque `sortable` sea falso.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: account.id })
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    position: 'relative',
-    zIndex: isDragging ? 1 : undefined,
-  }
+  const style: React.CSSProperties = sortable
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        position: 'relative',
+        zIndex: isDragging ? 1 : undefined,
+      }
+    : {}
 
   return (
     /*
@@ -484,15 +578,17 @@ function AccountRow({ account, hidden, onView, onEdit, onArchive, onDelete }: {
               ambigüedad entre "quiero arrastrar" y "quiero tocar".
               `touch-none` evita que el navegador le dispute el gesto al
               scroll en móvil. */}
-          <button
-            type="button"
-            {...attributes}
-            {...listeners}
-            aria-label={`Reordenar ${account.name}`}
-            className="grid place-items-center w-8 h-8 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
-          >
-            <IconGripVertical size={18} stroke={1.8} />
-          </button>
+          {sortable && (
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              aria-label={`Reordenar ${account.name}`}
+              className="grid place-items-center w-8 h-8 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
+            >
+              <IconGripVertical size={18} stroke={1.8} />
+            </button>
+          )}
           <CurrencyIcon currency={account.currency} size={36} />
         </div>
 

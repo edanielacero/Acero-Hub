@@ -143,6 +143,7 @@ export interface Transaction extends BalanceMovement {
 export interface Person {
   id: string
   name: string
+  sort_order: number
   archived: boolean
 }
 
@@ -233,7 +234,12 @@ export interface Recurring {
   icon: string | null
   /** Un default editable al confirmar, no una ley. */
   amount: number
-  account_id: string
+  /** Independiente de la cuenta: se elige al crear el fijo, la cuenta recién
+      al registrarlo (§ RecurringSheet / RegisterSheet). */
+  currency: Currency
+  /** Null hasta que se registra por primera vez — o para siempre, si cada
+      instancia sale de una cuenta distinta. */
+  account_id: string | null
   category_id: string | null
   frequency: Frequency
   day_of_month: number
@@ -257,7 +263,8 @@ export interface RecurringInput {
   name: string
   icon?: string | null
   amount: number
-  account_id: string
+  currency?: Currency
+  account_id?: string | null
   category_id?: string | null
   frequency?: Frequency
   day_of_month?: number
@@ -271,7 +278,6 @@ export interface RecurringInput {
 /** Una plantilla con su estado en el período vigente. */
 export interface RecurringWithState extends Recurring {
   splits: RecurringSplit[]
-  currency: Currency
   status: RecurringStatus
   /** Cuándo cae en el período vigente, topeado al largo del mes. */
   due: string

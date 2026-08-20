@@ -24,7 +24,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     name: typeof body.name === 'string' ? body.name.trim() : current.name,
     icon: body.icon === undefined ? current.icon : (body.icon || null),
     amount: body.amount === undefined ? num(current.amount) : num(body.amount, NaN),
-    account_id: pick(body.account_id, current.account_id),
+    currency: pick(body.currency, current.currency),
+    account_id: body.account_id === undefined
+      ? current.account_id
+      : (typeof body.account_id === 'string' && body.account_id ? body.account_id : null),
     category_id: body.category_id === undefined ? current.category_id : (body.category_id || null),
     frequency: pick(body.frequency, current.frequency),
     day_of_month: body.day_of_month === undefined ? num(current.day_of_month) : num(body.day_of_month),

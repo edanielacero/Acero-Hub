@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, formatAmount, fromUsd, parseDecimalInput, toUsd } from '@/lib/finanzas/money'
 import { resolveSplits } from '@/lib/finanzas/recurring'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryIcon } from './category-icon'
-import { Btn, ErrorNote, Label, TextField } from './ui'
+import { Btn, ErrorNote, Label, SearchField, TextField } from './ui'
 
 /**
  * Confirmar un gasto fijo del período.
@@ -23,22 +23,55 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   onClose: () => void
   onDone: () => void
 }) {
-  const { accounts, people, reload } = useFinanzas()
-  const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
+  const { accounts, people, rates, reload } = useFinanzas()
+  // Cualquier cuenta sirve, no solo las de la moneda del fijo: a veces pagás
+  // Spotify (en USD) desde una cuenta en Bs o en USDT. La plantilla no se
+  // entera — sigue diciendo "$11.99" para el mes que viene — pero ESTE
+  // movimiento queda en la moneda de la cuenta que realmente usaste.
+  const candidatas = useMemo(() => accounts.filter(a => !a.archived), [accounts])
+  const [search, setSearch] = useState('')
+  const filtradas = useMemo(
+    () => candidatas.filter(a => a.name.toLowerCase().includes(search.trim().toLowerCase())),
+    [candidatas, search],
+  )
 
   const [amount, setAmount] = useState(String(recurring.amount))
-  const [accountId, setAccountId] = useState(recurring.account_id)
+  const [accountId, setAccountId] = useState(recurring.account_id ?? '')
   const [date, setDate] = useState(recurring.due)
   const [updateTemplate, setUpdateTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const account = active.find(a => a.id === accountId)
-  const decimals = decimalsFor(account?.currency)
+  const account = candidatas.find(a => a.id === accountId)
+  const decimals = decimalsFor(account?.currency ?? recurring.currency)
   const cur = account?.currency ?? recurring.currency
+  const crossCurrency = !!account && account.currency !== recurring.currency
   const value = amountFromInput(amount, { decimals })
 
-  const cambioDePrecio = Number.isFinite(value) && value !== recurring.amount
+  // Convertido a la tasa de hoy — una sugerencia, no una imposición: lo que se
+  // guarda es lo que realmente salió de esa cuenta, que casi nunca coincide
+  // por comisiones de conversión (mismo criterio que una transferencia entre
+  // monedas en el quick-add).
+  const sugerido = crossCurrency
+    ? fromUsd(toUsd(recurring.amount, recurring.currency, rates), cur, rates)
+    : null
+
+  // Al cambiar a una cuenta de otra moneda se pre-carga la conversión sugerida
+  // en vez de dejar el número tal cual: sin esto, "500" pasaría de Bs a USDT
+  // sin convertir nada, solo cambiándole la etiqueta. Se dispara solo cuando
+  // la MONEDA cambia, no en cada cambio de cuenta — así no te pisa un monto
+  // que ya editaste a mano por "subió de precio" al elegir otra cuenta de la
+  // misma moneda.
+  useEffect(() => {
+    if (!account) return
+    setAmount(String(account.currency === recurring.currency ? recurring.amount : sugerido))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.currency])
+
+  // Un cambio de precio real solo tiene sentido en la moneda de la plantilla:
+  // pagar un fijo de Bs con una cuenta en USDT siempre va a dar números
+  // distintos, y eso no es que Spotify subió — es la conversión.
+  const cambioDePrecio = !crossCurrency && Number.isFinite(value) && value !== recurring.amount
 
   // El reparto se calcula con el monto de ESTE mes, no con el de la plantilla.
   const partes = useMemo(
@@ -62,6 +95,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
   async function submit() {
     setError('')
+    if (!accountId) return setError('Elegí de qué cuenta sale')
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
 
     setSaving(true)
@@ -112,12 +146,29 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
         <div className="px-5 pb-5 flex flex-col gap-4">
           <div>
-            <Label>Monto {account ? `(${account.currency})` : ''}</Label>
+            <Label>Monto ({cur})</Label>
             <TextField
               value={amount}
               onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
               inputMode="decimal" placeholder="0.00" className="fz-num"
             />
+            {crossCurrency && (
+              <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[var(--fz-ink-3)] mt-1.5">
+                {recurring.name} es {formatAmount(recurring.amount, recurring.currency)}.
+                {sugerido != null && (
+                  <>
+                    Según la tasa de hoy, unos {formatAmount(sugerido, cur)}.
+                    <button
+                      type="button"
+                      onClick={() => setAmount(String(sugerido))}
+                      className="font-semibold text-[var(--fz-accent)]"
+                    >
+                      Usar {formatAmount(sugerido, cur)}
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
             {cambioDePrecio && (
               <button
                 type="button"
@@ -140,22 +191,38 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
           <div>
             <Label>Sale de</Label>
-            <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-              {active.map(a => (
-                <button
-                  key={a.id} type="button" onClick={() => setAccountId(a.id)}
-                  aria-pressed={a.id === accountId}
-                  className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
-                    a.id === accountId
-                      ? 'bg-[var(--fz-accent)] text-white'
-                      : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
-                  }`}
-                >
-                  <CurrencyIcon currency={a.currency} size={18} />
-                  {a.name}
-                </button>
-              ))}
-            </div>
+            {candidatas.length === 0 ? (
+              <p className="text-[13px] text-[var(--fz-out-text)]">
+                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar este fijo.
+              </p>
+            ) : (
+              <>
+                {candidatas.length > 4 && (
+                  <div className="mb-2">
+                    <SearchField value={search} onChange={setSearch} placeholder="Buscar cuenta…" />
+                  </div>
+                )}
+                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                  {filtradas.map(a => (
+                    <button
+                      key={a.id} type="button" onClick={() => setAccountId(a.id)}
+                      aria-pressed={a.id === accountId}
+                      className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                        a.id === accountId
+                          ? 'bg-[var(--fz-accent)] text-white'
+                          : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                      }`}
+                    >
+                      <CurrencyIcon currency={a.currency} size={18} />
+                      {a.name}
+                    </button>
+                  ))}
+                  {filtradas.length === 0 && (
+                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <div>

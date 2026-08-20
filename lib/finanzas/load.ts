@@ -88,7 +88,7 @@ export async function loadCategories(supabase: SupabaseClient, userId: string): 
  */
 export async function loadPeople(supabase: SupabaseClient, userId: string): Promise<PersonWithDebt[]> {
   const [{ data: people }, { data: splits }] = await Promise.all([
-    supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId).order('name'),
+    supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId).order('sort_order').order('name'),
     supabase
       .from('fin_debts')
       .select('person_id, amount_usd, settled_tx_id, waived_at')
@@ -207,7 +207,7 @@ export async function loadDebtPlans(
 
     return {
       ...plan,
-      person: peopleById.get(plan.person_id) ?? { id: plan.person_id, name: '—', archived: false },
+      person: peopleById.get(plan.person_id) ?? { id: plan.person_id, name: '—', sort_order: 0, archived: false },
       ...planRollup(cuotas),
       cerrado: planCerrado(cuotas),
       cuotas,
@@ -253,7 +253,7 @@ export interface TxResult {
 
 
 const RECURRING_COLS =
-  'id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
 
 const RECURRING_SPLIT_COLS = 'id, recurring_id, person_id, amount'
 
@@ -270,7 +270,7 @@ export async function loadRecurring(
   userId: string,
   todayISO: string,
 ): Promise<RecurringSummary> {
-  const [{ data: rows }, { data: splitRows }, { data: hechos }, { data: accountRows }, { data: deudas }] =
+  const [{ data: rows }, { data: splitRows }, { data: hechos }, { data: deudas }] =
     await Promise.all([
       supabase.from('fin_recurring').select(RECURRING_COLS).eq('user_id', userId),
       supabase.from('fin_recurring_splits').select(RECURRING_SPLIT_COLS).eq('user_id', userId),
@@ -279,14 +279,11 @@ export async function loadRecurring(
         .select('id, date, recurring_id')
         .eq('user_id', userId)
         .not('recurring_id', 'is', null),
-      supabase.from('fin_accounts').select('id, currency').eq('user_id', userId),
       supabase
         .from('fin_debts')
         .select('amount_usd, settled_tx_id, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(recurring_id)')
         .eq('user_id', userId),
     ])
-
-  const currencyById = new Map((accountRows ?? []).map(a => [a.id, a.currency as Currency]))
 
   const splitsByRec = new Map<string, RecurringSplit[]>()
   for (const r of splitRows ?? []) {
@@ -339,7 +336,6 @@ export async function loadRecurring(
     return {
       ...base,
       splits: splitsByRec.get(r.id) ?? [],
-      currency: currencyById.get(base.account_id) ?? 'USD',
       status,
       due,
       days_late,

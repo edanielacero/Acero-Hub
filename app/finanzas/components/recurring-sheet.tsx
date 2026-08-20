@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { IconTrash, IconX } from '@tabler/icons-react'
-import type { Frequency, RecurringWithState } from '@/lib/finanzas/types'
+import { CURRENCIES } from '@/lib/finanzas/types'
+import type { Currency, Frequency, RecurringWithState } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
@@ -25,14 +26,13 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const { accounts, categories, people, reload } = useFinanzas()
-  const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
+  const { categories, people, reload } = useFinanzas()
 
   const [name, setName] = useState(editing?.name ?? '')
   const [icon, setIcon] = useState<string | null>(editing?.icon ?? null)
   const [iconOpen, setIconOpen] = useState(false)
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '')
-  const [accountId, setAccountId] = useState(editing?.account_id ?? active[0]?.id ?? '')
+  const [currency, setCurrency] = useState<Currency>(editing?.currency ?? 'USD')
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
   const [frequency, setFrequency] = useState<Frequency>(editing?.frequency ?? 'mensual')
   const [day, setDay] = useState(String(editing?.day_of_month ?? 1))
@@ -61,8 +61,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
     () => (editing?.splits ?? []).every(sp => sp.amount == null) ? 'igual' : 'manual',
   )
 
-  const account = active.find(a => a.id === accountId)
-  const decimals = decimalsFor(account?.currency)
+  const decimals = decimalsFor(currency)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -79,7 +78,6 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   async function submit() {
     setError('')
     if (!name.trim()) return setError('Ponele un nombre')
-    if (!accountId) return setError('Elegí de qué cuenta sale')
 
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
@@ -88,7 +86,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
       name: name.trim(),
       icon,
       amount: value,
-      account_id: accountId,
+      currency,
       category_id: categoryId || null,
       frequency,
       day_of_month: Number(day) || 1,
@@ -194,7 +192,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           )}
 
           <div>
-            <Label>Monto {account ? `(${account.currency})` : ''}</Label>
+            <Label>Monto ({currency})</Label>
             <TextField
               value={amount}
               onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
@@ -206,20 +204,23 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           </div>
 
           <div>
-            <Label>Sale de</Label>
+            <Label>Moneda</Label>
+            {/* De qué cuenta sale se elige recién al registrar cada mes (§
+                RegisterSheet) — acá solo hace falta saber en qué moneda está
+                el monto, para el label y los decimales del campo. */}
             <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-              {active.map(a => (
+              {CURRENCIES.map(c => (
                 <button
-                  key={a.id} type="button" onClick={() => setAccountId(a.id)}
-                  aria-pressed={a.id === accountId}
+                  key={c} type="button" onClick={() => setCurrency(c)}
+                  aria-pressed={c === currency}
                   className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
-                    a.id === accountId
+                    c === currency
                       ? 'bg-[var(--fz-accent)] text-white'
                       : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
                   }`}
                 >
-                  <CurrencyIcon currency={a.currency} size={18} />
-                  {a.name}
+                  <CurrencyIcon currency={c} size={18} />
+                  {c}
                 </button>
               ))}
             </div>
@@ -306,7 +307,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
               <SplitEditor
                 drafts={drafts} setDrafts={setDrafts}
                 mode={mode} setMode={setMode}
-                amount={amount} currency={account?.currency}
+                amount={amount} currency={currency}
               />
               {mode === 'igual' && (
                 <p className="text-[12px] text-[var(--fz-ink-3)] -mt-2">

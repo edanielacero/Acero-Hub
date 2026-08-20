@@ -1,7 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { IconArchive, IconCheck, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  DndContext, KeyboardSensor, PointerSensor, closestCenter,
+  useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, arrayMove, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { IconArchive, IconCheck, IconGripVertical, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
 import type { Category, CategoryKind, Currency, PersonWithDebt } from '@/lib/finanzas/types'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
@@ -138,6 +147,20 @@ export function AjustesScreen() {
     await reload()
   }
 
+  async function reorderCategories(ids: string[]) {
+    setError('')
+    const res = await fetch('/api/finanzas/categories/reorder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error ?? 'No se pudo reordenar')
+    }
+    await reload()
+  }
+
   async function addPerson() {
     setError('')
     const name = newPerson.trim()
@@ -176,6 +199,20 @@ export function AjustesScreen() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo borrar')
+    }
+    await reload()
+  }
+
+  async function reorderPeople(ids: string[]) {
+    setError('')
+    const res = await fetch('/api/finanzas/people/reorder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error ?? 'No se pudo reordenar')
     }
     await reload()
   }
@@ -350,8 +387,8 @@ export function AjustesScreen() {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-2 mt-5">
-              <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} />
-              <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} />
+              <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} />
+              <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} />
             </div>
           )}
         </Panel>
@@ -380,53 +417,12 @@ export function AjustesScreen() {
               Todavía no hay personas. También podés crearlas al vuelo desde el quick-add.
             </p>
           ) : (
-            <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-4">
-              {people.map(p => (
-                <div key={p.id} className={`flex items-center gap-3 py-2.5 ${p.archived ? 'opacity-50' : ''}`}>
-                  <PersonAvatar name={p.name} size={36} />
-
-                  <input
-                    defaultValue={p.name}
-                    onBlur={e => {
-                      const next = e.target.value.trim()
-                      if (next && next !== p.name) patchPerson(p.id, { name: next })
-                    }}
-                    aria-label={`Nombre de ${p.name}`}
-                    className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
-                  />
-
-                  {p.open_usd > 0 && (
-                    <span className="shrink-0 text-[13px] font-semibold fz-num text-[var(--fz-out-text)]">
-                      debe {formatUSD(p.open_usd)}
-                    </span>
-                  )}
-
-                  <RowMenu
-                    items={[
-                      {
-                        label: p.archived ? 'Restaurar' : 'Archivar',
-                        icon: <IconArchive size={16} stroke={1.8} />,
-                        onClick: () => {
-                          // Archivar a alguien que todavía te debe es válido,
-                          // pero conviene saberlo antes: la deuda no
-                          // desaparece con la persona.
-                          if (!p.archived && p.open_usd > 0 &&
-                              !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
-                          patchPerson(p.id, { archived: !p.archived })
-                        },
-                      },
-                      {
-                        label: 'Borrar',
-                        icon: <IconTrash size={16} stroke={1.8} />,
-                        onClick: () => setDeletingPerson(p),
-                        danger: true,
-                        title: p.open_count > 0 ? 'Tiene historial: archivala en vez de borrarla' : undefined,
-                      },
-                    ]}
-                  />
-                </div>
-              ))}
-            </div>
+            <PersonList
+              items={people}
+              onPatch={patchPerson}
+              onDelete={setDeletingPerson}
+              onReorder={reorderPeople}
+            />
           )}
         </Panel>
       </div>
@@ -450,17 +446,55 @@ export function AjustesScreen() {
   )
 }
 
-function CategoryList({ title, items, onPatch, onRemove }: {
+/** Sensores compartidos por las tres listas arrastrables de Ajustes — mismo
+    umbral que ya usa Cuentas: `distance: 6` deja que un tap normal (editar,
+    abrir el menú) no dispare un drag por 1px de temblor del dedo. */
+function useReorderSensors() {
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+}
+
+function CategoryList({ title, items, onPatch, onRemove, onReorder }: {
   title: string
   items: Category[]
   onPatch: (id: string, body: Record<string, unknown>) => void
   onRemove: (id: string) => void
+  onReorder: (ids: string[]) => Promise<void>
 }) {
   // El ícono se edita en el lugar: tocar el chip abre la grilla justo debajo
   // de esa fila, y elegir cierra — no hay un modo edición aparte que mantener.
   const [openId, setOpenId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Category | null>(null)
   const [confirming, setConfirming] = useState(false)
+
+  // Orden optimista durante y justo después de un drag — mismo motivo que en
+  // Cuentas (`app/finanzas/screens/cuentas.tsx`): sin esto la fila soltada
+  // rebota a su posición vieja hasta que `reload()` trae el orden real.
+  const [order, setOrder] = useState<string[] | null>(null)
+  const ordered = useMemo(() => {
+    if (!order) return items
+    const byId = new Map(items.map(c => [c.id, c]))
+    const withOrder = order.map(id => byId.get(id)).filter((c): c is Category => !!c)
+    const missing = items.filter(c => !order.includes(c.id))
+    return [...withOrder, ...missing]
+  }, [items, order])
+
+  const sensors = useReorderSensors()
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = ordered.map(c => c.id)
+    const oldIndex = ids.indexOf(String(active.id))
+    const newIndex = ids.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+    const next = arrayMove(ids, oldIndex, newIndex)
+    setOrder(next)
+    await onReorder(next)
+    setOrder(null)
+  }
 
   async function confirmDelete() {
     if (!deleting) return
@@ -473,58 +507,22 @@ function CategoryList({ title, items, onPatch, onRemove }: {
   return (
     <section>
       <h3 className="text-[13px] font-semibold text-[var(--fz-ink-2)] mb-2">{title}</h3>
-      <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-        {items.map(c => {
-          const open = openId === c.id
-          return (
-            <div key={c.id} className={c.archived ? 'opacity-50' : ''}>
-              <div className="flex items-center gap-3 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => setOpenId(open ? null : c.id)}
-                  aria-expanded={open}
-                  aria-label={`Cambiar ícono de ${c.name}`}
-                  className="shrink-0"
-                >
-                  <CategoryIcon slug={c.icon} name={c.name} size={36} />
-                </button>
-                <input
-                  defaultValue={c.name}
-                  onBlur={e => {
-                    const next = e.target.value.trim()
-                    if (next && next !== c.name) onPatch(c.id, { name: next })
-                  }}
-                  aria-label={`Nombre de ${c.name}`}
-                  className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
-                />
-                <RowMenu
-                  items={[
-                    {
-                      label: c.archived ? 'Restaurar' : 'Archivar',
-                      icon: <IconArchive size={16} stroke={1.8} />,
-                      onClick: () => onPatch(c.id, { archived: !c.archived }),
-                    },
-                    {
-                      label: 'Borrar',
-                      icon: <IconTrash size={16} stroke={1.8} />,
-                      onClick: () => setDeleting(c),
-                      danger: true,
-                    },
-                  ]}
-                />
-              </div>
-              {open && (
-                <div className="mb-3 ml-[48px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
-                  <IconPickerGrid
-                    value={c.icon}
-                    onChange={slug => { onPatch(c.id, { icon: slug }); setOpenId(null) }}
-                  />
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={ordered.map(c => c.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
+            {ordered.map(c => (
+              <CategoryRow
+                key={c.id}
+                category={c}
+                open={openId === c.id}
+                onToggleOpen={() => setOpenId(openId === c.id ? null : c.id)}
+                onPatch={onPatch}
+                onDelete={() => setDeleting(c)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       <DeleteConfirmSheet
         open={!!deleting}
@@ -542,5 +540,192 @@ function CategoryList({ title, items, onPatch, onRemove }: {
         )}
       </DeleteConfirmSheet>
     </section>
+  )
+}
+
+function CategoryRow({ category: c, open, onToggleOpen, onPatch, onDelete }: {
+  category: Category
+  open: boolean
+  onToggleOpen: () => void
+  onPatch: (id: string, body: Record<string, unknown>) => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    position: 'relative',
+    zIndex: isDragging ? 1 : undefined,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={c.archived ? 'opacity-50' : ''}>
+      <div className="flex items-center gap-2.5 py-2.5">
+        {/* El handle es el único punto de la fila que arrastra — tocar el
+            ícono sigue abriendo el picker y el input sigue editable, sin
+            ambigüedad con el gesto de arrastre. */}
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={`Reordenar ${c.name}`}
+          className="grid place-items-center w-7 h-7 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
+        >
+          <IconGripVertical size={16} stroke={1.8} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          aria-expanded={open}
+          aria-label={`Cambiar ícono de ${c.name}`}
+          className="shrink-0"
+        >
+          <CategoryIcon slug={c.icon} name={c.name} size={36} />
+        </button>
+        <input
+          defaultValue={c.name}
+          onBlur={e => {
+            const next = e.target.value.trim()
+            if (next && next !== c.name) onPatch(c.id, { name: next })
+          }}
+          aria-label={`Nombre de ${c.name}`}
+          className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
+        />
+        <RowMenu
+          items={[
+            {
+              label: c.archived ? 'Restaurar' : 'Archivar',
+              icon: <IconArchive size={16} stroke={1.8} />,
+              onClick: () => onPatch(c.id, { archived: !c.archived }),
+            },
+            {
+              label: 'Borrar',
+              icon: <IconTrash size={16} stroke={1.8} />,
+              onClick: onDelete,
+              danger: true,
+            },
+          ]}
+        />
+      </div>
+      {open && (
+        <div className="mb-3 ml-[86px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3">
+          <IconPickerGrid
+            value={c.icon}
+            onChange={slug => { onPatch(c.id, { icon: slug }); onToggleOpen() }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PersonList({ items, onPatch, onDelete, onReorder }: {
+  items: PersonWithDebt[]
+  onPatch: (id: string, body: Record<string, unknown>) => void
+  onDelete: (p: PersonWithDebt) => void
+  onReorder: (ids: string[]) => Promise<void>
+}) {
+  const [order, setOrder] = useState<string[] | null>(null)
+  const ordered = useMemo(() => {
+    if (!order) return items
+    const byId = new Map(items.map(p => [p.id, p]))
+    const withOrder = order.map(id => byId.get(id)).filter((p): p is PersonWithDebt => !!p)
+    const missing = items.filter(p => !order.includes(p.id))
+    return [...withOrder, ...missing]
+  }, [items, order])
+
+  const sensors = useReorderSensors()
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = ordered.map(p => p.id)
+    const oldIndex = ids.indexOf(String(active.id))
+    const newIndex = ids.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+    const next = arrayMove(ids, oldIndex, newIndex)
+    setOrder(next)
+    await onReorder(next)
+    setOrder(null)
+  }
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={ordered.map(p => p.id)} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-col divide-y divide-[var(--fz-hairline)] mt-4">
+          {ordered.map(p => (
+            <PersonRow key={p.id} person={p} onPatch={onPatch} onDelete={() => onDelete(p)} />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+function PersonRow({ person: p, onPatch, onDelete }: {
+  person: PersonWithDebt
+  onPatch: (id: string, body: Record<string, unknown>) => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    position: 'relative',
+    zIndex: isDragging ? 1 : undefined,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`flex items-center gap-2.5 py-2.5 ${p.archived ? 'opacity-50' : ''}`}>
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`Reordenar ${p.name}`}
+        className="grid place-items-center w-7 h-7 shrink-0 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] cursor-grab active:cursor-grabbing touch-none"
+      >
+        <IconGripVertical size={16} stroke={1.8} />
+      </button>
+      <PersonAvatar name={p.name} size={36} />
+
+      <input
+        defaultValue={p.name}
+        onBlur={e => {
+          const next = e.target.value.trim()
+          if (next && next !== p.name) onPatch(p.id, { name: next })
+        }}
+        aria-label={`Nombre de ${p.name}`}
+        className="flex-1 min-w-0 bg-transparent text-[16px] font-semibold outline-none focus:underline decoration-[var(--fz-accent)] underline-offset-4"
+      />
+
+      {p.open_usd > 0 && (
+        <span className="shrink-0 text-[13px] font-semibold fz-num text-[var(--fz-out-text)]">
+          debe {formatUSD(p.open_usd)}
+        </span>
+      )}
+
+      <RowMenu
+        items={[
+          {
+            label: p.archived ? 'Restaurar' : 'Archivar',
+            icon: <IconArchive size={16} stroke={1.8} />,
+            onClick: () => {
+              // Archivar a alguien que todavía te debe es válido, pero
+              // conviene saberlo antes: la deuda no desaparece con la persona.
+              if (!p.archived && p.open_usd > 0 &&
+                  !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
+              onPatch(p.id, { archived: !p.archived })
+            },
+          },
+          {
+            label: 'Borrar',
+            icon: <IconTrash size={16} stroke={1.8} />,
+            onClick: onDelete,
+            danger: true,
+            title: p.open_count > 0 ? 'Tiene historial: archivala en vez de borrarla' : undefined,
+          },
+        ]}
+      />
+    </div>
   )
 }

@@ -905,6 +905,50 @@ async function run() {
       await api(`/transactions/${tx.id}`, { method: 'DELETE' }).catch(() => {})
     }
 
+    section('SPRINT 3 · un fijo sin cuenta propia no se puede registrar sin elegir una')
+    {
+      const sinCuenta = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'SinCuenta', amount: 20, currency: 'USD', day_of_month: 1,
+      })}))).recurring
+      eq('nace sin cuenta', sinCuenta.account_id, null)
+      eq('pero con la moneda que se pidió', sinCuenta.currency, 'USD')
+
+      const r = await api(`/recurring/${sinCuenta.id}/register`, { method: 'POST', body: JSON.stringify({}) })
+      eq('sin account_id en el body → 400', r.status, 400)
+      ok('pide la cuenta', (await json(r)).error.includes('cuenta'))
+
+      await api(`/recurring/${sinCuenta.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 3 · pagar un fijo con una cuenta de otra moneda')
+    {
+      // El fijo queda en Bs (sin cuenta propia); se paga con una cuenta en
+      // USD. La plantilla no se entera — sigue en Bs para el próximo mes —
+      // pero ESTE movimiento queda en la moneda de la cuenta que se usó.
+      const alquiler = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Alquiler', amount: 500, currency: 'BOB', day_of_month: 1,
+        splits: [{ person_id: ana.id, amount: null }],
+      })}))).recurring
+
+      const r = await api(`/recurring/${alquiler.id}/register`, { method: 'POST', body: JSON.stringify({
+        account_id: airtm.id, amount: 71.84 }) })
+      eq('registra', r.status, 201)
+      const tx = (await json(r)).transaction
+
+      eq('el movimiento queda en la moneda de la cuenta elegida', tx.currency, 'USD')
+      eq('con lo que realmente salió de ahí, no una conversión automática', Number(tx.amount), 71.84)
+      eq('y la deuda que genera también en esa moneda', tx.debts[0].currency, 'USD')
+
+      const lista = await json(await api('/recurring'))
+      const mio = lista.recurring.find(x => x.id === alquiler.id)
+      eq('la plantilla sigue en Bs', mio.currency, 'BOB')
+      eq('con el monto de siempre — nadie le pidió actualizarse', Number(mio.amount), 500)
+      eq('y sigue sin cuenta propia: pagarlo una vez no se la asigna', mio.account_id, null)
+
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${alquiler.id}`, { method: 'DELETE' })
+    }
+
     section('SPRINT 3 · PATCH y pausa')
     {
       eq('renombrar', (await api(`/recurring/${spotifyFijo.id}`, {
