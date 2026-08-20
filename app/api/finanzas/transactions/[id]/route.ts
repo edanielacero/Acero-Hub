@@ -5,8 +5,9 @@ import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { flowTypeOnEdit, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
+import { assertBalance } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
-import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
+import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
@@ -108,6 +109,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const account = accountsById.get(merged.account_id!)!
   const currency = account.currency
+
+  const balanceError = await assertBalance(
+    supabase, userId, account, merged.type!, merged.amount!,
+    { type: current.type as TxType, account_id: current.account_id as string, amount: num(current.amount) },
+  )
+  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
+
   const flowType = flowTypeOnEdit(merged.type!, account, current.flow_type)
 
   // Un movimiento ya NO sabe crear ni editar deudas. Las deudas se manejan en

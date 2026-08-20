@@ -1,10 +1,12 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num } from '@/lib/finanzas/money'
+import { num, round2 } from '@/lib/finanzas/money'
+import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { periodOf, resolveSplits } from '@/lib/finanzas/recurring'
+import { assertBalance } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency, Recurring, RecurringSplit } from '@/lib/finanzas/types'
 
@@ -12,6 +14,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
+
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 /**
  * Instanciar un fijo: crea el gasto real y su reparto.
@@ -88,14 +92,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : base.account_id
   if (!accountId) return NextResponse.json({ error: 'Elegí de qué cuenta sale' }, { status: 400 })
 
-  const { data: account } = await supabase
-    .from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', accountId).maybeSingle()
-  if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
+  const { data: accountRow } = await supabase
+    .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
+  if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
+  const account = mapAccount(accountRow)
 
   const amount = body.amount === undefined ? base.amount : num(body.amount, NaN)
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
+
+  // Registrar un fijo es un gasto como cualquier otro — misma regla dura de
+  // saldo que /transactions, no una excepción para esta pantalla.
+  const balanceError = await assertBalance(supabase, userId, account, 'gasto', amount)
+  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)
@@ -139,23 +149,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     currency,
   )
 
+  // Si repartiste más de lo que pagaste, el excedente es ganancia — y esa se
+  // reconoce recién cuando de verdad la cobrás (§ debts/settle), no acá. Cada
+  // deuda congela cuánto de sí misma es recuperar costo real, prorrateado: si
+  // repartido ≤ pagado, `ratio` da 1 y no cambia nada (caso de siempre).
+  const totalRepartido = partes.reduce((s, pt) => s + pt.amount, 0)
+  const ratio = totalRepartido > amount ? Math.min(1, amount / totalRepartido) : 1
+
   let debts: unknown[] = []
   if (partes.length > 0) {
     const { data: creados, error: splitError } = await supabase
       .from('fin_debts')
-      .insert(partes.map(pt => ({
-        user_id: userId,
-        transaction_id: tx.id,
-        person_id: pt.person_id,
-        amount: pt.amount,
-        currency,
-        amount_usd: freezeDebtUsd(pt.amount, frozen.exchange_rate),
-        // La deuda nace el día del gasto, no el día que lo registraste. Sin
-        // esto, registrar Spotify tarde hacía que la deuda pareciera más nueva
-        // de lo que es: "hace 1 día" cuando en realidad son 14. Y la lista de
-        // Deudas ordena por esta fecha, así que también salía mal ordenada.
-        incurred_on: date,
-      })))
+      .insert(partes.map(pt => {
+        const amount_usd = freezeDebtUsd(pt.amount, frozen.exchange_rate)
+        return {
+          user_id: userId,
+          transaction_id: tx.id,
+          person_id: pt.person_id,
+          amount: pt.amount,
+          currency,
+          amount_usd,
+          principal_usd: Math.min(amount_usd, round2(amount_usd * ratio)),
+          // La deuda nace el día del gasto, no el día que lo registraste. Sin
+          // esto, registrar Spotify tarde hacía que la deuda pareciera más nueva
+          // de lo que es: "hace 1 día" cuando en realidad son 14. Y la lista de
+          // Deudas ordena por esta fecha, así que también salía mal ordenada.
+          incurred_on: date,
+        }
+      }))
       .select(DEBT_COLS)
 
     if (splitError) {

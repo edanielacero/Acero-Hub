@@ -84,21 +84,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { rates } = await ensureRates(supabase, userId)
-  const cuotaRows = nuevas.map((c, i) => ({
-    user_id: userId,
-    transaction_id: null,
-    person_id: plan.person_id,
-    amount: c.amount,
-    currency,
-    amount_usd: toUsd(c.amount, currency, rates),
-    // Sin "/total": después de regenerar, el total real (viejas que quedan +
-    // nuevas) no coincide con `maxNo + installments` — esa cuenta cuenta de
-    // más las que se están reemplazando. Un número sin fracción no miente.
-    concept: `${plan.concept} · cuota ${maxNo + i + 1}`,
-    incurred_on: c.incurred_on,
-    plan_id: plan.id,
-    plan_installment_no: maxNo + i + 1,
-  }))
+  const cuotaRows = nuevas.map((c, i) => {
+    const amount_usd = toUsd(c.amount, currency, rates)
+    return {
+      user_id: userId,
+      transaction_id: null,
+      person_id: plan.person_id,
+      amount: c.amount,
+      currency,
+      amount_usd,
+      // Mismo criterio que al crear el plan: el interés queda fuera de este
+      // cambio, una cuota sigue siendo 100% "recuperar".
+      principal_usd: amount_usd,
+      // Sin "/total": después de regenerar, el total real (viejas que quedan +
+      // nuevas) no coincide con `maxNo + installments` — esa cuenta cuenta de
+      // más las que se están reemplazando. Un número sin fracción no miente.
+      concept: `${plan.concept} · cuota ${maxNo + i + 1}`,
+      incurred_on: c.incurred_on,
+      plan_id: plan.id,
+      plan_installment_no: maxNo + i + 1,
+    }
+  })
 
   const { data: inserted, error: insertError } = await supabase
     .from('fin_debts').insert(cuotaRows).select('id')

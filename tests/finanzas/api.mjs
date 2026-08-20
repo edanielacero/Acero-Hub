@@ -98,11 +98,14 @@ async function run() {
 
     airtm    = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({ name: 'Airtm',    currency: 'USD', initial_balance: 1299 }) }))).account
     broker   = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({ name: 'Broker',   currency: 'USD', initial_balance: 980  }) }))).account
-    efectivo = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({ name: 'Efectivo', currency: 'BOB', initial_balance: 0    }) }))).account
+    // Con saldo cero el primer gasto de 35 Bs ya rebotaría por la regla dura
+    // del server (§ assertBalance) — se arranca con lo justo para cubrirlo,
+    // no en cero.
+    efectivo = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({ name: 'Efectivo', currency: 'BOB', initial_balance: 35   }) }))).account
     ok('crea las 3 cuentas', !!airtm && !!broker && !!efectivo)
 
     const d = await json(await api('/accounts'))
-    eq('patrimonio = 2279', d.total_usd, 2279)
+    eq('patrimonio = 2284.03', d.total_usd, 2284.03)
 
     const cats = await json(await api('/categories'))
     const comida = cats.categories.find(c => c.name === 'Comida')
@@ -117,7 +120,7 @@ async function run() {
        Math.abs(Number(gasto.exchange_rate) - 1 / 6.96) < 1e-7, `obtenido ${gasto.exchange_rate}`)
 
     const afterGasto = await json(await api('/accounts'))
-    eq('Efectivo bajó 35 Bs', afterGasto.accounts.find(a => a.id === efectivo.id).balance, -35)
+    eq('Efectivo bajó 35 Bs', afterGasto.accounts.find(a => a.id === efectivo.id).balance, 0)
 
     // El cliente NO puede forzar la moneda: se lee siempre de la cuenta.
     const spoof = (await json(await api('/transactions', {
@@ -156,7 +159,59 @@ async function run() {
     // 50 USD salen y llegan 348 Bs = 50 USD a 6.96, así que tampoco cambia.
     eq('cross-currency a la tasa exacta tampoco mueve el patrimonio', t2.total_usd, antesCross)
     eq('cross-currency: Airtm = 1149', t2.accounts.find(a => a.id === airtm.id).balance, 1149)
-    eq('cross-currency: Efectivo = 313 Bs', t2.accounts.find(a => a.id === efectivo.id).balance, 313)
+    eq('cross-currency: Efectivo = 348 Bs', t2.accounts.find(a => a.id === efectivo.id).balance, 348)
+
+    section('el saldo insuficiente es una regla dura del SERVER, no solo un aviso del cliente')
+    {
+      // Airtm está en 1149 en este punto del flujo (línea de arriba).
+      const antesSaldo = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id)
+
+      // Muy por encima de lo que hay → 400, y no crea nada.
+      const rechazado = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-18', account_id: airtm.id, amount: antesSaldo.balance + 1000 }) })
+      eq('un gasto que supera el saldo → 400', rechazado.status, 400)
+      ok('el error nombra la cuenta', (await json(rechazado)).error.includes(antesSaldo.name))
+
+      const sinCambios = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('el saldo no se movió', sinCambios, antesSaldo.balance)
+
+      // Una transferencia se mide igual: también sale de una cuenta de origen.
+      const transRechazada = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'transferencia', date: '2026-08-18', account_id: airtm.id, to_account_id: broker.id,
+        amount: antesSaldo.balance + 1000 }) })
+      eq('una transferencia que supera el saldo → 400', transRechazada.status, 400)
+
+      // Un ingreso no tiene tope: nunca choca con este límite.
+      const ingresoOk = await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'ingreso', date: '2026-08-18', account_id: airtm.id, amount: 999999 }) })
+      eq('un ingreso nunca choca con este límite', ingresoOk.status, 201)
+      await api(`/transactions/${(await json(ingresoOk)).transaction.id}`, { method: 'DELETE' })
+
+      // Exactamente lo disponible sí entra — el límite es inclusive, no exige
+      // dejar un colchón.
+      const justo = (await json(await api('/transactions', { method: 'POST', body: JSON.stringify({
+        type: 'gasto', date: '2026-08-18', account_id: airtm.id, amount: antesSaldo.balance }) }))).transaction
+      ok('gastar EXACTO el saldo entra', !!justo?.id)
+      const enCero = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('la cuenta queda en cero, no negativa', enCero, 0)
+
+      // Editar un gasto existente hacia un monto imposible también se rechaza
+      // — no es solo una validación del alta.
+      const subirDeMas = await api(`/transactions/${justo.id}`, { method: 'PATCH', body: JSON.stringify({
+        amount: 999999 }) })
+      eq('editar un gasto hacia un monto imposible → 400', subirDeMas.status, 400)
+
+      // Pero SÍ se puede editar ese mismo gasto hacia abajo (o dejarlo igual):
+      // `availableFrom` revierte el efecto viejo antes de medir el nuevo, así
+      // que esto no queda bloqueado para siempre por haber vaciado la cuenta.
+      const bajarOk = await api(`/transactions/${justo.id}`, { method: 'PATCH', body: JSON.stringify({
+        amount: antesSaldo.balance / 2 }) })
+      eq('bajarlo sí entra', bajarOk.status, 200)
+
+      await api(`/transactions/${justo.id}`, { method: 'DELETE' })
+      const restaurado = (await json(await api('/accounts'))).accounts.find(a => a.id === airtm.id).balance
+      eq('Airtm queda como estaba antes de esta sección', restaurado, antesSaldo.balance)
+    }
 
     section('TASAS AUTOMÁTICAS')
     {
@@ -270,7 +325,7 @@ async function run() {
     eq('cambiar el monto sí recalcula', Number(cambiaMonto.amount_usd), 10.06)
 
     const bal = await json(await api('/accounts'))
-    eq('el saldo refleja 70, no 35+70', bal.accounts.find(a => a.id === efectivo.id).balance, 278)
+    eq('el saldo refleja 70, no 35+70', bal.accounts.find(a => a.id === efectivo.id).balance, 313)
 
     await api(`/transactions/${gasto.id}`, { method: 'PATCH', body: JSON.stringify({ amount: 35 }) })
 
@@ -339,9 +394,12 @@ async function run() {
     {
       eq('una cuenta común nace sin marcar', airtm.is_investment, false)
 
+      // Con $0 adentro no se puede "perder" $200 — ni una cuenta de inversión
+      // se salta la regla dura de saldo (§ assertBalance): un gasto ahí es
+      // paper loss, pero solo tiene sentido sobre plata que ya se aportó.
       const ibkr = (await json(await api('/accounts', {
         method: 'POST',
-        body: JSON.stringify({ name: 'IBKR', currency: 'USD', initial_balance: 0, is_investment: true }),
+        body: JSON.stringify({ name: 'IBKR', currency: 'USD', initial_balance: 200, is_investment: true }),
       }))).account
       eq('se puede crear ya marcada como inversión', ibkr.is_investment, true)
 
@@ -363,8 +421,8 @@ async function run() {
       eq('un ingreso en cuenta de inversión nace movimiento', ganancia.flow_type, 'movimiento')
 
       const conIbkr = await json(await api('/accounts'))
-      eq('el saldo SÍ se mueve con esos movimientos: 0 −200 +340',
-         conIbkr.accounts.find(a => a.id === ibkr.id).balance, 140)
+      eq('el saldo SÍ se mueve con esos movimientos: 200 −200 +340',
+         conIbkr.accounts.find(a => a.id === ibkr.id).balance, 340)
 
       const totalesDespues = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
       eq('pero el gasto de inversión no sube el gasto del mes',
@@ -817,6 +875,67 @@ async function run() {
       await api(`/recurring/${t.id}`, { method: 'DELETE' })
     }
 
+    section('SPRINT 3 · la ganancia de un margen se cuenta al COBRAR, no al crear el gasto')
+    {
+      // $10 pagados, $16 repartidos ($8 a Ana, $8 a Juan) → $6 de margen total,
+      // repartido proporcional: cada deuda de $8 trae $5 de costo real y $3 de
+      // margen (ratio 10/16 = 0.625 aplicado a cada una).
+      const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'MargenCobro', amount: 10, account_id: airtm.id, day_of_month: 3,
+        splits: [{ person_id: ana.id, amount: 8 }, { person_id: juan.id, amount: 8 }],
+      })}))).recurring
+
+      const antes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+
+      const tx = (await json(await api(`/recurring/${t.id}/register`, {
+        method: 'POST', body: JSON.stringify({}) }))).transaction
+
+      const trasCrear = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('el gasto real NO se mueve al crear el gasto — antes se hacía negativo acá mismo',
+         trasCrear.total_gasto_real_usd, antes.total_gasto_real_usd)
+
+      const anaDebt = tx.debts.find(d => d.person_id === ana.id)
+      const antesIngreso = trasCrear.total_ingreso_usd
+
+      const cobro = await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [anaDebt.id], account_id: airtm.id, amount: 8 }) })
+      eq('cobra', cobro.status, 201)
+      const { transaction: reembolsoTx, ganancia_transaction: gananciaTx } = await json(cobro)
+
+      ok('separa en reembolso + ganancia', !!reembolsoTx && !!gananciaTx)
+      eq('el reembolso queda como movimiento (no cuenta como ingreso)', reembolsoTx.flow_type, 'movimiento')
+      eq('la ganancia queda como consumo — ingreso real', gananciaTx.flow_type, 'consumo')
+      eq('reembolso: los $5 de costo real', Number(reembolsoTx.amount), 5)
+      eq('ganancia: los $3 de margen', Number(gananciaTx.amount), 3)
+      eq('juntos suman exacto lo cobrado', round2(Number(reembolsoTx.amount) + Number(gananciaTx.amount)), 8)
+
+      const trasCobro = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('el ingreso del mes sube SOLO por la ganancia ($3), no por el reembolso',
+         round2(trasCobro.total_ingreso_usd - antesIngreso), 3)
+      eq('y el gasto real sigue sin moverse: cobrar no es un gasto',
+         trasCobro.total_gasto_real_usd, antes.total_gasto_real_usd)
+
+      // Deshacer el cobro borra los DOS movimientos — uno solo dejaría al otro
+      // como un ingreso real huérfano de un cobro que ya no existe.
+      const deshecho = await json(await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [anaDebt.id], delete_transaction: true }) }))
+      eq('deshacer borra los dos movimientos del cobro', deshecho.deleted_transactions, 2)
+
+      const sinMargen = await json(await api('/debts', { method: 'POST', body: JSON.stringify({
+        person_id: juan.id, amount: 5, currency: 'USD', concept: 'Sin margen' }) }))
+      const cobroSinMargen = await json(await api('/debts/settle', { method: 'POST', body: JSON.stringify({
+        split_ids: [sinMargen.debt.id], account_id: airtm.id, amount: 5 }) }))
+      eq('sin margen, no hay transacción de ganancia', cobroSinMargen.ganancia_transaction, null)
+      eq('y se comporta exactamente como antes: un solo movimiento', cobroSinMargen.transaction.flow_type, 'movimiento')
+      await api('/debts/unsettle', { method: 'POST', body: JSON.stringify({
+        split_ids: [sinMargen.debt.id], delete_transaction: true }) })
+
+      // La de Juan (con margen) sigue abierta — borrar el gasto se la lleva
+      // puesta, igual que cualquier deuda sin cobrar todavía.
+      await api(`/transactions/${tx.id}`, { method: 'DELETE' })
+      await api(`/recurring/${t.id}`, { method: 'DELETE' })
+    }
+
     section('SPRINT 3 · POST /recurring')
     let spotifyFijo
     {
@@ -947,6 +1066,27 @@ async function run() {
 
       await api(`/transactions/${tx.id}`, { method: 'DELETE' })
       await api(`/recurring/${alquiler.id}`, { method: 'DELETE' })
+    }
+
+    section('SPRINT 3 · registrar un fijo por encima del saldo también choca con la regla dura')
+    {
+      // Es un gasto como cualquier otro (§ assertBalance): no hay una
+      // excepción para fijos.
+      const antesSaldo = (await json(await api('/accounts'))).accounts.find(a => a.id === broker.id)
+
+      const caro = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
+        name: 'Demasiado caro', amount: antesSaldo.balance + 1000, currency: 'USD', day_of_month: 1,
+      })}))).recurring
+
+      const r = await api(`/recurring/${caro.id}/register`, { method: 'POST', body: JSON.stringify({
+        account_id: broker.id }) })
+      eq('registrarlo por encima del saldo → 400', r.status, 400)
+      ok('el error nombra la cuenta', (await json(r)).error.includes(antesSaldo.name))
+
+      const sinCambios = (await json(await api('/accounts'))).accounts.find(a => a.id === broker.id).balance
+      eq('el saldo de Broker no se movió', sinCambios, antesSaldo.balance)
+
+      await api(`/recurring/${caro.id}`, { method: 'DELETE' })
     }
 
     section('SPRINT 3 · PATCH y pausa')
@@ -1323,7 +1463,7 @@ async function run() {
     section('DELETE /transactions')
     await api(`/transactions/${gasto.id}`, { method: 'DELETE' })
     const final = await json(await api('/accounts'))
-    eq('borrar el gasto devuelve Efectivo a 348', final.accounts.find(a => a.id === efectivo.id).balance, 348)
+    eq('borrar el gasto devuelve Efectivo a 383', final.accounts.find(a => a.id === efectivo.id).balance, 383)
     eq('borrar algo inexistente no rompe',
        (await api('/transactions/00000000-0000-0000-0000-000000000009', { method: 'DELETE' })).status, 200)
   }

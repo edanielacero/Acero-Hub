@@ -73,6 +73,7 @@ export async function POST(request: Request) {
   }
 
   const { rates } = await ensureRates(supabase, userId)
+  const amount_usd = toUsd(amount, currency, rates)
 
   const { data, error } = await supabase
     .from('fin_debts')
@@ -82,7 +83,10 @@ export async function POST(request: Request) {
       person_id: resolved[0].person_id,
       amount,
       currency,
-      amount_usd: toUsd(amount, currency, rates),
+      amount_usd,
+      // Sin gasto padre no hay "costo" contra el cual medir un margen: una
+      // deuda suelta es 100% recuperar lo que prestaste.
+      principal_usd: amount_usd,
       concept,
       incurred_on: typeof body.incurred_on === 'string' && ISO_DATE.test(body.incurred_on)
         ? body.incurred_on

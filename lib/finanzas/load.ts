@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { num, round2 } from './money'
+import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
+import { formatAmount, num, round2 } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -8,12 +8,12 @@ import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type Ra
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
-import { monthRange, todayISO } from './transactions'
+import { availableFrom, consumesBalance, monthRange, todayISO } from './transactions'
 import type {
-  AccountWithBalance, Category, Currency, PersonWithDebt,
+  Account, AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Transaction,
+  DebtWithContext, Transaction, TxType,
 } from './types'
 
 /**
@@ -67,6 +67,54 @@ export async function loadAccounts(
   const withBal = withBalances(accounts, movements, rates)
 
   return { accounts: withBal, total_usd: totalUsd(withBal), rates, rate_list: rateRows }
+}
+
+/** Saldo actual de UNA cuenta — mismo cálculo derivado que `loadAccounts`,
+    para cuando una escritura necesita validar sin traer todas las cuentas. */
+export async function accountBalance(
+  supabase: SupabaseClient,
+  userId: string,
+  account: Account,
+): Promise<number> {
+  const { data: txRows } = await supabase
+    .from('fin_transactions')
+    .select('type, account_id, to_account_id, amount, to_amount')
+    .eq('user_id', userId)
+
+  const movements = (txRows ?? []).map(mapBalanceMovement)
+  return computeBalances([account], movements).get(account.id) ?? account.initial_balance
+}
+
+/**
+ * La regla dura: un gasto o una transferencia nunca puede dejar la cuenta de
+ * origen en negativo. El cliente ya avisa antes (mismo cálculo, ver
+ * `consumesBalance`/`availableFrom` en `transactions.ts` — quick-add,
+ * RegisterSheet), pero esto es lo que de verdad lo impide. Vive acá y no en
+ * cada `route.ts` porque tres rutas distintas pueden dejar una cuenta en
+ * rojo — crear un movimiento, editarlo, o registrar un fijo — y las tres
+ * tienen que aplicar exactamente el mismo criterio.
+ *
+ * `editing` es el movimiento que se está reemplazando (solo en un PATCH):
+ * hay que revertir su efecto viejo antes de medir si el nuevo entra, o toda
+ * edición hacia arriba de un gasto ya existente parecería "sin saldo".
+ */
+export async function assertBalance(
+  supabase: SupabaseClient,
+  userId: string,
+  account: Account,
+  type: TxType,
+  amount: number,
+  editing?: { type: TxType; account_id: string; amount: number } | null,
+): Promise<string | null> {
+  if (!consumesBalance(type)) return null
+
+  const balance = await accountBalance(supabase, userId, account)
+  const disponible = availableFrom(balance, editing, account.id)
+
+  if (amount > disponible) {
+    return `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles`
+  }
+  return null
 }
 
 export async function loadCategories(supabase: SupabaseClient, userId: string): Promise<Category[]> {
@@ -225,7 +273,9 @@ interface DebtRow {
   amount: number
   currency: Currency
   amount_usd: number
+  principal_usd: number
   settled_tx_id: string | null
+  settled_margin_tx_id: string | null
   waived_at: string | null
   note: string | null
 }
@@ -385,6 +435,7 @@ export async function loadTransactions(
       ...s,
       amount: num(s.amount),
       amount_usd: num(s.amount_usd),
+      principal_usd: num(s.principal_usd),
     })),
   })) as unknown as (Transaction & { debts: Debt[] })[]
 
@@ -398,8 +449,12 @@ export async function loadTransactions(
 
   const total_gasto_usd = round2(gastos.reduce((s, t) => s + t.amount_usd, 0))
   // Los perdonados no se descuentan: perdonar una deuda es hacerse cargo de ella.
+  // Se suma `principal_usd`, no `amount_usd`: el margen de un reparto no es
+  // costo de nadie, es ganancia — y esa se cuenta recién al cobrarla de
+  // verdad (§ debts/settle), no acá. Sumar `amount_usd` dejaría el gasto real
+  // negativo antes de haber cobrado un centavo.
   const total_repartido_usd = round2(
-    gastos.flatMap(t => t.debts).filter(s => !s.waived_at).reduce((s, x) => s + num(x.amount_usd), 0),
+    gastos.flatMap(t => t.debts).filter(s => !s.waived_at).reduce((s, x) => s + num(x.principal_usd), 0),
   )
 
   return {

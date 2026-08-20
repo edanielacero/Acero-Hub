@@ -71,14 +71,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     if (currencyChanged) {
       // Moneda nueva, conversión nueva: se congela con la tasa de hoy, porque
-      // la vieja era de otra moneda y no dice nada sobre esta.
+      // la vieja era de otra moneda y no dice nada sobre esta. Cambiar de
+      // moneda solo es posible en una deuda suelta (bloqueado arriba para las
+      // que vienen de un gasto o un plan), así que nunca lleva margen.
       const { rates } = await ensureRates(supabase, userId)
       patch.amount_usd = toUsd(amount, currency, rates)
+      patch.principal_usd = patch.amount_usd
     } else {
       // Solo cambió el monto: se conserva la tasa con la que nació la deuda —
       // la del gasto padre, o la del día que la cargaste.
       const factor = num(current.amount) > 0 ? num(current.amount_usd) / num(current.amount) : 1
       patch.amount_usd = round2(amount * factor)
+
+      // Y se conserva la MISMA proporción de margen que ya tenía — editar el
+      // monto a mano no decide si esta deuda venía de un reparto con margen.
+      const marginRatio = num(current.amount_usd) > 0 ? num(current.principal_usd) / num(current.amount_usd) : 1
+      patch.principal_usd = Math.min(patch.amount_usd as number, round2((patch.amount_usd as number) * marginRatio))
     }
   }
 

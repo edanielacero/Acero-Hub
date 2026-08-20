@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, formatAmount, fromUsd, parseDecimalInput, toUsd } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, formatAmount, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { resolveSplits } from '@/lib/finanzas/recurring'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
@@ -47,6 +47,14 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   const cur = account?.currency ?? recurring.currency
   const crossCurrency = !!account && account.currency !== recurring.currency
   const value = amountFromInput(amount, { decimals })
+
+  // Pagar un fijo es un gasto como cualquier otro: no puede dejar la cuenta en
+  // negativo. Mismo criterio que el quick-add (`consumesBalance`/`availableFrom`
+  // en lib/finanzas/transactions.ts) — acá no hace falta la parte de "editar
+  // un movimiento existente" porque registrar un fijo siempre crea uno nuevo.
+  const disponible = account?.balance ?? 0
+  const excede = !!account && Number.isFinite(value) && value > disponible
+  const sinFondos = !!account && disponible <= 0
 
   // Convertido a la tasa de hoy — una sugerencia, no una imposición: lo que se
   // guarda es lo que realmente salió de esa cuenta, que casi nunca coincide
@@ -97,6 +105,9 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
     setError('')
     if (!accountId) return setError('Elegí de qué cuenta sale')
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (excede) {
+      return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
+    }
 
     setSaving(true)
     const res = await fetch(`/api/finanzas/recurring/${recurring.id}/register`, {
@@ -221,6 +232,21 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
                     <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
                   )}
                 </div>
+                {account && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+                      Disponible {formatAmount(disponible, account.currency)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAmount(String(roundFor(disponible, account.currency)))}
+                      disabled={sinFondos}
+                      className="h-6 px-2 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
+                    >
+                      MAX
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -260,8 +286,11 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
           <ErrorNote>{error}</ErrorNote>
 
-          <Btn onClick={submit} disabled={saving} full>
-            {saving ? 'Registrando…' : 'Registrar gasto'}
+          <Btn onClick={submit} disabled={saving || excede || sinFondos} full>
+            {saving ? 'Registrando…'
+              : sinFondos ? 'Sin saldo disponible'
+              : excede ? 'Supera el saldo'
+              : 'Registrar gasto'}
           </Btn>
         </div>
       </div>

@@ -345,32 +345,34 @@ async function run() {
     const anon = await fetch(`${URL_}/rest/v1/fin_debts?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
     eq('sin sesión no ve repartos', anon, [])
 
+    // `principal_usd` es NOT NULL desde § finanzas_ganancia_al_cobrar — sin
+    // margen que probar acá, va igual a `amount_usd` en todas.
     splitAna = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
-      amount: 11.66, currency: 'BOB', amount_usd: 1.68,
+      amount: 11.66, currency: 'BOB', amount_usd: 1.68, principal_usd: 1.68,
     }).then(r => r.json()))[0]
     splitJuan = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
-      amount: 11.66, currency: 'BOB', amount_usd: 1.68,
+      amount: 11.66, currency: 'BOB', amount_usd: 1.68, principal_usd: 1.68,
     }).then(r => r.json()))[0]
     ok('crea repartos', !!splitAna?.id && !!splitJuan?.id)
 
     const dup = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: ana.id,
-      amount: 5, currency: 'BOB', amount_usd: 0.72,
+      amount: 5, currency: 'BOB', amount_usd: 0.72, principal_usd: 0.72,
     })
     ok('unique (transaction_id, person_id) bloquea a la misma persona dos veces',
        dup.status >= 400, `HTTP ${dup.status}`)
 
     const cero = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
-      amount: 0, currency: 'BOB', amount_usd: 0,
+      amount: 0, currency: 'BOB', amount_usd: 0, principal_usd: 0,
     })
     ok('rechaza una parte en cero', cero.status >= 400, `HTTP ${cero.status}`)
 
     const monedaMala = await post('fin_debts', {
       user_id: USER_ID, transaction_id: gasto.id, person_id: juan.id,
-      amount: 5, currency: 'EUR', amount_usd: 5,
+      amount: 5, currency: 'EUR', amount_usd: 5, principal_usd: 5,
     })
     ok('rechaza una moneda fuera del enum', monedaMala.status >= 400, `HTTP ${monedaMala.status}`)
 
@@ -382,7 +384,7 @@ async function run() {
     }).then(r => r.json()))[0]
     const splitBtc = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: txBtc.id, person_id: ana.id,
-      amount: 0.00014065, currency: 'BTC', amount_usd: 9.56,
+      amount: 0.00014065, currency: 'BTC', amount_usd: 9.56, principal_usd: 9.56,
     }).then(r => r.json()))[0]
     eq('un reparto en BTC conserva los 8 decimales', Number(splitBtc.amount), 0.00014065)
     await as(`/fin_debts?id=eq.${splitBtc.id}`, { method: 'DELETE' })
@@ -627,21 +629,21 @@ async function run() {
   {
     cuota1 = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: null, person_id: ana.id,
-      amount: 100, currency: 'USD', amount_usd: 100, concept: 'Deuda de Ana · cuota 1/10',
+      amount: 100, currency: 'USD', amount_usd: 100, principal_usd: 100, concept: 'Deuda de Ana · cuota 1/10',
       incurred_on: '2026-09-05', plan_id: plan.id, plan_installment_no: 1,
     }).then(r => r.json()))[0]
     ok('crea una cuota enlazada al plan', !!cuota1?.id && cuota1.plan_id === plan.id)
 
     cuota2 = (await post('fin_debts', {
       user_id: USER_ID, transaction_id: null, person_id: ana.id,
-      amount: 100, currency: 'USD', amount_usd: 100, concept: 'Deuda de Ana · cuota 2/10',
+      amount: 100, currency: 'USD', amount_usd: 100, principal_usd: 100, concept: 'Deuda de Ana · cuota 2/10',
       incurred_on: '2026-10-05', plan_id: plan.id, plan_installment_no: 2,
     }).then(r => r.json()))[0]
     ok('y una segunda', !!cuota2?.id)
 
     const numeroCero = await post('fin_debts', {
       user_id: USER_ID, transaction_id: null, person_id: ana.id,
-      amount: 50, currency: 'USD', amount_usd: 50, concept: 'X',
+      amount: 50, currency: 'USD', amount_usd: 50, principal_usd: 50, concept: 'X',
       incurred_on: '2026-09-05', plan_id: plan.id, plan_installment_no: 0,
     })
     ok('fin_debt_plan_shape rechaza un número de cuota en cero',

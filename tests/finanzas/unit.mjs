@@ -512,12 +512,14 @@ section('FEATURE 11 · flowTypeOnEdit — nunca degrada un movimiento existente'
 section('SPRINT 2 · gasto bruto, repartido y real')
 {
   // Spotify $11.99 repartido entre 3 amigos a $2.99, uno de ellos perdonado.
+  // `principal_usd` = `amount_usd` en las tres: nadie repartió por encima de
+  // lo que costó, así que no hay margen que probar acá (ver más abajo).
   const spotify = {
     type: 'gasto', flow_type: 'consumo', amount_usd: 11.99,
     debts: [
-      { amount_usd: 2.99, settled_tx_id: 'tx-c', waived_at: null },  // cobrado
-      { amount_usd: 2.99, settled_tx_id: null, waived_at: null },    // pendiente
-      { amount_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // perdonado
+      { amount_usd: 2.99, principal_usd: 2.99, settled_tx_id: 'tx-c', waived_at: null },  // cobrado
+      { amount_usd: 2.99, principal_usd: 2.99, settled_tx_id: null, waived_at: null },    // pendiente
+      { amount_usd: 2.99, principal_usd: 2.99, settled_tx_id: null, waived_at: '2026-08-18' }, // perdonado
     ],
   }
   const comida = { type: 'gasto', flow_type: 'consumo', amount_usd: 50, debts: [] }

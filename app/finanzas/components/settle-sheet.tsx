@@ -46,6 +46,13 @@ export function SettleSheet({ debt, onClose, onDone }: {
   const elegidos = debt.debts.filter(s => picked.includes(s.id))
   const totalUsd = round2(elegidos.reduce((n, s) => n + s.amount_usd, 0))
 
+  // Cuánto de lo elegido es margen — mismo cálculo que hace el server al
+  // cobrar (§ debts/settle): esa parte va a contar como ingreso del mes, el
+  // resto no. Se avisa acá para que no sea una sorpresa.
+  const principalUsd = round2(elegidos.reduce((n, s) => n + s.principal_usd, 0))
+  const margenUsd = round2(Math.max(0, totalUsd - principalUsd))
+  const marginRatio = totalUsd > 0 ? margenUsd / totalUsd : 0
+
   /**
    * Lo que debería llegar, en la moneda de la cuenta destino. Es una sugerencia:
    * lo que se guarda es lo que realmente entró, que casi nunca coincide exacto
@@ -245,10 +252,25 @@ export function SettleSheet({ debt, onClose, onDone }: {
 
           {/* La regla dicha en voz alta, en el único lugar donde se podría dudar
               de qué va a pasar con este número. */}
-          <p className="text-[12px] text-[var(--fz-ink-3)] leading-snug">
-            Se registra como movimiento: sube el saldo de la cuenta, pero no cuenta
-            como ingreso del mes.
-          </p>
+          {(() => {
+            const value = amountFromInput(amount, { decimals })
+            const cur = account?.currency ?? 'USD'
+            const ganancia = marginRatio > 0 && Number.isFinite(value) && value > 0
+              ? roundFor(value * marginRatio, cur)
+              : 0
+            return ganancia > 0 ? (
+              <p className="text-[12px] text-[var(--fz-ink-3)] leading-snug">
+                De esto, <strong className="text-[var(--fz-ink-2)]">{formatAmount(ganancia, cur)}</strong> es
+                ganancia — sí cuenta como ingreso del mes. El resto es reembolso: sube el
+                saldo, pero no cuenta como ingreso.
+              </p>
+            ) : (
+              <p className="text-[12px] text-[var(--fz-ink-3)] leading-snug">
+                Se registra como movimiento: sube el saldo de la cuenta, pero no cuenta
+                como ingreso del mes.
+              </p>
+            )
+          })()}
 
           <ErrorNote>{error}</ErrorNote>
 

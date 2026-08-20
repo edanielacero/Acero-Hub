@@ -122,7 +122,8 @@ export function gastoBrutoUsd(txs: Transaction[]): number {
 }
 
 /**
- * Lo que de ese bruto le corresponde a otros.
+ * Lo que de ese bruto le corresponde a otros — solo la parte que es
+ * RECUPERAR costo real, nunca el margen.
  *
  * Incluye los **pendientes**: la parte de Ana no es tu gasto, te la haya pagado
  * o no. Que pague es un problema de cobranza, no de gasto — si la app esperara
@@ -131,6 +132,11 @@ export function gastoBrutoUsd(txs: Transaction[]): number {
  *
  * Excluye los **perdonados**: perdonarle los $3 a Ana es exactamente decidir
  * gastarlos vos, y por eso vuelven al gasto real.
+ *
+ * Suma `principal_usd`, no `amount_usd`: si repartiste por encima de lo que
+ * pagaste, ese margen no es costo de nadie — es ganancia, y se cuenta recién
+ * cuando de verdad la cobrás (§ debts/settle), no acá. Sumar `amount_usd`
+ * dejaría el gasto real negativo antes de haber cobrado un centavo.
  */
 export function repartidoUsd(txs: Transaction[]): number {
   return round2(
@@ -138,7 +144,7 @@ export function repartidoUsd(txs: Transaction[]): number {
       .filter(t => t.type === 'gasto' && t.flow_type !== 'movimiento')
       .flatMap(t => t.debts ?? [])
       .filter(s => !s.waived_at)
-      .reduce((s, x) => s + x.amount_usd, 0),
+      .reduce((s, x) => s + x.principal_usd, 0),
   )
 }
 

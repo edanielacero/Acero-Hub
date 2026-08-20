@@ -10,14 +10,14 @@ import type { Currency, Person, DebtWithContext } from './types'
  * claves foráneas seguir.
  */
 export const DEBT_CTX_COLS =
-  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no, created_at,' +
+  'id, transaction_id, person_id, amount, currency, amount_usd, principal_usd, settled_tx_id, settled_margin_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no, created_at,' +
   'person:fin_people!fin_debts_person_id_fkey(id,name,archived),' +
   'transaction:fin_transactions!fin_debts_transaction_id_fkey(id,date,description,amount,currency,category_id),' +
   'settled:fin_transactions!fin_debts_settled_tx_id_fkey(id,date)'
 
 /** Lo mismo, sin los embeds: para las rutas que solo escriben. */
 export const DEBT_COLS =
-  'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no'
+  'id, transaction_id, person_id, amount, currency, amount_usd, principal_usd, settled_tx_id, settled_margin_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no'
 
 export interface RawDebtRow {
   id: string
@@ -26,7 +26,9 @@ export interface RawDebtRow {
   amount: unknown
   currency: string
   amount_usd: unknown
+  principal_usd: unknown
   settled_tx_id: string | null
+  settled_margin_tx_id: string | null
   waived_at: string | null
   note: string | null
   concept: string | null
@@ -55,7 +57,9 @@ export function mapDebtContext(row: RawDebtRow): DebtWithContext {
     amount: num(row.amount),
     currency: row.currency as Currency,
     amount_usd: num(row.amount_usd),
+    principal_usd: num(row.principal_usd),
     settled_tx_id: row.settled_tx_id,
+    settled_margin_tx_id: row.settled_margin_tx_id,
     waived_at: row.waived_at,
     note: row.note,
     concept: row.concept,

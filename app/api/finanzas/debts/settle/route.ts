@@ -1,23 +1,32 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num } from '@/lib/finanzas/money'
+import { num, round2, roundFor } from '@/lib/finanzas/money'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
 import { isOpen, debtState } from '@/lib/finanzas/splits'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
-import type { Currency } from '@/lib/finanzas/types'
+import type { Currency, FlowType } from '@/lib/finanzas/types'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+const TX_SELECT = 'id, type, flow_type, date, account_id, amount, currency, exchange_rate, amount_usd, description'
 
 /**
  * Registrar que te pagaron.
  *
- * Crea **un** movimiento real — `ingreso` con `flow_type = 'movimiento'` — y
- * apunta a él todas las deudas que salda. Un solo cobro puede cerrar varias:
- * Ana te paga Spotify de julio y agosto de una transferencia.
+ * Crea uno o dos movimientos reales, según si lo que se cobra trae margen
+ * (§ `fin_debts.principal_usd`):
  *
- * El `flow_type` es lo que hace que el saldo suba pero los ingresos del mes no
- * se muevan. Sin él, recuperar $8.99 se vería como haber ganado $8.99.
+ *   - Sin margen (el caso de siempre): un solo `ingreso` con
+ *     `flow_type: 'movimiento'` — sube el saldo, no cuenta como ingreso del
+ *     mes. *"Recuperar $8.99 no es haber ganado $8.99."*
+ *   - Con margen: ese mismo movimiento por la parte que es recuperar costo, y
+ *     UN SEGUNDO `ingreso` normal (`flow_type: 'consumo'`) por el excedente —
+ *     ese sí es plata ganada, y se reconoce recién ACÁ, no cuando se creó el
+ *     gasto (evita contar la misma ganancia dos veces).
+ *
+ * Un solo cobro puede cerrar varias deudas: Ana te paga Spotify de julio y
+ * agosto de una transferencia.
  */
 export async function POST(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -73,7 +82,19 @@ export async function POST(request: Request) {
 
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)
-  const frozen = freezeConversion(amount, currency, rates)
+
+  // Cuánto de lo elegido es margen — proporcional a lo que ya traía cada
+  // deuda (§ fin_debts.principal_usd) — aplicado al monto REAL que entra, no
+  // a la suma teórica de las deudas: un cobro redondeado o negociado no
+  // siempre coincide centavo a centavo, y así ganancia + reembolso suman
+  // exacto el monto que realmente se cobró.
+  const amountUsdTotal = rows.reduce((s, r) => s + num(r.amount_usd), 0)
+  const principalUsdTotal = rows.reduce((s, r) => s + num(r.principal_usd), 0)
+  const marginUsd = Math.max(0, round2(amountUsdTotal - principalUsdTotal))
+  const marginRatio = amountUsdTotal > 0 ? marginUsd / amountUsdTotal : 0
+
+  const ganancia = marginRatio > 0 ? roundFor(amount * marginRatio, currency) : 0
+  const reembolso = roundFor(amount - ganancia, currency)
 
   const nombre = (rows[0] as { person?: { name?: string } }).person?.name ?? 'alguien'
   const description =
@@ -81,36 +102,63 @@ export async function POST(request: Request) {
       ? body.description.trim()
       : `Cobro a ${nombre}`
 
-  const { data: tx, error: txError } = await supabase
-    .from('fin_transactions')
-    .insert({
-      user_id: userId,
-      type: 'ingreso',
-      flow_type: 'movimiento',
-      date,
-      account_id: accountId,
-      to_account_id: null,
-      category_id: null,
-      amount,
-      currency,
-      to_amount: null,
-      exchange_rate: frozen.exchange_rate,
-      amount_usd: frozen.amount_usd,
-      description,
-    })
-    .select('id, type, flow_type, date, account_id, amount, currency, exchange_rate, amount_usd, description')
-    .single()
-
-  if (txError || !tx) {
-    return NextResponse.json({ error: txError?.message ?? 'No se pudo registrar el cobro' }, { status: 400 })
+  async function crearMovimiento(monto: number, flow_type: FlowType, desc: string) {
+    const frozen = freezeConversion(monto, currency, rates)
+    return supabase
+      .from('fin_transactions')
+      .insert({
+        user_id: userId,
+        type: 'ingreso',
+        flow_type,
+        date,
+        account_id: accountId,
+        to_account_id: null,
+        category_id: null,
+        amount: monto,
+        currency,
+        to_amount: null,
+        exchange_rate: frozen.exchange_rate,
+        amount_usd: frozen.amount_usd,
+        description: desc,
+      })
+      .select(TX_SELECT)
+      .single()
   }
+
+  let reembolsoTx: { id: string } | null = null
+  let gananciaTx: { id: string } | null = null
+
+  if (reembolso > 0) {
+    const { data, error } = await crearMovimiento(reembolso, 'movimiento', description)
+    if (error || !data) return NextResponse.json({ error: error?.message ?? 'No se pudo registrar el cobro' }, { status: 400 })
+    reembolsoTx = data
+  }
+
+  if (ganancia > 0) {
+    // `flow_type` normal (no `'movimiento'`): esto SÍ es plata ganada, y acá
+    // es donde se reconoce — no al crear el gasto.
+    const { data, error } = await crearMovimiento(ganancia, 'consumo', `Ganancia — ${description}`)
+    if (error || !data) {
+      if (reembolsoTx) await supabase.from('fin_transactions').delete().eq('id', reembolsoTx.id).eq('user_id', userId)
+      return NextResponse.json({ error: error?.message ?? 'No se pudo registrar la ganancia' }, { status: 400 })
+    }
+    gananciaTx = data
+  }
+
+  // Siempre hay al menos uno: `amount > 0` ya se validó arriba, y
+  // reembolso + ganancia suman exacto `amount`. `settled_tx_id` es siempre el
+  // "principal" (reembolso, o ganancia si el cobro fue 100% margen);
+  // `settled_margin_tx_id` es el otro, solo cuando hay dos — únicamente para
+  // que `/debts/unsettle` sepa que tiene que borrar ambos.
+  const principalTx = reembolsoTx ?? gananciaTx!
+  const margenTx = reembolsoTx ? gananciaTx : null
 
   // El `is null` doble es la guarda contra una carrera: si otra pestaña cobró
   // la misma deuda entre la lectura y esta escritura, el update no la toca y
   // el conteo de abajo lo detecta.
   const { data: updated, error: linkError } = await supabase
     .from('fin_debts')
-    .update({ settled_tx_id: tx.id })
+    .update({ settled_tx_id: principalTx.id, settled_margin_tx_id: margenTx?.id ?? null })
     .eq('user_id', userId)
     .in('id', ids)
     .is('settled_tx_id', null)
@@ -118,15 +166,20 @@ export async function POST(request: Request) {
     .select('id')
 
   if (linkError || (updated ?? []).length !== ids.length) {
-    // Compensación: si no se pudieron enlazar todas, el movimiento no debe
-    // quedar. En el peor caso — que este delete también falle — queda un
-    // ingreso suelto en la lista, que es una fila válida y se arregla a mano.
-    await supabase.from('fin_transactions').delete().eq('id', tx.id).eq('user_id', userId)
+    // Compensación: si no se pudieron enlazar todas, ninguno de los
+    // movimientos debe quedar. En el peor caso — que este delete también
+    // falle — quedan ingresos sueltos en la lista, filas válidas que se
+    // arreglan a mano.
+    await supabase.from('fin_transactions').delete().eq('id', principalTx.id).eq('user_id', userId)
+    if (margenTx) await supabase.from('fin_transactions').delete().eq('id', margenTx.id).eq('user_id', userId)
     return NextResponse.json(
       { error: 'No se pudo enlazar el cobro con las deudas. No se registró nada.' },
       { status: 409 },
     )
   }
 
-  return NextResponse.json({ transaction: tx, settled: (updated ?? []).length }, { status: 201 })
+  return NextResponse.json(
+    { transaction: principalTx, ganancia_transaction: margenTx, settled: (updated ?? []).length },
+    { status: 201 },
+  )
 }

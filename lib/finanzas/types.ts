@@ -170,7 +170,18 @@ export interface Debt {
   currency: Currency
   /** Congelado con el `exchange_rate` DEL GASTO PADRE, no con la tasa de hoy. */
   amount_usd: number
+  /** Cuánto de `amount_usd` es recuperar costo real, congelado igual que él.
+      `amount_usd - principal_usd` es la ganancia — nunca se guarda aparte.
+      Casi siempre igual a `amount_usd`; difiere solo cuando el reparto de un
+      gasto compartido pide más de lo que costó (§ debts/settle). */
+  principal_usd: number
   settled_tx_id: string | null
+  /** El otro movimiento del mismo cobro, cuando hubo margen (§ debts/settle):
+      `settled_tx_id` es el reembolso (o la ganancia si el reembolso dio 0),
+      esto apunta al que falta. Null si el cobro no tuvo margen o si la deuda
+      no está cobrada. Solo existe para que `/debts/unsettle` pueda borrar los
+      dos movimientos, no dejar uno huérfano contando como ingreso real. */
+  settled_margin_tx_id: string | null
   waived_at: string | null
   note: string | null
   /** De qué es. Obligatorio cuando no hay gasto padre. */

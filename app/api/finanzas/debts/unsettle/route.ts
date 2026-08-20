@@ -29,13 +29,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Alguna de las deudas no existe' }, { status: 404 })
   }
 
-  const txIds = [...new Set((rows ?? []).map(s => s.settled_tx_id).filter((x): x is string => Boolean(x)))]
+  // Un cobro con margen dejó DOS movimientos (reembolso + ganancia,
+  // § debts/settle) — se juntan las dos columnas, porque deshacerlo tiene que
+  // borrar los dos o el que queda huérfano sigue contando como ingreso real
+  // de un cobro que ya no está.
+  const txIds = [...new Set(
+    (rows ?? []).flatMap(s => [s.settled_tx_id, s.settled_margin_tx_id]).filter((x): x is string => Boolean(x)),
+  )]
 
   // La nota se limpia junto con el estado: describía por qué se condonó, y
   // una deuda que vuelve a estar abierta no tiene ese motivo.
   const { error } = await supabase
     .from('fin_debts')
-    .update({ settled_tx_id: null, waived_at: null, note: null })
+    .update({ settled_tx_id: null, settled_margin_tx_id: null, waived_at: null, note: null })
     .eq('user_id', userId)
     .in('id', ids)
 
@@ -44,15 +50,16 @@ export async function POST(request: Request) {
   let deleted = 0
   if (body?.delete_transaction === true && txIds.length > 0) {
     // Un cobro puede saldar varias deudas. Si quedan otras colgando de este
-    // movimiento, borrarlo las abriría a todas sin que nadie lo haya pedido —
-    // así que solo se borra el que ya no salda nada.
+    // movimiento (en cualquiera de las dos columnas), borrarlo las abriría a
+    // todas sin que nadie lo haya pedido — así que solo se borra el que ya no
+    // salda nada.
     const { data: still } = await supabase
       .from('fin_debts')
-      .select('settled_tx_id')
+      .select('settled_tx_id, settled_margin_tx_id')
       .eq('user_id', userId)
-      .in('settled_tx_id', txIds)
+      .or(`settled_tx_id.in.(${txIds.join(',')}),settled_margin_tx_id.in.(${txIds.join(',')})`)
 
-    const enUso = new Set((still ?? []).map(s => s.settled_tx_id))
+    const enUso = new Set((still ?? []).flatMap(s => [s.settled_tx_id, s.settled_margin_tx_id]))
     const huerfanos = txIds.filter(id => !enUso.has(id))
 
     if (huerfanos.length > 0) {

@@ -116,20 +116,27 @@ export async function POST(request: Request) {
   }
 
   const { rates } = await ensureRates(supabase, userId)
-  const cuotaRows = cuotas.map((c, i) => ({
-    user_id: userId,
-    transaction_id: null,
-    person_id,
-    amount: c.amount,
-    currency,
-    amount_usd: toUsd(c.amount, currency, rates),
-    // Sin gasto padre, `fin_debt_origin_shape` exige un concepto propio: la
-    // numeración lo hace legible en la lista de Deudas sin ir a ver el plan.
-    concept: `${concept} · cuota ${i + 1}/${installments}`,
-    incurred_on: c.incurred_on,
-    plan_id: plan.id,
-    plan_installment_no: i + 1,
-  }))
+  const cuotaRows = cuotas.map((c, i) => {
+    const amount_usd = toUsd(c.amount, currency, rates)
+    return {
+      user_id: userId,
+      transaction_id: null,
+      person_id,
+      amount: c.amount,
+      currency,
+      amount_usd,
+      // El interés de una cuota es, conceptualmente, el mismo caso que el
+      // margen de un reparto — pero queda fuera de este cambio (ver plan):
+      // una cuota sigue siendo 100% "recuperar" para el cálculo de ganancia.
+      principal_usd: amount_usd,
+      // Sin gasto padre, `fin_debt_origin_shape` exige un concepto propio: la
+      // numeración lo hace legible en la lista de Deudas sin ir a ver el plan.
+      concept: `${concept} · cuota ${i + 1}/${installments}`,
+      incurred_on: c.incurred_on,
+      plan_id: plan.id,
+      plan_installment_no: i + 1,
+    }
+  })
 
   const { data: inserted, error: cuotasError } = await supabase
     .from('fin_debts')
