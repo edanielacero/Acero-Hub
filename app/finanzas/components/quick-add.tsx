@@ -34,6 +34,11 @@ export function QuickAdd() {
   const { accounts, categories, rates, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
+  // Gasto e Ingreso dejan de ofrecer cuentas de inversión: un ajuste de valor
+  // entra por "Actualizar valor" (§7.2 de contexto_finanzas.md), no por acá.
+  // Transferencia no cambia — aportar o retirar plata real de una inversión
+  // sigue siendo una transferencia legítima.
+  const nonInvestment = useMemo(() => active.filter(a => !a.is_investment), [active])
 
   const [type, setType] = useState<TxType>('gasto')
   const [amount, setAmount] = useState('')
@@ -72,11 +77,12 @@ export function QuickAdd() {
 
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
+      const pool = initialType === 'transferencia' ? active : nonInvestment
       setType(initialType)
       setAmount('')
       setToAmount('')
       setToAmountTouched(false)
-      setAccountId(active.some(a => a.id === last) ? last : (active[0]?.id ?? ''))
+      setAccountId(pool.some(a => a.id === last) ? last : (pool[0]?.id ?? ''))
       setToAccountId('')
       setCategoryId('')
       setDate(todayISO())
@@ -96,12 +102,36 @@ export function QuickAdd() {
 
   // Si las cuentas todavía no habían llegado cuando se abrió el sheet, se
   // completa la cuenta por defecto en cuanto aparecen — sin pisar nada que el
-  // usuario ya haya elegido.
+  // usuario ya haya elegido. `editing` afuera del guard: en edición la cuenta
+  // ya la fija el efecto de arriba con `editing.account_id` directo — sin
+  // este chequeo, abrir el sheet en modo edición ANTES de haber abierto nunca
+  // uno en alta (accountId todavía '' en ese primer render) dejaba a los dos
+  // efectos corriendo en la misma tanda, y este pisaba con un default lo que
+  // el otro acababa de fijar bien.
   useEffect(() => {
-    if (!open || accountId || active.length === 0) return
+    if (!open || editing || accountId || active.length === 0) return
+    const pool = type === 'transferencia' ? active : nonInvestment
+    if (pool.length === 0) return
     const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
-    setAccountId(active.some(a => a.id === last) ? last : active[0].id)
-  }, [open, accountId, active])
+    setAccountId(pool.some(a => a.id === last) ? last : pool[0].id)
+  }, [open, editing, accountId, active, type, nonInvestment])
+
+  // Si el tipo cambia a Gasto/Ingreso con una cuenta de inversión ya elegida
+  // (por ejemplo, se venía armando una Transferencia), esa cuenta deja de ser
+  // una opción visible — se resetea para no dejar una selección huérfana.
+  // `editing` afuera del guard a propósito, no solo de las dependencias: en
+  // edición NUNCA hay que reasignar la cuenta sola — sería mover en silencio
+  // un movimiento ya guardado a otra cuenta porque el filtro no lo mostraba
+  // lindo. Ahí el chip huérfano (si pasa) lo resuelve `accountOptions` más
+  // abajo, no un reset.
+  useEffect(() => {
+    if (!open || editing || type === 'transferencia') return
+    const current = active.find(a => a.id === accountId)
+    if (!current?.is_investment) return
+    const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
+    setAccountId(nonInvestment.some(a => a.id === last) ? last : (nonInvestment[0]?.id ?? ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, open, editing])
 
   useEffect(() => {
     if (!open) return
@@ -164,10 +194,18 @@ export function QuickAdd() {
     [categories, type],
   )
 
-  const accountOptions = useMemo(
-    () => active.filter(a => a.name.toLowerCase().includes(accountSearch.trim().toLowerCase())),
-    [active, accountSearch],
-  )
+  const accountOptions = useMemo(() => {
+    const pool = type === 'transferencia' ? active : nonInvestment
+    // La cuenta ya elegida se mantiene visible aunque el filtro la excluya —
+    // por ejemplo, al editar un gasto/ingreso viejo cuya cuenta se marcó como
+    // inversión DESPUÉS de crearse ese movimiento. Sin esto, el chip
+    // seleccionado desaparecía de la lista aunque `accountId` siguiera
+    // apuntando ahí.
+    const withSelected = accountId && !pool.some(a => a.id === accountId)
+      ? [...pool, ...active.filter(a => a.id === accountId)]
+      : pool
+    return withSelected.filter(a => a.name.toLowerCase().includes(accountSearch.trim().toLowerCase()))
+  }, [active, nonInvestment, type, accountId, accountSearch])
   const toAccountOptions = useMemo(
     () => active
       .filter(a => a.id !== accountId)
@@ -368,14 +406,6 @@ export function QuickAdd() {
                 <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
               )}
             </div>
-            {/* Cuenta de inversión: este movimiento va a sumar al saldo pero no
-                al gasto/ingreso del mes (§7.1 de contexto_finanzas.md) — el
-                usuario tiene que verlo justo antes de guardar, no después. */}
-            {type !== 'transferencia' && from?.is_investment && (
-              <p className="mt-1.5 text-[12px] text-[var(--fz-accent)] px-0.5">
-                {from.name} es de inversión — esto no cuenta como {type === 'gasto' ? 'gasto' : 'ingreso'} real del mes.
-              </p>
-            )}
           </div>
 
           {type === 'transferencia' ? (

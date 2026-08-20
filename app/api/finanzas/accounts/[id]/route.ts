@@ -54,7 +54,33 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.initial_balance_date !== undefined) patch.initial_balance_date = body.initial_balance_date
   if (body.sort_order !== undefined) patch.sort_order = num(body.sort_order)
   if (body.archived !== undefined) patch.archived = Boolean(body.archived)
-  if (body.is_investment !== undefined) patch.is_investment = Boolean(body.is_investment)
+
+  if (body.is_investment !== undefined) {
+    const wantsInvestment = Boolean(body.is_investment)
+    // Desmarcar "inversión" con actualizaciones de valor ya cargadas
+    // mezclaría, de acá en más, esa historia con gastos/ingresos reales en la
+    // misma cuenta (§7.2 de contexto_finanzas.md) — mismo patrón que el
+    // bloqueo de moneda de acá arriba. El gatillo es específico (una
+    // actualización de valor real, no cualquier movimiento) para no
+    // bloquear una cuenta que solo recibió transferencias.
+    if (!wantsInvestment) {
+      const { count } = await supabase
+        .from('fin_transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('account_id', id)
+        .in('type', ['gasto', 'ingreso'])
+        .eq('flow_type', 'movimiento')
+
+      if ((count ?? 0) > 0) {
+        return NextResponse.json(
+          { error: 'No se puede desmarcar como inversión: ya tiene actualizaciones de valor registradas' },
+          { status: 409 },
+        )
+      }
+    }
+    patch.is_investment = wantsInvestment
+  }
 
   const { data, error } = await supabase
     .from('fin_accounts')

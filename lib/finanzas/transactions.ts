@@ -1,5 +1,5 @@
 import type { Account, Currency, FlowType, RateMap, Transaction, TransactionInput, TxType } from './types'
-import { freezeRate, round2, toUsd } from './money'
+import { freezeRate, round2, roundFor, toUsd } from './money'
 
 export interface ValidationResult {
   ok: boolean
@@ -113,6 +113,52 @@ export function flowTypeOnEdit(
   current: FlowType,
 ): FlowType {
   return flowTypeFor(type, account) === 'movimiento' ? 'movimiento' : current
+}
+
+/**
+ * Si un movimiento es una "Actualizar valor" de cuenta de inversión — la
+ * única razón por la que un `gasto` puede nacer `flow_type: 'movimiento'`
+ * (§7.2 de `contexto_finanzas.md`). Un `ingreso` con `flow_type: 'movimiento'`
+ * tiene dos causas posibles (inversión, o reembolso/cobro de deuda), así que
+ * mirar la cuenta es lo que desambigua — y es la única señal disponible,
+ * porque `flow_type` no distingue el motivo.
+ *
+ * La usan `TxRow` (ícono/subtítulo) y las pantallas que abren edición (Home,
+ * Movimientos), para decidir si el tap en "Editar" abre el QuickAdd genérico
+ * o `AccountValueSheet`.
+ */
+export function isInvestmentAdjustment(
+  tx: Pick<Transaction, 'type' | 'flow_type'>,
+  account: Pick<Account, 'is_investment'> | undefined,
+): boolean {
+  return tx.type !== 'transferencia' && tx.flow_type === 'movimiento' && !!account?.is_investment
+}
+
+/**
+ * El `gasto`/`ingreso` que le corresponde a "Actualizar valor" (§7.2): dado
+ * el saldo actual de la cuenta y lo que se tipeó como valor de hoy, resuelve
+ * la diferencia con signo. `null` si el valor no cambió — no hay nada que
+ * guardar.
+ *
+ * `editing` es la entrada que se está reemplazando (modo edición): su propio
+ * efecto se resta de la referencia antes de medir, porque está por
+ * reemplazarse, no por sumarse encima — mismo criterio que `availableFrom`.
+ *
+ * Redondea con la precisión de la MONEDA de la cuenta (`roundFor`), nunca a
+ * 2 decimales fijos: una cuenta de inversión en BTC pierde toda su precisión
+ * si un ajuste se redondea a centavos.
+ */
+export function valueUpdateDelta(
+  currentBalance: number,
+  typedValue: number,
+  currency: Currency,
+  editing?: Pick<Transaction, 'type' | 'amount'> | null,
+): { type: TxType; amount: number } | null {
+  const editingEffect = editing ? (editing.type === 'ingreso' ? editing.amount : -editing.amount) : 0
+  const reference = roundFor(currentBalance - editingEffect, currency)
+  const delta = roundFor(typedValue - reference, currency)
+  if (delta === 0) return null
+  return { type: delta > 0 ? 'ingreso' : 'gasto', amount: Math.abs(delta) }
 }
 
 /**

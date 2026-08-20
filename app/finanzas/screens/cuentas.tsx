@@ -16,6 +16,7 @@ import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
+import { useAccountValue } from '../components/account-value-context'
 import { useFinanzas } from '../components/data-context'
 import { CurrencyIcon } from '../components/currency-icon'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
@@ -42,6 +43,7 @@ const emptyDraft = (): Draft => ({
 
 export function CuentasScreen() {
   const { accounts, totalUsd, hidden, reload } = useFinanzas()
+  const openValue = useAccountValue()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -317,9 +319,10 @@ export function CuentasScreen() {
                 </button>
                 {/* Broker, cripto en cuenta propia, lo que se sume después: el
                     valor sube y baja por el mercado, no porque entró o salió
-                    plata real (§7.1 de contexto_finanzas.md). */}
+                    plata real. Se ajusta con "Actualizar valor" en vez de
+                    Gasto/Ingreso (§7.2 de contexto_finanzas.md). */}
                 <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
-                  Sus movimientos no cuentan como ingreso ni gasto real del mes.
+                  Se ajusta con "Actualizar valor" — no cuenta como ingreso ni gasto real del mes.
                 </p>
               </div>
             </div>
@@ -406,6 +409,7 @@ export function CuentasScreen() {
                   onEdit={() => openEdit(a)}
                   onArchive={() => patch(a.id, { archived: true })}
                   onDelete={() => setDeleting(a)}
+                  onUpdateValue={() => openValue(a)}
                 />
               ))}
             </div>
@@ -426,6 +430,7 @@ export function CuentasScreen() {
                       onEdit={() => openEdit(a)}
                       onArchive={() => patch(a.id, { archived: true })}
                       onDelete={() => setDeleting(a)}
+                      onUpdateValue={() => openValue(a)}
                     />
                   ))}
                 </div>
@@ -477,6 +482,11 @@ export function CuentasScreen() {
         title="Cuenta"
         onEdit={() => { const a = viewing!; setViewing(null); openEdit(a) }}
         onDelete={() => { const a = viewing!; setViewing(null); setDeleting(a) }}
+        extraAction={viewing?.is_investment ? {
+          label: 'Actualizar valor',
+          icon: <IconChartLine size={16} stroke={1.8} />,
+          onClick: () => { const a = viewing!; setViewing(null); openValue(a) },
+        } : undefined}
       >
         {viewing && (
           <>
@@ -497,7 +507,7 @@ export function CuentasScreen() {
               )}
               <DetailField
                 label="Cuenta de inversión"
-                value={viewing.is_investment ? 'Sí — sus movimientos no cuentan como ingreso/gasto' : 'No'}
+                value={viewing.is_investment ? 'Sí — se ajusta con "Actualizar valor"' : 'No'}
               />
             </div>
           </>
@@ -524,7 +534,7 @@ export function CuentasScreen() {
   )
 }
 
-function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDelete }: {
+function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDelete, onUpdateValue }: {
   account: AccountWithBalance
   hidden: boolean
   /** Falso mientras hay un buscador/filtro activo: sin handle, sin drag. */
@@ -533,6 +543,7 @@ function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDe
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
+  onUpdateValue: () => void
 }) {
   // Fuera de un <DndContext> (lista filtrada) el hook queda inerte: dnd-kit
   // provee un contexto default para justamente este caso, así que llamarlo
@@ -602,6 +613,9 @@ function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDe
           )}
           <RowMenu
             items={[
+              ...(account.is_investment
+                ? [{ label: 'Actualizar valor', icon: <IconChartLine size={16} stroke={1.8} />, onClick: onUpdateValue }]
+                : []),
               { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
               { label: 'Archivar', icon: <IconArchive size={16} stroke={1.8} />, onClick: onArchive },
               { label: 'Borrar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },

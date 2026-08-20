@@ -394,9 +394,6 @@ async function run() {
     {
       eq('una cuenta común nace sin marcar', airtm.is_investment, false)
 
-      // Con $0 adentro no se puede "perder" $200 — ni una cuenta de inversión
-      // se salta la regla dura de saldo (§ assertBalance): un gasto ahí es
-      // paper loss, pero solo tiene sentido sobre plata que ya se aportó.
       const ibkr = (await json(await api('/accounts', {
         method: 'POST',
         body: JSON.stringify({ name: 'IBKR', currency: 'USD', initial_balance: 200, is_investment: true }),
@@ -464,6 +461,72 @@ async function run() {
       }))
       eq('PATCH /accounts también puede desmarcarla', offOn.account.is_investment, false)
       await api(`/accounts/${ibkr.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
+
+      section('Feature 11.1 · "Actualizar valor" — negativo permitido, PATCH bloqueado (§7.2)')
+      // Saldo de ibkr acá: 200 (inicial), sin otros movimientos vivos —
+      // los de acá arriba ya se borraron.
+
+      // Un ajuste a la baja SÍ puede dejar una cuenta de inversión en
+      // negativo (una cuenta apalancada en rojo no es un error): a
+      // diferencia de un gasto normal, acá el `assertBalance` no aplica.
+      const bajaFuerte = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'gasto', date: '2026-08-18', account_id: ibkr.id, amount: 500 }),
+      }))).transaction
+      eq('un gasto de inversión SÍ puede dejar la cuenta en negativo', bajaFuerte.amount, 500)
+
+      const conRojo = await json(await api('/accounts'))
+      eq('el saldo queda negativo: 200 − 500', conRojo.accounts.find(a => a.id === ibkr.id).balance, -300)
+
+      // Pero una transferencia SÍ sigue necesitando saldo real para salir,
+      // inversión o no: no se puede retirar más de lo que la cuenta vale.
+      const transferSinFondos = await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'transferencia', date: '2026-08-18', account_id: ibkr.id, to_account_id: airtm.id, amount: 10 }),
+      })
+      eq('una transferencia desde una cuenta de inversión en rojo sigue rechazada', transferSinFondos.status, 400)
+
+      await api(`/transactions/${bajaFuerte.id}`, { method: 'DELETE' })
+
+      // El toggle "Cuenta de inversión" se bloquea Sí→No una vez que ya hay
+      // una actualización de valor registrada — mismo patrón que ya bloquea
+      // cambiar la moneda de una cuenta con movimientos.
+      const conAjuste = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'ingreso', date: '2026-08-18', account_id: ibkr.id, amount: 50 }),
+      }))).transaction
+
+      const bloqueado = await api(`/accounts/${ibkr.id}`, {
+        method: 'PATCH', body: JSON.stringify({ is_investment: false }),
+      })
+      eq('desmarcar con una actualización de valor ya cargada → 409', bloqueado.status, 409)
+
+      const siguesInvestment = await json(await api('/accounts'))
+      eq('sigue marcada como inversión', siguesInvestment.accounts.find(a => a.id === ibkr.id).is_investment, true)
+
+      await api(`/transactions/${conAjuste.id}`, { method: 'DELETE' })
+
+      // Sin actualizaciones de valor, el toggle vuelve a estar libre.
+      const libre = await api(`/accounts/${ibkr.id}`, {
+        method: 'PATCH', body: JSON.stringify({ is_investment: false }),
+      })
+      eq('sin actualizaciones de valor, desmarcarla funciona', libre.status, 200)
+      await api(`/accounts/${ibkr.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
+
+      // Una transferencia (aporte/retiro real) no cuenta como "actualización
+      // de valor" — no debería bloquear el toggle.
+      const soloTransfer = (await json(await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'transferencia', date: '2026-08-18', account_id: airtm.id, to_account_id: ibkr.id, amount: 20 }),
+      }))).transaction
+
+      const libreConTransfer = await api(`/accounts/${ibkr.id}`, {
+        method: 'PATCH', body: JSON.stringify({ is_investment: false }),
+      })
+      eq('una cuenta que solo recibió transferencias no queda bloqueada', libreConTransfer.status, 200)
+      await api(`/accounts/${ibkr.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
+
+      await api(`/transactions/${soloTransfer.id}`, { method: 'DELETE' })
     }
 
     section('PATCH /categories · icon')

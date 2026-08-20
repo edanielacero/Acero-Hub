@@ -313,3 +313,101 @@ el saldo sí se mueve, y que sacar la cuenta de inversión de un movimiento ya
 De paso, `unit.mjs` traía una suite entera rota desde antes (`currentUserId`
 había salido de `snapshot.ts` hacia `lib/session-claims.ts` sin actualizar el
 test) — quedó corregida para poder correr esta verificación.
+
+### 7.2 Feature 11.1 — "Actualizar valor" separado de Gasto/Ingreso (construido el 2026-08-20)
+
+La 11 (§7.1) resolvió que un ajuste de cuenta de inversión no ensuciara los
+reportes, pero lo seguía haciendo entrar por Gasto/Ingreso: el usuario tenía
+que restar mentalmente cuánto valía antes, elegir el signo correcto y cargar
+un delta — una resta disfrazada de "registrar un movimiento con dirección".
+Esta vuelta separa el mecanismo (que no cambia) de la puerta de entrada.
+
+**Dos superficies en vez de una:**
+- **QuickAdd** (gasto/ingreso/transferencia) deja de listar cuentas
+  `is_investment` en el picker de cuenta para Gasto e Ingreso — directamente no
+  aparecen como opción, así que el aviso de texto que tenía la 11 ("esto no
+  cuenta como gasto/ingreso real del mes") ya no hace falta y se retira.
+  Transferencia no cambia: las cuentas de inversión se siguen viendo, tanto de
+  origen como de destino — aportar o retirar plata real de una inversión sigue
+  siendo una transferencia legítima.
+- **"Actualizar valor"** ([account-value-sheet.tsx](../../app/finanzas/components/account-value-sheet.tsx),
+  con su contexto en [account-value-context.tsx](../../app/finanzas/components/account-value-context.tsx)):
+  sheet nuevo y chico, sin selector de tipo, cuenta ni categoría. Un solo
+  campo — "¿Cuánto vale hoy?" — precargado con el saldo actual de la cuenta,
+  más una línea de diferencia en vivo (↑/↓, mismo verde/rojo semántico que
+  `SignedAmount`). Al guardar arma el mismo `POST`/`PATCH` de siempre contra
+  `/api/finanzas/transactions` — `type: 'ingreso'|'gasto'` según el signo del
+  delta, `flow_type` lo sigue decidiendo `flowTypeFor` en el server, igual que
+  antes. Cero cambios de esquema.
+- **Dos puntos de entrada** a la misma sheet: el ⋮ de la cuenta en
+  [cuentas.tsx](../../app/finanzas/screens/cuentas.tsx) (`AccountRow`), y un
+  tercer botón junto a Editar/Eliminar en su `DetailSheet`. Para lo segundo,
+  [DetailSheet](../../app/finanzas/components/detail-sheet.tsx) — compartido
+  con Movimientos, Deudas y Fijos — ganó un `extraAction` genérico (label +
+  ícono + onClick) en vez de hardcodear "Actualizar valor" en un componente
+  que a las otras tres pantallas no les significa nada.
+- **Editar un registro viejo** de este tipo abre la misma sheet nueva
+  precargada, no el QuickAdd genérico — mismo patrón que `PlanSheet` con
+  `regenerando`. La decisión de a qué sheet mandar un movimiento en edición
+  vive en `isInvestmentAdjustment()` (nueva, en
+  [transactions.ts](../../lib/finanzas/transactions.ts)), y la usan tanto
+  `TxRow` (para el ícono/subtítulo, como ya hacía) como Home y Movimientos
+  (para decidir si el tap en "Editar" abre QuickAdd o `AccountValueSheet`).
+- **Disponible desde el día 1**: sin movimientos todavía, la referencia es
+  `initial_balance`.
+- **Se permite cargar $0 o negativo** como valor actual (inversión liquidada,
+  cuenta apalancada en rojo). Guardar solo se deshabilita cuando el delta da
+  exactamente 0 — el valor tipeado coincide con el de referencia, no hay nada
+  que registrar.
+- **La fecha compara siempre contra el saldo real de hoy**, nunca contra una
+  reconstrucción histórica por fecha — el saldo de una cuenta ya es una suma
+  acumulada sin orden, así que "el dato más reciente" es siempre el de hoy,
+  sea cual sea la fecha que se le ponga al registro. Backdatear una
+  actualización es entonces más una etiqueta que una foto exacta de esa fecha;
+  simplificación consistente con que nada más en la app reconstruye saldos
+  históricos por fecha.
+- **El toggle "Cuenta de inversión" se bloquea Sí→No** una vez que la cuenta
+  ya tiene alguna actualización de valor registrada — mismo patrón que ya
+  bloqueaba cambiar la moneda de una cuenta con movimientos
+  ([accounts/[id]/route.ts](../../app/api/finanzas/accounts/%5Bid%5D/route.ts)).
+  El motivo no es perder plata (el saldo no se mueve por el flag), es que la
+  historia quedaría mezclada: movimientos viejos con la insignia "Inversión"
+  y gastos/ingresos reales nuevos en la misma cuenta. No→Sí queda libre
+  siempre: no genera esa mezcla, y de ahí en más solo entra por "Actualizar
+  valor". El gatillo es específico — al menos un gasto/ingreso con
+  `flow_type: 'movimiento'` en esa cuenta — no "tiene movimientos" en
+  general, para no bloquear una cuenta que solo recibió transferencias.
+- **Eliminar cuentas no cambia.** `fin_transactions.account_id` es
+  `on delete restrict`: cualquier cuenta con movimientos —de inversión o
+  no— ya rechazaba el borrado antes de esta feature, sin importar el saldo.
+  Se evaluó permitir borrar una inversión en $0, pero saldo $0 no implica cero
+  filas (aportar y retirar el mismo monto deja 2 transferencias que además
+  son parte del historial de la OTRA cuenta), así que la salida sigue siendo
+  archivar — reversible, sin arriesgar el historial ajeno.
+
+**Bug de paso, encontrado al pensar el caso de saldo negativo:** `assertBalance`
+([load.ts](../../lib/finanzas/load.ts)) rechazaba cualquier `gasto` que dejara
+el saldo de la cuenta en negativo, sin excepción — la misma regla que impide
+gastar más efectivo del que hay en una cuenta normal. Eso ya bloqueaba,
+silenciosamente, un ajuste de valor a la baja que llevara a una cuenta de
+inversión por debajo de $0 desde el día de la 11, no algo nuevo de esta
+vuelta. Corregido: la cuenta sigue necesitando saldo real para una
+*transferencia* que sale de ella (inversión o no — no se puede retirar más de
+lo que vale), pero un `gasto` en una cuenta `is_investment` ya no pasa por
+ese guard, porque no es plata saliendo, es el mercado moviendo el número.
+
+#### Verificación
+
+`npm run build` y `tsc --noEmit` limpios. Las tres suites de
+`tests/finanzas/` en verde: `unit` (342/342, incluye 7 casos nuevos de
+`isInvestmentAdjustment`), `db` (104/104, sin cambios de esquema — nada que
+migrar en esta vuelta) y `api` (350/350, incluye 7 casos nuevos: un gasto de
+inversión SÍ puede dejar el saldo en negativo, una transferencia desde una
+cuenta de inversión en rojo lo sigue rechazando, el toggle se bloquea con una
+actualización de valor cargada y se libera sin ella, y una cuenta que solo
+recibió transferencias no queda bloqueada).
+
+Se actualizó además un comentario de test de la 11 que documentaba, como
+intencional, la restricción que esta vuelta revierte a propósito (que un
+gasto de inversión respetara la regla dura de saldo) — quedaba desactualizado
+frente a la decisión §4 de permitir valores negativos.

@@ -1,6 +1,6 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
-import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
-import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit } from './.fin/transactions.mjs'
+import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
+import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods } from './.fin/recurring.mjs'
@@ -63,6 +63,25 @@ eq('el precio del BTC se guarda directo', usdPerUnit('BTC', R), 68000)
 eq('la tasa del Bs se guarda invertida', Math.round(usdPerUnit('BOB', R) * 1e8) / 1e8, 0.14367816)
 eq('USD es la referencia y siempre vale 1', usdPerUnit('USD', R), 1)
 eq('sin tasa cargada cae al default de la moneda', usdPerUnit('BTC', {}), 68000)
+
+section('displayRate · el inverso de freezeRate, como lo muestra Ajustes')
+{
+  // BOB se congela invertido (USD por Bs); mostrarlo tiene que devolverlo a
+  // "Bs por 1 USD", el mismo número que ve el usuario en Ajustes.
+  const factorBob = freezeRate('BOB', R)
+  eq('displayRate(BOB) deshace la inversión', Math.round(displayRate('BOB', factorBob) * 100) / 100, 6.96)
+
+  // BTC y USDT se congelan directo (USD por unidad): no hay nada que deshacer.
+  const factorBtc = freezeRate('BTC', R)
+  eq('displayRate(BTC) es el mismo número', displayRate('BTC', factorBtc), 68000)
+  eq('displayRate(USDT) es el mismo número', displayRate('USDT', freezeRate('USDT', R)), 1)
+
+  // Tres días después el Bs está a 7.50: la tasa MOSTRADA sigue siendo la
+  // congelada, no la de hoy — mismo principio que la deuda del sprint 2.
+  const hoy = freezeRate('BOB', { ...R, BOB: 7.5 })
+  ok('con la tasa de hoy daría otro número', displayRate('BOB', hoy) !== displayRate('BOB', factorBob))
+  eq('pero la tasa congelada no se mueve', Math.round(displayRate('BOB', factorBob) * 100) / 100, 6.96)
+}
 
 eq('BTC redondea a 8 decimales', roundFor(0.123456789, 'BTC'), 0.12345679)
 eq('el fiat sigue en 2', roundFor(5.037, 'USD'), 5.04)
@@ -507,6 +526,83 @@ section('FEATURE 11 · flowTypeOnEdit — nunca degrada un movimiento existente'
      flowTypeOnEdit('gasto', normal, 'movimiento'), 'movimiento')
   eq('una transferencia que pasa a gasto en cuenta de inversión sigue movimiento',
      flowTypeOnEdit('gasto', broker, 'movimiento'), 'movimiento')
+}
+
+section('FEATURE 11.1 · isInvestmentAdjustment — a qué sheet manda "Editar" (§7.2)')
+{
+  const broker = { is_investment: true }
+  const normal = { is_investment: false }
+
+  eq('gasto movimiento en cuenta de inversión → sí',
+     isInvestmentAdjustment({ type: 'gasto', flow_type: 'movimiento' }, broker), true)
+  eq('ingreso movimiento en cuenta de inversión → sí',
+     isInvestmentAdjustment({ type: 'ingreso', flow_type: 'movimiento' }, broker), true)
+
+  // La única causa posible para un gasto movimiento es la cuenta de
+  // inversión — sin ella, no es una actualización de valor.
+  eq('gasto movimiento en cuenta normal → no (sería otra cosa, no debería pasar)',
+     isInvestmentAdjustment({ type: 'gasto', flow_type: 'movimiento' }, normal), false)
+
+  // Un ingreso movimiento en cuenta normal es un reembolso/cobro de deuda,
+  // no una actualización de valor — la cuenta es lo que desambigua.
+  eq('ingreso movimiento en cuenta normal → no (es reembolso/cobro de deuda)',
+     isInvestmentAdjustment({ type: 'ingreso', flow_type: 'movimiento' }, normal), false)
+
+  // Un consumo real nunca es una actualización de valor, ni en cuenta de inversión.
+  eq('gasto consumo en cuenta de inversión → no (todavía no se ajustó nada)',
+     isInvestmentAdjustment({ type: 'gasto', flow_type: 'consumo' }, broker), false)
+
+  // Una transferencia nunca es una actualización de valor, sea cual sea la cuenta.
+  eq('transferencia movimiento en cuenta de inversión → no',
+     isInvestmentAdjustment({ type: 'transferencia', flow_type: 'movimiento' }, broker), false)
+
+  eq('sin cuenta (no cargó todavía) → no', isInvestmentAdjustment({ type: 'gasto', flow_type: 'movimiento' }, undefined), false)
+}
+
+section('FEATURE 11.1 · valueUpdateDelta — "Actualizar valor" (§7.2)')
+{
+  // Alta nueva (sin `editing`): la referencia es directo el saldo actual.
+  eq('valor subió → ingreso por la diferencia',
+     valueUpdateDelta(1000, 1045.20, 'USD'), { type: 'ingreso', amount: 45.20 })
+  eq('valor bajó → gasto por la diferencia',
+     valueUpdateDelta(1000, 940, 'USD'), { type: 'gasto', amount: 60 })
+  eq('sin cambio → null, no hay nada que guardar',
+     valueUpdateDelta(1000, 1000, 'USD'), null)
+
+  // Valores en cero y negativos — permitidos a propósito (§4 de la charla de
+  // diseño): una inversión liquidada, o una cuenta apalancada en rojo.
+  eq('a cero → gasto por todo el saldo', valueUpdateDelta(500, 0, 'USD'), { type: 'gasto', amount: 500 })
+  eq('a negativo → gasto por más de lo que había', valueUpdateDelta(500, -80, 'USD'), { type: 'gasto', amount: 580 })
+  eq('ya estaba en cero y sigue en cero → null', valueUpdateDelta(0, 0, 'USD'), null)
+  eq('viene de negativo y sube (sigue negativo) → ingreso', valueUpdateDelta(-80, -30, 'USD'), { type: 'ingreso', amount: 50 })
+
+  // Redondeo con la precisión de la MONEDA (roundFor), no a 2 decimales fijos
+  // — el bug real que esto reemplaza: `round2` truncaba un ajuste en BTC a
+  // centavos y le comía toda la magnitud.
+  eq('BTC conserva los 8 decimales en la diferencia',
+     valueUpdateDelta(0.5, 0.50042195, 'BTC'), { type: 'ingreso', amount: 0.00042195 })
+  eq('un cambio de BTC más chico que un centavo de USD no desaparece',
+     valueUpdateDelta(0.5, 0.50000001, 'BTC'), { type: 'ingreso', amount: 0.00000001 })
+  eq('BTC sin cambio real (por debajo de los 8 decimales) → null',
+     valueUpdateDelta(0.5, 0.500000001, 'BTC'), null)
+
+  // Modo edición: `editing` es la entrada que se está reemplazando — su
+  // propio efecto se resta de la referencia antes de medir.
+  const editingIngreso = { type: 'ingreso', amount: 45.20 }
+  eq('editar sin tocar el valor reproduce la MISMA entrada (saldo actual = 1045.20, que ya la incluye)',
+     valueUpdateDelta(1045.20, 1045.20, 'USD', editingIngreso), { type: 'ingreso', amount: 45.20 })
+  eq('editar para subir más: crece el ingreso',
+     valueUpdateDelta(1045.20, 1100, 'USD', editingIngreso), { type: 'ingreso', amount: 100 })
+  eq('editar y bajar del todo: cambia de signo a gasto',
+     valueUpdateDelta(1045.20, 950, 'USD', editingIngreso), { type: 'gasto', amount: 50 })
+  eq('editar hasta el valor de referencia exacto (antes de esta entrada) → null',
+     valueUpdateDelta(1045.20, 1000, 'USD', editingIngreso), null)
+
+  const editingGasto = { type: 'gasto', amount: 60 }
+  eq('editar una entrada que era gasto, sin tocar el valor, la reproduce igual',
+     valueUpdateDelta(940, 940, 'USD', editingGasto), { type: 'gasto', amount: 60 })
+  eq('editar una entrada que era gasto y ahora resulta ingreso',
+     valueUpdateDelta(940, 1050, 'USD', editingGasto), { type: 'ingreso', amount: 50 })
 }
 
 section('SPRINT 2 · gasto bruto, repartido y real')

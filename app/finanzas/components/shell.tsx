@@ -1,6 +1,8 @@
 'use client'
 
 import { ReactNode } from 'react'
+import { AccountValueProvider } from './account-value-context'
+import { AccountValueSheet } from './account-value-sheet'
 import { FinanzasProvider } from './data-context'
 import { QuickAddProvider } from './quick-add-context'
 import { QuickAdd } from './quick-add'
@@ -18,6 +20,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <FzRouterProvider>
       <FinanzasProvider>
         <QuickAddProvider>
+        <AccountValueProvider>
         {/*
           `overflow-x: clip` como red de seguridad: si algún día un contenido se
           pasa de ancho, la página no gana scroll horizontal y el tab bar —que
@@ -33,6 +36,8 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
           <TabBar />
           <QuickAdd />
+          <AccountValueSheet />
+        </AccountValueProvider>
         </QuickAddProvider>
       </FinanzasProvider>
     </FzRouterProvider>

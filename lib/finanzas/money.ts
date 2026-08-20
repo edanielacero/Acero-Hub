@@ -48,6 +48,17 @@ export function freezeRate(currency: Currency, rates: RateMap): number {
   return usdPerUnit(currency, rates)
 }
 
+/**
+ * El inverso de `freezeRate`: a partir del factor congelado en una
+ * transacción ("USD por 1 unidad") devuelve el número tal como el usuario lo
+ * piensa — el mismo que muestra Ajustes bajo `rateLabel` ("6.96 Bs por 1
+ * USD", no "0.1437 USD por 1 Bs"). Sirve para mostrar en el detalle de un
+ * movimiento con qué tasa se registró, sin tener que guardarla dos veces.
+ */
+export function displayRate(currency: Currency, exchangeRate: number): number {
+  return CURRENCY_META[currency].rateMode === 'inverse' ? 1 / exchangeRate : exchangeRate
+}
+
 function group(n: number, currency: Currency): string {
   return Math.abs(n).toLocaleString('en-US', {
     minimumFractionDigits: 2,

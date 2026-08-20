@@ -2,10 +2,10 @@
 
 import { ReactNode, useState } from 'react'
 import { IconArrowsExchange, IconChartLine, IconPencil, IconReceiptRefund, IconTrash, IconUsersGroup } from '@tabler/icons-react'
-import type { AccountWithBalance, Category, Transaction } from '@/lib/finanzas/types'
+import { CURRENCY_META, type AccountWithBalance, type Category, type Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
-import { formatAmount } from '@/lib/finanzas/money'
-import { todayISO } from '@/lib/finanzas/transactions'
+import { displayRate, formatAmount } from '@/lib/finanzas/money'
+import { isInvestmentAdjustment, todayISO } from '@/lib/finanzas/transactions'
 import { SignedAmount } from './amount'
 import { CategoryIcon } from './category-icon'
 import { useFinanzas } from './data-context'
@@ -64,8 +64,9 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // mercado lo movió), o es un reembolso/cobro de deuda (`/debts/settle`, que
   // nace sin categoría). Se decide mirando la cuenta primero porque es la
   // explicación más específica — y la única posible para un `gasto`, que
-  // nunca puede ser reembolso.
-  const isInversion = !isTransfer && tx.flow_type === 'movimiento' && !!account?.is_investment
+  // nunca puede ser reembolso. Mismo criterio que usan Home y Movimientos
+  // para elegir a qué sheet manda "Editar" (`useEditTransaction`).
+  const isInversion = isInvestmentAdjustment(tx, account)
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
   const isReembolso = !isTransfer && !isInversion && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
@@ -190,7 +191,16 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
             <DetailField label="Cuenta de inversión" value="Sí — no cuenta como gasto/ingreso real" />
           )}
           {tx.currency !== 'USD' && !hidden && (
-            <DetailField label="≈ USD" value={`$${tx.amount_usd.toFixed(2)}`} />
+            <>
+              {/* La tasa con la que se registró — congelada, no la de hoy
+                  (§ freezeConversion). Mismo rótulo que usa Ajustes para esa
+                  moneda, para que el número se lea igual en los dos lugares. */}
+              <DetailField
+                label={CURRENCY_META[tx.currency].rateLabel}
+                value={displayRate(tx.currency, tx.exchange_rate).toLocaleString('en-US', { maximumFractionDigits: 4 })}
+              />
+              <DetailField label="≈ USD" value={`$${tx.amount_usd.toFixed(2)}`} />
+            </>
           )}
           {generoDeudas && (
             <DetailField

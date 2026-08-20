@@ -17,13 +17,18 @@ import { Btn } from './ui'
  * cuando se tocan acá adentro: quien llama sigue siendo dueño de abrir el
  * sheet de edición real o el <DeleteConfirmSheet> de siempre.
  */
-export function DetailSheet({ open, onClose, title, onEdit, onDelete, children }: {
+export function DetailSheet({ open, onClose, title, onEdit, onDelete, extraAction, children }: {
   open: boolean
   onClose: () => void
   title: string
   /** Sin esto no se muestra el botón — por ejemplo una fila sin edición propia. */
   onEdit?: () => void
   onDelete?: () => void
+  /** Un botón más en la fila de acciones, antes de Editar — genérico a
+      propósito: este sheet lo comparten Movimientos, Deudas, Fijos y Cuentas,
+      así que ninguna acción de una sola pantalla (p. ej. "Actualizar valor"
+      de una cuenta de inversión) se hardcodea acá adentro. */
+  extraAction?: { label: string; icon: ReactNode; onClick: () => void }
   children: ReactNode
 }) {
   useEffect(() => {
@@ -64,15 +69,20 @@ export function DetailSheet({ open, onClose, title, onEdit, onDelete, children }
         <div className="px-5 pb-5 flex flex-col gap-4">
           {children}
 
-          {(onEdit || onDelete) && (
+          {(onEdit || onDelete || extraAction) && (
             <div className="flex gap-2 pt-1">
               {onDelete && (
-                <Btn variant="danger" onClick={onDelete} full={!onEdit}>
+                <Btn variant="danger" onClick={onDelete} full={!onEdit && !extraAction}>
                   <IconTrash size={16} stroke={1.8} /> Eliminar
                 </Btn>
               )}
+              {extraAction && (
+                <Btn variant="soft" onClick={extraAction.onClick} full={!onEdit && !onDelete}>
+                  {extraAction.icon} {extraAction.label}
+                </Btn>
+              )}
               {onEdit && (
-                <Btn onClick={onEdit} full={!onDelete}>
+                <Btn onClick={onEdit} full={!onDelete && !extraAction}>
                   <IconPencil size={16} stroke={1.8} /> Editar
                 </Btn>
               )}

@@ -97,6 +97,12 @@ export async function accountBalance(
  * `editing` es el movimiento que se está reemplazando (solo en un PATCH):
  * hay que revertir su efecto viejo antes de medir si el nuevo entra, o toda
  * edición hacia arriba de un gasto ya existente parecería "sin saldo".
+ *
+ * Excepción: un `gasto` en una cuenta `is_investment` no es plata saliendo,
+ * es "Actualizar valor" bajando el número (§7.2 de `contexto_finanzas.md`) —
+ * el mercado puede llevar una cuenta apalancada a negativo sin que eso sea un
+ * error. Una transferencia SÍ sigue necesitando saldo real para salir,
+ * inversión o no: no se puede retirar más de lo que la cuenta vale.
  */
 export async function assertBalance(
   supabase: SupabaseClient,
@@ -106,7 +112,7 @@ export async function assertBalance(
   amount: number,
   editing?: { type: TxType; account_id: string; amount: number } | null,
 ): Promise<string | null> {
-  if (!consumesBalance(type)) return null
+  if (!consumesBalance(type) || (type === 'gasto' && account.is_investment)) return null
 
   const balance = await accountBalance(supabase, userId, account)
   const disponible = availableFrom(balance, editing, account.id)
