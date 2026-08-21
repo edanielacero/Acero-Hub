@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 import { AccountValueProvider } from './account-value-context'
 import { AccountValueSheet } from './account-value-sheet'
 import { FinanzasProvider } from './data-context'
+import { PullToRefresh } from './pull-to-refresh'
 import { QuickAddProvider } from './quick-add-context'
 import { QuickAdd } from './quick-add'
 import { FzRouterProvider } from './router'
@@ -31,7 +32,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="fz-content-pad min-h-[100dvh] overflow-x-clip p-0 min-[900px]:p-5">
             <div className="mx-auto flex gap-5 max-w-[1440px]">
               <Sidebar />
-              <main className="flex-1 min-w-0">{children}</main>
+              <main className="flex-1 min-w-0">
+                <PullToRefresh>{children}</PullToRefresh>
+              </main>
             </div>
           </div>
           <TabBar />
