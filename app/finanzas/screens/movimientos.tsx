@@ -8,8 +8,7 @@ import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
 import { IconGasto, IconIngreso } from '../components/flow-icon'
-import { useQuickAdd } from '../components/quick-add-context'
-import { useEditTransaction } from '../components/account-value-context'
+import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, DropdownField, EmptyState, formatDayLabel, Panel, SectionTitle } from '../components/ui'
 
@@ -25,7 +24,7 @@ const TYPE_FILTER_OPTIONS: { value: TypeFilter; label: string }[] = [
 export function MovimientosScreen() {
   const { accounts, categories, hidden } = useFinanzas()
   const openQuickAdd = useQuickAdd()
-  const openEdit = useEditTransaction()
+  const openEdit = useQuickEdit()
 
   const months = useMemo(() => lastMonths(), [])
   const [month, setMonth] = useState(months[0].value)
@@ -193,7 +192,7 @@ export function MovimientosScreen() {
                     </div>
                     <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
                       {day.items.map(tx => (
-                        <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx, accounts)} />
+                        <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx)} />
                       ))}
                     </div>
                   </section>

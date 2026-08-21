@@ -332,51 +332,70 @@ Esta vuelta separa el mecanismo (que no cambia) de la puerta de entrada.
   siendo una transferencia legítima.
 - **"Actualizar valor"** ([account-value-sheet.tsx](../../app/finanzas/components/account-value-sheet.tsx),
   con su contexto en [account-value-context.tsx](../../app/finanzas/components/account-value-context.tsx)):
-  sheet nuevo y chico, sin selector de tipo, cuenta ni categoría. Un solo
-  campo — "¿Cuánto vale hoy?" — precargado con el saldo actual de la cuenta,
-  más una línea de diferencia en vivo (↑/↓, mismo verde/rojo semántico que
-  `SignedAmount`). Al guardar arma el mismo `POST`/`PATCH` de siempre contra
-  `/api/finanzas/transactions` — `type: 'ingreso'|'gasto'` según el signo del
-  delta, `flow_type` lo sigue decidiendo `flowTypeFor` en el server, igual que
-  antes. Cero cambios de esquema.
-- **Dos puntos de entrada** a la misma sheet: el ⋮ de la cuenta en
+  sheet nuevo y chico, sin selector de tipo, cuenta, categoría ni fecha. Un
+  solo campo — "¿Cuánto hay en tu inversión hoy?" — precargado con el saldo
+  actual de la cuenta, más una línea de diferencia en vivo (↑/↓, mismo
+  verde/rojo semántico que `SignedAmount`). Al guardar arma el mismo `POST`
+  de siempre contra `/api/finanzas/transactions` — `type: 'ingreso'|'gasto'`
+  según el signo del delta, `date` siempre `todayISO()`, `flow_type` lo sigue
+  decidiendo `flowTypeFor` en el server. Cero cambios de esquema.
+- **Sin fecha editable, a propósito.** No es un registro histórico de una
+  fecha puntual, es una foto de cuánto vale la inversión ahora — así que
+  siempre queda fechada hoy, sin picker. Encaja con que el saldo de
+  referencia contra el que se mide el cambio también es siempre el de hoy
+  (el saldo de una cuenta es una suma acumulada sin orden, no algo
+  reconstruible por fecha).
+- **Dos puntos de entrada**: el ⋮ de la cuenta en
   [cuentas.tsx](../../app/finanzas/screens/cuentas.tsx) (`AccountRow`), y un
   tercer botón junto a Editar/Eliminar en su `DetailSheet`. Para lo segundo,
   [DetailSheet](../../app/finanzas/components/detail-sheet.tsx) — compartido
   con Movimientos, Deudas y Fijos — ganó un `extraAction` genérico (label +
   ícono + onClick) en vez de hardcodear "Actualizar valor" en un componente
   que a las otras tres pantallas no les significa nada.
-- **Editar un registro viejo** de este tipo abre la misma sheet nueva
-  precargada, no el QuickAdd genérico — mismo patrón que `PlanSheet` con
-  `regenerando`. La decisión de a qué sheet mandar un movimiento en edición
-  vive en `isInvestmentAdjustment()` (nueva, en
-  [transactions.ts](../../lib/finanzas/transactions.ts)), y la usan tanto
-  `TxRow` (para el ícono/subtítulo, como ya hacía) como Home y Movimientos
-  (para decidir si el tap en "Editar" abre QuickAdd o `AccountValueSheet`).
+- **No aparece en Movimientos ni en "Últimos movimientos" de la Home.**
+  Decisión explícita: una actualización de valor no es un movimiento de
+  cuentas, es un ajuste del valor de una cuenta — no tiene nada que hacer en
+  una lista de movimientos. `loadTransactions()`
+  ([load.ts](../../lib/finanzas/load.ts)) la excluye del array que devuelve
+  (los totales del mes ya la excluían de antes, por `flow_type`; esto además
+  la saca de la lista visible). Sigue siendo, por debajo, la misma fila de
+  `fin_transactions` que ya movía el saldo — nada cambia en cómo se calcula
+  `balance`.
+- **Sin modo edición.** Como consecuencia directa de lo anterior: si nunca
+  aparece en ninguna lista, no hay desde dónde tocarla para editarla o
+  borrarla. El sheet quedó simplificado a un único modo, "alta nueva" —
+  se sacaron `editing`, el botón Eliminar, y el ruteo que decidía a qué
+  sheet mandar "Editar" (`useEditTransaction`, ya no existe). Corregir una
+  actualización pasada es volver a abrir "Actualizar valor" con el número
+  correcto de hoy, que registra un ajuste nuevo en vez de tocar el viejo.
+  `isInvestmentAdjustment()` ([transactions.ts](../../lib/finanzas/transactions.ts))
+  sigue existiendo — la sigue usando `TxRow` para el ícono/subtítulo y ahora
+  también `loadTransactions` para el filtro — pero en la práctica una
+  actualización de valor ya no vuelve a pasar por `TxRow`.
 - **Disponible desde el día 1**: sin movimientos todavía, la referencia es
   `initial_balance`.
 - **Se permite cargar $0 o negativo** como valor actual (inversión liquidada,
   cuenta apalancada en rojo). Guardar solo se deshabilita cuando el delta da
   exactamente 0 — el valor tipeado coincide con el de referencia, no hay nada
   que registrar.
-- **La fecha compara siempre contra el saldo real de hoy**, nunca contra una
-  reconstrucción histórica por fecha — el saldo de una cuenta ya es una suma
-  acumulada sin orden, así que "el dato más reciente" es siempre el de hoy,
-  sea cual sea la fecha que se le ponga al registro. Backdatear una
-  actualización es entonces más una etiqueta que una foto exacta de esa fecha;
-  simplificación consistente con que nada más en la app reconstruye saldos
-  históricos por fecha.
-- **El toggle "Cuenta de inversión" se bloquea Sí→No** una vez que la cuenta
-  ya tiene alguna actualización de valor registrada — mismo patrón que ya
-  bloqueaba cambiar la moneda de una cuenta con movimientos
-  ([accounts/[id]/route.ts](../../app/api/finanzas/accounts/%5Bid%5D/route.ts)).
-  El motivo no es perder plata (el saldo no se mueve por el flag), es que la
-  historia quedaría mezclada: movimientos viejos con la insignia "Inversión"
-  y gastos/ingresos reales nuevos en la misma cuenta. No→Sí queda libre
-  siempre: no genera esa mezcla, y de ahí en más solo entra por "Actualizar
-  valor". El gatillo es específico — al menos un gasto/ingreso con
-  `flow_type: 'movimiento'` en esa cuenta — no "tiene movimientos" en
-  general, para no bloquear una cuenta que solo recibió transferencias.
+- **El toggle "Cuenta de inversión" directamente no se ofrece** en el form de
+  Cuentas una vez que la cuenta ya tiene alguna actualización de valor
+  registrada — antes se dejaba destildar y se rechazaba recién al guardar
+  (409); ahora el control se reemplaza por un indicador fijo, no interactivo
+  ([cuentas.tsx](../../app/finanzas/screens/cuentas.tsx)). El dato sale de
+  `has_value_updates`, un flag nuevo en `AccountWithBalance`
+  ([types.ts](../../lib/finanzas/types.ts)) que `loadAccounts()` calcula con
+  el mismo criterio de `isInvestmentAdjustment` sobre los movimientos que ya
+  trae para el saldo — sin viaje extra a la base. El **PATCH sigue
+  rechazando con 409** si de todos modos llega un intento de desmarcarla
+  (misma regla de antes, mismo patrón que bloquea cambiar la moneda de una
+  cuenta con movimientos) — la UI ya no ofrece el camino, pero la ruta sigue
+  validando en el server como defensa en profundidad, no confiando solo en
+  que el cliente no mande el campo. No→Sí queda libre siempre: no genera
+  mezcla de historia, y de ahí en más solo entra por "Actualizar valor". El
+  gatillo es específico — al menos un gasto/ingreso con `flow_type:
+  'movimiento'` en esa cuenta — no "tiene movimientos" en general, para no
+  bloquear una cuenta que solo recibió transferencias.
 - **Eliminar cuentas no cambia.** `fin_transactions.account_id` es
   `on delete restrict`: cualquier cuenta con movimientos —de inversión o
   no— ya rechazaba el borrado antes de esta feature, sin importar el saldo.
@@ -399,15 +418,38 @@ ese guard, porque no es plata saliendo, es el mercado moviendo el número.
 #### Verificación
 
 `npm run build` y `tsc --noEmit` limpios. Las tres suites de
-`tests/finanzas/` en verde: `unit` (342/342, incluye 7 casos nuevos de
-`isInvestmentAdjustment`), `db` (104/104, sin cambios de esquema — nada que
-migrar en esta vuelta) y `api` (350/350, incluye 7 casos nuevos: un gasto de
-inversión SÍ puede dejar el saldo en negativo, una transferencia desde una
-cuenta de inversión en rojo lo sigue rechazando, el toggle se bloquea con una
-actualización de valor cargada y se libera sin ella, y una cuenta que solo
-recibió transferencias no queda bloqueada).
+`tests/finanzas/` en verde: `unit` (363/363), `db` (104/104, sin cambios de
+esquema en toda la vuelta — nada que migrar) y `api` (357/357).
 
-Se actualizó además un comentario de test de la 11 que documentaba, como
-intencional, la restricción que esta vuelta revierte a propósito (que un
-gasto de inversión respetara la regla dura de saldo) — quedaba desactualizado
-frente a la decisión §4 de permitir valores negativos.
+Casos nuevos cubiertos: `isInvestmentAdjustment` (unit); `valueUpdateDelta`
+con BTC de 8 decimales, cero, negativo y modo edición — la función sigue
+soportando `editing` aunque la UI ya no lo use, por si un futuro historial lo
+necesita (unit); un gasto de inversión SÍ puede dejar el saldo en negativo, y
+una transferencia desde una cuenta de inversión en rojo lo sigue rechazando
+(api); el toggle se bloquea con una actualización de valor cargada y se
+libera sin ella, y una cuenta que solo recibió transferencias no queda
+bloqueada (api); una actualización de valor no aparece en la lista de
+`GET /transactions` aunque esté dentro del rango pedido, y `has_value_updates`
+prende y apaga correctamente en `GET /accounts` (api).
+
+**Bugs encontrados en la revisión posterior y corregidos antes de este
+cierre**, ninguno alcanzado por el uso normal hasta ahí:
+- `account-value-sheet.tsx` calculaba la diferencia con `round2` (fijo a 2
+  decimales) en vez de `roundFor` (precisión según la moneda) — en una
+  cuenta de inversión en BTC esto habría destruido la magnitud de un ajuste
+  chico. Corregido extrayendo el cálculo a `valueUpdateDelta()`, que sí usa
+  `roundFor`.
+- Dos efectos de `quick-add.tsx` (el que resetea la cuenta elegida al
+  cambiar de tipo, y el que completa una cuenta por defecto cuando las
+  cuentas llegan tarde) no tenían guardia contra modo edición: en un primer
+  render en frío editando un movimiento cuya cuenta ya es de inversión,
+  podían pisar la cuenta correcta con un default equivocado. Ambos ahora se
+  saltan explícitamente mientras se está editando.
+- Editar un gasto/ingreso viejo, de antes de que su cuenta se marcara como
+  inversión, dejaba el chip de cuenta sin ningún elegido en el picker (el
+  filtro nuevo la sacaba de las opciones visibles). La cuenta ya elegida
+  ahora se mantiene visible aunque el filtro normalmente la excluya.
+- Se actualizó además un comentario de test de la 11 que documentaba, como
+  intencional, una restricción que la decisión §4 revierte a propósito (que
+  un gasto de inversión respetara la regla dura de saldo) — quedaba
+  desactualizado frente a permitir valores negativos.

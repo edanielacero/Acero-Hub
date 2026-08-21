@@ -87,6 +87,11 @@ export interface AccountWithBalance extends Account {
   balance: number
   /** El mismo saldo convertido a USD con la tasa ACTUAL, no la congelada. */
   balance_usd: number
+  /** Ya tiene alguna "Actualizar valor" registrada — bloquea poder desmarcar
+      "Cuenta de inversión" (§7.2 de contexto_finanzas.md): el form de Cuentas
+      directamente no ofrece el toggle en ese caso, en vez de dejar guardar y
+      rechazarlo. Solo importa cuando `is_investment` ya es `true`. */
+  has_value_updates: boolean
 }
 
 export interface Category {

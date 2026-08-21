@@ -8,7 +8,7 @@ import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type Ra
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
-import { availableFrom, consumesBalance, monthRange, todayISO } from './transactions'
+import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import type {
   Account, AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
@@ -55,10 +55,12 @@ export async function loadAccounts(
       .order('sort_order')
       .order('created_at'),
     // Se traen todos los movimientos porque el saldo es derivado: no hay forma
-    // de conocerlo sin recorrer la historia completa de cada cuenta.
+    // de conocerlo sin recorrer la historia completa de cada cuenta. `flow_type`
+    // viaja también para `has_value_updates` de acá abajo — no hace falta un
+    // segundo viaje a la base solo para eso.
     supabase
       .from('fin_transactions')
-      .select('type, account_id, to_account_id, amount, to_amount')
+      .select('type, account_id, to_account_id, amount, to_amount, flow_type')
       .eq('user_id', userId),
   ])
 
@@ -66,7 +68,21 @@ export async function loadAccounts(
   const movements = (txRows ?? []).map(mapBalanceMovement)
   const withBal = withBalances(accounts, movements, rates)
 
-  return { accounts: withBal, total_usd: totalUsd(withBal), rates, rate_list: rateRows }
+  // Qué cuentas ya tienen una "Actualizar valor" registrada (§7.2): el form de
+  // Cuentas usa esto para directamente no ofrecer el toggle "Es inversión" en
+  // vez de dejar destildarlo y rechazarlo recién al guardar.
+  const accountsById = new Map(accounts.map(a => [a.id, a]))
+  const updatedIds = new Set(
+    (txRows ?? [])
+      .filter(r => isInvestmentAdjustment(
+        { type: r.type as TxType, flow_type: r.flow_type as Transaction['flow_type'] },
+        accountsById.get(r.account_id as string),
+      ))
+      .map(r => r.account_id as string),
+  )
+  const withFlags: AccountWithBalance[] = withBal.map(a => ({ ...a, has_value_updates: updatedIds.has(a.id) }))
+
+  return { accounts: withFlags, total_usd: totalUsd(withFlags), rates, rate_list: rateRows }
 }
 
 /** Saldo actual de UNA cuenta — mismo cálculo derivado que `loadAccounts`,
@@ -428,8 +444,16 @@ export async function loadTransactions(
   // Una cuenta aparece como origen o como destino de una transferencia.
   if (f.accountId) query = query.or(`account_id.eq.${f.accountId},to_account_id.eq.${f.accountId}`)
 
-  const { data, error } = await query
+  const [{ data, error }, { data: investmentRows }] = await Promise.all([
+    query,
+    // Para poder sacar las "Actualizar valor" de la lista (ver más abajo):
+    // no son un movimiento de cuenta, son un ajuste del valor de la cuenta —
+    // no tienen nada que hacer en Movimientos (§7.2 de contexto_finanzas.md).
+    supabase.from('fin_accounts').select('id').eq('user_id', userId).eq('is_investment', true),
+  ])
   if (error) return { data: null, error: error.message }
+
+  const investmentIds = new Set((investmentRows ?? []).map(r => r.id as string))
 
   let transactions = (data ?? []).map(t => ({
     ...t,
@@ -444,6 +468,10 @@ export async function loadTransactions(
       principal_usd: num(s.principal_usd),
     })),
   })) as unknown as (Transaction & { debts: Debt[] })[]
+
+  transactions = transactions.filter(
+    t => !isInvestmentAdjustment(t, { is_investment: investmentIds.has(t.account_id) }),
+  )
 
   if (f.sharedOnly) transactions = transactions.filter(t => t.debts.length > 0)
 

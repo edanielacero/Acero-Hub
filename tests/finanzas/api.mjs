@@ -427,6 +427,13 @@ async function run() {
       eq('ni el ingreso de inversión sube el ingreso del mes',
          totalesDespues.total_ingreso_usd, totalesAntes.total_ingreso_usd)
 
+      // §7.2: una actualización de valor no es un movimiento de cuentas —
+      // no aparece en la lista de Movimientos, ni siquiera aunque esté
+      // dentro del rango de fechas pedido.
+      const idsDespues = totalesDespues.transactions.map(t => t.id)
+      eq('el gasto de inversión no aparece en la lista de Movimientos', idsDespues.includes(perdida.id), false)
+      eq('el ingreso de inversión tampoco aparece en la lista de Movimientos', idsDespues.includes(ganancia.id), false)
+
       // Mover un gasto normal HACIA una cuenta de inversión lo sube a movimiento.
       const reasignable = (await json(await api('/transactions', {
         method: 'POST',
@@ -488,6 +495,14 @@ async function run() {
 
       await api(`/transactions/${bajaFuerte.id}`, { method: 'DELETE' })
 
+      // Sin ninguna actualización viva (la de recién ya se borró), el flag
+      // parte en false — tanto para la de inversión como para una normal.
+      const sinNada = await json(await api('/accounts'))
+      eq('has_value_updates en false sin actualizaciones vivas',
+         sinNada.accounts.find(a => a.id === ibkr.id).has_value_updates, false)
+      eq('y siempre en false para una cuenta que nunca fue de inversión',
+         sinNada.accounts.find(a => a.id === airtm.id).has_value_updates, false)
+
       // El toggle "Cuenta de inversión" se bloquea Sí→No una vez que ya hay
       // una actualización de valor registrada — mismo patrón que ya bloquea
       // cambiar la moneda de una cuenta con movimientos.
@@ -495,6 +510,17 @@ async function run() {
         method: 'POST',
         body: JSON.stringify({ type: 'ingreso', date: '2026-08-18', account_id: ibkr.id, amount: 50 }),
       }))).transaction
+
+      // El flag que la UI de Cuentas usa para no ofrecer el toggle: `true`
+      // apenas hay una actualización de valor registrada.
+      const conFlag = await json(await api('/accounts'))
+      eq('has_value_updates se prende con la actualización recién cargada',
+         conFlag.accounts.find(a => a.id === ibkr.id).has_value_updates, true)
+
+      // Y tampoco aparece en Movimientos.
+      const movsConAjuste = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      eq('el ingreso recién cargado tampoco aparece en Movimientos',
+         movsConAjuste.transactions.map(t => t.id).includes(conAjuste.id), false)
 
       const bloqueado = await api(`/accounts/${ibkr.id}`, {
         method: 'PATCH', body: JSON.stringify({ is_investment: false }),
@@ -505,6 +531,11 @@ async function run() {
       eq('sigue marcada como inversión', siguesInvestment.accounts.find(a => a.id === ibkr.id).is_investment, true)
 
       await api(`/transactions/${conAjuste.id}`, { method: 'DELETE' })
+
+      // Borrada la única actualización, el flag vuelve a false.
+      const sinFlag = await json(await api('/accounts'))
+      eq('has_value_updates vuelve a false sin actualizaciones vivas',
+         sinFlag.accounts.find(a => a.id === ibkr.id).has_value_updates, false)
 
       // Sin actualizaciones de valor, el toggle vuelve a estar libre.
       const libre = await api(`/accounts/${ibkr.id}`, {

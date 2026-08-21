@@ -64,8 +64,13 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // mercado lo movió), o es un reembolso/cobro de deuda (`/debts/settle`, que
   // nace sin categoría). Se decide mirando la cuenta primero porque es la
   // explicación más específica — y la única posible para un `gasto`, que
-  // nunca puede ser reembolso. Mismo criterio que usan Home y Movimientos
-  // para elegir a qué sheet manda "Editar" (`useEditTransaction`).
+  // nunca puede ser reembolso.
+  //
+  // Desde §7.2, una actualización de valor de inversión ya no llega hasta acá
+  // — `loadTransactions` la saca de la lista antes de que Home o Movimientos
+  // la vean, porque no es un movimiento de cuentas. Esta rama queda para el
+  // caso residual de una fila vieja que haya llegado por otro camino; no
+  // hace falta que nunca se dispare para que siga siendo correcta.
   const isInversion = isInvestmentAdjustment(tx, account)
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.

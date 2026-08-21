@@ -31,6 +31,10 @@ interface Draft {
   initial_balance: string
   initial_balance_date: string
   is_investment: boolean
+  /** Ya tiene una "Actualizar valor" registrada — el toggle de acá abajo no
+      se ofrece como control, solo se muestra fijo (§7.2). Siempre falso en
+      una cuenta nueva: no hay historia todavía. */
+  investmentLocked: boolean
 }
 
 const emptyDraft = (): Draft => ({
@@ -39,6 +43,7 @@ const emptyDraft = (): Draft => ({
   initial_balance: '',
   initial_balance_date: new Date().toISOString().slice(0, 10),
   is_investment: false,
+  investmentLocked: false,
 })
 
 export function CuentasScreen() {
@@ -199,6 +204,7 @@ export function CuentasScreen() {
       initial_balance: String(a.initial_balance),
       initial_balance_date: a.initial_balance_date,
       is_investment: a.is_investment,
+      investmentLocked: a.is_investment && a.has_value_updates,
     })
   }
 
@@ -301,28 +307,46 @@ export function CuentasScreen() {
                 />
               </div>
               <div className="min-[900px]:col-span-2">
-                <button
-                  type="button"
-                  onClick={() => setDraft({ ...draft, is_investment: !draft.is_investment })}
-                  aria-pressed={draft.is_investment}
-                  className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
-                    draft.is_investment
-                      ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
-                      : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 text-[14px] font-semibold">
-                    <IconChartLine size={18} stroke={1.8} />
-                    Cuenta de inversión
-                  </span>
-                  <span className="text-[12px] font-bold">{draft.is_investment ? 'Sí' : 'No'}</span>
-                </button>
+                {/* Con actualizaciones de valor ya registradas, el toggle deja
+                    de ofrecerse como control — antes se dejaba destildar y
+                    se rechazaba recién al guardar (409); ahora directamente
+                    no se da la opción, mismo criterio del lado del server
+                    en /api/finanzas/accounts/[id] (§7.2). Queda un indicador
+                    fijo en su lugar, no un botón. */}
+                {draft.investmentLocked ? (
+                  <div className="w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+                    <span className="flex items-center gap-2 text-[14px] font-semibold">
+                      <IconChartLine size={18} stroke={1.8} />
+                      Cuenta de inversión
+                    </span>
+                    <span className="text-[12px] font-bold">Sí</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setDraft({ ...draft, is_investment: !draft.is_investment })}
+                    aria-pressed={draft.is_investment}
+                    className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
+                      draft.is_investment
+                        ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+                        : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-[14px] font-semibold">
+                      <IconChartLine size={18} stroke={1.8} />
+                      Cuenta de inversión
+                    </span>
+                    <span className="text-[12px] font-bold">{draft.is_investment ? 'Sí' : 'No'}</span>
+                  </button>
+                )}
                 {/* Broker, cripto en cuenta propia, lo que se sume después: el
                     valor sube y baja por el mercado, no porque entró o salió
                     plata real. Se ajusta con "Actualizar valor" en vez de
                     Gasto/Ingreso (§7.2 de contexto_finanzas.md). */}
                 <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
-                  Se ajusta con "Actualizar valor" — no cuenta como ingreso ni gasto real del mes.
+                  {draft.investmentLocked
+                    ? 'Ya tiene actualizaciones de valor registradas — no se puede desmarcar.'
+                    : 'Se ajusta con "Actualizar valor" — no cuenta como ingreso ni gasto real del mes.'}
                 </p>
               </div>
             </div>

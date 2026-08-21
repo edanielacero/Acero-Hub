@@ -47,12 +47,16 @@ export function computeBalances(
  * Cuentas enriquecidas con su saldo. El equivalente en USD usa la tasa ACTUAL,
  * no la congelada de cada transacción: el patrimonio es una foto del presente,
  * no un dato histórico (§4.3).
+ *
+ * `has_value_updates` queda afuera a propósito: necesita mirar `flow_type` de
+ * cada movimiento, que `BalanceMovement` no trae (es "lo mínimo que necesita
+ * el cálculo de saldos"). Quien llama lo completa — hoy solo `loadAccounts`.
  */
 export function withBalances(
   accounts: Account[],
   transactions: BalanceMovement[],
   rates: RateMap,
-): AccountWithBalance[] {
+): Omit<AccountWithBalance, 'has_value_updates'>[] {
   const balances = computeBalances(accounts, transactions)
   return accounts.map(a => {
     const balance = balances.get(a.id) ?? a.initial_balance

@@ -10,8 +10,7 @@ import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
-import { useQuickAdd } from '../components/quick-add-context'
-import { useEditTransaction } from '../components/account-value-context'
+import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { CurrencyIcon } from '../components/currency-icon'
 import { IconGasto, IconIngreso } from '../components/flow-icon'
 import { PageHeader, TxRow } from '../components/tx-row'
@@ -33,7 +32,7 @@ function firstName(name: string | null): string {
 export function HomeScreen() {
   const { accounts, categories, shared, recurring, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
   const openQuickAdd = useQuickAdd()
-  const openEdit = useEditTransaction()
+  const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
 
   const now = useMemo(() => new Date(), [])
@@ -319,7 +318,7 @@ export function HomeScreen() {
               ) : (
                 <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
                   {recent.map(tx => (
-                    <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx, accounts)} />
+                    <TxRow key={tx.id} tx={tx} accounts={accounts} categories={categories} onClick={() => openEdit(tx)} />
                   ))}
                 </div>
               )}
