@@ -309,6 +309,8 @@ export interface TxFilters {
   accountId?: string | null
   categoryId?: string | null
   sharedOnly?: boolean
+  /** Solo movimientos que vienen de un fijo (`recurring_id` no nulo). */
+  recurringOnly?: boolean
   limit?: number
   offset?: number
 }
@@ -421,6 +423,20 @@ export async function loadRecurring(
   return { recurring: ordenados, ...progress(ordenados) }
 }
 
+/**
+ * Los meses (`'2026-08'`) que tienen al menos un movimiento registrado, del
+ * más reciente al más viejo — es lo que puebla el filtro de mes de
+ * Movimientos: no tiene sentido ofrecer un mes vacío para elegir.
+ */
+export async function loadAvailableMonths(supabase: SupabaseClient, userId: string): Promise<string[]> {
+  const { data } = await supabase.from('fin_transactions').select('date').eq('user_id', userId)
+
+  const months = new Set<string>()
+  for (const row of data ?? []) months.add((row.date as string).slice(0, 7))
+
+  return [...months].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+}
+
 export async function loadTransactions(
   supabase: SupabaseClient,
   userId: string,
@@ -441,6 +457,7 @@ export async function loadTransactions(
   if (f.to) query = query.lte('date', f.to)
   if (f.type) query = query.eq('type', f.type)
   if (f.categoryId) query = query.eq('category_id', f.categoryId)
+  if (f.recurringOnly) query = query.not('recurring_id', 'is', null)
   // Una cuenta aparece como origen o como destino de una transferencia.
   if (f.accountId) query = query.or(`account_id.eq.${f.accountId},to_account_id.eq.${f.accountId}`)
 

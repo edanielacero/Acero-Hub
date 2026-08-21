@@ -2,7 +2,7 @@ import { requireUser, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse, after } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { readQuotes, refreshQuotes, quotesAreStale, QUOTE_PAIRS } from '@/lib/finanzas/quotes'
-import { loadAccounts, loadCategories, loadDebtPlans, loadPeople, loadRecurring, loadShared, loadTransactions } from '@/lib/finanzas/load'
+import { loadAccounts, loadAvailableMonths, loadCategories, loadDebtPlans, loadPeople, loadRecurring, loadShared, loadTransactions } from '@/lib/finanzas/load'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 
 /**
@@ -55,13 +55,14 @@ export async function GET(request: Request) {
   // un fijo está vencido o todavía no.
   const today = url.searchParams.get('today') || todayISO()
 
-  const [accounts, categories, people, shared, recurring, plans, month, recent] = await Promise.all([
+  const [accounts, categories, people, shared, recurring, plans, months, month, recent] = await Promise.all([
     loadAccounts(supabase, userId, quotes),
     loadCategories(supabase, userId),
     loadPeople(supabase, userId),
     loadShared(supabase, userId, range),
     loadRecurring(supabase, userId, today),
     loadDebtPlans(supabase, userId),
+    loadAvailableMonths(supabase, userId),
     loadTransactions(supabase, userId, { from: range.from, to: range.to, limit: monthLimit }),
     loadTransactions(supabase, userId, { limit: recentLimit }),
   ])
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
     shared,
     recurring,
     plans,
+    months,
     // Las dos consultas que la Home ya iba a hacer igual. El cliente las guarda
     // en su caché bajo la misma clave con la que después las busca.
     tx: { month: month.data, recent: recent.data },

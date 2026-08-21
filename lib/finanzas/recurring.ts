@@ -1,6 +1,6 @@
-import type { Currency, Person, RecurringSplit, Recurring, RecurringStatus, RecurringWithState } from './types'
+import type { Currency, Frequency, Person, RateMap, RecurringSplit, Recurring, RecurringStatus, RecurringWithState } from './types'
 import { evenSplit, normalizeName } from './splits'
-import { roundFor } from './money'
+import { round2, roundFor, toUsd } from './money'
 
 /** Último día del mes, para no proponer un 31 de febrero. */
 function lastDayOf(year: number, month1: number): number {
@@ -38,6 +38,38 @@ export function periodOf(
     to: `${year}-${pad(month)}-${pad(lastDayOf(year, month))}`,
     due: `${year}-${pad(month)}-${pad(Math.min(r.day_of_month, lastDayOf(year, month)))}`,
   }
+}
+
+/**
+ * De una fecha completa (el picker único de "primera vez que cae" del
+ * formulario) a los campos que persiste la plantilla. El día se guarda TAL
+ * CUAL se eligió, sin transformarlo: `periodOf` ya topa `day_of_month` contra
+ * el largo real de cada mes/año futuro, así que un 30 elegido en septiembre
+ * sigue siendo el 30 en octubre o noviembre (que también lo tienen), y solo
+ * se ajusta en febrero (que no). El 31 es el único caso que "llega siempre al
+ * final" en todos lados — pero eso sale gratis del mismo tope, porque no hay
+ * mes con más de 31 días: no hace falta ningún caso especial para lograrlo.
+ */
+export function fieldsFromDate(
+  fecha: string,
+  frequency: Frequency,
+): Pick<Recurring, 'day_of_month' | 'month_of_year' | 'starts_on'> {
+  const [, month, day] = fecha.split('-').map(Number)
+  return {
+    day_of_month: day,
+    month_of_year: frequency === 'anual' ? month : null,
+    starts_on: fecha,
+  }
+}
+
+/** El inverso de `fieldsFromDate`: qué fecha mostraría el picker al editar una plantilla ya guardada. */
+export function dateFromFields(
+  r: Pick<Recurring, 'frequency' | 'day_of_month' | 'month_of_year' | 'starts_on'>,
+): string {
+  const [year] = r.starts_on.split('-').map(Number)
+  const month = r.frequency === 'anual' ? (r.month_of_year ?? 1) : Number(r.starts_on.slice(5, 7))
+  const day = Math.min(r.day_of_month, lastDayOf(year, month))
+  return `${year}-${pad(month)}-${pad(day)}`
 }
 
 
@@ -228,12 +260,27 @@ export function sortRecurring(items: RecurringWithState[]): RecurringWithState[]
     rank[a.status] - rank[b.status] || (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))
 }
 
+// Los que todavía no arrancaron no cuentan: no hay nada que registrar. Un
+// pausado tampoco: `active` ya los saca del período vigente.
+function enPeriodo(items: RecurringWithState[]): RecurringWithState[] {
+  return items.filter(r => r.active && r.status !== 'programado')
+}
+
 /** "1 de 3 registrados" para el panel de la Home. */
 export function progress(items: RecurringWithState[]): { done: number; total: number; pending: number } {
-  // Los que todavía no arrancaron no cuentan: no hay nada que registrar.
-  const activos = items.filter(r => r.active && r.status !== 'programado')
+  const activos = enPeriodo(items)
   const done = activos.filter(r => r.status === 'registrado').length
   return { done, total: activos.length, pending: activos.length - done }
+}
+
+/**
+ * Cuánto suman, en USD, los fijos del período vigente — el monto grande de
+ * Gastos Fijos. El monto de cada plantilla nunca se guarda en USD (es lo que
+ * cuesta HOY en su moneda), así que se convierte acá con la tasa vigente en
+ * vez de con una congelada.
+ */
+export function monthlyTotalUsd(items: RecurringWithState[], rates: RateMap): number {
+  return round2(enPeriodo(items).reduce((sum, r) => sum + toUsd(r.amount, r.currency, rates), 0))
 }
 
 /** Los nombres de las personas de un reparto, para el resumen de una fila. */

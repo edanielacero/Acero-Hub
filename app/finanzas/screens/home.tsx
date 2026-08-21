@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { CURRENCY_META } from '@/lib/finanzas/types'
 import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
@@ -58,6 +59,7 @@ export function HomeScreen() {
   const hayFijos = recurring.total > 0
 
   const visible = accounts.filter(a => !a.archived)
+  const hasBtc = visible.some(a => a.currency === 'BTC')
 
   // Sin datos y sin poder pedirlos. Decirlo es lo único honesto: un esqueleto
   // eterno se lee como "ya casi", y un $0 se lee como un saldo.
@@ -138,12 +140,14 @@ export function HomeScreen() {
               )}
 
               <p className="relative mt-2 text-[13px] text-white/50">
-                {loading ? 'Cargando tus cuentas…' : (
+                {loading ? 'Cargando tus cuentas…' : stale ? 'actualizando…' : (
                   <>
-                    {visible.length} {visible.length === 1 ? 'cuenta' : 'cuentas'} ·{' '}
                     {/* La tasa del día es un dato que se mira seguido en Bolivia:
-                        decirla es más útil que decir que se usó (§16.1). */}
-                    {stale ? 'actualizando…' : `1 USD = Bs ${(rates.BOB ?? 6.96).toFixed(2)}`}
+                        decirla es más útil que la cantidad de cuentas (§16.1). */}
+                    {`1 USD = Bs ${(rates.BOB ?? CURRENCY_META.BOB.defaultRate).toFixed(2)}`}
+                    {/* El BTC solo aparece si el usuario realmente tiene una cuenta
+                        en esa moneda — no tiene sentido mostrar una tasa que no usa. */}
+                    {hasBtc && ` · 1 BTC = ${formatUSD(rates.BTC ?? CURRENCY_META.BTC.defaultRate)}`}
                   </>
                 )}
               </p>

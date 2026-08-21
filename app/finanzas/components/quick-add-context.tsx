@@ -14,11 +14,11 @@ interface QuickAddState {
   initialType: TxType
   /**
    * Si el tipo vino fijado por una acción puntual (el botón "Gasto" de la
-   * Home, no el "+" genérico de la tab bar), el sheet no muestra el selector
-   * de tipo. Mostrarlo igual reintroducía la elección que el botón específico
-   * quería evitar — tocabas "Ingreso" y el panel te dejaba pasarte a
-   * "Gasto" de todos modos, así que los tres botones no eran más que un
-   * "+"  disfrazado.
+   * Home, no el "Nuevo" genérico de Movimientos), el sheet no muestra el
+   * selector de tipo. Mostrarlo igual reintroducía la elección que el botón
+   * específico quería evitar — tocabas "Ingreso" y el panel te dejaba
+   * pasarte a "Gasto" de todos modos, así que los tres botones no eran más
+   * que un "+" disfrazado.
    */
   lockType: boolean
 }

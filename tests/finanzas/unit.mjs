@@ -3,7 +3,7 @@ import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, 
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
-import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods } from './.fin/recurring.mjs'
+import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
@@ -826,6 +826,185 @@ section('SPRINT 3 · períodos')
   const anual = { frequency: 'anual', day_of_month: 3, month_of_year: 3 }
   eq('el anual abarca el año entero', periodOf(anual, '2026-08-18'),
      { from: '2026-01-01', to: '2026-12-31', due: '2026-03-03' })
+}
+
+section('FIX · un solo picker de fecha (Mes/Día ya no se piden aparte)')
+{
+  // fieldsFromDate: el día se guarda TAL CUAL se eligió, sin transformarlo.
+  eq('mensual: el día y el starts_on salen directo de la fecha',
+     fieldsFromDate('2026-06-15', 'mensual'),
+     { day_of_month: 15, month_of_year: null, starts_on: '2026-06-15' })
+  eq('anual: además manda el mes de la fecha en month_of_year',
+     fieldsFromDate('2026-03-10', 'anual'),
+     { day_of_month: 10, month_of_year: 3, starts_on: '2026-03-10' })
+  eq('el 31 se guarda literal, sin ningún caso especial',
+     fieldsFromDate('2026-01-31', 'mensual'),
+     { day_of_month: 31, month_of_year: null, starts_on: '2026-01-31' })
+  eq('el 30 también se guarda literal — NO se "sube" a 31',
+     fieldsFromDate('2026-09-30', 'mensual'),
+     { day_of_month: 30, month_of_year: null, starts_on: '2026-09-30' })
+  eq('el 28 de febrero igual, literal',
+     fieldsFromDate('2026-02-28', 'mensual'),
+     { day_of_month: 28, month_of_year: null, starts_on: '2026-02-28' })
+
+  // dateFromFields: el inverso, para reconstruir el picker al editar.
+  eq('un día normal se reconstruye igual',
+     dateFromFields({ frequency: 'mensual', day_of_month: 10, month_of_year: null, starts_on: '2026-05-01' }),
+     '2026-05-10')
+  eq('día 31 guardado en un mes de arranque más corto se topa a su último día real',
+     dateFromFields({ frequency: 'mensual', day_of_month: 31, month_of_year: null, starts_on: '2026-04-05' }),
+     '2026-04-30')
+  eq('anual usa month_of_year para el mes, no el de starts_on',
+     dateFromFields({ frequency: 'anual', day_of_month: 15, month_of_year: 7, starts_on: '2026-03-01' }),
+     '2026-07-15')
+
+  // Ida y vuelta: lo que arma `fieldsFromDate` tiene que reconstruirse igual
+  // con `dateFromFields` — así una plantilla guardada y reabierta muestra la
+  // misma fecha que el usuario tipeó.
+  for (const fecha of ['2026-01-31', '2026-09-30', '2026-02-28', '2026-06-15']) {
+    const guardado = { frequency: 'mensual', ...fieldsFromDate(fecha, 'mensual') }
+    eq(`ida y vuelta conserva ${fecha}`, dateFromFields(guardado), fecha)
+  }
+
+  /*
+   * El caso concreto que motivó este fix: un mensual registrado el 30 de
+   * septiembre. Como el 30 se guarda literal (no "sube" a 31), en octubre y
+   * noviembre —que también tienen día 30— cae en el 30 de verdad; solo
+   * febrero, que no llega a 30, lo topa a su último día real.
+   */
+  const treinta = { frequency: 'mensual', ...fieldsFromDate('2026-09-30', 'mensual') }
+  eq('30 de septiembre → octubre cobra el 30, no el 31',
+     periodOf(treinta, '2026-10-05').due, '2026-10-30')
+  eq('→ noviembre también el 30 (también lo tiene)',
+     periodOf(treinta, '2026-11-05').due, '2026-11-30')
+  eq('→ febrero se topa al 28 (no tiene día 30)',
+     periodOf(treinta, '2027-02-05').due, '2027-02-28')
+
+  // El 31, en cambio, es el único día que de verdad "llega siempre al final":
+  // no hace falta ningún caso especial para eso, sale gratis de `periodOf`
+  // porque no existe mes con más de 31 días.
+  const treintaYUno = { frequency: 'mensual', ...fieldsFromDate('2026-01-31', 'mensual') }
+  eq('31 de enero → abril cae el 30 (no existe el 31)',
+     periodOf(treintaYUno, '2026-04-05').due, '2026-04-30')
+  eq('→ febrero se topa al 28',
+     periodOf(treintaYUno, '2027-02-05').due, '2027-02-28')
+  eq('→ marzo sí es el 31 de verdad (existe)',
+     periodOf(treintaYUno, '2026-03-05').due, '2026-03-31')
+}
+
+section('FIX · el día elegido rueda por los 12 meses, capado a cada largo real')
+{
+  const pad2 = n => String(n).padStart(2, '0')
+  const LARGOS_2026 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] // no bisiesto
+  const LARGOS_2028 = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] // bisiesto
+
+  // Debido esperado en cada uno de los 12 meses de `year`, para un día dado.
+  const dueEsperado = (day, year, largos) => largos.map((len, i) => `${year}-${pad2(i + 1)}-${pad2(Math.min(day, len))}`)
+  // Debido REAL que da `periodOf` en cada uno de los 12 meses de `year`.
+  const dueReal = (r, year) => Array.from({ length: 12 }, (_, i) => periodOf(r, `${year}-${pad2(i + 1)}-10`).due)
+
+  // 31 (arrancado el 31 de enero): cae el ÚLTIMO día real de cada mes — el
+  // único caso que "siempre llega al final", gratis, sin ningún caso especial.
+  {
+    const r = { frequency: 'mensual', ...fieldsFromDate('2026-01-31', 'mensual') }
+    eq('día 31: último día real de los 12 meses de 2026', dueReal(r, 2026), dueEsperado(31, 2026, LARGOS_2026))
+  }
+
+  // 30 (arrancado el 30 de septiembre): día 30 en todos lados salvo febrero
+  // (topa a 28) — NO sube a 31 en los meses que sí lo tienen.
+  {
+    const r = { frequency: 'mensual', ...fieldsFromDate('2026-09-30', 'mensual') }
+    eq('día 30: 30 en todos lados salvo febrero (topa a 28)', dueReal(r, 2026), dueEsperado(30, 2026, LARGOS_2026))
+  }
+
+  // 29, arrancado en un año bisiesto (2028-02-29 es una fecha real y válida):
+  // dentro de ESE año no se topa en ningún mes...
+  {
+    const r = { frequency: 'mensual', ...fieldsFromDate('2028-02-29', 'mensual') }
+    eq('día 29 arrancado en bisiesto: no se topa en ningún mes de ese año',
+       dueReal(r, 2028), dueEsperado(29, 2028, LARGOS_2028))
+    // ...pero al año siguiente, no bisiesto, febrero SÍ se topa a 28.
+    eq('día 29: al año siguiente (no bisiesto) febrero se topa a 28',
+       dueReal(r, 2029), dueEsperado(29, 2029, LARGOS_2026))
+  }
+
+  // 28: existe en todos los meses de cualquier año — nunca se topa.
+  {
+    const r = { frequency: 'mensual', ...fieldsFromDate('2026-02-28', 'mensual') }
+    eq('día 28: nunca se topa, en ningún mes', dueReal(r, 2026), dueEsperado(28, 2026, LARGOS_2026))
+  }
+
+  // Día "normal" (1-27): sanity check — nada especial pasa nunca.
+  {
+    const r = { frequency: 'mensual', ...fieldsFromDate('2026-06-15', 'mensual') }
+    eq('día 15: normal, igual en los 12 meses', dueReal(r, 2026), dueEsperado(15, 2026, LARGOS_2026))
+  }
+}
+
+section('FIX · anual: el mes queda fijo, solo febrero varía entre años')
+{
+  // Un anual con día 29 y mes=febrero (creado en un año bisiesto) es
+  // leap-year-aware SIN necesitar ningún caso especial: `periodOf` recalcula
+  // el largo de febrero contra el año de CADA cobro, no contra el de creación.
+  const r29feb = { frequency: 'anual', ...fieldsFromDate('2028-02-29', 'anual') }
+  eq('anual 29/feb en un año bisiesto: cae el 29', periodOf(r29feb, '2028-06-01').due, '2028-02-29')
+  eq('anual 29/feb al año siguiente (no bisiesto): cae el 28', periodOf(r29feb, '2029-06-01').due, '2029-02-28')
+  eq('anual 29/feb en el próximo bisiesto: vuelve al 29', periodOf(r29feb, '2032-06-01').due, '2032-02-29')
+
+  // month_of_year queda fijo aunque cambien los años — un 30 de abril anual
+  // no varía nunca, porque abril siempre tiene 30 días.
+  const rAbril = { frequency: 'anual', ...fieldsFromDate('2026-04-30', 'anual') }
+  eq('anual 30/abril: siempre el 30, todos los años', periodOf(rAbril, '2030-01-01').due, '2030-04-30')
+
+  // Un día normal en anual: se respeta tal cual, todos los años.
+  const rMarzo = { frequency: 'anual', ...fieldsFromDate('2026-03-10', 'anual') }
+  eq('anual 10/marzo: se respeta todos los años', periodOf(rMarzo, '2031-01-01').due, '2031-03-10')
+}
+
+section('FIX · integración con statusOf/pendingPeriods (no solo periodOf en aislado)')
+{
+  // Un fijo mensual con día 30, para confirmar que el pipeline completo que
+  // usan las pantallas (no solo `periodOf` en aislado) también da octubre=30
+  // y febrero=28.
+  const r = { frequency: 'mensual', ...fieldsFromDate('2026-10-30', 'mensual'), active: true }
+
+  eq('29 de octubre: todavía no venció', statusOf(r, [], '2026-10-29').status, 'pendiente')
+  eq('30 de octubre: el día que vence, todavía no está vencido', statusOf(r, [], '2026-10-30').status, 'pendiente')
+  eq('31 de octubre: recién ahí está vencido', statusOf(r, [], '2026-10-31').status, 'vencido')
+  eq('con un movimiento el 30, queda registrado',
+     statusOf(r, ['2026-10-30'], '2026-10-31').status, 'registrado')
+
+  // En febrero, con los meses previos ya registrados, vence el 28 — no se
+  // corre a marzo buscando un día 30 que no existe.
+  const previos = ['2026-10-30', '2026-11-30', '2026-12-30', '2027-01-30']
+  eq('en febrero (previos registrados): todavía no venció el 27',
+     statusOf(r, previos, '2027-02-27').status, 'pendiente')
+  eq('...el due de ese período es el 28, no un 30 inexistente',
+     statusOf(r, previos, '2027-02-27').due, '2027-02-28')
+  eq('1 de marzo, sin registrar febrero: vencido',
+     statusOf(r, previos, '2027-03-01').status, 'vencido')
+  eq('...y el due sigue siendo el 28 de febrero, no se corrió a marzo',
+     statusOf(r, previos, '2027-03-01').due, '2027-02-28')
+}
+
+section('FIX · reconstruir el picker de datos viejos (pre-fix) sin romper nada')
+{
+  // Dato "viejo": un mensual con día_of_month=31 pero `starts_on` en un mes
+  // corto (ej. UI anterior, donde "Mes" y "Día" eran selects independientes).
+  // El picker tiene que mostrar una fecha VÁLIDA igual, sin explotar.
+  const viejoMensual = { frequency: 'mensual', day_of_month: 31, month_of_year: null, starts_on: '2026-04-05' }
+  eq('día 31 con starts_on en abril (30 días) se muestra como 30 de abril',
+     dateFromFields(viejoMensual), '2026-04-30')
+
+  // Dato "viejo" anual: `month_of_year` manda sobre el mes de `starts_on`
+  // (que en versiones previas del formulario podía no coincidir).
+  const viejoAnual = { frequency: 'anual', day_of_month: 31, month_of_year: 4, starts_on: '2026-01-01' }
+  eq('anual: usa month_of_year (abril) e ignora el mes de starts_on (enero)',
+     dateFromFields(viejoAnual), '2026-04-30')
+
+  // Ninguno de los dos casos rompe periodOf: se sigue topando bien.
+  eq('el dato viejo sigue funcionando en periodOf (topa a 30 en abril)',
+     periodOf(viejoMensual, '2026-04-10').due, '2026-04-30')
 }
 
 section('SPRINT 3 · estado derivado, nunca guardado')

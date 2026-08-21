@@ -222,6 +222,14 @@ export function groupByDay(txs: Transaction[]): { date: string; items: Transacti
     .map(([date, items]) => ({ date, items }))
 }
 
+/** `'2026-08'` → `'Agosto de 2026'`. */
+export function monthLabel(value: string): string {
+  const [year, month] = value.split('-').map(Number)
+  // Día 1: el único que existe en todos los meses.
+  const label = new Date(year, month - 1, 1).toLocaleDateString('es', { month: 'long', year: 'numeric' })
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 /**
  * Los últimos `count` meses, del más reciente al más viejo, como opciones de
  * filtro. `{ value: '2026-08', label: 'Agosto de 2026' }`.
@@ -239,12 +247,8 @@ export function lastMonths(count = 12, ref: Date = new Date()): { value: string;
     const total = ref.getFullYear() * 12 + ref.getMonth() - i
     const year = Math.floor(total / 12)
     const month = ((total % 12) + 12) % 12
-    // Día 1: el único que existe en todos los meses.
-    const label = new Date(year, month, 1).toLocaleDateString('es', { month: 'long', year: 'numeric' })
-    out.push({
-      value: `${year}-${String(month + 1).padStart(2, '0')}`,
-      label: label.charAt(0).toUpperCase() + label.slice(1),
-    })
+    const value = `${year}-${String(month + 1).padStart(2, '0')}`
+    out.push({ value, label: monthLabel(value) })
   }
   return out
 }

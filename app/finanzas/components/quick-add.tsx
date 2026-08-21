@@ -329,11 +329,11 @@ export function QuickAdd() {
 
         <div className="px-5 pb-5 flex flex-col gap-4">
           {/* El selector solo aparece cuando hay algo que elegir: al editar
-              (podés corregirte) o al entrar por un "+" genérico (tab bar
-              móvil, "Nuevo" de Movimientos). Si el tipo ya vino fijado por un
-              botón puntual —Gasto/Ingreso/Transferir en la Home— mostrarlo
-              igual dejaba pasarte a otro tipo desde ahí, y entonces esos tres
-              botones no eran más que un "+" con pasos extra (§3 feedback). */}
+              (podés corregirte) o al entrar por el "Nuevo" genérico de
+              Movimientos. Si el tipo ya vino fijado por un botón puntual
+              —Gasto/Ingreso/Transferir en la Home— mostrarlo igual dejaba
+              pasarte a otro tipo desde ahí, y entonces esos tres botones no
+              eran más que un "+" con pasos extra (§3 feedback). */}
           {(!lockType || editing) && (
             <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
           )}

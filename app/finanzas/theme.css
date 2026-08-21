@@ -214,29 +214,6 @@ body:has(#fz-root) {
 }
 #fz-root .fz-tab-active { color: var(--fz-accent); }
 
-/* Botón de acción central (+). No recibe el pill. */
-#fz-root .fz-tab-action {
-  position: relative;
-  z-index: 1;
-  display: flex; align-items: center; justify-content: center;
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 96px;
-  height: 52px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-#fz-root .fz-tab-action-badge {
-  width: 46px; height: 46px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--fz-accent);
-  color: #FFFFFF;
-  box-shadow: 0 4px 14px rgba(22,97,60,0.35);
-  transition: transform 0.12s ease;
-}
-#fz-root .fz-tab-action:active .fz-tab-action-badge { transform: scale(0.92); }
-
 /* Reserva de scroll para que el contenido no quede debajo del panel flotante. */
 /* Reserva para que el contenido no quede debajo de la barra.
    Va como padding del contenedor y no como un div al final: un spacer suelto
@@ -345,7 +322,6 @@ body:has(#fz-root) {
   #fz-root .fz-tab-pill,
   #fz-root .fz-sheet,
   #fz-root .fz-backdrop,
-  #fz-root .fz-tab-action-badge,
   #fz-root .fz-skel { transition: none; animation: none; }
 }
 

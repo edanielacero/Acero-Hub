@@ -9,9 +9,9 @@ import { IconChip } from '../components/ui'
 import { FzLink } from '../components/router'
 
 /**
- * Índice de las secciones que no entran en la tab bar (§6: son 4 pestañas y el
- * FAB, una quinta descentra el botón de acción). Se arma solo desde MORE_ITEMS,
- * así que una sección nueva en nav-items aparece acá sin tocar esta pantalla.
+ * Índice de las secciones que no entran en la tab bar. Se arma solo desde
+ * MORE_ITEMS, así que una sección nueva en nav-items aparece acá sin tocar
+ * esta pantalla.
  *
  * En escritorio la sidebar ya lista todo y esta ruta queda como índice
  * redundante pero válido — no se esconde: llegar por URL no debería dar 404

@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { IconPlus, IconSearch, IconUsersGroup, IconX } from '@tabler/icons-react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { IconPlus, IconSearch, IconX } from '@tabler/icons-react'
 import type { Transaction, TxType } from '@/lib/finanzas/types'
-import { groupByDay, lastMonths, monthRange, todayISO } from '@/lib/finanzas/transactions'
+import { groupByDay, monthLabel, monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
@@ -12,49 +12,72 @@ import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { PageHeader, TxRow } from '../components/tx-row'
 import { Btn, DropdownField, EmptyState, formatDayLabel, Panel, SectionTitle } from '../components/ui'
 
-type TypeFilter = TxType | 'todos'
+// `fijo` y `fijo_compartido` no son tipos de movimiento — son gasto + un
+// recorte encima (§ TxRow "Gasto Fijo"). Viven en el mismo dropdown que
+// Tipo porque hoy lo compartido SOLO existe dentro de un fijo (no hay
+// gastos sueltos con reparto), así que separarlo en un control aparte era
+// una dimensión extra para una distinción que en la práctica es un
+// subconjunto de "gasto" (feedback del usuario).
+type TypeFilter = TxType | 'todos' | 'fijo' | 'fijo_compartido'
 
 const TYPE_FILTER_OPTIONS: { value: TypeFilter; label: string }[] = [
   { value: 'todos', label: 'Todos los tipos' },
-  { value: 'gasto', label: 'Gastos' },
+  { value: 'gasto', label: 'Todos los gastos' },
   { value: 'ingreso', label: 'Ingresos' },
   { value: 'transferencia', label: 'Transferencias' },
+  { value: 'fijo', label: 'Todos los Gastos Fijos' },
+  { value: 'fijo_compartido', label: 'Solo Gastos Fijos Compartidos' },
 ]
 
 export function MovimientosScreen() {
-  const { accounts, categories, hidden } = useFinanzas()
+  const { accounts, categories, hidden, months: monthsWithData } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
 
-  const months = useMemo(() => lastMonths(), [])
-  const [month, setMonth] = useState(months[0].value)
+  // Solo meses con al menos un movimiento — no tiene sentido ofrecer uno vacío
+  // para elegir. `monthsWithData` llega del bootstrap, así que arranca vacío
+  // hasta que el snapshot o la red lo llenan.
+  const months = useMemo(
+    () => monthsWithData.map(value => ({ value, label: monthLabel(value) })),
+    [monthsWithData],
+  )
+  const defaultMonth = months[0]?.value ?? ''
+
+  // `null` = "seguí el mes más reciente con datos". Derivado y no sincronizado
+  // con un efecto: así el primer pintado ya muestra el mes correcto en vez de
+  // arrancar vacío y corregirse un frame después.
+  const [monthOverride, setMonthOverride] = useState<string | null>(null)
+  const month = monthOverride ?? defaultMonth
+
   const [type, setType] = useState<TypeFilter>('todos')
   const [accountId, setAccountId] = useState('')
   const [categoryId, setCategoryId] = useState('')
-  const [soloConDeuda, setSoloCompartidos] = useState(false)
 
   const range = useMemo(() => {
+    if (!month) return monthRange()
     const [y, m] = month.split('-').map(Number)
     return monthRange(new Date(y, m - 1, 1))
   }, [month])
 
-  const hayFiltros = month !== months[0].value || type !== 'todos' || !!accountId || !!categoryId || soloConDeuda
+  const hayFiltros = monthOverride !== null || type !== 'todos' || !!accountId || !!categoryId
   function limpiarFiltros() {
-    setMonth(months[0].value)
+    setMonthOverride(null)
     setType('todos')
     setAccountId('')
     setCategoryId('')
-    setSoloCompartidos(false)
   }
+
+  const esFijo = type === 'fijo' || type === 'fijo_compartido'
 
   // `monthQuery` y no un objeto propio: sin filtros, esta consulta tiene que dar
   // exactamente la misma clave que la de la Home para reusar lo que ya se trajo.
   const { data, loading } = useTransactions({
     ...monthQuery(range),
-    type: type === 'todos' ? undefined : type,
+    type: type === 'todos' ? undefined : esFijo ? 'gasto' : type,
     account_id: accountId || undefined,
     category_id: categoryId || undefined,
-    shared: soloConDeuda ? '1' : undefined,
+    recurring: esFijo ? '1' : undefined,
+    shared: type === 'fijo_compartido' ? '1' : undefined,
   })
 
   const txs = data.transactions
@@ -72,7 +95,7 @@ export function MovimientosScreen() {
         action={
           <>
             <HideToggle />
-            <Btn onClick={openQuickAdd} size="sm" className="hidden min-[900px]:inline-flex">
+            <Btn onClick={() => openQuickAdd()} size="sm">
               <IconPlus size={18} stroke={2} /> Nuevo
             </Btn>
           </>
@@ -102,7 +125,7 @@ export function MovimientosScreen() {
               label="Mes"
               placeholder="Mes"
               value={month}
-              onChange={setMonth}
+              onChange={setMonthOverride}
               options={months}
             />
 
@@ -130,20 +153,6 @@ export function MovimientosScreen() {
               options={categories.filter(c => !c.archived).map(c => ({ value: c.id, label: c.name }))}
             />
           </div>
-
-          <button
-            type="button"
-            onClick={() => setSoloCompartidos(v => !v)}
-            aria-pressed={soloConDeuda}
-            className={`mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[var(--fz-r-pill)] text-[13px] font-semibold transition-colors ${
-              soloConDeuda
-                ? 'bg-[var(--fz-accent)] text-white'
-                : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
-            }`}
-          >
-            <IconUsersGroup size={15} stroke={2} />
-            Con deuda
-          </button>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
             <TotalBox label="Ingresado" icon={<IconIngreso size={18} stroke={2} />} value={totals.ingreso} tone="in" hidden={hidden} />

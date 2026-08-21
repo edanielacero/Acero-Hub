@@ -75,6 +75,10 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
   const isReembolso = !isTransfer && !isInversion && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
+  // Vino de un fijo (§ Registrar en Fijos): marcarlo en el texto es lo que deja
+  // distinguir de un vistazo, en el historial mezclado de Movimientos, cuáles
+  // salidas son recurrentes y cuáles no (feedback del usuario).
+  const esFijo = !isTransfer && !!tx.recurring_id
   const deudas = tx.debts ?? []
   const generoDeudas = deudas.length > 0
 
@@ -87,7 +91,9 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       ? ['Reembolso', account?.name].filter(Boolean).join(' · ')
       : isInversion
         ? ['Inversión', category?.name, account?.name].filter(Boolean).join(' · ')
-        : [category?.name, account?.name].filter(Boolean).join(' · ')
+        : esFijo
+          ? ['Gasto Fijo', category?.name, account?.name].filter(Boolean).join(' · ')
+          : [category?.name, account?.name].filter(Boolean).join(' · ')
 
   const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
   const parte = generoDeudas ? shareBreakdown(tx.amount, deudas, tx.currency) : null

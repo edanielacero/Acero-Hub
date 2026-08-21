@@ -9,10 +9,9 @@ export interface NavItem {
   label: string
   exact?: boolean
   /**
-   * Si ocupa una de las 4 ranuras de la tab bar. Son 4 y no más porque la
-   * quinta baja los targets de 44px y descentra el botón de acción del medio.
-   * Todo lo que no lleva `tab` cae automáticamente en "Más": agregar una
-   * sección nueva a NAV_ITEMS es lo único que hace falta para que aparezca ahí.
+   * Si ocupa una de las ranuras de la tab bar. Todo lo que no lleva `tab`
+   * cae automáticamente en "Más": agregar una sección nueva a NAV_ITEMS es
+   * lo único que hace falta para que aparezca ahí.
    */
   tab?: boolean
   /** Bajada de la card en /finanzas/mas. La tab bar solo muestra el label. */
@@ -26,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/finanzas',              label: 'Inicio',       exact: true, tab: true, Icon: IconHome2,   IconActive: IconHome2Filled },
   { href: '/finanzas/movimientos',  label: 'Movimientos',               tab: true, Icon: IconReceipt, IconActive: IconReceiptFilled },
   {
-    href: '/finanzas/fijos', label: 'Fijos',
+    href: '/finanzas/fijos', label: 'Gastos Fijos', tab: true,
     description: 'Lo que pagás todos los meses',
     Icon: IconRepeat, IconActive: IconRepeat,
   },
@@ -56,7 +55,7 @@ export const MORE_ITEM: NavItem = {
 /** Lo que se muestra como cards dentro de /finanzas/mas. */
 export const MORE_ITEMS: NavItem[] = NAV_ITEMS.filter(i => !i.tab)
 
-/** Los 4 destinos de la tab bar, en orden. El (+) parte el array en dos y dos. */
+/** Los destinos de la tab bar, en orden. */
 export const TAB_ITEMS: NavItem[] = [...NAV_ITEMS.filter(i => i.tab), MORE_ITEM]
 
 export function isActive(pathname: string, href: string, exact?: boolean): boolean {
@@ -64,8 +63,8 @@ export function isActive(pathname: string, href: string, exact?: boolean): boole
 }
 
 /**
- * Qué pestaña se pinta activa. Estando en Fijos, Deudas o Ajustes ninguna
- * de las 4 coincide con la URL, pero la barra no puede quedarse sin pestaña
+ * Qué pestaña se pinta activa. Estando en Deudas o Ajustes ninguna de la
+ * tab bar coincide con la URL, pero la barra no puede quedarse sin pestaña
  * activa: en ese caso el pill va a "Más", que es de donde saliste.
  */
 export function activeTabHref(pathname: string): string | undefined {

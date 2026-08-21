@@ -1,19 +1,15 @@
 'use client'
 
 import { useLayoutEffect, useRef, useState } from 'react'
-import { IconPlus } from '@tabler/icons-react'
 import { TAB_ITEMS, activeTabHref } from './nav-items'
-import { useQuickAdd } from './quick-add-context'
 import { FzLink, useFzPath } from './router'
 
 /**
  * Tab bar de vidrio, a todo el ancho y anclada al borde inferior.
  * Ver documentos/finanzas/contexto_ui_finanzas.md §6.
- * El (+) va al medio, partiendo los 4 items en dos y dos.
  */
 export function TabBar() {
   const pathname = useFzPath()
-  const openQuickAdd = useQuickAdd()
   const navRef = useRef<HTMLElement | null>(null)
   const tabRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const [pill, setPill] = useState<{ x: number; w: number; visible: boolean }>({ x: 0, w: 0, visible: false })
@@ -43,9 +39,6 @@ export function TabBar() {
     return () => window.removeEventListener('resize', measure)
   }, [activeHref])
 
-  const left = TAB_ITEMS.slice(0, 2)
-  const right = TAB_ITEMS.slice(2)
-
   const renderTab = (item: (typeof TAB_ITEMS)[number]) => {
     const active = item.href === activeHref
     const Glyph = active ? item.IconActive : item.Icon
@@ -64,20 +57,14 @@ export function TabBar() {
   }
 
   return (
-    <>
-      <nav ref={navRef} className="fz-tabbar" aria-label="Navegación de Finanzas">
-        {/* useLayoutEffect y no useEffect: mide y posiciona antes del paint, si no
-            el pill se ve saltar desde x=0 en la primera carga. */}
-        <span
-          className="fz-tab-pill"
-          style={{ transform: `translateX(${pill.x}px)`, width: pill.w, opacity: pill.visible ? 1 : 0 }}
-        />
-        {left.map(renderTab)}
-        <button type="button" onClick={() => openQuickAdd()} className="fz-tab-action" aria-label="Nuevo movimiento">
-          <span className="fz-tab-action-badge"><IconPlus size={24} stroke={2.4} /></span>
-        </button>
-        {right.map(renderTab)}
-      </nav>
-    </>
+    <nav ref={navRef} className="fz-tabbar" aria-label="Navegación de Finanzas">
+      {/* useLayoutEffect y no useEffect: mide y posiciona antes del paint, si no
+          el pill se ve saltar desde x=0 en la primera carga. */}
+      <span
+        className="fz-tab-pill"
+        style={{ transform: `translateX(${pill.x}px)`, width: pill.w, opacity: pill.visible ? 1 : 0 }}
+      />
+      {TAB_ITEMS.map(renderTab)}
+    </nav>
   )
 }

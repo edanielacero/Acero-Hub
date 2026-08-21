@@ -21,6 +21,9 @@ export interface Snapshot {
   recurring: RecurringSummary
   /** Los planes de pago con sus cuotas (Sprint 4). */
   plans: DebtPlanWithCuotas[]
+  /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
+      viejo — puebla el filtro de mes de Movimientos. */
+  months: string[]
   /** Las consultas de movimientos ya resueltas, por query string. */
   tx: Record<string, TxResult>
   /** Cuándo se guardó, en ms. */
@@ -29,7 +32,7 @@ export interface Snapshot {
 
 const PREFIX = 'fz:snap:'
 /** Sube cuando cambia la forma del snapshot: descarta los viejos sin migrarlos. */
-const VERSION = 3
+const VERSION = 4
 /** Un patrimonio de hace más de una semana ya no informa nada: mejor el esqueleto. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** Tope de tamaño. Serializar de más bloquea el hilo principal en cada guardado. */

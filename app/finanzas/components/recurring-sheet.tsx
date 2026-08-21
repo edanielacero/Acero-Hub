@@ -5,20 +5,19 @@ import { IconTrash, IconX } from '@tabler/icons-react'
 import { CURRENCIES } from '@/lib/finanzas/types'
 import type { Currency, Frequency, RecurringWithState } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
+import { dateFromFields, fieldsFromDate } from '@/lib/finanzas/recurring'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryGlyph, CategoryIcon, IconPickerGrid } from './category-icon'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
-import { Btn, ErrorNote, Label, Segmented, SelectField, TextField } from './ui'
+import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'mensual', label: 'Cada mes' },
   { value: 'anual', label: 'Cada año' },
 ]
-
-const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
 /** Crear o editar una plantilla de gasto fijo. */
 export function RecurringSheet({ editing, onClose, onSaved }: {
@@ -35,13 +34,11 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const [currency, setCurrency] = useState<Currency>(editing?.currency ?? 'USD')
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
   const [frequency, setFrequency] = useState<Frequency>(editing?.frequency ?? 'mensual')
-  const [day, setDay] = useState(String(editing?.day_of_month ?? 1))
-  // Se trabaja en meses (YYYY-MM) y no en fechas: "desde marzo" es la pregunta,
-  // el día ya lo define `day_of_month`.
-  const [desde, setDesde] = useState(
-    () => (editing?.starts_on ?? todayISO()).slice(0, 7),
-  )
-  const [month, setMonth] = useState(String(editing?.month_of_year ?? 1))
+  // Un solo picker de fecha: empieza y vence son el mismo dato. Elegir el 31
+  // de un mes largo ya alcanza para "último día de cada mes" — `periodOf` topa
+  // `day_of_month` contra el largo real de cada mes futuro (28 en febrero, 30
+  // en abril), así que no hace falta un toggle aparte para eso.
+  const [fecha, setFecha] = useState(() => editing ? dateFromFields(editing) : todayISO())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -75,6 +72,18 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
   const gastos = categories.filter(c => !c.archived && c.kind === 'gasto')
 
+  // Anual compara por año (es lo único que `periodOf` usa de `starts_on` ahí);
+  // mensual compara por mes — mismo criterio que antes tenía "Empezar desde".
+  const [fy, fm, fd] = fecha.split('-').map(Number)
+  const [hy, hm] = todayISO().slice(0, 7).split('-').map(Number)
+  const futuro = frequency === 'anual' ? fy > hy : (fy > hy || (fy === hy && fm > hm))
+  const pasado = frequency === 'anual' ? fy < hy : (fy < hy || (fy === hy && fm < hm))
+  const periodoMsg = futuro
+    ? 'Todavía no arranca: no te lo va a pedir hasta que llegue.'
+    : pasado
+      ? 'Vas a poder registrar también los períodos que ya pasaron, de a uno.'
+      : frequency === 'anual' ? 'Arranca este año.' : 'Arranca este mes.'
+
   async function submit() {
     setError('')
     if (!name.trim()) return setError('Ponele un nombre')
@@ -89,9 +98,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
       currency,
       category_id: categoryId || null,
       frequency,
-      day_of_month: Number(day) || 1,
-      starts_on: `${desde}-01`,
-      month_of_year: frequency === 'anual' ? Number(month) || 1 : null,
+      ...fieldsFromDate(fecha, frequency),
       // En modo parejo el monto va en null: se recalcula con el precio de cada
       // mes, así una suba de Spotify se reparte sola.
       splits: sharedOn
@@ -250,41 +257,22 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           <Segmented options={FREQ_OPTIONS} value={frequency} onChange={setFrequency} />
 
           <div>
-            <Label>Empezar desde</Label>
-            <TextField type="month" value={desde} onChange={e => setDesde(e.target.value)} />
-            <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-              {desde > todayISO().slice(0, 7)
-                ? 'Todavía no arranca: no te lo va a pedir hasta ese mes.'
-                : desde < todayISO().slice(0, 7)
-                  ? 'Vas a poder registrar también los meses que ya pasaron, de a uno.'
-                  : 'Arranca este mes.'}
-            </p>
-          </div>
-
-          <div className={`grid gap-2 ${frequency === 'anual' ? 'grid-cols-2' : 'grid-cols-1'}`}>
-            {frequency === 'anual' && (
-              <div>
-                <Label>Mes</Label>
-                <SelectField value={month} onChange={e => setMonth(e.target.value)}>
-                  {MESES.map((m, i) => (
-                    <option key={m} value={i + 1}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
-                  ))}
-                </SelectField>
-              </div>
+            <Label>{frequency === 'anual' ? 'Primera vez que cae' : 'Empieza'}</Label>
+            <TextField type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
+            <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">{periodoMsg}</p>
+            {/* El día se guarda tal cual — un 30 sigue siendo 30 en los meses que lo
+                tienen. Solo febrero puede no tenerlo, así que el aviso es sobre eso,
+                no sobre "esto va a ser siempre el último día en todos lados". */}
+            {frequency === 'mensual' && fd >= 29 && (
+              <p className="text-[12px] text-[var(--fz-ink-3)] mt-1">
+                Si algún mes no llega a tener el día {fd}, ese mes cae en su último día.
+              </p>
             )}
-            <div>
-              <Label>Día</Label>
-              <SelectField value={day} onChange={e => setDay(e.target.value)}>
-                {Array.from({ length: 31 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>{i + 1}</option>
-                ))}
-              </SelectField>
-              {Number(day) > 28 && (
-                <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-                  En los meses más cortos cae el último día.
-                </p>
-              )}
-            </div>
+            {frequency === 'anual' && fm === 2 && fd === 29 && (
+              <p className="text-[12px] text-[var(--fz-ink-3)] mt-1">
+                Elegiste el 29 de febrero: en los años no bisiestos, va a caer el 28.
+              </p>
+            )}
           </div>
 
           <button

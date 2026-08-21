@@ -24,6 +24,7 @@ export async function GET(request: Request) {
     accountId: q.get('account_id'),
     categoryId: q.get('category_id'),
     sharedOnly: q.get('shared') === '1',
+    recurringOnly: q.get('recurring') === '1',
     limit: num(q.get('limit'), 200),
     offset: num(q.get('offset'), 0),
   })

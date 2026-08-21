@@ -35,6 +35,9 @@ interface FinanzasData {
   recurring: RecurringSummary
   /** Los planes de pago con sus cuotas ya resueltas. */
   plans: DebtPlanWithCuotas[]
+  /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
+      viejo — puebla el filtro de mes de Movimientos. */
+  months: string[]
   totalUsd: number
   /**
    * No hay **nada** que mostrar todavía. Quien lo consulta tiene que pintar un
@@ -126,6 +129,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [shared, setShared] = useState<SharedSummary>(EMPTY_SHARED)
   const [recurring, setRecurring] = useState<RecurringSummary>(EMPTY_RECURRING)
   const [plans, setPlans] = useState<DebtPlanWithCuotas[]>([])
+  const [months, setMonths] = useState<string[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(true)
@@ -146,6 +150,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     setShared(snap.shared)
     setRecurring(snap.recurring ?? EMPTY_RECURRING)
     setPlans(snap.plans ?? [])
+    setMonths(snap.months ?? [])
     setTotal(snap.total_usd)
     for (const [key, data] of Object.entries(snap.tx)) {
       if (data) txCache.set(key, { v, data })
@@ -251,6 +256,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       shared: data.shared ?? EMPTY_SHARED,
       recurring: data.recurring ?? EMPTY_RECURRING,
       plans: data.plans ?? [],
+      months: data.months ?? [],
       tx,
     }
 
@@ -282,11 +288,11 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<FinanzasData>(
     () => ({
-      accounts, categories, rates, rateList, people, shared, recurring, plans, totalUsd,
+      accounts, categories, rates, rateList, people, shared, recurring, plans, months, totalUsd,
       loading, stale: pending && !loading, pending, error,
       reload, version, seed, hidden, toggleHidden, userName,
     }),
-    [accounts, categories, rates, rateList, people, shared, recurring, plans, totalUsd,
+    [accounts, categories, rates, rateList, people, shared, recurring, plans, months, totalUsd,
      loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
   )
 

@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react'
 import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconRepeat, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
-import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
+import { monthlyTotalUsd } from '@/lib/finanzas/recurring'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
@@ -16,7 +17,7 @@ import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
 
 export function FijosScreen() {
-  const { recurring, hidden, loading, reload } = useFinanzas()
+  const { recurring, rates, hidden, loading, reload } = useFinanzas()
   const [viendo, setViendo] = useState<RecurringWithState | null>(null)
   const [editando, setEditando] = useState<RecurringWithState | null>(null)
   const [creando, setCreando] = useState(false)
@@ -28,6 +29,9 @@ export function FijosScreen() {
   const hoy = useMemo(() => todayISO(), [])
   const items = recurring.recurring
   const hay = items.length > 0
+
+  const totalMesUsd = useMemo(() => monthlyTotalUsd(items, rates), [items, rates])
+  const totalMesBob = useMemo(() => fromUsd(totalMesUsd, 'BOB', rates), [totalMesUsd, rates])
 
   async function togglePause(r: RecurringWithState) {
     setBusy(r.id)
@@ -56,7 +60,7 @@ export function FijosScreen() {
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
       <PageHeader
-        title="Fijos"
+        title="Gastos Fijos"
         subtitle="Lo que pagás todos los meses"
         action={
           <>
@@ -71,12 +75,20 @@ export function FijosScreen() {
       <div className="flex flex-col gap-4">
         {hay && (
           <Panel>
-            <div className="flex items-center justify-between gap-4">
+            <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">Gasto fijo de este mes</p>
+            <p className="mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+              {hidden ? HIDDEN : formatUSD(totalMesUsd)}
+            </p>
+            <p className="mt-1.5 text-[13px] text-[var(--fz-ink-3)] fz-num">
+              {hidden ? HIDDEN : formatBOB(totalMesBob)}
+            </p>
+
+            <div className="mt-4 pt-4 border-t border-[var(--fz-hairline)] flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">Este período</p>
-                <p className="text-[26px] font-bold tracking-[-0.01em] fz-num">
+                <p className="text-[20px] font-bold tracking-[-0.01em] fz-num">
                   {recurring.done} de {recurring.total}
-                  <span className="text-[15px] font-semibold text-[var(--fz-ink-3)]"> registrados</span>
+                  <span className="text-[13px] font-semibold text-[var(--fz-ink-3)]"> registrados</span>
                 </p>
               </div>
               {recurring.pending > 0 && (
