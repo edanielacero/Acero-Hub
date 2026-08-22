@@ -57,7 +57,11 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
     : null
   const crossCurrency = sugerido != null
 
-  const [amount, setAmount] = useState(String(pasanaku.contribution_amount))
+  // Ya convertido si la cuenta recordada (línea 47) es de otra moneda que el
+  // pasanaku — si no, el primer render mostraba el número crudo sin
+  // convertir hasta que el efecto de más abajo lo corregía recién después
+  // del primer pintado (bug encontrado en la revisión del 2026-08-22).
+  const [amount, setAmount] = useState(String(sugerido ?? pasanaku.contribution_amount))
   const [date, setDate] = useState(todayISO())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')

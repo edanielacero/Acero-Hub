@@ -1778,6 +1778,33 @@ async function run() {
       ok('sigue received: ya se había completado antes', p.received, true)
     }
 
+    section('SPRINT 5 (revisión) · received tolera el redondeo de un cobro cross-currency')
+    {
+      // 10.03 Bs → 1.44 USD (round2(10.03/6.96)) → de vuelta a Bs da 10.02,
+      // no 10.03: el viaje de ida y vuelta pierde un centavo. Sin tolerancia,
+      // este pasanaku quedaría "casi cobrado" para siempre.
+      const p2 = (await json(await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'Redondeo', currency: 'BOB', contribution_amount: 10.03, total_slots: 2, my_slot: 1, start_date: '2026-08-05',
+      })}))).pasanaku
+
+      const bsUsd2 = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'USD para el redondeo', currency: 'USD', initial_balance: 100,
+      })}))).account
+
+      const cobro = (await json(await api(`/pasanaku/${p2.id}/recibir`, { method: 'POST', body: JSON.stringify({
+        date: '2026-09-01', account_id: bsUsd2.id,
+      })}))).transaction
+      eq('sugiere 1.44 USD (10.03 Bs convertidos)', cobro.amount, 1.44)
+
+      const listado = await json(await api('/pasanaku'))
+      const p = listado.pasanaku.find(x => x.id === p2.id)
+      eq('vuelto a Bs da 10.02, un centavo menos que el objetivo (10.03)', p.collected_amount, 10.02)
+      eq('el objetivo sigue siendo el aporte real', p.collection_target, 10.03)
+      ok('pero received es true igual — la tolerancia absorbe el redondeo', p.received, true)
+
+      await api(`/pasanaku/${p2.id}`, { method: 'DELETE' })
+    }
+
     section('PATCH /pasanaku/[id]')
     {
       const editado = (await json(await api(`/pasanaku/${pasanaku.id}`, { method: 'PATCH', body: JSON.stringify({

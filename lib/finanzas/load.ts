@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { crossCurrencySuggestion, formatAmount, num, round2, roundFor } from './money'
+import { crossCurrencySuggestion, decimalsFor, formatAmount, num, round2, roundFor } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -378,11 +378,20 @@ export async function loadPasanaku(
 
     const cobros: PasanakuCobro[] = cobrosRaw.map(c => ({ id: c.id, date: c.date, amount: c.amount, currency: c.currency }))
 
+    // Un cobro de otra moneda pasa por dos redondeos independientes (a USD y
+    // de vuelta, en dos llamadas separadas a crossCurrencySuggestion — la
+    // sugerencia al registrarlo, la conversión acá al sumarlo) y puede perder
+    // hasta media unidad de precisión en el camino. Sin tolerancia, un
+    // pasanaku ya cobrado del todo podía quedar a centavos de
+    // `collection_target` para siempre y `received` no pasar nunca a `true`.
+    const unit = 1 / 10 ** decimalsFor(p.currency)
+    const tolerance = unit * Math.max(1, cobrosRaw.length)
+
     return {
       ...p,
       expected_turn: expectedTurnDate(p),
       next_aporte_due: nextAporteDue(p.start_date, hoy),
-      received: collected_amount >= collection_target,
+      received: collected_amount >= collection_target - tolerance,
       received_at: cobrosRaw[0]?.date ?? null,
       aportes_count: aportes.length + historico.length,
       total_aportado: roundFor(aportesEnMoneda + historicoEnMoneda, p.currency),
