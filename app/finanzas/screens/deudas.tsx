@@ -408,37 +408,39 @@ function PlanRow({
 }) {
   return (
     <section className="py-3 first:pt-0 last:pb-0">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="w-full flex items-center gap-3 text-left"
-      >
-        <PersonAvatar name={plan.person.name} />
-        <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold truncate">
-            {plan.person.name} · {plan.concept}
-          </p>
-          <p className="text-[12px] text-[var(--fz-ink-3)]">
-            {plan.cerrado
-              ? 'Cerrado'
-              : `${plan.cuotas.filter(c => c.state === 'pendiente').length} cuota(s) pendiente(s)`}
-          </p>
-        </div>
-        <span className="fz-num text-[16px] font-bold shrink-0">
-          {hidden ? HIDDEN : formatUSD(plan.cerrado ? plan.total_usd : plan.pendiente_usd)}
-        </span>
-        <IconChevronDown
-          size={18} stroke={2}
-          className={`text-[var(--fz-ink-3)] transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`}
-        />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex-1 min-w-0 flex items-center gap-3 text-left"
+        >
+          <PersonAvatar name={plan.person.name} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold truncate">
+              {plan.person.name} · {plan.concept}
+            </p>
+            <p className="text-[12px] text-[var(--fz-ink-3)]">
+              {plan.cerrado
+                ? 'Cerrado'
+                : `${plan.cuotas.filter(c => c.state === 'pendiente').length} cuota(s) pendiente(s)`}
+            </p>
+          </div>
+          <span className="fz-num text-[16px] font-bold shrink-0">
+            {hidden ? HIDDEN : formatUSD(plan.cerrado ? plan.total_usd : plan.pendiente_usd)}
+          </span>
+          <IconChevronDown
+            size={18} stroke={2}
+            className={`text-[var(--fz-ink-3)] transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          />
+        </button>
         <RowMenu
           items={[
             { label: 'Regenerar', icon: <IconRefresh size={16} stroke={1.8} />, onClick: onRegenerate },
             { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
           ]}
         />
-      </button>
+      </div>
 
       {expanded && (
         <div className="mt-2 ml-[52px] flex flex-col divide-y divide-[var(--fz-hairline)]">
