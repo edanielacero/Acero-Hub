@@ -7,14 +7,15 @@ import { MovimientosScreen } from './movimientos'
 import { CuentasScreen } from './cuentas'
 import { FijosScreen } from './fijos'
 import { DeudasScreen } from './deudas'
+import { PasanakuScreen } from './pasanaku'
 import { MasScreen } from './mas'
 import { AjustesScreen } from './ajustes'
 
 /**
- * Las 7 pantallas de la mini-app, elegidas por el path del router interno.
+ * Las 8 pantallas de la mini-app, elegidas por el path del router interno.
  *
- * No hay lazy loading a propósito: medido, las 7 juntas pesan 25.7 KB gzip más
- * que la Home sola sobre una base de 203 KB — un 13%. Partirlas en chunks
+ * No hay lazy loading a propósito: medido, las 7 originales pesaban 25.7 KB
+ * gzip más que la Home sola sobre una base de 203 KB — un 13%. Partirlas en chunks
  * agrega un viaje de red justo cuando el usuario ya tocó la pestaña, que es
  * peor negocio que esos 25 KB al abrir.
  *
@@ -27,6 +28,7 @@ const SCREENS: Record<ScreenPath, () => React.ReactNode> = {
   '/finanzas/cuentas': CuentasScreen,
   '/finanzas/fijos': FijosScreen,
   '/finanzas/deudas': DeudasScreen,
+  '/finanzas/pasanaku': PasanakuScreen,
   '/finanzas/mas': MasScreen,
   '/finanzas/ajustes': AjustesScreen,
 }

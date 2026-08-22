@@ -1560,6 +1560,229 @@ async function run() {
     eq('borrar el gasto devuelve Efectivo a 383', final.accounts.find(a => a.id === efectivo.id).balance, 383)
     eq('borrar algo inexistente no rompe',
        (await api('/transactions/00000000-0000-0000-0000-000000000009', { method: 'DELETE' })).status, 200)
+
+    section('SPRINT 5 · autenticación de las rutas nuevas')
+    {
+      for (const [label, path, init] of [
+        ['GET /pasanaku', '/pasanaku', {}],
+        ['POST /pasanaku', '/pasanaku', { method: 'POST', body: '{}' }],
+        ['POST /pasanaku/[id]/aporte', '/pasanaku/x/aporte', { method: 'POST', body: '{}' }],
+        ['POST /pasanaku/[id]/recibir', '/pasanaku/x/recibir', { method: 'POST', body: '{}' }],
+      ]) {
+        const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
+        eq(`${label} sin cookie → 401`, r.status, 401)
+      }
+    }
+
+    let bs, bsInversion, pasanaku
+    section('POST /accounts · cuenta en Bs para el pasanaku')
+    {
+      bs = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Efectivo Bs', currency: 'BOB', initial_balance: 5000,
+      })}))).account
+      ok('crea la cuenta', !!bs?.id)
+
+      bsInversion = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Bs inversión', currency: 'BOB', initial_balance: 1000, is_investment: true,
+      })}))).account
+      ok('crea la cuenta de inversión para las pruebas de rechazo', !!bsInversion?.id)
+    }
+
+    section('POST /pasanaku · validación')
+    {
+      eq('un solo puesto → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', account_id: bs.id, contribution_amount: 300, total_slots: 1, my_slot: 1, start_date: '2026-08-05',
+      })})).status, 400)
+      eq('tu puesto mayor al total → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', account_id: bs.id, contribution_amount: 300, total_slots: 8, my_slot: 9, start_date: '2026-08-05',
+      })})).status, 400)
+      eq('aporte en cero → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', account_id: bs.id, contribution_amount: 0, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      })})).status, 400)
+      eq('cuenta inexistente → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', account_id: '00000000-0000-0000-0000-000000000009', contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      })})).status, 400)
+      // Un aporte ahí sería 'gasto · movimiento' igual que un ajuste de valor
+      // de inversión — isInvestmentAdjustment() no podría distinguirlos y el
+      // aporte desaparecería de Movimientos sin tope de saldo.
+      eq('cuenta de inversión → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', account_id: bsInversion.id, contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      })})).status, 400)
+    }
+
+    section('POST /pasanaku · flujo completo')
+    {
+      pasanaku = (await json(await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'Oficina', account_id: bs.id, contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      })}))).pasanaku
+      ok('se crea', !!pasanaku?.id)
+
+      const listado = await json(await api('/pasanaku'))
+      const p = listado.pasanaku.find(x => x.id === pasanaku.id)
+      eq('puesto 4 de 8 recibe 3 meses después del inicio', p.expected_turn, '2026-11-05')
+      eq('todavía no recibiste', p.received, false)
+      eq('sin aportes todavía', p.aportes_count, 0)
+    }
+
+    let aporte1
+    section('POST /pasanaku/[id]/aporte')
+    {
+      const antes = await json(await api('/accounts'))
+      const saldoAntes = antes.accounts.find(a => a.id === bs.id).balance
+      const mesAntes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+
+      aporte1 = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
+        date: '2026-08-05',
+      })}))).transaction
+      eq('usa el aporte sugerido de la plantilla', aporte1.amount, 300)
+      eq('gasto, no consumo — no debe ensuciar el gasto del mes', aporte1.flow_type, 'movimiento')
+      eq('sin categoría', aporte1.category_id, null)
+
+      const despues = await json(await api('/accounts'))
+      eq('el saldo de la cuenta baja 300', despues.accounts.find(a => a.id === bs.id).balance, saldoAntes - 300)
+
+      const mesDespues = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      ok('el aporte sí aparece en la lista de movimientos', mesDespues.transactions.some(t => t.id === aporte1.id))
+      eq('pero el total de gasto del mes no cambia', mesDespues.total_gasto_usd, mesAntes.total_gasto_usd)
+
+      const otro = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
+        date: '2026-09-05', amount: 300,
+      })}))).transaction
+      ok('un segundo aporte también se registra', !!otro?.id)
+
+      // Cada aporte puede salir de una cuenta distinta — la del pasanaku es
+      // solo el default, no una ley.
+      const bs2 = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Banco Bs', currency: 'BOB', initial_balance: 1000,
+      })}))).account
+      const aporteOtraCuenta = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
+        date: '2026-10-05', amount: 300, account_id: bs2.id,
+      })}))).transaction
+      eq('un aporte puede salir de otra cuenta', aporteOtraCuenta.account_id, bs2.id)
+      const bs2Despues = await json(await api('/accounts'))
+      eq('esa cuenta baja, no la del pasanaku', bs2Despues.accounts.find(a => a.id === bs2.id).balance, 700)
+
+      const listado = await json(await api('/pasanaku'))
+      const p = listado.pasanaku.find(x => x.id === pasanaku.id)
+      eq('van 3 aportes, cuenten de la cuenta que cuenten', p.aportes_count, 3)
+      // Cada aporte congela su propia conversión y se suma después — no es
+      // round2(900 / 6.96) de un tirón, es round2(300/6.96) tres veces.
+      eq('suman 900', p.total_aportado_usd, round2(300 / 6.96) * 3)
+
+      const excede = await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
+        amount: 999999, date: '2026-09-10',
+      })})
+      eq('supera el saldo → 400', excede.status, 400)
+    }
+
+    section('POST /pasanaku/[id]/recibir')
+    {
+      const antes = await json(await api('/accounts'))
+      const saldoAntes = antes.accounts.find(a => a.id === bs.id).balance
+      const mesAntes = await json(await api('/transactions?from=2026-11-01&to=2026-11-30'))
+
+      const recibo = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+        date: '2026-11-05',
+      })}))).transaction
+      eq('sugiere el pozo completo: 8 puestos × 300', recibo.amount, 2400)
+      eq('ingreso, movimiento — no es plata ganada', recibo.flow_type, 'movimiento')
+
+      const despues = await json(await api('/accounts'))
+      eq('el saldo sube 2400', despues.accounts.find(a => a.id === bs.id).balance, saldoAntes + 2400)
+
+      const mesDespues = await json(await api('/transactions?from=2026-11-01&to=2026-11-30'))
+      ok('la recepción sí aparece en la lista', mesDespues.transactions.some(t => t.id === recibo.id))
+      eq('pero no cuenta como ingreso real del mes', mesDespues.total_ingreso_usd, mesAntes.total_ingreso_usd)
+
+      const listado = await json(await api('/pasanaku'))
+      const p = listado.pasanaku.find(x => x.id === pasanaku.id)
+      eq('marca received en true', p.received, true)
+      eq('con la fecha de la recepción', p.received_at, '2026-11-05')
+    }
+
+    section('POST /pasanaku/[id]/recibir · a otra cuenta')
+    {
+      const bs3 = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Otra cuenta para recibir', currency: 'BOB', initial_balance: 0,
+      })}))).account
+
+      const recibo2 = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+        date: '2026-12-05', account_id: bs3.id,
+      })}))).transaction
+      eq('la recepción puede entrar a otra cuenta', recibo2.account_id, bs3.id)
+
+      const conBs3 = await json(await api('/accounts'))
+      eq('esa cuenta sube el pozo completo', conBs3.accounts.find(a => a.id === bs3.id).balance, 2400)
+
+      const listado = await json(await api('/pasanaku'))
+      const p = listado.pasanaku.find(x => x.id === pasanaku.id)
+      eq('la lista sigue mostrando la recepción más reciente', p.received_at, '2026-12-05')
+    }
+
+    section('PATCH /pasanaku/[id]')
+    {
+      const editado = (await json(await api(`/pasanaku/${pasanaku.id}`, { method: 'PATCH', body: JSON.stringify({
+        name: 'Oficina (nuevo turno)',
+      })}))).pasanaku
+      eq('cambia el nombre', editado.name, 'Oficina (nuevo turno)')
+
+      eq('mover a una cuenta de inversión → 400', (await api(`/pasanaku/${pasanaku.id}`, {
+        method: 'PATCH', body: JSON.stringify({ account_id: bsInversion.id }),
+      })).status, 400)
+    }
+
+    section('cuentas de inversión rechazadas en /aporte y /recibir')
+    {
+      eq('POST /aporte con account_id de inversión → 400', (await api(`/pasanaku/${pasanaku.id}/aporte`, {
+        method: 'POST', body: JSON.stringify({ account_id: bsInversion.id, date: '2026-09-06' }),
+      })).status, 400)
+      eq('POST /recibir con account_id de inversión → 400', (await api(`/pasanaku/${pasanaku.id}/recibir`, {
+        method: 'POST', body: JSON.stringify({ account_id: bsInversion.id, date: '2026-09-06' }),
+      })).status, 400)
+    }
+
+    section('DELETE /pasanaku/[id] · no borra la historia')
+    {
+      await api(`/pasanaku/${pasanaku.id}`, { method: 'DELETE' })
+
+      const sigue = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
+      const fila = sigue.transactions.find(t => t.id === aporte1.id)
+      ok('el aporte sigue en Movimientos', !!fila)
+      eq('pero perdió el vínculo', fila.pasanaku_id, null)
+    }
+
+    section('DELETE /accounts · una cuenta con un pasanaku asociado no se borra')
+    {
+      const cuentaNueva = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Sin movimientos', currency: 'BOB', initial_balance: 100,
+      })}))).account
+
+      const pasanakuSinAportes = (await json(await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'Recién creado', account_id: cuentaNueva.id, contribution_amount: 50, total_slots: 5, my_slot: 2, start_date: '2026-09-01',
+      })}))).pasanaku
+
+      // La cuenta no tiene NINGÚN movimiento todavía (fin_pasanaku no cuenta
+      // como uno), así que el guard de fin_transactions no alcanza a frenarla
+      // — tiene que ser el chequeo de fin_pasanaku el que la protege.
+      const borrar = await api(`/accounts/${cuentaNueva.id}`, { method: 'DELETE' })
+      eq('rechazada con 409, no con el error crudo de Postgres', borrar.status, 409)
+
+      await api(`/pasanaku/${pasanakuSinAportes.id}`, { method: 'DELETE' })
+      eq('sin el pasanaku, ahora sí se puede borrar',
+         (await api(`/accounts/${cuentaNueva.id}`, { method: 'DELETE' })).status, 200)
+    }
+
+    section('PATCH /accounts · marcarla como inversión con aportes de pasanaku ya cargados')
+    {
+      // `bs` tiene 2 aportes propios (aporte1 y `otro`, más arriba) con
+      // flow_type: 'movimiento' — marcarla como inversión los volvería
+      // indistinguibles de un ajuste de valor y desaparecerían de Movimientos.
+      const marcar = await api(`/accounts/${bs.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
+      eq('rechazada con 409, no aplicada en silencio', marcar.status, 409)
+
+      const sigue = await json(await api('/accounts'))
+      eq('la cuenta sigue sin marcar', sigue.accounts.find(a => a.id === bs.id).is_investment, false)
+    }
   }
 }
 

@@ -4,6 +4,7 @@ import { IconChevronRight } from '@tabler/icons-react'
 import { MORE_ITEMS, type NavItem } from '../components/nav-items'
 import { useFinanzas } from '../components/data-context'
 import { AmountUSD } from '../components/amount'
+import { todayISO } from '@/lib/finanzas/transactions'
 import { PageHeader } from '../components/tx-row'
 import { IconChip } from '../components/ui'
 import { FzLink } from '../components/router'
@@ -18,7 +19,7 @@ import { FzLink } from '../components/router'
  * visual.
  */
 export function MasScreen() {
-  const { shared, recurring, loading } = useFinanzas()
+  const { shared, recurring, pasanaku, loading } = useFinanzas()
 
   // El menú no es una lista muerta: los datos ya están en el contexto, así que
   // cada card puede decir en qué estado está su sección sin pedir nada extra.
@@ -39,6 +40,14 @@ export function MasScreen() {
         <span style={{ color: 'var(--fz-out-text)' }}>
           <AmountUSD value={shared.por_cobrar_usd} />
         </span>
+      )
+    }
+
+    const hoy = todayISO()
+    const tuTurno = pasanaku.filter(p => !p.archived && !p.received && p.expected_turn <= hoy).length
+    if (tuTurno > 0) {
+      meta['/finanzas/pasanaku'] = (
+        <span style={{ color: 'var(--fz-out-text)' }}>Te toca</span>
       )
     }
   }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, formatAmount, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
+import { amountFromInput, crossCurrencySuggestion, decimalsFor, formatAmount, parseDecimalInput, roundFor } from '@/lib/finanzas/money'
 import { resolveSplits } from '@/lib/finanzas/recurring'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
@@ -45,7 +45,6 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   const account = candidatas.find(a => a.id === accountId)
   const decimals = decimalsFor(account?.currency ?? recurring.currency)
   const cur = account?.currency ?? recurring.currency
-  const crossCurrency = !!account && account.currency !== recurring.currency
   const value = amountFromInput(amount, { decimals })
 
   // Pagar un fijo es un gasto como cualquier otro: no puede dejar la cuenta en
@@ -60,9 +59,8 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   // guarda es lo que realmente salió de esa cuenta, que casi nunca coincide
   // por comisiones de conversión (mismo criterio que una transferencia entre
   // monedas en el quick-add).
-  const sugerido = crossCurrency
-    ? fromUsd(toUsd(recurring.amount, recurring.currency, rates), cur, rates)
-    : null
+  const sugerido = account ? crossCurrencySuggestion(recurring.amount, recurring.currency, account.currency, rates) : null
+  const crossCurrency = sugerido != null
 
   // Al cambiar a una cuenta de otra moneda se pre-carga la conversión sugerida
   // en vez de dejar el número tal cual: sin esto, "500" pasaría de Bs a USDT

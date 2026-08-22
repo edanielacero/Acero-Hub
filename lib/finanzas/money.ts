@@ -40,6 +40,26 @@ export function fromUsd(usd: number, currency: Currency, rates: RateMap): number
 }
 
 /**
+ * Cuánto valdría `homeAmount` (denominado en `homeCurrency`) convertido a
+ * `targetCurrency` con la tasa de hoy — la sugerencia que se ofrece cuando un
+ * sheet deja elegir una cuenta en otra moneda que el monto de referencia
+ * (RegisterSheet de Fijos, PasanakuAporteSheet/PasanakuRecibirSheet). `null`
+ * cuando las monedas coinciden: no hay nada que convertir, el número vale tal
+ * cual. Una sola función para no repetir `fromUsd(toUsd(...))` en cada sheet
+ * — la duplicación fue justo lo que dejó a dos de esas tres copias sin
+ * convertir de verdad (Sprint 5, revisión del 2026-08-21).
+ */
+export function crossCurrencySuggestion(
+  homeAmount: number,
+  homeCurrency: Currency,
+  targetCurrency: Currency,
+  rates: RateMap,
+): number | null {
+  if (homeCurrency === targetCurrency) return null
+  return fromUsd(toUsd(homeAmount, homeCurrency, rates), targetCurrency, rates)
+}
+
+/**
  * El factor congelado que se guarda en cada transacción.
  * Siempre es "USD por 1 unidad", así que `amount_usd = amount × exchange_rate`
  * sin importar la moneda — lo que hace que auditar una fila vieja sea trivial.

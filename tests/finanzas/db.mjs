@@ -693,6 +693,99 @@ async function run() {
     await as(`/fin_debt_plans?id=eq.${otroPlan.id}`, { method: 'DELETE' })
   }
 
+  section('SPRINT 5 · fin_pasanaku')
+  let pasanaku
+  {
+    const anon = await fetch(`${URL_}/rest/v1/fin_pasanaku?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve pasanaku', anon, [])
+
+    pasanaku = (await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'Oficina', account_id: airtm.id,
+      contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+    }).then(r => r.json()))[0]
+    ok('crea un pasanaku', !!pasanaku?.id)
+    eq('nace sin archivar', pasanaku.archived, false)
+
+    const unPuesto = await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      contribution_amount: 100, total_slots: 1, my_slot: 1, start_date: '2026-08-05',
+    })
+    ok('rechaza una ronda de un solo puesto', unPuesto.status >= 400, `HTTP ${unPuesto.status}`)
+
+    const puestoCero = await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      contribution_amount: 100, total_slots: 8, my_slot: 0, start_date: '2026-08-05',
+    })
+    ok('rechaza puesto en cero', puestoCero.status >= 400, `HTTP ${puestoCero.status}`)
+
+    const puestoFueraDeRango = await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      contribution_amount: 100, total_slots: 8, my_slot: 9, start_date: '2026-08-05',
+    })
+    ok('rechaza un puesto mayor que el total (fin_pasanaku_slot_shape)',
+       puestoFueraDeRango.status >= 400, `HTTP ${puestoFueraDeRango.status}`)
+
+    const aporteCero = await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      contribution_amount: 0, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+    })
+    ok('rechaza aporte en cero', aporteCero.status >= 400, `HTTP ${aporteCero.status}`)
+
+    const ajeno = await post('fin_pasanaku', {
+      user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajeno', account_id: airtm.id,
+      contribution_amount: 100, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+    })
+    ok('RLS impide crear un pasanaku a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+  }
+
+  section('SPRINT 5 · el vínculo con los movimientos')
+  {
+    const tx = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', flow_type: 'movimiento', date: '2026-08-05',
+      account_id: airtm.id, amount: 300, currency: 'USD', exchange_rate: 1, amount_usd: 300,
+      description: 'Oficina', pasanaku_id: pasanaku.id,
+    }).then(r => r.json()))[0]
+    eq('un aporte puede apuntar a su pasanaku', tx.pasanaku_id, pasanaku.id)
+
+    // Borrar el pasanaku NO borra la historia de lo aportado: el movimiento
+    // queda, solo pierde el vínculo — mismo trato que un fijo (Sprint 3).
+    await as(`/fin_pasanaku?id=eq.${pasanaku.id}`, { method: 'DELETE' })
+
+    const sobrevive = (await rows('fin_transactions', `&id=eq.${tx.id}`))[0]
+    ok('el aporte sobrevive al pasanaku', !!sobrevive?.id)
+    eq('pero pierde el vínculo', sobrevive.pasanaku_id, null)
+
+    await as(`/fin_transactions?id=eq.${tx.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 5 · RLS de escritura sobre fin_pasanaku')
+  {
+    const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
+    const otro = (await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'Barrio', account_id: airtm.id,
+      contribution_amount: 200, total_slots: 6, my_slot: 2, start_date: '2026-08-05',
+    }).then(r => r.json()))[0]
+
+    const ins = await fetch(`${URL_}/rest/v1/fin_pasanaku`, {
+      method: 'POST', headers: noSession,
+      body: JSON.stringify({
+        user_id: USER_ID, name: 'Intruso', account_id: airtm.id,
+        contribution_amount: 1, total_slots: 2, my_slot: 1, start_date: '2026-08-05',
+      }),
+    })
+    ok('sin sesión no puede insertar un pasanaku', ins.status >= 400, `HTTP ${ins.status}`)
+
+    await fetch(`${URL_}/rest/v1/fin_pasanaku?id=eq.${otro.id}`, {
+      method: 'PATCH', headers: noSession, body: JSON.stringify({ name: 'Hackeado' }),
+    })
+    eq('ni modificarlo', (await rows('fin_pasanaku', `&id=eq.${otro.id}`))[0].name, 'Barrio')
+
+    await fetch(`${URL_}/rest/v1/fin_pasanaku?id=eq.${otro.id}`, { method: 'DELETE', headers: noSession })
+    eq('ni borrarlo', (await rows('fin_pasanaku', `&id=eq.${otro.id}`)).length, 1)
+
+    await as(`/fin_pasanaku?id=eq.${otro.id}`, { method: 'DELETE' })
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

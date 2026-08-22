@@ -1,10 +1,11 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
-import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor } from './.fin/money.mjs'
+import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor, crossCurrencySuggestion } from './.fin/money.mjs'
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
+import { addMonthsClamped, expectedTurnDate, validatePasanaku } from './.fin/pasanaku.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
@@ -1226,6 +1227,51 @@ section('SPRINT 4 · plan cerrado y sus totales — derivados, nunca guardados')
   eq('pagado_usd solo lo cobrado', rollup.pagado_usd, 100)
   eq('pendiente_usd solo lo pendiente', rollup.pendiente_usd, 300)
   eq('perdonado_usd solo lo condonado', rollup.perdonado_usd, 57)
+}
+
+section('SPRINT 5 · addMonthsClamped')
+{
+  eq('suma meses simples', addMonthsClamped('2026-08-05', 3), '2026-11-05')
+  eq('cruza de año', addMonthsClamped('2026-11-15', 3), '2027-02-15')
+  eq('topa el 31 contra febrero', addMonthsClamped('2026-01-31', 1), '2026-02-28')
+  eq('topa el 31 contra abril (30 días)', addMonthsClamped('2026-01-31', 3), '2026-04-30')
+  eq('0 meses devuelve la misma fecha', addMonthsClamped('2026-08-05', 0), '2026-08-05')
+}
+
+section('SPRINT 5 · expectedTurnDate — cuándo te toca recibir')
+{
+  eq('puesto 1 recibe en start_date',
+     expectedTurnDate({ start_date: '2026-08-05', my_slot: 1 }), '2026-08-05')
+  eq('puesto 4 recibe tres meses después',
+     expectedTurnDate({ start_date: '2026-08-05', my_slot: 4 }), '2026-11-05')
+  eq('puesto lejano cruza de año',
+     expectedTurnDate({ start_date: '2026-11-30', my_slot: 4 }), '2027-02-28')
+}
+
+section('SPRINT 5 · validatePasanaku')
+{
+  const base = {
+    name: 'Pasanaku', account_id: 'acc-1', contribution_amount: 300,
+    total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+  }
+  eq('un pasanaku válido no da error', validatePasanaku(base), null)
+  eq('sin nombre', validatePasanaku({ ...base, name: '' }), 'Ponele un nombre')
+  eq('sin cuenta', validatePasanaku({ ...base, account_id: '' }), 'Elegí de qué cuenta sale')
+  eq('aporte en cero', validatePasanaku({ ...base, contribution_amount: 0 }), 'El aporte debe ser mayor a cero')
+  eq('un solo puesto no es una ronda', validatePasanaku({ ...base, total_slots: 1 }), 'Los puestos tienen que ser al menos 2')
+  eq('puesto en cero', validatePasanaku({ ...base, my_slot: 0 }), 'Tu puesto tiene que ser 1 o más')
+  eq('tu puesto no puede superar el total',
+     validatePasanaku({ ...base, my_slot: 9 }), 'Tu puesto no puede ser mayor que el total de puestos')
+  eq('el último puesto sí es válido', validatePasanaku({ ...base, my_slot: 8 }), null)
+  eq('sin fecha de inicio', validatePasanaku({ ...base, start_date: '' }), 'Elegí una fecha de inicio')
+}
+
+section('SPRINT 5 (revisión) · crossCurrencySuggestion — un solo lugar para no repetir el bug')
+{
+  eq('misma moneda: null, no hay nada que convertir', crossCurrencySuggestion(300, 'BOB', 'BOB', R), null)
+  eq('300 Bs a USD, con la tasa 6.96', crossCurrencySuggestion(300, 'BOB', 'USD', R), 43.1)
+  eq('43.10 USD de vuelta a Bs (ida y vuelta)', crossCurrencySuggestion(43.1, 'USD', 'BOB', R), 299.98)
+  eq('300 Bs a BTC no se rompe con montos chicos', crossCurrencySuggestion(300, 'BOB', 'BTC', R) > 0, true)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

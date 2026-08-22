@@ -150,7 +150,7 @@ No volver a preguntar por estas:
 | Fijos vs. compartidos | Son atributos **independientes**. Un solo módulo de fijos donde el reparto es opcional, no dos módulos |
 | Deuda vs. compartido | **Conceptos distintos.** Compartido = responsabilidad recurrente sobre un servicio, atributo del fijo. Deuda = alguien te debe plata por lo que sea, entidad propia sin gasto padre obligatorio |
 | Gastos compartidos | Se registra el **bruto**; los reembolsos son movimientos aparte. Detalle **por persona**. Aplica a cualquier gasto, no solo suscripciones |
-| Pasanaku | Modelo completo: participantes, rondas, turno, fechas esperadas |
+| Pasanaku | **Personal, no de grupo** (revisado 2026-08-21): sin participantes ni rondas ajenas. Solo tu lado — aporte, puestos totales, tu puesto. La fecha de tu turno se deriva, no se pregunta. → *Especificado en `sprint_5_pasanaku.md`* |
 | Alertas | Panel in-app + email para las importantes (Resend, ya integrado) |
 | Apple Wallet con push | Descartado por completo |
 | Gráficas | SVG propio, sin agregar librería |
@@ -173,9 +173,12 @@ las tocan:
    y las tres cifras existen en la app. Además: seguimiento **por persona**, y
    el mecanismo sirve para **cualquier** gasto compartido, no solo las dos
    suscripciones. → *Especificado en `sprint_2_compartidos.md`.*
-3. **Tipo de cambio para el pasanaku:** ¿a qué tasa se valúan los 300 Bs — la
-   oficial, la paralela, o la del día de cada aporte?
-   → *Parcialmente resuelto en Sprint 1: tasa manual editable.*
+3. ~~**Tipo de cambio para el pasanaku:** ¿a qué tasa se valúan los 300 Bs —
+   la oficial, la paralela, o la del día de cada aporte?~~ **Resuelto de hecho
+   el 2026-08-21:** cada aporte es una transacción normal en Bs, así que usa
+   el mismo mecanismo de tasa congelada que cualquier otra — la del día en
+   que se registra, editable en Ajustes. No hizo falta una decisión aparte.
+   → *Sprint 5, `sprint_5_pasanaku.md`.*
 4. **Reparto de los extraordinarios:** ¿se fija el 40/30/20/10 o se decide cuota
    por cuota?
    → *Bloquea el sprint de "Objetivos".*
@@ -229,7 +232,7 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ Construido · modelo corregido el 19/8 |
 | 3 | **Fijos** (era la 8; incluye Recurrentes) | Spotify, TradingView, alquiler | ✅ Construido |
 | 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | ✅ Construido |
-| 5 | Pasanaku | Los 300 Bs mensuales | — |
+| 5 | Pasanaku | Los 300 Bs mensuales — recortado a tracker personal | ✅ Construido |
 | 6 | Presupuesto mensual | Requiere historial del 1 | — |
 | 7 | Reportes | Requiere 2–6 | — |
 | 8 | Objetivos y bolsillos | Requiere 6, 7 | — |

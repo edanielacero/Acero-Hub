@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect,
   useMemo, useRef, useState,
 } from 'react'
-import type { AccountWithBalance, Category, DebtPlanWithCuotas, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
+import type { AccountWithBalance, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
 import type { RateDetail } from '@/lib/finanzas/rates'
 import type { TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
@@ -35,6 +35,8 @@ interface FinanzasData {
   recurring: RecurringSummary
   /** Los planes de pago con sus cuotas ya resueltas. */
   plans: DebtPlanWithCuotas[]
+  /** Los pasanaku con su estado derivado (aportes, si ya recibiste tu turno). */
+  pasanaku: PasanakuWithState[]
   /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
       viejo — puebla el filtro de mes de Movimientos. */
   months: string[]
@@ -129,6 +131,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [shared, setShared] = useState<SharedSummary>(EMPTY_SHARED)
   const [recurring, setRecurring] = useState<RecurringSummary>(EMPTY_RECURRING)
   const [plans, setPlans] = useState<DebtPlanWithCuotas[]>([])
+  const [pasanaku, setPasanaku] = useState<PasanakuWithState[]>([])
   const [months, setMonths] = useState<string[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -150,6 +153,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     setShared(snap.shared)
     setRecurring(snap.recurring ?? EMPTY_RECURRING)
     setPlans(snap.plans ?? [])
+    setPasanaku(snap.pasanaku ?? [])
     setMonths(snap.months ?? [])
     setTotal(snap.total_usd)
     for (const [key, data] of Object.entries(snap.tx)) {
@@ -256,6 +260,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       shared: data.shared ?? EMPTY_SHARED,
       recurring: data.recurring ?? EMPTY_RECURRING,
       plans: data.plans ?? [],
+      pasanaku: data.pasanaku ?? [],
       months: data.months ?? [],
       tx,
     }
@@ -288,11 +293,11 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<FinanzasData>(
     () => ({
-      accounts, categories, rates, rateList, people, shared, recurring, plans, months, totalUsd,
+      accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, months, totalUsd,
       loading, stale: pending && !loading, pending, error,
       reload, version, seed, hidden, toggleHidden, userName,
     }),
-    [accounts, categories, rates, rateList, people, shared, recurring, plans, months, totalUsd,
+    [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, months, totalUsd,
      loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
   )
 

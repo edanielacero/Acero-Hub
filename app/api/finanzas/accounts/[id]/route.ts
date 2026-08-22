@@ -57,13 +57,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (body.is_investment !== undefined) {
     const wantsInvestment = Boolean(body.is_investment)
-    // Desmarcar "inversión" con actualizaciones de valor ya cargadas
-    // mezclaría, de acá en más, esa historia con gastos/ingresos reales en la
-    // misma cuenta (§7.2 de contexto_finanzas.md) — mismo patrón que el
-    // bloqueo de moneda de acá arriba. El gatillo es específico (una
-    // actualización de valor real, no cualquier movimiento) para no
-    // bloquear una cuenta que solo recibió transferencias.
-    if (!wantsInvestment) {
+    const { data: currentAccount } = await supabase
+      .from('fin_accounts').select('is_investment').eq('id', id).eq('user_id', userId).maybeSingle()
+
+    // Cambiar el flag en CUALQUIER dirección con `gasto`/`ingreso ·
+    // movimiento` ya cargados los deja ambiguos: isInvestmentAdjustment()
+    // (lib/finanzas/transactions.ts) decide solo mirando el flag actual de la
+    // cuenta, así que esas filas —actualizaciones de valor, aportes de
+    // pasanaku o reembolsos— cambiarían de categoría con el toggle y
+    // desaparecerían (o aparecerían) en Movimientos sin haberse tocado ellas
+    // mismas. Antes solo se guardaba al DESmarcar (§7.2 de
+    // contexto_finanzas.md); marcarla como inversión con aportes de pasanaku
+    // ya registrados tenía el mismo problema y no lo bloqueaba nada.
+    if (currentAccount && wantsInvestment !== currentAccount.is_investment) {
       const { count } = await supabase
         .from('fin_transactions')
         .select('id', { count: 'exact', head: true })
@@ -74,7 +80,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
       if ((count ?? 0) > 0) {
         return NextResponse.json(
-          { error: 'No se puede desmarcar como inversión: ya tiene actualizaciones de valor registradas' },
+          {
+            error: wantsInvestment
+              ? 'No se puede marcar como inversión: ya tiene aportes de pasanaku o reembolsos registrados'
+              : 'No se puede desmarcar como inversión: ya tiene actualizaciones de valor registradas',
+          },
           { status: 409 },
         )
       }
@@ -104,6 +114,22 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (await txCount(supabase, userId, id) > 0) {
     return NextResponse.json(
       { error: 'Esta cuenta tiene movimientos. Archivala en vez de borrarla para no perder su historial.' },
+      { status: 409 },
+    )
+  }
+
+  // fin_pasanaku.account_id es `on delete restrict`: sin este chequeo, un
+  // pasanaku recién creado sin ningún aporte todavía (txCount en 0, porque
+  // no es un movimiento) dejaba pasar el guard de arriba y el DELETE fallaba
+  // recién en la base con el mensaje crudo del constraint de Postgres.
+  const { count: pasanakuCount } = await supabase
+    .from('fin_pasanaku')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('account_id', id)
+  if ((pasanakuCount ?? 0) > 0) {
+    return NextResponse.json(
+      { error: 'Esta cuenta tiene un pasanaku asociado. Archivala en vez de borrarla, o borrá el pasanaku primero.' },
       { status: 409 },
     )
   }

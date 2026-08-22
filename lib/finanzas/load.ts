@@ -8,12 +8,13 @@ import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type Ra
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
+import { expectedTurnDate } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import type {
   Account, AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Transaction, TxType,
+  DebtWithContext, Pasanaku, PasanakuWithState, Transaction, TxType,
 } from './types'
 
 /**
@@ -31,7 +32,7 @@ import type {
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id, pasanaku_id'
 
 export interface AccountsPayload {
   accounts: AccountWithBalance[]
@@ -281,6 +282,58 @@ export async function loadDebtPlans(
       ...planRollup(cuotas),
       cerrado: planCerrado(cuotas),
       cuotas,
+    }
+  })
+}
+
+const PASANAKU_COLS =
+  'id, name, account_id, contribution_amount, total_slots, my_slot, start_date, archived'
+
+/**
+ * Los pasanaku con lo que ya se derivó de sus movimientos.
+ *
+ * `received` NO se guarda: sale de que exista un `ingreso` con este
+ * `pasanaku_id` — mismo principio que `registered_tx_id` en `loadRecurring`.
+ * Se traen todos los movimientos con `pasanaku_id` de una sola vez en vez de
+ * una consulta por pasanaku, mismo criterio de siempre.
+ */
+export async function loadPasanaku(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<PasanakuWithState[]> {
+  const [{ data: rows }, { data: txRows }] = await Promise.all([
+    supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('user_id', userId).order('created_at'),
+    supabase
+      .from('fin_transactions')
+      .select('type, date, amount_usd, pasanaku_id')
+      .eq('user_id', userId)
+      .not('pasanaku_id', 'is', null),
+  ])
+
+  const byPasanaku = new Map<string, { type: TxType; date: string; amount_usd: number }[]>()
+  for (const t of txRows ?? []) {
+    const key = t.pasanaku_id as string
+    const list = byPasanaku.get(key)
+    const entry = { type: t.type as TxType, date: t.date as string, amount_usd: num(t.amount_usd) }
+    if (list) list.push(entry)
+    else byPasanaku.set(key, [entry])
+  }
+
+  return (rows ?? []).map(r => {
+    const p = { ...(r as unknown as Pasanaku), contribution_amount: num(r.contribution_amount) }
+    const movs = byPasanaku.get(p.id) ?? []
+    const aportes = movs.filter(m => m.type === 'gasto')
+    // Puede haber más de una recepción si el pasanaku sigue rotando después de
+    // tu turno — se muestra la más reciente.
+    const recepciones = movs.filter(m => m.type === 'ingreso').sort((a, b) => (a.date < b.date ? 1 : -1))
+
+    return {
+      ...p,
+      expected_turn: expectedTurnDate(p),
+      received: recepciones.length > 0,
+      received_at: recepciones[0]?.date ?? null,
+      aportes_count: aportes.length,
+      total_aportado_usd: round2(aportes.reduce((s, a) => s + a.amount_usd, 0)),
     }
   })
 }

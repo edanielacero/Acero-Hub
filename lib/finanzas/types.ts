@@ -132,6 +132,8 @@ export interface Transaction extends BalanceMovement {
   flow_type: FlowType
   /** La plantilla de fijo que lo generó, si vino de una. */
   recurring_id?: string | null
+  /** El pasanaku al que pertenece, si es un aporte o una recepción (Sprint 5). */
+  pasanaku_id?: string | null
   /** Reparto del gasto entre personas. Vacío en un gasto normal. */
   debts?: Debt[]
 }
@@ -379,6 +381,46 @@ export interface DebtPlanWithCuotas extends DebtPlan {
   /** Derivado: `true` cuando todas las cuotas están cobradas o perdonadas. */
   cerrado: boolean
   cuotas: DebtWithContext[]
+}
+
+/* ─── Pasanaku (Sprint 5) ────────────────────────────────────────────────────
+
+   Tracker PERSONAL, no del grupo: no hay participantes ni rondas ajenas. Solo
+   mi lado — cuánto aporto, cuántos puestos somos, qué puesto me toca a mí, y
+   cuándo recibo. La fecha de mi turno se DERIVA de `start_date` + `my_slot`
+   (ver `expectedTurnDate` en pasanaku.ts), nunca se guarda. */
+
+export interface Pasanaku {
+  id: string
+  name: string
+  account_id: string
+  contribution_amount: number
+  total_slots: number
+  /** Qué puesto soy yo en la ronda. 1-indexado. */
+  my_slot: number
+  start_date: string
+  archived: boolean
+}
+
+export interface PasanakuInput {
+  name: string
+  account_id: string
+  contribution_amount: number
+  total_slots: number
+  my_slot: number
+  start_date: string
+}
+
+/** Un pasanaku con lo que ya se derivó del historial de aportes/recepción. */
+export interface PasanakuWithState extends Pasanaku {
+  /** `start_date` + `(my_slot − 1)` meses. Cuándo te toca recibir. */
+  expected_turn: string
+  /** Si ya existe una recepción registrada (un ingreso con este pasanaku_id). */
+  received: boolean
+  /** Fecha de esa recepción, o null si `received` es false. */
+  received_at: string | null
+  aportes_count: number
+  total_aportado_usd: number
 }
 
 export interface TransactionInput {

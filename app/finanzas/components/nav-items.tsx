@@ -1,6 +1,6 @@
 import {
   IconCoin, IconCoinFilled, IconDots, IconDotsFilled, IconHome2, IconHome2Filled,
-  IconReceipt, IconReceiptFilled, IconSettings, IconSettingsFilled,
+  IconReceipt, IconReceiptFilled, IconRotateClockwise2, IconSettings, IconSettingsFilled,
   IconUsersGroup, IconRepeat,
 } from '@tabler/icons-react'
 
@@ -33,6 +33,11 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/finanzas/deudas', label: 'Deudas',
     description: 'Lo que te deben, venga de donde venga',
     Icon: IconUsersGroup, IconActive: IconUsersGroup,
+  },
+  {
+    href: '/finanzas/pasanaku', label: 'Pasanaku',
+    description: 'Tus aportes y cuándo te toca recibir',
+    Icon: IconRotateClockwise2, IconActive: IconRotateClockwise2,
   },
   { href: '/finanzas/cuentas',      label: 'Cuentas',                   tab: true, Icon: IconCoin,    IconActive: IconCoinFilled },
   {

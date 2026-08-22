@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useState } from 'react'
-import { IconArrowsExchange, IconChartLine, IconPencil, IconReceiptRefund, IconTrash, IconUsersGroup } from '@tabler/icons-react'
+import { IconArrowsExchange, IconChartLine, IconPencil, IconReceiptRefund, IconRotateClockwise2, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import { CURRENCY_META, type AccountWithBalance, type Category, type Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { displayRate, formatAmount } from '@/lib/finanzas/money'
@@ -72,9 +72,13 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // caso residual de una fila vieja que haya llegado por otro camino; no
   // hace falta que nunca se dispare para que siga siendo correcta.
   const isInversion = isInvestmentAdjustment(tx, account)
+  // Un aporte o una recepción de pasanaku: plata que sale/entra pero vuelve
+  // completa cuando toca el turno — nunca reembolso ni inversión, aunque
+  // comparta el mismo `flow_type: 'movimiento'` (§ Sprint 5).
+  const esPasanaku = !isTransfer && !!tx.pasanaku_id
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
-  const isReembolso = !isTransfer && !isInversion && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
+  const isReembolso = !isTransfer && !isInversion && !esPasanaku && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
   // Vino de un fijo (§ Registrar en Fijos): marcarlo en el texto es lo que deja
   // distinguir de un vistazo, en el historial mezclado de Movimientos, cuáles
   // salidas son recurrentes y cuáles no (feedback del usuario).
@@ -84,16 +88,20 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
 
   const title = isTransfer
     ? `${account?.name ?? 'Cuenta'} → ${toAccount?.name ?? 'Cuenta'}`
-    : (tx.description || category?.name || 'Sin categoría')
+    : esPasanaku
+      ? (tx.description || 'Pasanaku')
+      : (tx.description || category?.name || 'Sin categoría')
   const subtitle = isTransfer
     ? (tx.description || 'Transferencia')
-    : isReembolso
-      ? ['Reembolso', account?.name].filter(Boolean).join(' · ')
-      : isInversion
-        ? ['Inversión', category?.name, account?.name].filter(Boolean).join(' · ')
-        : esFijo
-          ? ['Gasto Fijo', category?.name, account?.name].filter(Boolean).join(' · ')
-          : [category?.name, account?.name].filter(Boolean).join(' · ')
+    : esPasanaku
+      ? [tx.type === 'ingreso' ? 'Pasanaku · recepción' : 'Pasanaku · aporte', account?.name].filter(Boolean).join(' · ')
+      : isReembolso
+        ? ['Reembolso', account?.name].filter(Boolean).join(' · ')
+        : isInversion
+          ? ['Inversión', category?.name, account?.name].filter(Boolean).join(' · ')
+          : esFijo
+            ? ['Gasto Fijo', category?.name, account?.name].filter(Boolean).join(' · ')
+            : [category?.name, account?.name].filter(Boolean).join(' · ')
 
   const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
   const parte = generoDeudas ? shareBreakdown(tx.amount, deudas, tx.currency) : null
@@ -123,6 +131,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       >
         {isTransfer ? (
           <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+        ) : esPasanaku ? (
+          <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
         ) : isInversion ? (
           <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
         ) : isReembolso ? (
@@ -175,7 +185,12 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       <DetailSheet
         open={showDetail}
         onClose={() => setShowDetail(false)}
-        title={isTransfer ? 'Transferencia' : isReembolso ? 'Reembolso' : tx.type === 'ingreso' ? 'Ingreso' : 'Gasto'}
+        title={
+          isTransfer ? 'Transferencia'
+            : esPasanaku ? (tx.type === 'ingreso' ? 'Recepción de pasanaku' : 'Aporte de pasanaku')
+            : isReembolso ? 'Reembolso'
+            : tx.type === 'ingreso' ? 'Ingreso' : 'Gasto'
+        }
         onEdit={onClick ? () => { setShowDetail(false); onClick() } : undefined}
         onDelete={() => { setShowDetail(false); setConfirmDelete(true) }}
       >
@@ -183,11 +198,13 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           icon={
             isTransfer
               ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
-              : isInversion
-                ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
-                : isReembolso
-                  ? <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
-                  : <CategoryIcon slug={category?.icon} name={label} />
+              : esPasanaku
+                ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
+                : isInversion
+                  ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
+                  : isReembolso
+                    ? <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
+                    : <CategoryIcon slug={category?.icon} name={label} />
           }
           title={title}
           subtitle={subtitle}
@@ -195,11 +212,14 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         />
         <div>
           <DetailField label="Fecha" value={formatDayLabel(tx.date, todayISO())} />
-          {!isTransfer && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
+          {!isTransfer && !esPasanaku && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
           <DetailField label={isTransfer ? 'De' : 'Cuenta'} value={account?.name} />
           {isTransfer && <DetailField label="A" value={toAccount?.name} />}
           {isInversion && (
             <DetailField label="Cuenta de inversión" value="Sí — no cuenta como gasto/ingreso real" />
+          )}
+          {esPasanaku && (
+            <DetailField label="Pasanaku" value="No cuenta como gasto/ingreso real del mes" />
           )}
           {tx.currency !== 'USD' && !hidden && (
             <>
@@ -234,11 +254,13 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           icon={
             isTransfer
               ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
-              : isInversion
-                ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
-                : isReembolso
-                  ? <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
-                  : <CategoryIcon slug={category?.icon} name={label} />
+              : esPasanaku
+                ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
+                : isInversion
+                  ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
+                  : isReembolso
+                    ? <IconChip><IconReceiptRefund size={18} stroke={1.8} /></IconChip>
+                    : <CategoryIcon slug={category?.icon} name={label} />
           }
           title={title}
           subtitle={subtitle}

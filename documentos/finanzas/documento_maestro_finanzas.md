@@ -744,7 +744,7 @@ forma — solo le agregan columnas nullable o tablas satélite:
 |---|---|
 | Compartidos y reembolsos | Columna `is_shared` + tabla `fin_people` + `fin_reimbursements` |
 | Dinero por cobrar | Tabla `fin_receivables` + tipo de transacción `pago_deuda` |
-| Pasanaku | Tablas `fin_pasanaku*` + tipos `aporte_pasanaku` / `recepcion_pasanaku` |
+| Pasanaku | Construido en Sprint 5 (2026-08-21) como tracker personal — sin tipos de transacción nuevos: `gasto`/`ingreso` con `flow_type: 'movimiento'` y una tabla `fin_pasanaku` chica. Ver `sprint_5_pasanaku.md` |
 | Presupuesto | Tabla `fin_budgets` por categoría/mes. Lee de `fin_transactions` |
 
 ⚠️ **Recordatorio de infraestructura:** Vercel Hobby solo permite **1 cron al
