@@ -64,11 +64,43 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
       setPull(Math.min(MAX_PULL, dy * RESISTANCE))
     }
 
+    // El refresco de cotizaciones de /bootstrap es perezoso a propósito (ver
+    // bootstrap/route.ts): si la tasa venció, dispara el refresco en segundo
+    // plano y responde igual con lo que había, para no atrasar la carga
+    // normal. Este gesto es explícito — el usuario quiere todo al día ya
+    // mismo — así que se fuerza la cotización antes de recargar, igual que el
+    // botón "Actualizar" de Ajustes.
+    //
+    // También es el único "refresh" que tiene esta app en el home screen del
+    // iPhone: sin barra de Safari no hay forma de forzar que cargue un deploy
+    // nuevo. Por eso primero compara el build con el que respondió el server;
+    // si difieren, no alcanza con recargar datos — hace falta un reload de
+    // verdad para traer el JS nuevo.
+    async function refreshQuotesThenReload() {
+      try {
+        const res = await fetch('/api/hub/version', { cache: 'no-store' })
+        const { version } = await res.json()
+        if (version && version !== process.env.BUILD_ID) {
+          window.location.reload()
+          return
+        }
+      } catch {
+        // Sin red no hay cómo saber si hay deploy nuevo: se sigue con el refresh normal.
+      }
+
+      try {
+        await fetch('/api/finanzas/rates/refresh', { method: 'POST' })
+      } catch {
+        // Si el mercado no contesta igual vale la pena recargar el resto.
+      }
+      await reload()
+    }
+
     function onTouchEnd() {
       if (dragging.current && pullRef.current >= THRESHOLD) {
         setRefreshing(true)
         setPull(THRESHOLD)
-        void reload().finally(() => {
+        void refreshQuotesThenReload().finally(() => {
           setRefreshing(false)
           setPull(0)
         })
