@@ -163,10 +163,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
             >
               {esHistorico && '✓'}
             </span>
-            <span className="min-w-0">
-              <span className="block text-[15px] font-semibold">Ya lo pagué antes de usar la app</span>
-              <span className="block text-[12px] text-[var(--fz-ink-2)]">Solo queda registrado — no mueve el saldo de ninguna cuenta</span>
-            </span>
+            <span className="text-[15px] font-semibold flex-1">Ya lo pagué antes de usar la app</span>
           </button>
 
           <div>
