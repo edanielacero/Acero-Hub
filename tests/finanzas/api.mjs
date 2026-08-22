@@ -1766,6 +1766,58 @@ async function run() {
       })).status, 400)
     }
 
+    section('SPRINT 5 (revisión) · POST /pasanaku/[id]/historico — aportes de antes de la app')
+    {
+      for (const [label, path, init] of [
+        ['POST /pasanaku/[id]/historico', '/pasanaku/x/historico', { method: 'POST', body: '{}' }],
+        ['DELETE /pasanaku/historico/[id]', '/pasanaku/historico/x', { method: 'DELETE' }],
+      ]) {
+        const r = await fetch(`${BASE}/api/finanzas${path}`, { ...init, headers: { 'Content-Type': 'application/json' } })
+        eq(`${label} sin cookie → 401`, r.status, 401)
+      }
+
+      eq('monto en cero → 400', (await api(`/pasanaku/${pasanaku.id}/historico`, {
+        method: 'POST', body: JSON.stringify({ amount: 0, date: '2026-05-05' }),
+      })).status, 400)
+      eq('sin fecha → 400', (await api(`/pasanaku/${pasanaku.id}/historico`, {
+        method: 'POST', body: JSON.stringify({ amount: 300 }),
+      })).status, 400)
+
+      const cuentasAntes = await json(await api('/accounts'))
+      const mesAntes = await json(await api('/transactions?from=2026-05-01&to=2026-05-31'))
+      const listadoAntes = await json(await api('/pasanaku'))
+      const antes = listadoAntes.pasanaku.find(x => x.id === pasanaku.id)
+
+      const h1 = (await json(await api(`/pasanaku/${pasanaku.id}/historico`, { method: 'POST', body: JSON.stringify({
+        amount: 300, date: '2026-05-05',
+      })}))).historico
+      ok('se crea', !!h1?.id)
+      eq('sin cuenta: no es una fila de fin_transactions', h1.account_id, undefined)
+
+      const cuentasDespues = await json(await api('/accounts'))
+      eq('ninguna cuenta se mueve', JSON.stringify(cuentasDespues.accounts.map(a => a.balance)),
+         JSON.stringify(cuentasAntes.accounts.map(a => a.balance)))
+
+      const mesDespues = await json(await api('/transactions?from=2026-05-01&to=2026-05-31'))
+      eq('no aparece en Movimientos', mesDespues.transactions.length, mesAntes.transactions.length)
+
+      const h2 = (await json(await api(`/pasanaku/${pasanaku.id}/historico`, { method: 'POST', body: JSON.stringify({
+        amount: 300, date: '2026-06-05',
+      })}))).historico
+
+      const listadoDespues = await json(await api('/pasanaku'))
+      const despues = listadoDespues.pasanaku.find(x => x.id === pasanaku.id)
+      eq('suma 2 al conteo de aportes', despues.aportes_count, antes.aportes_count + 2)
+      ok('suma al total aportado', despues.total_aportado_usd > antes.total_aportado_usd)
+      eq('quedan listados para poder borrarlos', despues.historico.length, 2)
+
+      await api(`/pasanaku/historico/${h2.id}`, { method: 'DELETE' })
+      const listadoTrasBorrar = await json(await api('/pasanaku'))
+      const trasBorrar = listadoTrasBorrar.pasanaku.find(x => x.id === pasanaku.id)
+      eq('borrar uno resta del conteo', trasBorrar.aportes_count, despues.aportes_count - 1)
+      eq('y de la lista', trasBorrar.historico.length, 1)
+    }
+
     section('DELETE /pasanaku/[id] · no borra la historia')
     {
       await api(`/pasanaku/${pasanaku.id}`, { method: 'DELETE' })

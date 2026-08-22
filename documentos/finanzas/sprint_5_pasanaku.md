@@ -205,6 +205,36 @@ independiente. Mismo patrón de chips que "Sale de" en `RegisterSheet`
 rutas (`POST /pasanaku`, `PATCH /pasanaku/[id]`, `/aporte`, `/recibir`),
 no solo en la UI.
 
+### 4.6 Aportes de antes de la app — un registro, nunca un movimiento
+
+**Feedback del usuario, mismo día:** al cargar un pasanaku que ya venía de
+antes (con `start_date` de varios meses atrás), los aportes que ya pagó en
+la vida real no se pueden cargar como un `gasto` normal — esa plata ya
+salió, y el saldo inicial de la cuenta ya la refleja. Registrarla de nuevo
+la restaría dos veces.
+
+Tabla nueva y completamente separada, `fin_pasanaku_historico`
+(`20260821020000_finanzas_pasanaku_historico.sql`): **cero cambios** en
+`fin_transactions`, `fin_accounts` o `computeBalances()`. Una fila acá es
+una anotación (fecha, monto, nota opcional) sin cuenta, sin conversión
+congelada y sin ningún efecto sobre ningún saldo — nunca aparece en
+Movimientos.
+
+- `POST /api/finanzas/pasanaku/[id]/historico` — crea la anotación.
+- `DELETE /api/finanzas/pasanaku/historico/[id]` — la borra. Como nunca
+  tocó un saldo, no hay nada que compensar al borrar.
+- `on delete cascade` (no `set null`, a diferencia de `pasanaku_id` en
+  `fin_transactions`): esta fila no tiene ningún sentido fuera de su
+  pasanaku, así que borrar el pasanaku se lleva su histórico entero.
+- `loadPasanaku` suma estas filas a `aportes_count`/`total_aportado_usd`
+  junto con los aportes reales — convertidas con la tasa de **hoy** (no
+  hay tasa congelada que valga, nunca hubo transacción), mismo criterio
+  que el patrimonio total (§4.3 de `contexto_finanzas.md`).
+- En `PasanakuAporteSheet`, el toggle **"Ya lo pagué antes de usar la
+  app"** cambia el sheet entero a este modo: sin selector de cuenta, sin
+  tope de saldo, un solo campo más que en el modo normal. Se listan (y se
+  pueden borrar de a una) en el detalle del pasanaku.
+
 ---
 
 ## 5. Estructura de archivos

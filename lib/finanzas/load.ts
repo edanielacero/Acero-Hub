@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { formatAmount, num, round2 } from './money'
+import { formatAmount, num, round2, toUsd } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -14,7 +14,7 @@ import type {
   Account, AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Pasanaku, PasanakuWithState, Transaction, TxType,
+  DebtWithContext, Pasanaku, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
 } from './types'
 
 /**
@@ -289,6 +289,8 @@ export async function loadDebtPlans(
 const PASANAKU_COLS =
   'id, name, account_id, currency, contribution_amount, total_slots, my_slot, start_date, archived'
 
+const PASANAKU_HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
+
 /**
  * Los pasanaku con lo que ya se derivó de sus movimientos.
  *
@@ -296,18 +298,28 @@ const PASANAKU_COLS =
  * `pasanaku_id` — mismo principio que `registered_tx_id` en `loadRecurring`.
  * Se traen todos los movimientos con `pasanaku_id` de una sola vez en vez de
  * una consulta por pasanaku, mismo criterio de siempre.
+ *
+ * `aportes_count`/`total_aportado_usd` suman DOS fuentes: los aportes reales
+ * (`fin_transactions`) y los históricos de antes de usar la app
+ * (`fin_pasanaku_historico`) — ver §"Aportes de antes de la app" en
+ * sprint_5_pasanaku.md. Los históricos no tienen `amount_usd` congelado (no
+ * hubo transacción real que lo congelara), así que se convierten acá con la
+ * tasa de HOY — mismo criterio que el patrimonio total (§4.3 de
+ * contexto_finanzas.md: una foto del presente, no un dato histórico).
  */
 export async function loadPasanaku(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<PasanakuWithState[]> {
-  const [{ data: rows }, { data: txRows }] = await Promise.all([
+  const [{ data: rows }, { data: txRows }, { data: historicoRows }, { rates }] = await Promise.all([
     supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('user_id', userId).order('created_at'),
     supabase
       .from('fin_transactions')
       .select('type, date, amount_usd, pasanaku_id')
       .eq('user_id', userId)
       .not('pasanaku_id', 'is', null),
+    supabase.from('fin_pasanaku_historico').select(PASANAKU_HISTORICO_COLS).eq('user_id', userId),
+    ensureRates(supabase, userId),
   ])
 
   const byPasanaku = new Map<string, { type: TxType; date: string; amount_usd: number }[]>()
@@ -319,6 +331,14 @@ export async function loadPasanaku(
     else byPasanaku.set(key, [entry])
   }
 
+  const historicoByPasanaku = new Map<string, PasanakuHistorico[]>()
+  for (const h of (historicoRows ?? []) as unknown as { id: string; pasanaku_id: string; date: string; amount: unknown; note: string | null }[]) {
+    const entry: PasanakuHistorico = { id: h.id, pasanaku_id: h.pasanaku_id, date: h.date, amount: num(h.amount), note: h.note }
+    const list = historicoByPasanaku.get(h.pasanaku_id)
+    if (list) list.push(entry)
+    else historicoByPasanaku.set(h.pasanaku_id, [entry])
+  }
+
   return (rows ?? []).map(r => {
     const p = { ...(r as unknown as Pasanaku), contribution_amount: num(r.contribution_amount) }
     const movs = byPasanaku.get(p.id) ?? []
@@ -327,13 +347,17 @@ export async function loadPasanaku(
     // tu turno — se muestra la más reciente.
     const recepciones = movs.filter(m => m.type === 'ingreso').sort((a, b) => (a.date < b.date ? 1 : -1))
 
+    const historico = (historicoByPasanaku.get(p.id) ?? []).sort((a, b) => (a.date < b.date ? 1 : -1))
+    const historicoUsd = historico.reduce((s, h) => s + toUsd(h.amount, p.currency, rates), 0)
+
     return {
       ...p,
       expected_turn: expectedTurnDate(p),
       received: recepciones.length > 0,
       received_at: recepciones[0]?.date ?? null,
-      aportes_count: aportes.length,
-      total_aportado_usd: round2(aportes.reduce((s, a) => s + a.amount_usd, 0)),
+      aportes_count: aportes.length + historico.length,
+      total_aportado_usd: round2(aportes.reduce((s, a) => s + a.amount_usd, 0) + historicoUsd),
+      historico,
     }
   })
 }

@@ -815,6 +815,42 @@ async function run() {
     await as(`/fin_pasanaku?id=eq.${otro.id}`, { method: 'DELETE' })
   }
 
+  section('SPRINT 5 (revisión) · fin_pasanaku_historico — aportes de antes de la app')
+  {
+    const p = (await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'Con historia', currency: 'BOB',
+      contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-05-05',
+    }).then(r => r.json()))[0]
+
+    const anon = await fetch(`${URL_}/rest/v1/fin_pasanaku_historico?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve históricos', anon, [])
+
+    const h1 = (await post('fin_pasanaku_historico', {
+      user_id: USER_ID, pasanaku_id: p.id, date: '2026-05-05', amount: 300,
+    }).then(r => r.json()))[0]
+    ok('crea un histórico', !!h1?.id)
+
+    const montoCero = await post('fin_pasanaku_historico', {
+      user_id: USER_ID, pasanaku_id: p.id, date: '2026-06-05', amount: 0,
+    })
+    ok('rechaza monto en cero', montoCero.status >= 400, `HTTP ${montoCero.status}`)
+
+    const ajeno = await post('fin_pasanaku_historico', {
+      user_id: '00000000-0000-0000-0000-000000000001', pasanaku_id: p.id, date: '2026-05-05', amount: 100,
+    })
+    ok('RLS impide crear un histórico a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+
+    const noSession2 = { apikey: ANON, 'Content-Type': 'application/json' }
+    await fetch(`${URL_}/rest/v1/fin_pasanaku_historico?id=eq.${h1.id}`, { method: 'DELETE', headers: noSession2 })
+    eq('sin sesión no puede borrar un histórico', (await rows('fin_pasanaku_historico', `&id=eq.${h1.id}`)).length, 1)
+
+    // A diferencia de fin_transactions.pasanaku_id (on delete set null), acá
+    // sí es cascade: un histórico no tiene sentido sin su pasanaku.
+    await as(`/fin_pasanaku?id=eq.${p.id}`, { method: 'DELETE' })
+    eq('borrar el pasanaku se lleva su histórico (on delete cascade)',
+       (await rows('fin_pasanaku_historico', `&id=eq.${h1.id}`)).length, 0)
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

@@ -19,6 +19,12 @@ import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } fr
  * distinta (un mes en efectivo, otro desde el banco) sin que eso afecte a los
  * ya registrados, que guardan su propio `account_id`. Sin cuentas de
  * inversión: el server las rechaza igual (ver POST /pasanaku/[id]/aporte).
+ *
+ * "Ya lo pagué antes de usar la app" cambia todo el sheet a modo histórico:
+ * ni cuenta ni saldo, va a `POST .../historico` en vez de `.../aporte`. Es
+ * plata que ya salió en la vida real, antes de que la app existiera para
+ * vos — cargarla como gasto la restaría dos veces (ver
+ * sprint_5_pasanaku.md, "Aportes de antes de la app").
  */
 export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
   pasanaku: PasanakuWithState
@@ -33,18 +39,22 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
     [candidatas, search],
   )
 
+  const [esHistorico, setEsHistorico] = useState(false)
+
   // El pasanaku no tiene cuenta propia (se elige acá, cada vez) — pero si ya
   // aportaste antes desde una, esta pantalla la sugiere igual que
   // RegisterSheet recuerda la última cuenta usada. Puede no haber ninguna.
   const [accountId, setAccountId] = useState(pasanaku.account_id ?? '')
   const account = candidatas.find(a => a.id === accountId)
-  const decimals = decimalsFor(account?.currency ?? pasanaku.currency)
+  const decimals = decimalsFor(esHistorico ? pasanaku.currency : (account?.currency ?? pasanaku.currency))
 
   // `contribution_amount` está denominado en `pasanaku.currency`, no en la
   // cuenta elegida acá — sin esto, elegir una cuenta en otra moneda dejaba el
   // mismo número tal cual (300 Bs pasaba a "valer" 300 USD, ~7x de más) en
-  // vez de convertirlo.
-  const sugerido = account ? crossCurrencySuggestion(pasanaku.contribution_amount, pasanaku.currency, account.currency, rates) : null
+  // vez de convertirlo. No aplica en modo histórico: ahí no hay cuenta.
+  const sugerido = !esHistorico && account
+    ? crossCurrencySuggestion(pasanaku.contribution_amount, pasanaku.currency, account.currency, rates)
+    : null
   const crossCurrency = sugerido != null
 
   const [amount, setAmount] = useState(String(pasanaku.contribution_amount))
@@ -56,15 +66,15 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
   // mismo criterio que RegisterSheet (Fijos): así no pisa un monto que ya
   // editaste a mano al elegir otra cuenta de la misma moneda.
   useEffect(() => {
-    if (!account) return
+    if (esHistorico || !account) return
     setAmount(String(account.currency === pasanaku.currency ? pasanaku.contribution_amount : sugerido))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.currency])
+  }, [account?.currency, esHistorico])
 
   const value = amountFromInput(amount, { decimals })
   const disponible = account?.balance ?? 0
-  const excede = !!account && Number.isFinite(value) && value > disponible
-  const sinFondos = !!account && disponible <= 0
+  const excede = !esHistorico && !!account && Number.isFinite(value) && value > disponible
+  const sinFondos = !esHistorico && !!account && disponible <= 0
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -78,8 +88,25 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
 
   async function submit() {
     setError('')
-    if (!accountId) return setError('Elegí de qué cuenta sale')
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+
+    if (esHistorico) {
+      setSaving(true)
+      const res = await fetch(`/api/finanzas/pasanaku/${pasanaku.id}/historico`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: value, date }),
+      })
+      setSaving(false)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return setError(data.error ?? 'No se pudo registrar')
+      }
+      await reload()
+      return onDone()
+    }
+
+    if (!accountId) return setError('Elegí de qué cuenta sale')
     if (excede) return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
 
     setSaving(true)
@@ -124,8 +151,26 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
         </div>
 
         <div className="px-5 pb-5 flex flex-col gap-4">
+          <button
+            type="button" onClick={() => setEsHistorico(v => !v)} aria-pressed={esHistorico}
+            className="flex items-center gap-3 h-11 px-3.5 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-left"
+          >
+            <span
+              aria-hidden
+              className={`grid place-items-center w-5 h-5 rounded-[6px] border-2 text-white transition-colors shrink-0 ${
+                esHistorico ? 'bg-[var(--fz-accent)] border-[var(--fz-accent)]' : 'border-[var(--fz-ink-3)]'
+              }`}
+            >
+              {esHistorico && '✓'}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[15px] font-semibold">Ya lo pagué antes de usar la app</span>
+              <span className="block text-[12px] text-[var(--fz-ink-2)]">Solo queda registrado — no mueve el saldo de ninguna cuenta</span>
+            </span>
+          </button>
+
           <div>
-            <Label>Monto {account && `(${account.currency})`}</Label>
+            <Label>Monto {esHistorico ? `(${pasanaku.currency})` : account && `(${account.currency})`}</Label>
             <TextField
               value={amount}
               onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
@@ -146,56 +191,58 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
             )}
           </div>
 
-          <div>
-            <Label>Sale de</Label>
-            {candidatas.length === 0 ? (
-              <p className="text-[13px] text-[var(--fz-out-text)]">
-                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar el aporte.
-              </p>
-            ) : (
-              <>
-                {candidatas.length > 4 && (
-                  <div className="mb-2">
-                    <SearchField value={search} onChange={setSearch} placeholder="Buscar cuenta…" />
-                  </div>
-                )}
-                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                  {filtradas.map(a => (
-                    <button
-                      key={a.id} type="button" onClick={() => setAccountId(a.id)}
-                      aria-pressed={a.id === accountId}
-                      className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
-                        a.id === accountId
-                          ? 'bg-[var(--fz-accent)] text-white'
-                          : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
-                      }`}
-                    >
-                      <CurrencyIcon currency={a.currency} size={18} />
-                      {a.name}
-                    </button>
-                  ))}
-                  {filtradas.length === 0 && (
-                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+          {!esHistorico && (
+            <div>
+              <Label>Sale de</Label>
+              {candidatas.length === 0 ? (
+                <p className="text-[13px] text-[var(--fz-out-text)]">
+                  Todavía no tenés cuentas. Creá una en Cuentas para poder registrar el aporte.
+                </p>
+              ) : (
+                <>
+                  {candidatas.length > 4 && (
+                    <div className="mb-2">
+                      <SearchField value={search} onChange={setSearch} placeholder="Buscar cuenta…" />
+                    </div>
                   )}
-                </div>
-                {account && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-                      Disponible {formatAmount(disponible, account.currency)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAmount(String(roundFor(disponible, account.currency)))}
-                      disabled={sinFondos}
-                      className="h-6 px-2 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
-                    >
-                      MAX
-                    </button>
+                  <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                    {filtradas.map(a => (
+                      <button
+                        key={a.id} type="button" onClick={() => setAccountId(a.id)}
+                        aria-pressed={a.id === accountId}
+                        className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                          a.id === accountId
+                            ? 'bg-[var(--fz-accent)] text-white'
+                            : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                        }`}
+                      >
+                        <CurrencyIcon currency={a.currency} size={18} />
+                        {a.name}
+                      </button>
+                    ))}
+                    {filtradas.length === 0 && (
+                      <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+                    )}
                   </div>
-                )}
-              </>
-            )}
-          </div>
+                  {account && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+                        Disponible {formatAmount(disponible, account.currency)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAmount(String(roundFor(disponible, account.currency)))}
+                        disabled={sinFondos}
+                        className="h-6 px-2 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        MAX
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <div>
             <Label>Fecha</Label>

@@ -420,6 +420,19 @@ export interface PasanakuInput {
 }
 
 /** Un pasanaku con lo que ya se derivó del historial de aportes/recepción. */
+/**
+ * Un aporte de ANTES de empezar a usar la app — solo un registro, nunca un
+ * movimiento de cuentas. `amount` está en `Pasanaku.currency`, sin cuenta ni
+ * conversión congelada: es una anotación, no una transacción real.
+ */
+export interface PasanakuHistorico {
+  id: string
+  pasanaku_id: string
+  date: string
+  amount: number
+  note: string | null
+}
+
 export interface PasanakuWithState extends Pasanaku {
   /** `start_date` + `(my_slot − 1)` meses. Cuándo te toca recibir. */
   expected_turn: string
@@ -427,8 +440,13 @@ export interface PasanakuWithState extends Pasanaku {
   received: boolean
   /** Fecha de esa recepción, o null si `received` es false. */
   received_at: string | null
+  /** Aportes reales (fin_transactions) + históricos (fin_pasanaku_historico). */
   aportes_count: number
+  /** Ídem, en USD — los históricos se convierten con la tasa de HOY, no una
+      congelada (no hubo transacción real que congelar nada). */
   total_aportado_usd: number
+  /** Los aportes de antes de la app, para poder listarlos y borrar alguno. */
+  historico: PasanakuHistorico[]
 }
 
 export interface TransactionInput {
