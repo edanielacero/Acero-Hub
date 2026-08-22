@@ -27,6 +27,23 @@ export function expectedTurnDate(p: Pick<Pasanaku, 'start_date' | 'my_slot'>): s
   return addMonthsClamped(p.start_date, p.my_slot - 1)
 }
 
+/**
+ * Cuándo cae el próximo aporte mensual — el mismo día del mes que
+ * `start_date`, la próxima ocurrencia a partir de hoy (hoy mismo cuenta como
+ * "próximo" si todavía no pasó). NUNCA se guarda, se deriva.
+ *
+ * A diferencia de `pendingPeriods` en `recurring.ts` (Fijos), acá no se
+ * arrastra un historial de meses atrasados sin registrar — el usuario pidió
+ * "cuándo se debe pagar el siguiente", en singular, no una lista de mora.
+ */
+export function nextAporteDue(startDate: string, todayISO: string): string {
+  const [sy, sm] = startDate.split('-').map(Number)
+  const [ty, tm] = todayISO.split('-').map(Number)
+  const months = Math.max(0, (ty * 12 + (tm - 1)) - (sy * 12 + (sm - 1)))
+  const due = addMonthsClamped(startDate, months)
+  return due < todayISO ? addMonthsClamped(startDate, months + 1) : due
+}
+
 export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
   if (!input.name || !input.name.trim()) return 'Ponele un nombre'
   // Sin cuenta a propósito: se elige al aportar/recibir, no al crear (mismo

@@ -3,23 +3,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconGift, IconX } from '@tabler/icons-react'
 import type { PasanakuWithState } from '@/lib/finanzas/types'
-import { amountFromInput, crossCurrencySuggestion, decimalsFor, formatAmount, parseDecimalInput, roundFor } from '@/lib/finanzas/money'
+import { amountFromInput, crossCurrencySuggestion, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } from './ui'
 
 /**
- * Marcar que recibiste tu turno. Es la "verificación" que pediste: no hay un
- * flag aparte — este ingreso ES la confirmación (`loadPasanaku` deriva
- * `received` de que exista). El monto viene sugerido con el pozo completo,
- * pero editable: a veces no llega redondo.
+ * Registrar UN cobro de tu turno — la parte de un jugador, no el pozo entero
+ * de una vez. Se abre una vez por cada uno de los demás puestos que te van
+ * pagando ("lista de cobro", revisión del 2026-08-21). No hay flag de
+ * "recibido" aparte: `loadPasanaku` deriva `received` de que la suma de
+ * estos cobros (`collected_amount`) alcance `collection_target`.
  *
  * El pasanaku no tiene cuenta propia — se elige acá, cada vez, igual que en
- * <PasanakuAporteSheet>: podés recibir en una cuenta distinta a la de tus
- * aportes sin que eso los afecte.
+ * <PasanakuAporteSheet>: cada cobro puede entrar a una cuenta distinta.
  */
-export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
+export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
   pasanaku: PasanakuWithState
   onClose: () => void
   onDone: () => void
@@ -32,21 +32,22 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
     [candidatas, search],
   )
 
-  // El pasanaku no tiene cuenta propia — pero si ya recibiste antes en una,
+  // El pasanaku no tiene cuenta propia — pero si ya cobraste antes en una,
   // esta pantalla la sugiere. Puede no haber ninguna.
   const [accountId, setAccountId] = useState(pasanaku.account_id ?? '')
   const account = candidatas.find(a => a.id === accountId)
   const decimals = decimalsFor(account?.currency ?? pasanaku.currency)
 
-  // El pozo (`contribution_amount × total_slots`) está denominado en
-  // `pasanaku.currency`, no en la cuenta elegida acá — sin esto, recibir en
-  // una cuenta de otra moneda dejaba el mismo número tal cual (el pozo en Bs
-  // pasaba a "valer" lo mismo en USD) en vez de convertirlo con la tasa de hoy.
-  const pozoHomeCurrency = pasanaku.contribution_amount * pasanaku.total_slots
-  const crossCurrencyAmount = account ? crossCurrencySuggestion(pozoHomeCurrency, pasanaku.currency, account.currency, rates) : null
-  const suggested = account ? (crossCurrencyAmount ?? roundFor(pozoHomeCurrency, account.currency)) : 0
+  // La parte de UN jugador (`contribution_amount`) está denominada en
+  // `pasanaku.currency`, no en la cuenta elegida acá — sin esto, cobrar en
+  // una cuenta de otra moneda dejaba el mismo número tal cual en vez de
+  // convertirlo con la tasa de hoy.
+  const crossCurrencyAmount = account
+    ? crossCurrencySuggestion(pasanaku.contribution_amount, pasanaku.currency, account.currency, rates)
+    : null
+  const suggested = account ? (crossCurrencyAmount ?? pasanaku.contribution_amount) : 0
 
-  const [amount, setAmount] = useState(String(suggested))
+  const [amount, setAmount] = useState(String(pasanaku.contribution_amount))
   const [date, setDate] = useState(todayISO())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -93,12 +94,14 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
     onDone()
   }
 
+  const faltan = Math.max(0, pasanaku.total_slots - 1 - pasanaku.cobros.length)
+
   return (
     <div className="fixed inset-0 z-50 flex items-end min-[900px]:items-center min-[900px]:justify-center">
       <div className="fz-backdrop absolute inset-0 bg-[rgba(16,24,40,0.35)]" onClick={onClose} aria-hidden />
 
       <div
-        role="dialog" aria-modal="true" aria-label={`Marcar recepción de ${pasanaku.name}`}
+        role="dialog" aria-modal="true" aria-label={`Registrar cobro de ${pasanaku.name}`}
         className="fz-sheet relative w-full min-[900px]:w-[420px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
@@ -108,7 +111,7 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
           <h2 className="flex items-center gap-2.5 text-[19px] font-bold tracking-[-0.01em]">
             <IconChip tint="in"><IconGift size={18} stroke={1.8} /></IconChip>
-            Recibí mi turno
+            Registrar cobro
           </h2>
           <button
             type="button" onClick={onClose} aria-label="Cerrar"
@@ -119,18 +122,29 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
         </div>
 
         <div className="px-5 pb-5 flex flex-col gap-4">
+          <p className="text-[13px] text-[var(--fz-ink-2)] -mt-1">
+            {pasanaku.cobros.length} de {pasanaku.total_slots - 1} jugadores ya te pagaron
+            {faltan > 0 && ` · faltan ${faltan}`}
+          </p>
+
           <div>
-            <Label>Monto recibido {account && `(${account.currency})`}</Label>
+            <Label>Monto {account && `(${account.currency})`}</Label>
             <TextField
               value={amount}
               onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
               inputMode="decimal" placeholder="0.00" className="fz-num"
             />
-            {account && (
+            {account && crossCurrencyAmount != null && (
               <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-                Sugerido: {pasanaku.total_slots} puestos × {formatAmount(pasanaku.contribution_amount, pasanaku.currency)} ={' '}
-                {formatAmount(pozoHomeCurrency, pasanaku.currency)}
-                {crossCurrencyAmount != null && <> — según la tasa de hoy, unos {formatAmount(crossCurrencyAmount, account.currency)}</>}.
+                La parte de cada uno es {formatAmount(pasanaku.contribution_amount, pasanaku.currency)}. Según la
+                tasa de hoy, unos {formatAmount(crossCurrencyAmount, account.currency)}.
+                <button
+                  type="button"
+                  onClick={() => setAmount(String(crossCurrencyAmount))}
+                  className="ml-1.5 font-semibold text-[var(--fz-accent)]"
+                >
+                  Usar {formatAmount(crossCurrencyAmount, account.currency)}
+                </button>
               </p>
             )}
           </div>
@@ -139,7 +153,7 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
             <Label>Entra a</Label>
             {candidatas.length === 0 ? (
               <p className="text-[13px] text-[var(--fz-out-text)]">
-                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar la recepción.
+                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar el cobro.
               </p>
             ) : (
               <>
@@ -179,7 +193,7 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
           <ErrorNote>{error}</ErrorNote>
 
           <Btn onClick={submit} disabled={saving} full>
-            {saving ? 'Registrando…' : 'Marcar como recibido'}
+            {saving ? 'Registrando…' : 'Registrar cobro'}
           </Btn>
         </div>
       </div>

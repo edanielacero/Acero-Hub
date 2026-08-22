@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import {
-  IconCalendarCheck, IconCheck, IconGift, IconPencil, IconPlus,
-  IconRotateClockwise2, IconTrash,
+  IconCheck, IconChevronDown, IconGift, IconPencil, IconPlus,
+  IconRotateClockwise2, IconTrash, IconUsers,
 } from '@tabler/icons-react'
-import type { PasanakuHistorico, PasanakuWithState } from '@/lib/finanzas/types'
+import type { PasanakuCobro, PasanakuHistorico, PasanakuWithState } from '@/lib/finanzas/types'
 import { formatAmount, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
@@ -14,9 +14,9 @@ import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PasanakuSheet } from '../components/pasanaku-sheet'
 import { PasanakuAporteSheet } from '../components/pasanaku-aporte-sheet'
-import { PasanakuRecibirSheet } from '../components/pasanaku-recibir-sheet'
+import { PasanakuCobroSheet } from '../components/pasanaku-cobro-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, formatDayLabel, IconChip, Panel, RowMenu, SectionTitle } from '../components/ui'
+import { Btn, EmptyState, formatDayLabel, IconChip, Panel } from '../components/ui'
 
 export function PasanakuScreen() {
   const { pasanaku, accounts, hidden, loading, reload } = useFinanzas()
@@ -24,9 +24,11 @@ export function PasanakuScreen() {
   const [editando, setEditando] = useState<PasanakuWithState | null>(null)
   const [creando, setCreando] = useState(false)
   const [aportando, setAportando] = useState<PasanakuWithState | null>(null)
-  const [recibiendo, setRecibiendo] = useState<PasanakuWithState | null>(null)
+  const [cobrando, setCobrando] = useState<PasanakuWithState | null>(null)
   const [borrandoHistorico, setBorrandoHistorico] = useState<PasanakuHistorico | null>(null)
   const [removingHistorico, setRemovingHistorico] = useState(false)
+  const [borrandoCobro, setBorrandoCobro] = useState<PasanakuCobro | null>(null)
+  const [removingCobro, setRemovingCobro] = useState(false)
 
   const hoy = useMemo(() => todayISO(), [])
   const items = pasanaku
@@ -47,38 +49,35 @@ export function PasanakuScreen() {
         }
       />
 
-      <div className="flex flex-col gap-4">
+      {loading && !hay ? (
+        <Panel><p className="text-[14px] text-[var(--fz-ink-3)] py-8 text-center">Cargando…</p></Panel>
+      ) : !hay ? (
         <Panel>
-          <SectionTitle>Tus pasanaku</SectionTitle>
-
-          {loading && !hay ? (
-            <p className="text-[14px] text-[var(--fz-ink-3)] py-8 text-center">Cargando…</p>
-          ) : !hay ? (
-            <EmptyState
-              icon={IconRotateClockwise2}
-              title="Todavía no cargaste ningún pasanaku"
-              description="Cuánto aportás, cuántos puestos son y cuál es el tuyo. La app calcula sola cuándo te toca recibir."
-              action={<Btn onClick={() => setCreando(true)}>Crear el primero</Btn>}
-            />
-          ) : (
-            <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
-              {items.map(p => (
-                <Row
-                  key={p.id}
-                  p={p}
-                  accountName={accounts.find(a => a.id === p.account_id)?.name}
-                  hidden={hidden}
-                  hoy={hoy}
-                  onView={() => setViendo(p)}
-                  onAportar={() => setAportando(p)}
-                  onRecibir={() => setRecibiendo(p)}
-                  onEdit={() => setEditando(p)}
-                />
-              ))}
-            </div>
-          )}
+          <EmptyState
+            icon={IconRotateClockwise2}
+            title="Todavía no cargaste ningún pasanaku"
+            description="Cuánto aportás, cuántos puestos son y cuál es el tuyo. La app calcula sola cuándo te toca recibir."
+            action={<Btn onClick={() => setCreando(true)}>Crear el primero</Btn>}
+          />
         </Panel>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-3 min-[700px]:grid min-[700px]:grid-cols-2 min-[700px]:items-start">
+          {items.map(p => (
+            <Card
+              key={p.id}
+              p={p}
+              accountName={accounts.find(a => a.id === p.account_id)?.name}
+              hidden={hidden}
+              hoy={hoy}
+              onView={() => setViendo(p)}
+              onEdit={() => setEditando(p)}
+              onAportar={() => setAportando(p)}
+              onCobrar={() => setCobrando(p)}
+              onBorrarCobro={c => setBorrandoCobro(c)}
+            />
+          ))}
+        </div>
+      )}
 
       {(creando || editando) && (
         <PasanakuSheet
@@ -92,8 +91,8 @@ export function PasanakuScreen() {
         <PasanakuAporteSheet pasanaku={aportando} onClose={() => setAportando(null)} onDone={() => setAportando(null)} />
       )}
 
-      {recibiendo && (
-        <PasanakuRecibirSheet pasanaku={recibiendo} onClose={() => setRecibiendo(null)} onDone={() => setRecibiendo(null)} />
+      {cobrando && (
+        <PasanakuCobroSheet pasanaku={cobrando} onClose={() => setCobrando(null)} onDone={() => setCobrando(null)} />
       )}
 
       <DetailSheet
@@ -122,15 +121,6 @@ export function PasanakuScreen() {
                 <DetailField
                   label="Aporte por mes"
                   value={hidden ? HIDDEN : formatAmount(p.contribution_amount, p.currency)}
-                />
-                <DetailField label="Aportes registrados" value={p.aportes_count} />
-                <DetailField
-                  label="Total aportado"
-                  value={hidden ? HIDDEN : formatAmount(p.total_aportado, p.currency)}
-                />
-                <DetailField
-                  label={p.received ? 'Recibiste tu turno' : 'Te toca recibir'}
-                  value={formatDayLabel(p.received ? p.received_at! : p.expected_turn, hoy)}
                 />
               </div>
 
@@ -189,71 +179,150 @@ export function PasanakuScreen() {
           />
         )}
       </DeleteConfirmSheet>
+
+      <DeleteConfirmSheet
+        open={!!borrandoCobro}
+        onClose={() => setBorrandoCobro(null)}
+        onConfirm={async () => {
+          if (!borrandoCobro) return
+          setRemovingCobro(true)
+          await fetch(`/api/finanzas/transactions/${borrandoCobro.id}`, { method: 'DELETE' })
+          await reload()
+          setRemovingCobro(false)
+          setBorrandoCobro(null)
+        }}
+        title="Borrar cobro"
+        confirming={removingCobro}
+      >
+        {borrandoCobro && (
+          <DeletePreview
+            icon={<IconChip tint="in"><IconGift size={18} stroke={1.8} /></IconChip>}
+            title={formatDayLabel(borrandoCobro.date, hoy)}
+            subtitle="Cobro de tu turno"
+            amount={formatAmount(borrandoCobro.amount, borrandoCobro.currency)}
+          />
+        )}
+      </DeleteConfirmSheet>
     </div>
   )
 }
 
-function Row({ p, accountName, hidden, hoy, onView, onAportar, onRecibir, onEdit }: {
+function Card({ p, accountName, hidden, hoy, onView, onEdit, onAportar, onCobrar, onBorrarCobro }: {
   p: PasanakuWithState
   accountName?: string
   hidden: boolean
   hoy: string
   onView: () => void
-  onAportar: () => void
-  onRecibir: () => void
   onEdit: () => void
+  onAportar: () => void
+  onCobrar: () => void
+  onBorrarCobro: (c: PasanakuCobro) => void
 }) {
-  const turnoLlego = !p.received && p.expected_turn <= hoy
+  const [expanded, setExpanded] = useState(false)
+  const tuTurnoLlego = p.expected_turn <= hoy
+  const pct = p.collection_target > 0 ? Math.min(100, Math.round((p.collected_amount / p.collection_target) * 100)) : 0
 
   return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 py-3 ${p.archived ? 'opacity-50' : ''}`}>
-      <IconChip tint={p.received ? 'in' : 'neutral'}>
-        {p.received ? <IconCheck size={18} stroke={2} /> : <IconRotateClockwise2 size={18} stroke={1.8} />}
-      </IconChip>
+    <Panel className={p.archived ? 'opacity-50' : ''}>
+      <div className="flex items-start gap-3">
+        <IconChip tint={p.received ? 'in' : 'neutral'}>
+          {p.received ? <IconCheck size={18} stroke={2} /> : <IconRotateClockwise2 size={18} stroke={1.8} />}
+        </IconChip>
+        <button type="button" onClick={onView} className="flex-1 min-w-0 text-left">
+          <span className="block text-[16px] font-semibold truncate">{p.name}</span>
+          <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">
+            Puesto {p.my_slot} de {p.total_slots}{accountName && ` · ${accountName}`}
+          </span>
+        </button>
+        <button
+          type="button" onClick={onEdit} aria-label="Editar"
+          className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] shrink-0"
+        >
+          <IconPencil size={16} stroke={1.8} />
+        </button>
+      </div>
 
-      <button type="button" onClick={onView} className="flex-1 min-w-[55%] text-left">
-        <span className="block text-[15px] font-semibold truncate">{p.name}</span>
-        <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">
-          Puesto {p.my_slot} de {p.total_slots}
-          {accountName && ` · ${accountName}`}
-          {' · '}
-          {hidden ? HIDDEN : formatAmount(p.contribution_amount, p.currency)}/mes
-          {p.aportes_count > 0 && (
-            ` · ${p.aportes_count} ${p.aportes_count === 1 ? 'aporte' : 'aportes'}` +
-            (hidden ? '' : ` · ${formatAmount(p.total_aportado, p.currency)}`)
-          )}
+      <div className="mt-3.5">
+        <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">Total aportado</p>
+        <p className="mt-0.5 text-[28px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+          {hidden ? HIDDEN : formatAmount(p.total_aportado, p.currency)}
+        </p>
+      </div>
+
+      <div className="mt-3.5 flex items-center justify-between gap-3 text-[13px]">
+        <span className="text-[var(--fz-ink-2)] truncate">
+          Próximo aporte {formatDayLabel(p.next_aporte_due, hoy)}
         </span>
-      </button>
-
-      <span className="ml-auto shrink-0 flex items-center gap-1.5">
         {p.received ? (
           <span
-            className="inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-1 rounded-[var(--fz-r-pill)]"
+            className="shrink-0 inline-flex items-center gap-1 font-semibold px-2.5 py-1 rounded-[var(--fz-r-pill)]"
             style={{ background: 'var(--fz-in-tint)', color: 'var(--fz-in-text)' }}
           >
-            <IconCheck size={13} stroke={2.6} /> Recibido
+            <IconCheck size={13} stroke={2.6} /> Cobraste todo
           </span>
         ) : (
-          <>
-            {turnoLlego && (
-              <span
-                className="inline-flex items-center gap-1 text-[12px] font-semibold"
-                style={{ color: 'var(--fz-out-text)' }}
-              >
-                <IconCalendarCheck size={13} stroke={2.2} /> Te toca
-              </span>
-            )}
-            <Btn size="sm" onClick={onAportar}>Aporté</Btn>
-          </>
+          <span className="shrink-0 font-semibold" style={{ color: tuTurnoLlego ? 'var(--fz-out-text)' : 'var(--fz-ink-2)' }}>
+            Te toca {formatDayLabel(p.expected_turn, hoy)}
+          </span>
         )}
+      </div>
 
-        <RowMenu
-          items={[
-            ...(!p.received ? [{ label: 'Marcar recibido', icon: <IconGift size={16} stroke={1.8} />, onClick: onRecibir }] : []),
-            { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
-          ]}
-        />
-      </span>
-    </div>
+      <Btn onClick={onAportar} full className="mt-3.5">Aportar</Btn>
+
+      {tuTurnoLlego && (
+        <div className="mt-3.5 pt-3.5 border-t border-[var(--fz-hairline)]">
+          <button
+            type="button" onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
+            className="w-full flex items-center gap-2 text-left"
+          >
+            <IconUsers size={16} stroke={1.8} className="text-[var(--fz-ink-3)] shrink-0" />
+            <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">
+              Lista de cobro · {p.cobros.length} de {Math.max(0, p.total_slots - 1)}
+            </span>
+            <IconChevronDown
+              size={16} stroke={2}
+              className={`shrink-0 text-[var(--fz-ink-3)] transition-transform ${expanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          <div className="mt-2 h-1.5 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${pct}%`, background: p.received ? 'var(--fz-in-text)' : 'var(--fz-accent)' }}
+            />
+          </div>
+
+          {expanded && (
+            <div className="mt-3 flex flex-col gap-2">
+              {p.cobros.length > 0 && (
+                <div className="flex flex-col divide-y divide-[var(--fz-hairline)] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] px-3.5">
+                  {p.cobros.map(c => (
+                    <div key={c.id} className="flex items-center gap-2 py-2.5">
+                      <span className="flex-1 min-w-0 text-[13px] font-medium">
+                        {formatDayLabel(c.date, hoy)}
+                      </span>
+                      <span className="fz-num text-[13px] font-semibold shrink-0">
+                        {hidden ? HIDDEN : formatAmount(c.amount, c.currency)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onBorrarCobro(c)}
+                        aria-label="Borrar este cobro"
+                        className="grid place-items-center w-7 h-7 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface)] hover:text-[var(--fz-out-text)] shrink-0"
+                      >
+                        <IconTrash size={14} stroke={1.8} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Btn variant="soft" onClick={onCobrar}>
+                <IconPlus size={16} stroke={2} /> Registrar cobro
+              </Btn>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
   )
 }

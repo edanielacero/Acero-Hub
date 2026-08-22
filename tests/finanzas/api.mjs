@@ -1698,7 +1698,7 @@ async function run() {
       eq('supera el saldo → 400', excede.status, 400)
     }
 
-    section('POST /pasanaku/[id]/recibir')
+    section('POST /pasanaku/[id]/recibir · un cobro por jugador, no el pozo entero')
     {
       eq('sin cuenta → 400 (no hay de dónde sacar el default)', (await api(`/pasanaku/${pasanaku.id}/recibir`, {
         method: 'POST', body: JSON.stringify({ date: '2026-11-05' }),
@@ -1708,42 +1708,74 @@ async function run() {
       const saldoAntes = antes.accounts.find(a => a.id === bs.id).balance
       const mesAntes = await json(await api('/transactions?from=2026-11-01&to=2026-11-30'))
 
-      const recibo = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+      const cobro1 = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
         date: '2026-11-05', account_id: bs.id,
       })}))).transaction
-      eq('sugiere el pozo completo: 8 puestos × 300', recibo.amount, 2400)
-      eq('ingreso, movimiento — no es plata ganada', recibo.flow_type, 'movimiento')
+      // Ya no sugiere el pozo entero (8 × 300 = 2400): sugiere la parte de UN
+      // jugador — se registra de a uno, no todo de una vez.
+      eq('sugiere la parte de un jugador, no el pozo entero', cobro1.amount, 300)
+      eq('ingreso, movimiento — no es plata ganada', cobro1.flow_type, 'movimiento')
 
       const despues = await json(await api('/accounts'))
-      eq('el saldo sube 2400', despues.accounts.find(a => a.id === bs.id).balance, saldoAntes + 2400)
+      eq('el saldo sube 300, no 2400', despues.accounts.find(a => a.id === bs.id).balance, saldoAntes + 300)
 
       const mesDespues = await json(await api('/transactions?from=2026-11-01&to=2026-11-30'))
-      ok('la recepción sí aparece en la lista', mesDespues.transactions.some(t => t.id === recibo.id))
+      ok('el cobro sí aparece en la lista de movimientos', mesDespues.transactions.some(t => t.id === cobro1.id))
       eq('pero no cuenta como ingreso real del mes', mesDespues.total_ingreso_usd, mesAntes.total_ingreso_usd)
 
-      const listado = await json(await api('/pasanaku'))
-      const p = listado.pasanaku.find(x => x.id === pasanaku.id)
-      eq('marca received en true', p.received, true)
-      eq('con la fecha de la recepción', p.received_at, '2026-11-05')
+      const listado1 = await json(await api('/pasanaku'))
+      const p1 = listado1.pasanaku.find(x => x.id === pasanaku.id)
+      eq('un cobro no alcanza para marcar received', p1.received, false)
+      eq('el objetivo es la parte de los OTROS 7 puestos: 300 × 7', p1.collection_target, 2100)
+      eq('llevás cobrado 300 de los 2100', p1.collected_amount, 300)
+      eq('un cobro en la lista', p1.cobros.length, 1)
+
+      // Los 6 restantes, hasta juntar la parte de los 7 demás puestos.
+      for (let i = 2; i <= 7; i++) {
+        await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+          date: `2026-11-0${i}`, account_id: bs.id,
+        })})
+      }
+
+      const listado2 = await json(await api('/pasanaku'))
+      const p2 = listado2.pasanaku.find(x => x.id === pasanaku.id)
+      eq('7 de 7 cobros', p2.cobros.length, 7)
+      eq('juntaste el objetivo entero', p2.collected_amount, 2100)
+      eq('ahora sí, received en true', p2.received, true)
+      eq('received_at es el cobro más reciente', p2.received_at, '2026-11-07')
+
+      // Borrar uno vuelve a dejarlo incompleto — derivado, no un flag suelto.
+      const unCobro = p2.cobros[0]
+      await api(`/transactions/${unCobro.id}`, { method: 'DELETE' })
+      const listado3 = await json(await api('/pasanaku'))
+      const p3 = listado3.pasanaku.find(x => x.id === pasanaku.id)
+      eq('borrar un cobro baja el total', p3.collected_amount, 2100 - unCobro.amount)
+      eq('y received vuelve a false', p3.received, false)
+
+      // Se repone para dejar el pasanaku "completo" para las secciones de abajo.
+      await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+        date: '2026-11-08', account_id: bs.id,
+      })})
     }
 
-    section('POST /pasanaku/[id]/recibir · a otra cuenta')
+    section('POST /pasanaku/[id]/recibir · un cobro puede entrar a otra cuenta')
     {
       const bs3 = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
         name: 'Otra cuenta para recibir', currency: 'BOB', initial_balance: 0,
       })}))).account
 
-      const recibo2 = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
+      const cobroOtraCuenta = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
         date: '2026-12-05', account_id: bs3.id,
       })}))).transaction
-      eq('la recepción puede entrar a otra cuenta', recibo2.account_id, bs3.id)
+      eq('el cobro puede entrar a otra cuenta', cobroOtraCuenta.account_id, bs3.id)
 
       const conBs3 = await json(await api('/accounts'))
-      eq('esa cuenta sube el pozo completo', conBs3.accounts.find(a => a.id === bs3.id).balance, 2400)
+      eq('esa cuenta sube la parte de un jugador', conBs3.accounts.find(a => a.id === bs3.id).balance, 300)
 
       const listado = await json(await api('/pasanaku'))
       const p = listado.pasanaku.find(x => x.id === pasanaku.id)
-      eq('la lista sigue mostrando la recepción más reciente', p.received_at, '2026-12-05')
+      eq('la lista sigue mostrando el cobro más reciente', p.received_at, '2026-12-05')
+      ok('sigue received: ya se había completado antes', p.received, true)
     }
 
     section('PATCH /pasanaku/[id]')

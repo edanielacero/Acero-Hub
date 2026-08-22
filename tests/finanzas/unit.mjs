@@ -5,7 +5,7 @@ import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
-import { addMonthsClamped, expectedTurnDate, validatePasanaku } from './.fin/pasanaku.mjs'
+import { addMonthsClamped, expectedTurnDate, nextAporteDue, validatePasanaku } from './.fin/pasanaku.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
@@ -1246,6 +1246,19 @@ section('SPRINT 5 · expectedTurnDate — cuándo te toca recibir')
      expectedTurnDate({ start_date: '2026-08-05', my_slot: 4 }), '2026-11-05')
   eq('puesto lejano cruza de año',
      expectedTurnDate({ start_date: '2026-11-30', my_slot: 4 }), '2027-02-28')
+}
+
+section('SPRINT 5 (revisión) · nextAporteDue — cuándo cae el próximo aporte')
+{
+  eq('todavía no llegó el día este mes: el próximo es este mes',
+     nextAporteDue('2026-05-05', '2026-08-03'), '2026-08-05')
+  eq('ya pasó el día este mes: el próximo es el mes que viene',
+     nextAporteDue('2026-05-05', '2026-08-21'), '2026-09-05')
+  eq('hoy es justo el día: cuenta como el próximo, no como el que viene',
+     nextAporteDue('2026-05-05', '2026-08-05'), '2026-08-05')
+  eq('el mismo mes de arranque: el próximo es ese mismo mes',
+     nextAporteDue('2026-08-05', '2026-08-01'), '2026-08-05')
+  eq('topa el 31 contra febrero', nextAporteDue('2026-01-31', '2026-02-20'), '2026-02-28')
 }
 
 section('SPRINT 5 · validatePasanaku')

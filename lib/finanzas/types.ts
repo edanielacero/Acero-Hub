@@ -433,12 +433,32 @@ export interface PasanakuHistorico {
   note: string | null
 }
 
+/**
+ * Un cobro de tu turno — un `ingreso · movimiento` real con este
+ * `pasanaku_id`, tal como quedó en `fin_transactions`. `amount`/`currency`
+ * son los reales de esa fila, sin convertir — la conversión a `Pasanaku.
+ * currency` (para la barra de progreso) se hace aparte, en `collected_amount`.
+ */
+export interface PasanakuCobro {
+  id: string
+  date: string
+  amount: number
+  currency: Currency
+}
+
 export interface PasanakuWithState extends Pasanaku {
   /** `start_date` + `(my_slot − 1)` meses. Cuándo te toca recibir. */
   expected_turn: string
-  /** Si ya existe una recepción registrada (un ingreso con este pasanaku_id). */
+  /** El mismo día del mes que `start_date`, la próxima vez que cae. */
+  next_aporte_due: string
+  /**
+   * `true` cuando `collected_amount` ya alcanzó `collection_target` — es
+   * decir, cuando ya cobraste la parte de todos los demás puestos. Antes
+   * significaba "existe al menos un cobro"; cambió porque ahora un cobro se
+   * registra de a uno por jugador, no de una sola vez (revisión 2026-08-21).
+   */
   received: boolean
-  /** Fecha de esa recepción, o null si `received` es false. */
+  /** Fecha del cobro más reciente, o null si todavía no cobraste ninguno. */
   received_at: string | null
   /** Aportes reales (fin_transactions) + históricos (fin_pasanaku_historico). */
   aportes_count: number
@@ -447,6 +467,16 @@ export interface PasanakuWithState extends Pasanaku {
   total_aportado: number
   /** Los aportes de antes de la app, para poder listarlos y borrar alguno. */
   historico: PasanakuHistorico[]
+  /** Suma de todos los cobros de tu turno, en `currency` (convertidos con la
+      tasa de HOY si alguno vino de una cuenta de otra moneda). */
+  collected_amount: number
+  /** `contribution_amount × (total_slots − 1)` — la parte de los OTROS
+      puestos, la que de verdad tenés que cobrar (la tuya la vas aportando
+      mes a mes como cualquier otra, no hay que "cobrártela" a vos mismo). */
+  collection_target: number
+  /** Los cobros de tu turno, uno por jugador, para poder listarlos y
+      borrar alguno — mismo patrón que `historico`. */
+  cobros: PasanakuCobro[]
 }
 
 export interface TransactionInput {

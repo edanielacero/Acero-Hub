@@ -8,13 +8,13 @@ import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type Ra
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
-import { expectedTurnDate } from './pasanaku'
+import { expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import type {
   Account, AccountWithBalance, Category, Currency, PersonWithDebt,
   Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Pasanaku, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
+  DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
 } from './types'
 
 /**
@@ -294,8 +294,6 @@ const PASANAKU_HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
 /**
  * Los pasanaku con lo que ya se derivó de sus movimientos.
  *
- * `received` NO se guarda: sale de que exista un `ingreso` con este
- * `pasanaku_id` — mismo principio que `registered_tx_id` en `loadRecurring`.
  * Se traen todos los movimientos con `pasanaku_id` de una sola vez en vez de
  * una consulta por pasanaku, mismo criterio de siempre.
  *
@@ -304,13 +302,21 @@ const PASANAKU_HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
  * (`fin_pasanaku_historico`) — ver §"Aportes de antes de la app" en
  * sprint_5_pasanaku.md.
  *
- * `total_aportado` queda en `Pasanaku.currency` — no en USD — porque es la
- * moneda en la que el usuario piensa el pasanaku (feedback del 2026-08-21).
- * Un aporte cuya cuenta ya está en esa moneda suma su monto tal cual, sin
- * pasar por ninguna conversión (cero deriva de redondeo); uno de otra moneda
- * se convierte con la tasa de HOY — inevitable ahí, mismo criterio que el
- * patrimonio total (§4.3 de contexto_finanzas.md). Los históricos ya nacen
- * en `Pasanaku.currency` (no tienen cuenta), así que siempre suman directo.
+ * `total_aportado`/`collected_amount` quedan en `Pasanaku.currency` — no en
+ * USD — porque es la moneda en la que el usuario piensa el pasanaku
+ * (feedback del 2026-08-21). Un movimiento cuya cuenta ya está en esa moneda
+ * suma su monto tal cual, sin pasar por ninguna conversión (cero deriva de
+ * redondeo); uno de otra moneda se convierte con la tasa de HOY — inevitable
+ * ahí, mismo criterio que el patrimonio total (§4.3 de contexto_finanzas.md).
+ * Los históricos ya nacen en `Pasanaku.currency` (no tienen cuenta), así que
+ * siempre suman directo.
+ *
+ * `received` NO se guarda: sale de que `collected_amount` (la suma de los
+ * cobros de tu turno) haya alcanzado `collection_target`. Cada cobro es un
+ * `ingreso` real por jugador — se registran de a uno, no todo el pozo de una
+ * sola vez (revisión del 2026-08-21: antes bastaba con que existiera un solo
+ * `ingreso`, ahora hace falta juntar la parte de los `total_slots − 1` demás
+ * puestos).
  */
 export async function loadPasanaku(
   supabase: SupabaseClient,
@@ -320,18 +326,21 @@ export async function loadPasanaku(
     supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('user_id', userId).order('created_at'),
     supabase
       .from('fin_transactions')
-      .select('type, date, amount, currency, pasanaku_id')
+      .select('id, type, date, amount, currency, pasanaku_id')
       .eq('user_id', userId)
       .not('pasanaku_id', 'is', null),
     supabase.from('fin_pasanaku_historico').select(PASANAKU_HISTORICO_COLS).eq('user_id', userId),
     ensureRates(supabase, userId),
   ])
 
-  const byPasanaku = new Map<string, { type: TxType; date: string; amount: number; currency: Currency }[]>()
+  const byPasanaku = new Map<string, { id: string; type: TxType; date: string; amount: number; currency: Currency }[]>()
   for (const t of txRows ?? []) {
     const key = t.pasanaku_id as string
     const list = byPasanaku.get(key)
-    const entry = { type: t.type as TxType, date: t.date as string, amount: num(t.amount), currency: t.currency as Currency }
+    const entry = {
+      id: t.id as string, type: t.type as TxType, date: t.date as string,
+      amount: num(t.amount), currency: t.currency as Currency,
+    }
     if (list) list.push(entry)
     else byPasanaku.set(key, [entry])
   }
@@ -344,30 +353,43 @@ export async function loadPasanaku(
     else historicoByPasanaku.set(h.pasanaku_id, [entry])
   }
 
+  const hoy = todayISO()
+
   return (rows ?? []).map(r => {
     const p = { ...(r as unknown as Pasanaku), contribution_amount: num(r.contribution_amount) }
     const movs = byPasanaku.get(p.id) ?? []
     const aportes = movs.filter(m => m.type === 'gasto')
-    // Puede haber más de una recepción si el pasanaku sigue rotando después de
-    // tu turno — se muestra la más reciente.
-    const recepciones = movs.filter(m => m.type === 'ingreso').sort((a, b) => (a.date < b.date ? 1 : -1))
+    // Los cobros de tu turno — uno por jugador, no todo el pozo de una vez.
+    const cobrosRaw = movs.filter(m => m.type === 'ingreso').sort((a, b) => (a.date < b.date ? 1 : -1))
 
     const historico = (historicoByPasanaku.get(p.id) ?? []).sort((a, b) => (a.date < b.date ? 1 : -1))
 
-    const aportesEnMoneda = aportes.reduce((s, a) => {
+    const enMoneda = (items: { amount: number; currency: Currency }[]) => items.reduce((s, a) => {
       if (a.currency === p.currency) return s + a.amount
       return s + (crossCurrencySuggestion(a.amount, a.currency, p.currency, rates) ?? a.amount)
     }, 0)
+
+    const aportesEnMoneda = enMoneda(aportes)
     const historicoEnMoneda = historico.reduce((s, h) => s + h.amount, 0)
+    const collected_amount = roundFor(enMoneda(cobrosRaw), p.currency)
+    // La parte de los OTROS puestos — la tuya te la vas aportando mes a mes
+    // como cualquier otra, no hay que "cobrártela" a vos mismo.
+    const collection_target = roundFor(p.contribution_amount * (p.total_slots - 1), p.currency)
+
+    const cobros: PasanakuCobro[] = cobrosRaw.map(c => ({ id: c.id, date: c.date, amount: c.amount, currency: c.currency }))
 
     return {
       ...p,
       expected_turn: expectedTurnDate(p),
-      received: recepciones.length > 0,
-      received_at: recepciones[0]?.date ?? null,
+      next_aporte_due: nextAporteDue(p.start_date, hoy),
+      received: collected_amount >= collection_target,
+      received_at: cobrosRaw[0]?.date ?? null,
       aportes_count: aportes.length + historico.length,
       total_aportado: roundFor(aportesEnMoneda + historicoEnMoneda, p.currency),
       historico,
+      collected_amount,
+      collection_target,
+      cobros,
     }
   })
 }

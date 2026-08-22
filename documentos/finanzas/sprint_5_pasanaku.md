@@ -257,6 +257,48 @@ Se muestra en la fila de la lista (`N aportes · 900 Bs`) y en el detalle
 (`Total aportado: 900 Bs`) — un solo lugar, un solo número, en la moneda
 que el usuario ya está pensando.
 
+### 4.8 Cards + lista de cobro por jugador (revisión del 2026-08-21)
+
+**Feedback del usuario:** el total aportado seguía sin verse bien, y pidió
+además una forma de ir marcando, cuando le toca el turno, que cada uno de
+los demás jugadores le va pagando su parte — sin nombres (decisión
+explícita: "anónimo" alcanza), pero que cada marca sea un cobro real, no
+solo una lista de control aparte.
+
+**La lista de Pasanaku pasa de filas a cards** (`app/finanzas/screens/
+pasanaku.tsx`, componente `Card`): cada pasanaku es un `<Panel>` con el
+total aportado grande arriba, el próximo aporte (`next_aporte_due`, día del
+mes de `start_date`, la próxima vez que cae — `nextAporteDue()` en
+`lib/finanzas/pasanaku.ts`), el turno, un botón "Aportar" siempre visible, y
+— solo cuando `expected_turn <= hoy` — una sección desplegable "Lista de
+cobro".
+
+**Un cobro es un `ingreso · movimiento` real, uno por jugador:**
+`POST /api/finanzas/pasanaku/[id]/recibir` (la ruta no cambió de nombre,
+pero sí de propósito — cambió también el componente que la llama, ahora
+`PasanakuCobroSheet` en vez de `PasanakuRecibirSheet`) ya no sugiere el pozo
+entero (`contribution_amount × total_slots`): sugiere la parte de **un**
+jugador (`contribution_amount`), y se abre una vez por cada uno de los
+demás puestos que van pagando.
+
+`received` cambia de significado — antes bastaba con que existiera un
+`ingreso`, ahora hace falta juntar la parte de todos:
+
+```
+collection_target  = contribution_amount × (total_slots − 1)   // la tuya no se la "cobrás" a vos mismo
+collected_amount   = Σ cobros, convertidos a Pasanaku.currency con la tasa de hoy si hace falta
+received           = collected_amount >= collection_target
+```
+
+Ambos derivados, nunca guardados — mismo principio que todo lo demás en
+esta app. `PasanakuWithState.cobros: PasanakuCobro[]` expone la lista para
+poder mostrarla (con fecha y monto) y borrar uno de a uno — el borrado usa
+`DELETE /api/finanzas/transactions/[id]`, la ruta genérica que ya existía;
+no hizo falta ninguna ruta nueva para esto. Borrar un cobro simplemente
+resta de `collected_amount`, y si eso lo deja por debajo del objetivo,
+`received` vuelve solo a `false` — es un cálculo, no un flag que alguien
+tenga que acordarse de destildar.
+
 ---
 
 ## 5. Estructura de archivos
@@ -278,7 +320,7 @@ app/finanzas/
 └── components/
     ├── pasanaku-sheet.tsx             — crear/editar + borrar
     ├── pasanaku-aporte-sheet.tsx      — registrar un aporte (monto, cuenta, fecha, disponible/MAX)
-    └── pasanaku-recibir-sheet.tsx     — marcar recepción (monto sugerido, cuenta, fecha)
+    └── pasanaku-cobro-sheet.tsx       — registrar UN cobro de tu turno (monto sugerido, cuenta, fecha)
 ```
 
 ### 5.1 Navegación — sin tab nueva

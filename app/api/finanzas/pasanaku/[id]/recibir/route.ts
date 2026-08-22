@@ -14,14 +14,16 @@ const TX_COLS =
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 /**
- * Marcar que recibiste tu turno. La "verificación" que pediste ES este
- * ingreso: no hay un flag aparte que se pueda desincronizar de si de verdad
- * entró la plata — `loadPasanaku` deriva `received` de que exista.
+ * Registrar UN cobro de tu turno — la parte de UN jugador, no el pozo entero
+ * de una sola vez (revisión del 2026-08-21: "una lista de cobro donde pueda
+ * marcar que me van pagando cada uno de los otros jugadores"). Se llama una
+ * vez por cada uno de los `total_slots − 1` demás puestos.
  *
- * `flow_type: 'movimiento'`, no `'consumo'`: el pozo completo no es plata que
- * ganaste, es la misma plata que aportaste mes a mes volviendo de una vez.
- * Repetible: si el pasanaku sigue rotando y volvés a recibir en una vuelta
- * futura, se registra otra recepción — la más reciente es la que se muestra.
+ * No hay flag de "recibido" aparte: `loadPasanaku` deriva `received` de que
+ * la suma de estos cobros (`collected_amount`) alcance `collection_target`.
+ *
+ * `flow_type: 'movimiento'`, no `'consumo'`: no es plata que ganaste, es la
+ * misma plata que cada uno fue aportando mes a mes, volviendo de una vez.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()
@@ -53,13 +55,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)
 
-  // El pozo (`contribution_amount × total_slots`) está denominado en
+  // La parte de UN jugador (`contribution_amount`) está denominada en
   // `p.currency`, no necesariamente en la de la cuenta elegida — se convierte
   // con la tasa de hoy cuando difieren, mismo mecanismo que el sheet.
-  const pozoHomeCurrency = num(p.contribution_amount) * num(p.total_slots, 1)
+  const unaParte = num(p.contribution_amount)
   const suggested = currency === p.currency
-    ? roundFor(pozoHomeCurrency, currency)
-    : crossCurrencySuggestion(pozoHomeCurrency, p.currency as Currency, currency, rates) ?? roundFor(pozoHomeCurrency, currency)
+    ? roundFor(unaParte, currency)
+    : crossCurrencySuggestion(unaParte, p.currency as Currency, currency, rates) ?? roundFor(unaParte, currency)
   const amount = body.amount === undefined ? suggested : num(body.amount, NaN)
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
@@ -86,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       amount_usd: frozen.amount_usd,
       description: typeof body.description === 'string' && body.description.trim()
         ? body.description.trim()
-        : `${p.name} · tu turno`,
+        : `${p.name} · cobro`,
       pasanaku_id: id,
     })
     .select(TX_COLS)
