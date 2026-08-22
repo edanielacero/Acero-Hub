@@ -1590,32 +1590,37 @@ async function run() {
 
     section('POST /pasanaku · validación')
     {
+      eq('sin moneda → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      })})).status, 400)
       eq('un solo puesto → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'X', account_id: bs.id, contribution_amount: 300, total_slots: 1, my_slot: 1, start_date: '2026-08-05',
+        name: 'X', currency: 'BOB', contribution_amount: 300, total_slots: 1, my_slot: 1, start_date: '2026-08-05',
       })})).status, 400)
       eq('tu puesto mayor al total → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'X', account_id: bs.id, contribution_amount: 300, total_slots: 8, my_slot: 9, start_date: '2026-08-05',
+        name: 'X', currency: 'BOB', contribution_amount: 300, total_slots: 8, my_slot: 9, start_date: '2026-08-05',
       })})).status, 400)
       eq('aporte en cero → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'X', account_id: bs.id, contribution_amount: 0, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+        name: 'X', currency: 'BOB', contribution_amount: 0, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
       })})).status, 400)
-      eq('cuenta inexistente → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'X', account_id: '00000000-0000-0000-0000-000000000009', contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      eq('cuenta inexistente (si se manda una) → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', currency: 'BOB', account_id: '00000000-0000-0000-0000-000000000009',
+        contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
       })})).status, 400)
       // Un aporte ahí sería 'gasto · movimiento' igual que un ajuste de valor
       // de inversión — isInvestmentAdjustment() no podría distinguirlos y el
       // aporte desaparecería de Movimientos sin tope de saldo.
-      eq('cuenta de inversión → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'X', account_id: bsInversion.id, contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+      eq('cuenta de inversión (si se manda una) → 400', (await api('/pasanaku', { method: 'POST', body: JSON.stringify({
+        name: 'X', currency: 'BOB', account_id: bsInversion.id, contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
       })})).status, 400)
     }
 
-    section('POST /pasanaku · flujo completo')
+    section('POST /pasanaku · flujo completo — sin cuenta, solo monto y moneda')
     {
       pasanaku = (await json(await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'Oficina', account_id: bs.id, contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+        name: 'Oficina', currency: 'BOB', contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
       })}))).pasanaku
       ok('se crea', !!pasanaku?.id)
+      eq('sin cuenta propia', pasanaku.account_id, null)
 
       const listado = await json(await api('/pasanaku'))
       const p = listado.pasanaku.find(x => x.id === pasanaku.id)
@@ -1627,12 +1632,16 @@ async function run() {
     let aporte1
     section('POST /pasanaku/[id]/aporte')
     {
+      eq('sin cuenta → 400 (no hay de dónde sacar el default)', (await api(`/pasanaku/${pasanaku.id}/aporte`, {
+        method: 'POST', body: JSON.stringify({ date: '2026-08-05' }),
+      })).status, 400)
+
       const antes = await json(await api('/accounts'))
       const saldoAntes = antes.accounts.find(a => a.id === bs.id).balance
       const mesAntes = await json(await api('/transactions?from=2026-08-01&to=2026-08-31'))
 
       aporte1 = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
-        date: '2026-08-05',
+        date: '2026-08-05', account_id: bs.id,
       })}))).transaction
       eq('usa el aporte sugerido de la plantilla', aporte1.amount, 300)
       eq('gasto, no consumo — no debe ensuciar el gasto del mes', aporte1.flow_type, 'movimiento')
@@ -1646,9 +1655,20 @@ async function run() {
       eq('pero el total de gasto del mes no cambia', mesDespues.total_gasto_usd, mesAntes.total_gasto_usd)
 
       const otro = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
-        date: '2026-09-05', amount: 300,
+        date: '2026-09-05', amount: 300, account_id: bs.id,
       })}))).transaction
       ok('un segundo aporte también se registra', !!otro?.id)
+
+      // El pasanaku sigue en BOB; una cuenta en USD sin monto explícito
+      // convierte con la tasa de hoy en vez de mandar "300" tal cual.
+      const bsUsd = (await json(await api('/accounts', { method: 'POST', body: JSON.stringify({
+        name: 'Cuenta USD para el pasanaku', currency: 'USD', initial_balance: 1000,
+      })}))).account
+      const aporteUsd = (await json(await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
+        date: '2026-09-06', account_id: bsUsd.id,
+      })}))).transaction
+      eq('sin monto explícito, convierte 300 Bs a USD con la tasa de hoy', aporteUsd.amount, round2(300 / 6.96))
+      eq('y la transacción queda en USD, no en Bs', aporteUsd.currency, 'USD')
 
       // Cada aporte puede salir de una cuenta distinta — la del pasanaku es
       // solo el default, no una ley.
@@ -1664,25 +1684,30 @@ async function run() {
 
       const listado = await json(await api('/pasanaku'))
       const p = listado.pasanaku.find(x => x.id === pasanaku.id)
-      eq('van 3 aportes, cuenten de la cuenta que cuenten', p.aportes_count, 3)
+      eq('van 4 aportes, cuenten de la cuenta que cuenten', p.aportes_count, 4)
       // Cada aporte congela su propia conversión y se suma después — no es
-      // round2(900 / 6.96) de un tirón, es round2(300/6.96) tres veces.
-      eq('suman 900', p.total_aportado_usd, round2(300 / 6.96) * 3)
+      // round2(1200 / 6.96) de un tirón, es round2(300/6.96) cuatro veces
+      // (el de la cuenta USD ya nació en 43.10 USD, mismo número).
+      eq('suman lo esperado', p.total_aportado_usd, round2(300 / 6.96) * 4)
 
       const excede = await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
-        amount: 999999, date: '2026-09-10',
+        amount: 999999, date: '2026-09-10', account_id: bs.id,
       })})
       eq('supera el saldo → 400', excede.status, 400)
     }
 
     section('POST /pasanaku/[id]/recibir')
     {
+      eq('sin cuenta → 400 (no hay de dónde sacar el default)', (await api(`/pasanaku/${pasanaku.id}/recibir`, {
+        method: 'POST', body: JSON.stringify({ date: '2026-11-05' }),
+      })).status, 400)
+
       const antes = await json(await api('/accounts'))
       const saldoAntes = antes.accounts.find(a => a.id === bs.id).balance
       const mesAntes = await json(await api('/transactions?from=2026-11-01&to=2026-11-30'))
 
       const recibo = (await json(await api(`/pasanaku/${pasanaku.id}/recibir`, { method: 'POST', body: JSON.stringify({
-        date: '2026-11-05',
+        date: '2026-11-05', account_id: bs.id,
       })}))).transaction
       eq('sugiere el pozo completo: 8 puestos × 300', recibo.amount, 2400)
       eq('ingreso, movimiento — no es plata ganada', recibo.flow_type, 'movimiento')
@@ -1758,7 +1783,8 @@ async function run() {
       })}))).account
 
       const pasanakuSinAportes = (await json(await api('/pasanaku', { method: 'POST', body: JSON.stringify({
-        name: 'Recién creado', account_id: cuentaNueva.id, contribution_amount: 50, total_slots: 5, my_slot: 2, start_date: '2026-09-01',
+        name: 'Recién creado', account_id: cuentaNueva.id, currency: 'BOB',
+        contribution_amount: 50, total_slots: 5, my_slot: 2, start_date: '2026-09-01',
       })}))).pasanaku
 
       // La cuenta no tiene NINGÚN movimiento todavía (fin_pasanaku no cuenta
@@ -1774,9 +1800,10 @@ async function run() {
 
     section('PATCH /accounts · marcarla como inversión con aportes de pasanaku ya cargados')
     {
-      // `bs` tiene 2 aportes propios (aporte1 y `otro`, más arriba) con
-      // flow_type: 'movimiento' — marcarla como inversión los volvería
-      // indistinguibles de un ajuste de valor y desaparecerían de Movimientos.
+      // `bs` tiene movimientos de pasanaku propios (aportes y la recepción,
+      // más arriba) con flow_type: 'movimiento' — marcarla como inversión los
+      // volvería indistinguibles de un ajuste de valor y desaparecerían de
+      // Movimientos.
       const marcar = await api(`/accounts/${bs.id}`, { method: 'PATCH', body: JSON.stringify({ is_investment: true }) })
       eq('rechazada con 409, no aplicada en silencio', marcar.status, 409)
 

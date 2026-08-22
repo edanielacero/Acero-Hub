@@ -5,7 +5,7 @@ import {
   IconCalendarCheck, IconCheck, IconGift, IconPencil, IconPlus,
   IconRotateClockwise2,
 } from '@tabler/icons-react'
-import type { Currency, PasanakuWithState } from '@/lib/finanzas/types'
+import type { PasanakuWithState } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
@@ -79,7 +79,6 @@ export function PasanakuScreen() {
                   key={p.id}
                   p={p}
                   accountName={accounts.find(a => a.id === p.account_id)?.name}
-                  currency={accounts.find(a => a.id === p.account_id)?.currency}
                   hidden={hidden}
                   hoy={hoy}
                   onView={() => setViendo(p)}
@@ -127,10 +126,10 @@ export function PasanakuScreen() {
               </div>
             </div>
             <div>
-              <DetailField label="Cuenta" value={accounts.find(a => a.id === viendo.account_id)?.name} />
+              <DetailField label="Última cuenta usada" value={accounts.find(a => a.id === viendo.account_id)?.name} />
               <DetailField
                 label="Aporte por mes"
-                value={hidden ? HIDDEN : formatAmount(viendo.contribution_amount, accounts.find(a => a.id === viendo.account_id)?.currency ?? 'BOB')}
+                value={hidden ? HIDDEN : formatAmount(viendo.contribution_amount, viendo.currency)}
               />
               <DetailField label="Aportes registrados" value={viendo.aportes_count} />
               <DetailField
@@ -145,10 +144,9 @@ export function PasanakuScreen() {
   )
 }
 
-function Row({ p, accountName, currency, hidden, hoy, onView, onAportar, onRecibir, onEdit }: {
+function Row({ p, accountName, hidden, hoy, onView, onAportar, onRecibir, onEdit }: {
   p: PasanakuWithState
   accountName?: string
-  currency?: Currency
   hidden: boolean
   hoy: string
   onView: () => void
@@ -156,7 +154,6 @@ function Row({ p, accountName, currency, hidden, hoy, onView, onAportar, onRecib
   onRecibir: () => void
   onEdit: () => void
 }) {
-  const cur = currency ?? 'BOB'
   const turnoLlego = !p.received && p.expected_turn <= hoy
 
   return (
@@ -171,7 +168,7 @@ function Row({ p, accountName, currency, hidden, hoy, onView, onAportar, onRecib
           Puesto {p.my_slot} de {p.total_slots}
           {accountName && ` · ${accountName}`}
           {' · '}
-          {hidden ? HIDDEN : formatAmount(p.contribution_amount, cur)}/mes
+          {hidden ? HIDDEN : formatAmount(p.contribution_amount, p.currency)}/mes
           {p.aportes_count > 0 && ` · ${p.aportes_count} ${p.aportes_count === 1 ? 'aporte' : 'aportes'}`}
         </span>
       </button>

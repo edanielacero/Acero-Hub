@@ -1,7 +1,7 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num } from '@/lib/finanzas/money'
+import { crossCurrencySuggestion, num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
 import { assertBalance } from '@/lib/finanzas/load'
@@ -32,11 +32,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: p } = await supabase
     .from('fin_pasanaku')
-    .select('id, name, account_id, contribution_amount')
+    .select('id, name, account_id, currency, contribution_amount')
     .eq('id', id).eq('user_id', userId).maybeSingle()
   if (!p) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
+  // El pasanaku no tiene cuenta propia — se elige recién acá, igual que un
+  // fijo (§ RegisterSheet). `p.account_id` solo sirve como último default si
+  // ya se usó una vez; sin body ni default, no hay de dónde sacarla.
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : p.account_id
+  if (!accountId) return NextResponse.json({ error: 'Elegí de qué cuenta sale' }, { status: 400 })
+
   const { data: accountRow } = await supabase
     .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
   if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
@@ -48,7 +53,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'No podés aportar desde una cuenta de inversión' }, { status: 400 })
   }
 
-  const amount = body.amount === undefined ? num(p.contribution_amount) : num(body.amount, NaN)
+  const currency = account.currency as Currency
+  const { rates } = await ensureRates(supabase, userId)
+
+  // `contribution_amount` está denominado en `p.currency`, no necesariamente
+  // en la de la cuenta elegida — se convierte con la tasa de hoy cuando
+  // difieren, mismo mecanismo que usa el sheet (`crossCurrencySuggestion`).
+  const defaultAmount = currency === p.currency
+    ? num(p.contribution_amount)
+    : crossCurrencySuggestion(num(p.contribution_amount), p.currency as Currency, currency, rates) ?? num(p.contribution_amount)
+  const amount = body.amount === undefined ? defaultAmount : num(body.amount, NaN)
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
@@ -58,8 +72,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const balanceError = await assertBalance(supabase, userId, account, 'gasto', amount)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
-  const currency = account.currency as Currency
-  const { rates } = await ensureRates(supabase, userId)
   const frozen = freezeConversion(amount, currency, rates)
 
   const { data: tx, error } = await supabase

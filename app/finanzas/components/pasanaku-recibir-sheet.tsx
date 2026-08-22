@@ -15,7 +15,7 @@ import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } fr
  * `received` de que exista). El monto viene sugerido con el pozo completo,
  * pero editable: a veces no llega redondo.
  *
- * La cuenta de destino es solo el DEFAULT del pasanaku — mismo criterio que
+ * El pasanaku no tiene cuenta propia — se elige acá, cada vez, igual que en
  * <PasanakuAporteSheet>: podés recibir en una cuenta distinta a la de tus
  * aportes sin que eso los afecte.
  */
@@ -32,18 +32,18 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
     [candidatas, search],
   )
 
-  const [accountId, setAccountId] = useState(pasanaku.account_id)
+  // El pasanaku no tiene cuenta propia — pero si ya recibiste antes en una,
+  // esta pantalla la sugiere. Puede no haber ninguna.
+  const [accountId, setAccountId] = useState(pasanaku.account_id ?? '')
   const account = candidatas.find(a => a.id === accountId)
-  const decimals = decimalsFor(account?.currency ?? 'BOB')
+  const decimals = decimalsFor(account?.currency ?? pasanaku.currency)
 
-  // El pozo (`contribution_amount × total_slots`) está denominado en la
-  // moneda de la cuenta DEFAULT del pasanaku, no en la elegida acá — sin
-  // esto, recibir en una cuenta de otra moneda dejaba el mismo número tal
-  // cual (el pozo en Bs pasaba a "valer" lo mismo en USD) en vez de
-  // convertirlo con la tasa de hoy.
-  const homeCurrency = accounts.find(a => a.id === pasanaku.account_id)?.currency ?? 'BOB'
+  // El pozo (`contribution_amount × total_slots`) está denominado en
+  // `pasanaku.currency`, no en la cuenta elegida acá — sin esto, recibir en
+  // una cuenta de otra moneda dejaba el mismo número tal cual (el pozo en Bs
+  // pasaba a "valer" lo mismo en USD) en vez de convertirlo con la tasa de hoy.
   const pozoHomeCurrency = pasanaku.contribution_amount * pasanaku.total_slots
-  const crossCurrencyAmount = account ? crossCurrencySuggestion(pozoHomeCurrency, homeCurrency, account.currency, rates) : null
+  const crossCurrencyAmount = account ? crossCurrencySuggestion(pozoHomeCurrency, pasanaku.currency, account.currency, rates) : null
   const suggested = account ? (crossCurrencyAmount ?? roundFor(pozoHomeCurrency, account.currency)) : 0
 
   const [amount, setAmount] = useState(String(suggested))
@@ -128,8 +128,8 @@ export function PasanakuRecibirSheet({ pasanaku, onClose, onDone }: {
             />
             {account && (
               <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-                Sugerido: {pasanaku.total_slots} puestos × {formatAmount(pasanaku.contribution_amount, homeCurrency)} ={' '}
-                {formatAmount(pozoHomeCurrency, homeCurrency)}
+                Sugerido: {pasanaku.total_slots} puestos × {formatAmount(pasanaku.contribution_amount, pasanaku.currency)} ={' '}
+                {formatAmount(pozoHomeCurrency, pasanaku.currency)}
                 {crossCurrencyAmount != null && <> — según la tasa de hoy, unos {formatAmount(crossCurrencyAmount, account.currency)}</>}.
               </p>
             )}

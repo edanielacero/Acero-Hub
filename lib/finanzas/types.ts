@@ -393,7 +393,14 @@ export interface DebtPlanWithCuotas extends DebtPlan {
 export interface Pasanaku {
   id: string
   name: string
-  account_id: string
+  /** Null hasta que se registra un aporte o recepción por primera vez — o
+      para siempre, si cada movimiento sale de una cuenta distinta. Mismo
+      criterio que `Recurring.account_id`: la cuenta se elige al REGISTRAR,
+      no al crear. */
+  account_id: string | null
+  /** Independiente de la cuenta: en qué moneda está pensado el aporte
+      mensual. Mismo rol que `Recurring.currency`. */
+  currency: Currency
   contribution_amount: number
   total_slots: number
   /** Qué puesto soy yo en la ronda. 1-indexado. */
@@ -404,7 +411,8 @@ export interface Pasanaku {
 
 export interface PasanakuInput {
   name: string
-  account_id: string
+  account_id?: string | null
+  currency: Currency
   contribution_amount: number
   total_slots: number
   my_slot: number

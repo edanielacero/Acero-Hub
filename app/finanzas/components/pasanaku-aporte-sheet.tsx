@@ -14,13 +14,11 @@ import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } fr
  * cargaste. Un `gasto` como cualquier otro: no puede superar el saldo de la
  * cuenta elegida.
  *
- * La cuenta del pasanaku es solo el DEFAULT, no una ley — mismo trato que el
- * monto: cada aporte puede salir de una cuenta distinta (un mes en efectivo,
- * otro desde el banco) sin que eso afecte a los aportes ya registrados, que
- * guardan su propio `account_id`. Mismo patrón de chips que "Sale de" en
- * RegisterSheet (Fijos). Sin cuentas de inversión: el server las rechaza
- * igual (ver POST /pasanaku/[id]/aporte) por la misma razón que
- * <PasanakuSheet> ya las saca del picker de creación.
+ * El pasanaku no tiene cuenta propia — se elige acá, cada vez, igual que
+ * "Sale de" en RegisterSheet (Fijos): cada aporte puede salir de una cuenta
+ * distinta (un mes en efectivo, otro desde el banco) sin que eso afecte a los
+ * ya registrados, que guardan su propio `account_id`. Sin cuentas de
+ * inversión: el server las rechaza igual (ver POST /pasanaku/[id]/aporte).
  */
 export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
   pasanaku: PasanakuWithState
@@ -35,16 +33,18 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
     [candidatas, search],
   )
 
-  const [accountId, setAccountId] = useState(pasanaku.account_id)
+  // El pasanaku no tiene cuenta propia (se elige acá, cada vez) — pero si ya
+  // aportaste antes desde una, esta pantalla la sugiere igual que
+  // RegisterSheet recuerda la última cuenta usada. Puede no haber ninguna.
+  const [accountId, setAccountId] = useState(pasanaku.account_id ?? '')
   const account = candidatas.find(a => a.id === accountId)
-  const decimals = decimalsFor(account?.currency ?? 'BOB')
+  const decimals = decimalsFor(account?.currency ?? pasanaku.currency)
 
-  // `contribution_amount` está denominado en la moneda de la cuenta DEFAULT
-  // del pasanaku, no en la elegida acá — sin esto, cambiar a una cuenta en
-  // otra moneda dejaba el mismo número tal cual (300 Bs pasaba a "valer" 300
-  // USD, ~7x de más) en vez de convertirlo.
-  const homeCurrency = accounts.find(a => a.id === pasanaku.account_id)?.currency ?? 'BOB'
-  const sugerido = account ? crossCurrencySuggestion(pasanaku.contribution_amount, homeCurrency, account.currency, rates) : null
+  // `contribution_amount` está denominado en `pasanaku.currency`, no en la
+  // cuenta elegida acá — sin esto, elegir una cuenta en otra moneda dejaba el
+  // mismo número tal cual (300 Bs pasaba a "valer" 300 USD, ~7x de más) en
+  // vez de convertirlo.
+  const sugerido = account ? crossCurrencySuggestion(pasanaku.contribution_amount, pasanaku.currency, account.currency, rates) : null
   const crossCurrency = sugerido != null
 
   const [amount, setAmount] = useState(String(pasanaku.contribution_amount))
@@ -57,7 +57,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
   // editaste a mano al elegir otra cuenta de la misma moneda.
   useEffect(() => {
     if (!account) return
-    setAmount(String(account.currency === homeCurrency ? pasanaku.contribution_amount : sugerido))
+    setAmount(String(account.currency === pasanaku.currency ? pasanaku.contribution_amount : sugerido))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.currency])
 
@@ -133,7 +133,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
             />
             {crossCurrency && account && sugerido != null && (
               <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-                El aporte es {formatAmount(pasanaku.contribution_amount, homeCurrency)}. Según la tasa de
+                El aporte es {formatAmount(pasanaku.contribution_amount, pasanaku.currency)}. Según la tasa de
                 hoy, unos {formatAmount(sugerido, account.currency)}.
                 <button
                   type="button"

@@ -89,7 +89,8 @@ create table fin_pasanaku (
   id                   uuid primary key default gen_random_uuid(),
   user_id              uuid not null references auth.users(id) on delete cascade,
   name                 text not null default 'Pasanaku',
-  account_id           uuid not null references fin_accounts(id) on delete restrict,
+  account_id           uuid references fin_accounts(id) on delete restrict,
+  currency             text not null default 'USD' check (currency in ('USD','BOB','USDT','USDC','BTC')),
   contribution_amount  numeric(24,8) not null check (contribution_amount > 0),
   total_slots          integer not null check (total_slots > 1),
   my_slot              integer not null check (my_slot >= 1),
@@ -103,6 +104,20 @@ create table fin_pasanaku (
 
 `contribution_amount` es un **default editable**, no una ley — mismo trato
 que `fin_recurring.amount`: se puede pisar al registrar cada aporte.
+
+**Corrección del 2026-08-21, mismo día:** la primera versión tenía
+`account_id not null` — el usuario probó la app y señaló que un pasanaku es
+"un monto en una moneda", igual que un fijo: la cuenta se elige al aportar o
+recibir, no al crear. Se corrigió con
+`20260821010000_finanzas_pasanaku_cuenta_opcional.sql`, calcado de
+`20260820000000_finanzas_fijos_moneda_cuenta_opcional.sql` (la misma
+corrección que ya había pasado `fin_recurring`): `account_id` pasa a
+nullable y se agrega `currency` como campo independiente — sin él no hay
+decimales (BTC usa 8) ni label que mostrar en "Aporte por mes" mientras
+todavía no hay cuenta elegida. `PasanakuSheet` (crear/editar) ya no pide
+cuenta, solo moneda; `PasanakuAporteSheet`/`PasanakuRecibirSheet` la piden
+recién ahí, con `account_id` guardado en cada movimiento como sugerencia
+para la próxima vez — no en el pasanaku.
 
 ### 3.2 El vínculo con `fin_transactions`
 
@@ -273,9 +288,9 @@ precisión de la moneda.
 
 | Suite | Nuevo en este sprint | Total |
 |---|---|---|
-| `unit.mjs` | `addMonthsClamped`, `expectedTurnDate`, `validatePasanaku` (17 casos) | 420/420 |
-| `db.mjs` | constraints de `fin_pasanaku`, RLS, vínculo `on delete set null` con `fin_transactions` (16 casos) | 118/118 |
-| `api.mjs` | flujo completo por HTTP: crear, aportar (dos veces, uno que excede saldo), recibir, editar, borrar — verificando en cada paso que `total_gasto_usd`/`total_ingreso_usd` del mes NO cambian (23 casos) | 390/390 |
+| `unit.mjs` | `addMonthsClamped`, `expectedTurnDate`, `validatePasanaku`, `crossCurrencySuggestion` | 425/425 |
+| `db.mjs` | constraints de `fin_pasanaku` (cuenta opcional, moneda con default), RLS, vínculo `on delete set null` con `fin_transactions` | 123/123 |
+| `api.mjs` | flujo completo por HTTP sin cuenta al crear: aportar/recibir a cuentas distintas, conversión real de moneda (incluida la sugerida por el server cuando no viene `amount` explícito), cuentas de inversión rechazadas en las 4 rutas, `DELETE /accounts` y `PATCH .../is_investment` protegidos | 410/410 |
 
 **Pendiente: verificación visual en navegador.** Se intentó automatizar con
 un usuario de prueba temporal (mismo patrón `@acerotest.local` que ya usan

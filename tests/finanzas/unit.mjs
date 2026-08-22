@@ -1250,13 +1250,16 @@ section('SPRINT 5 · expectedTurnDate — cuándo te toca recibir')
 
 section('SPRINT 5 · validatePasanaku')
 {
+  // Sin account_id a propósito: la cuenta se elige al aportar/recibir, no al
+  // crear (revisión del 2026-08-21, mismo patrón que fin_recurring).
   const base = {
-    name: 'Pasanaku', account_id: 'acc-1', contribution_amount: 300,
+    name: 'Pasanaku', currency: 'BOB', contribution_amount: 300,
     total_slots: 8, my_slot: 4, start_date: '2026-08-05',
   }
   eq('un pasanaku válido no da error', validatePasanaku(base), null)
   eq('sin nombre', validatePasanaku({ ...base, name: '' }), 'Ponele un nombre')
-  eq('sin cuenta', validatePasanaku({ ...base, account_id: '' }), 'Elegí de qué cuenta sale')
+  eq('sin moneda', validatePasanaku({ ...base, currency: undefined }), 'Elegí una moneda')
+  eq('moneda fuera del enum', validatePasanaku({ ...base, currency: 'EUR' }), 'Elegí una moneda')
   eq('aporte en cero', validatePasanaku({ ...base, contribution_amount: 0 }), 'El aporte debe ser mayor a cero')
   eq('un solo puesto no es una ronda', validatePasanaku({ ...base, total_slots: 1 }), 'Los puestos tienen que ser al menos 2')
   eq('puesto en cero', validatePasanaku({ ...base, my_slot: 0 }), 'Tu puesto tiene que ser 1 o más')

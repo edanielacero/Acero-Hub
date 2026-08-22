@@ -1,7 +1,7 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num, roundFor } from '@/lib/finanzas/money'
+import { crossCurrencySuggestion, num, roundFor } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
 import type { Currency } from '@/lib/finanzas/types'
@@ -32,11 +32,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: p } = await supabase
     .from('fin_pasanaku')
-    .select('id, name, account_id, contribution_amount, total_slots')
+    .select('id, name, account_id, currency, contribution_amount, total_slots')
     .eq('id', id).eq('user_id', userId).maybeSingle()
   if (!p) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
+  // El pasanaku no tiene cuenta propia — se elige recién acá, igual que en
+  // /aporte. `p.account_id` solo sirve como último default si ya se usó una vez.
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : p.account_id
+  if (!accountId) return NextResponse.json({ error: 'Elegí a qué cuenta entra' }, { status: 400 })
+
   const { data: accountRow } = await supabase
     .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
   if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
@@ -47,10 +51,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'No podés recibir en una cuenta de inversión' }, { status: 400 })
   }
   const currency = account.currency as Currency
+  const { rates } = await ensureRates(supabase, userId)
 
-  // Sugerido: el pozo completo. Editable — a veces no llega redondo (alguien
-  // se atrasó, o se cobra en otra moneda con su propio redondeo).
-  const suggested = roundFor(num(p.contribution_amount) * num(p.total_slots, 1), currency)
+  // El pozo (`contribution_amount × total_slots`) está denominado en
+  // `p.currency`, no necesariamente en la de la cuenta elegida — se convierte
+  // con la tasa de hoy cuando difieren, mismo mecanismo que el sheet.
+  const pozoHomeCurrency = num(p.contribution_amount) * num(p.total_slots, 1)
+  const suggested = currency === p.currency
+    ? roundFor(pozoHomeCurrency, currency)
+    : crossCurrencySuggestion(pozoHomeCurrency, p.currency as Currency, currency, rates) ?? roundFor(pozoHomeCurrency, currency)
   const amount = body.amount === undefined ? suggested : num(body.amount, NaN)
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
@@ -58,7 +67,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : todayISO()
 
-  const { rates } = await ensureRates(supabase, userId)
   const frozen = freezeConversion(amount, currency, rates)
 
   const { data: tx, error } = await supabase

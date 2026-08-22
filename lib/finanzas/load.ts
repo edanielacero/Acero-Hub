@@ -287,7 +287,7 @@ export async function loadDebtPlans(
 }
 
 const PASANAKU_COLS =
-  'id, name, account_id, contribution_amount, total_slots, my_slot, start_date, archived'
+  'id, name, account_id, currency, contribution_amount, total_slots, my_slot, start_date, archived'
 
 /**
  * Los pasanaku con lo que ya se derivó de sus movimientos.

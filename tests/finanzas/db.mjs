@@ -699,40 +699,69 @@ async function run() {
     const anon = await fetch(`${URL_}/rest/v1/fin_pasanaku?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
     eq('sin sesión no ve pasanaku', anon, [])
 
+    // Sin account_id a propósito: la cuenta se elige al aportar/recibir, no
+    // al crear — revisión del 2026-08-21, mismo patrón que fin_recurring
+    // (20260820000000_finanzas_fijos_moneda_cuenta_opcional.sql).
     pasanaku = (await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'Oficina', account_id: airtm.id,
+      user_id: USER_ID, name: 'Oficina', currency: 'USD',
       contribution_amount: 300, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
     }).then(r => r.json()))[0]
-    ok('crea un pasanaku', !!pasanaku?.id)
+    ok('crea un pasanaku sin cuenta', !!pasanaku?.id)
+    eq('account_id nace null', pasanaku.account_id, null)
     eq('nace sin archivar', pasanaku.archived, false)
 
+    const conCuenta = (await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'Con cuenta desde el alta', account_id: airtm.id, currency: 'USD',
+      contribution_amount: 50, total_slots: 4, my_slot: 1, start_date: '2026-08-05',
+    }).then(r => r.json()))[0]
+    ok('pero también se puede pasar una si se quiere', !!conCuenta?.id)
+    eq('y queda guardada', conCuenta.account_id, airtm.id)
+    await as(`/fin_pasanaku?id=eq.${conCuenta.id}`, { method: 'DELETE' })
+
+    // Sin moneda explícita, la base defaulta a 'USD' — mismo criterio que
+    // fin_recurring.currency. Que la moneda sea obligatoria de verdad es una
+    // regla de la API (validatePasanaku, cubierta en unit.mjs y api.mjs), no
+    // de la base: el default existe para que un insert sin ese campo no
+    // rompa nunca a nivel de constraint.
+    const sinMoneda = (await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', contribution_amount: 100, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+    }).then(r => r.json()))[0]
+    eq('sin moneda explícita cae al default USD', sinMoneda.currency, 'USD')
+    await as(`/fin_pasanaku?id=eq.${sinMoneda.id}`, { method: 'DELETE' })
+
+    const monedaInvalida = await post('fin_pasanaku', {
+      user_id: USER_ID, name: 'X', currency: 'EUR',
+      contribution_amount: 100, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
+    })
+    ok('rechaza una moneda fuera del enum', monedaInvalida.status >= 400, `HTTP ${monedaInvalida.status}`)
+
     const unPuesto = await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      user_id: USER_ID, name: 'X', currency: 'USD',
       contribution_amount: 100, total_slots: 1, my_slot: 1, start_date: '2026-08-05',
     })
     ok('rechaza una ronda de un solo puesto', unPuesto.status >= 400, `HTTP ${unPuesto.status}`)
 
     const puestoCero = await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      user_id: USER_ID, name: 'X', currency: 'USD',
       contribution_amount: 100, total_slots: 8, my_slot: 0, start_date: '2026-08-05',
     })
     ok('rechaza puesto en cero', puestoCero.status >= 400, `HTTP ${puestoCero.status}`)
 
     const puestoFueraDeRango = await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      user_id: USER_ID, name: 'X', currency: 'USD',
       contribution_amount: 100, total_slots: 8, my_slot: 9, start_date: '2026-08-05',
     })
     ok('rechaza un puesto mayor que el total (fin_pasanaku_slot_shape)',
        puestoFueraDeRango.status >= 400, `HTTP ${puestoFueraDeRango.status}`)
 
     const aporteCero = await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'X', account_id: airtm.id,
+      user_id: USER_ID, name: 'X', currency: 'USD',
       contribution_amount: 0, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
     })
     ok('rechaza aporte en cero', aporteCero.status >= 400, `HTTP ${aporteCero.status}`)
 
     const ajeno = await post('fin_pasanaku', {
-      user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajeno', account_id: airtm.id,
+      user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajeno', currency: 'USD',
       contribution_amount: 100, total_slots: 8, my_slot: 4, start_date: '2026-08-05',
     })
     ok('RLS impide crear un pasanaku a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
@@ -762,14 +791,14 @@ async function run() {
   {
     const noSession = { apikey: ANON, 'Content-Type': 'application/json' }
     const otro = (await post('fin_pasanaku', {
-      user_id: USER_ID, name: 'Barrio', account_id: airtm.id,
+      user_id: USER_ID, name: 'Barrio', currency: 'USD',
       contribution_amount: 200, total_slots: 6, my_slot: 2, start_date: '2026-08-05',
     }).then(r => r.json()))[0]
 
     const ins = await fetch(`${URL_}/rest/v1/fin_pasanaku`, {
       method: 'POST', headers: noSession,
       body: JSON.stringify({
-        user_id: USER_ID, name: 'Intruso', account_id: airtm.id,
+        user_id: USER_ID, name: 'Intruso', currency: 'USD',
         contribution_amount: 1, total_slots: 2, my_slot: 1, start_date: '2026-08-05',
       }),
     })

@@ -5,7 +5,7 @@ import { validatePasanaku } from '@/lib/finanzas/pasanaku'
 import type { PasanakuInput } from '@/lib/finanzas/types'
 
 const PASANAKU_COLS =
-  'id, name, account_id, contribution_amount, total_slots, my_slot, start_date, archived'
+  'id, name, account_id, currency, contribution_amount, total_slots, my_slot, start_date, archived'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()
@@ -24,6 +24,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const merged: Partial<PasanakuInput> = {
     name: pick(typeof body.name === 'string' ? body.name.trim() : undefined, current.name),
     account_id: pick(body.account_id, current.account_id),
+    currency: pick(body.currency, current.currency),
     contribution_amount: body.contribution_amount === undefined ? num(current.contribution_amount) : num(body.contribution_amount, NaN),
     total_slots: body.total_slots === undefined ? current.total_slots : num(body.total_slots, NaN),
     my_slot: body.my_slot === undefined ? current.my_slot : num(body.my_slot, NaN),
@@ -33,7 +34,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const invalid = validatePasanaku(merged)
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
 
-  if (merged.account_id !== current.account_id) {
+  if (merged.account_id && merged.account_id !== current.account_id) {
     const { data: account } = await supabase
       .from('fin_accounts').select('id, is_investment').eq('user_id', userId).eq('id', merged.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })

@@ -1,3 +1,4 @@
+import { CURRENCIES } from './types'
 import type { Pasanaku, PasanakuInput } from './types'
 
 /** Último día del mes, para no proponer un 31 de febrero. Mismo criterio que `lib/finanzas/recurring.ts`. */
@@ -28,7 +29,10 @@ export function expectedTurnDate(p: Pick<Pasanaku, 'start_date' | 'my_slot'>): s
 
 export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
   if (!input.name || !input.name.trim()) return 'Ponele un nombre'
-  if (!input.account_id) return 'Elegí de qué cuenta sale'
+  // Sin cuenta a propósito: se elige al aportar/recibir, no al crear (mismo
+  // criterio que un fijo). Lo que sí hace falta es saber en qué moneda está
+  // pensado el aporte — sin eso no hay decimales ni label que mostrar.
+  if (!input.currency || !CURRENCIES.includes(input.currency)) return 'Elegí una moneda'
   if (typeof input.contribution_amount !== 'number' || !Number.isFinite(input.contribution_amount) || input.contribution_amount <= 0) {
     return 'El aporte debe ser mayor a cero'
   }
