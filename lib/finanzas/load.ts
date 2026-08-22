@@ -8,7 +8,7 @@ import { DEBT_COLS, DEBT_CTX_COLS, mapDebtContext, readDebts, settledOn, type Ra
 import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
-import { expectedTurnDate, nextAporteDue } from './pasanaku'
+import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import type {
   Account, AccountWithBalance, Category, Currency, PersonWithDebt,
@@ -391,6 +391,7 @@ export async function loadPasanaku(
       ...p,
       expected_turn: expectedTurnDate(p),
       next_aporte_due: nextAporteDue(p.start_date, hoy),
+      current_round: currentRound(p.start_date, hoy),
       received: collected_amount >= collection_target - tolerance,
       received_at: cobrosRaw[0]?.date ?? null,
       aportes_count: aportes.length + historico.length,

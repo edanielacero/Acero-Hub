@@ -299,6 +299,23 @@ resta de `collected_amount`, y si eso lo deja por debajo del objetivo,
 `received` vuelve solo a `false` — es un cálculo, no un flag que alguien
 tenga que acordarse de destildar.
 
+### 4.9 Barra de progreso "hasta que te toque" (2026-08-22)
+
+**Pedido del usuario:** una barra en la card que muestre cuántas rondas ya
+pasaron camino a tu turno, no solo la fecha.
+
+`currentRound(start_date, hoy)` en `lib/finanzas/pasanaku.ts` — misma
+familia que `nextAporteDue`, mismo cálculo de meses transcurridos, pero
+devuelve el número de ronda (1 = `start_date`) en vez de una fecha. Es una
+aproximación por **mes calendario**, no un conteo de aportes realmente
+registrados — igual que `next_aporte_due` tampoco mira si vos en particular
+ya cargaste el tuyo ese mes.
+
+La card muestra `current_round / my_slot` como barra solo mientras
+`!received && !tuTurnoLlego` — en cuanto la ronda te alcanza, la barra que
+importa pasa a ser la de "Lista de cobro" (§4.8), así que esta desaparece
+para no mostrar dos barras compitiendo por atención.
+
 ---
 
 ## 5. Estructura de archivos

@@ -44,6 +44,23 @@ export function nextAporteDue(startDate: string, todayISO: string): string {
   return due < todayISO ? addMonthsClamped(startDate, months + 1) : due
 }
 
+/**
+ * En qué ronda del pasanaku estamos, contando desde 1 — `start_date` es la
+ * ronda 1. Mismo cálculo de meses transcurridos que `nextAporteDue`, pero
+ * devolviendo el número de ronda en vez de la fecha. Se topa contra 1: antes
+ * de `start_date` no hay ronda "0".
+ *
+ * Sirve para la barra de progreso "hasta que te toque" (ronda actual / tu
+ * puesto) — una aproximación por mes calendario, no un conteo de aportes
+ * realmente registrados: mismo criterio que `next_aporte_due`, que tampoco
+ * mira si vos en particular ya cargaste el tuyo.
+ */
+export function currentRound(startDate: string, todayISO: string): number {
+  const [sy, sm] = startDate.split('-').map(Number)
+  const [ty, tm] = todayISO.split('-').map(Number)
+  return Math.max(1, (ty * 12 + (tm - 1)) - (sy * 12 + (sm - 1)) + 1)
+}
+
 export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
   if (!input.name || !input.name.trim()) return 'Ponele un nombre'
   // Sin cuenta a propósito: se elige al aportar/recibir, no al crear (mismo

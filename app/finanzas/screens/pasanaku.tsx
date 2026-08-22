@@ -221,6 +221,10 @@ function Card({ p, accountName, hidden, hoy, onView, onEdit, onAportar, onCobrar
   const [expanded, setExpanded] = useState(false)
   const tuTurnoLlego = p.expected_turn <= hoy
   const pct = p.collection_target > 0 ? Math.min(100, Math.round((p.collected_amount / p.collection_target) * 100)) : 0
+  // Ronda actual (por calendario, ver currentRound) sobre tu puesto — cuánto
+  // falta para que te toque. Se topa en my_slot: una vez que la ronda te
+  // alcanzó, la barra que importa pasa a ser la de "Lista de cobro" de abajo.
+  const rondaPct = Math.min(100, Math.round((p.current_round / p.my_slot) * 100))
 
   return (
     <Panel className={p.archived ? 'opacity-50' : ''}>
@@ -266,6 +270,17 @@ function Card({ p, accountName, hidden, hoy, onView, onEdit, onAportar, onCobrar
           </span>
         )}
       </div>
+
+      {!p.received && !tuTurnoLlego && (
+        <div className="mt-2">
+          <div className="h-1.5 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${rondaPct}%`, background: 'var(--fz-accent)' }} />
+          </div>
+          <p className="mt-1 text-[12px] text-[var(--fz-ink-3)]">
+            Ronda {Math.min(p.current_round, p.my_slot)} de {p.my_slot} hasta tu turno
+          </p>
+        </div>
+      )}
 
       <Btn onClick={onAportar} full className="mt-3.5">Aportar</Btn>
 

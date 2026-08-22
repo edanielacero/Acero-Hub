@@ -451,6 +451,10 @@ export interface PasanakuWithState extends Pasanaku {
   expected_turn: string
   /** El mismo día del mes que `start_date`, la próxima vez que cae. */
   next_aporte_due: string
+  /** En qué ronda vamos (1 = `start_date`), para la barra "hasta que te
+      toque" (`current_round` / `my_slot`). Aproximación por mes calendario,
+      no un conteo de aportes realmente registrados. */
+  current_round: number
   /**
    * `true` cuando `collected_amount` ya alcanzó `collection_target` — es
    * decir, cuando ya cobraste la parte de todos los demás puestos. Antes
