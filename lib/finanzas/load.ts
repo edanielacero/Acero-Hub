@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { formatAmount, num, round2, toUsd } from './money'
+import { crossCurrencySuggestion, formatAmount, num, round2, roundFor } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -299,13 +299,18 @@ const PASANAKU_HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
  * Se traen todos los movimientos con `pasanaku_id` de una sola vez en vez de
  * una consulta por pasanaku, mismo criterio de siempre.
  *
- * `aportes_count`/`total_aportado_usd` suman DOS fuentes: los aportes reales
+ * `aportes_count`/`total_aportado` suman DOS fuentes: los aportes reales
  * (`fin_transactions`) y los históricos de antes de usar la app
  * (`fin_pasanaku_historico`) — ver §"Aportes de antes de la app" en
- * sprint_5_pasanaku.md. Los históricos no tienen `amount_usd` congelado (no
- * hubo transacción real que lo congelara), así que se convierten acá con la
- * tasa de HOY — mismo criterio que el patrimonio total (§4.3 de
- * contexto_finanzas.md: una foto del presente, no un dato histórico).
+ * sprint_5_pasanaku.md.
+ *
+ * `total_aportado` queda en `Pasanaku.currency` — no en USD — porque es la
+ * moneda en la que el usuario piensa el pasanaku (feedback del 2026-08-21).
+ * Un aporte cuya cuenta ya está en esa moneda suma su monto tal cual, sin
+ * pasar por ninguna conversión (cero deriva de redondeo); uno de otra moneda
+ * se convierte con la tasa de HOY — inevitable ahí, mismo criterio que el
+ * patrimonio total (§4.3 de contexto_finanzas.md). Los históricos ya nacen
+ * en `Pasanaku.currency` (no tienen cuenta), así que siempre suman directo.
  */
 export async function loadPasanaku(
   supabase: SupabaseClient,
@@ -315,18 +320,18 @@ export async function loadPasanaku(
     supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('user_id', userId).order('created_at'),
     supabase
       .from('fin_transactions')
-      .select('type, date, amount_usd, pasanaku_id')
+      .select('type, date, amount, currency, pasanaku_id')
       .eq('user_id', userId)
       .not('pasanaku_id', 'is', null),
     supabase.from('fin_pasanaku_historico').select(PASANAKU_HISTORICO_COLS).eq('user_id', userId),
     ensureRates(supabase, userId),
   ])
 
-  const byPasanaku = new Map<string, { type: TxType; date: string; amount_usd: number }[]>()
+  const byPasanaku = new Map<string, { type: TxType; date: string; amount: number; currency: Currency }[]>()
   for (const t of txRows ?? []) {
     const key = t.pasanaku_id as string
     const list = byPasanaku.get(key)
-    const entry = { type: t.type as TxType, date: t.date as string, amount_usd: num(t.amount_usd) }
+    const entry = { type: t.type as TxType, date: t.date as string, amount: num(t.amount), currency: t.currency as Currency }
     if (list) list.push(entry)
     else byPasanaku.set(key, [entry])
   }
@@ -348,7 +353,12 @@ export async function loadPasanaku(
     const recepciones = movs.filter(m => m.type === 'ingreso').sort((a, b) => (a.date < b.date ? 1 : -1))
 
     const historico = (historicoByPasanaku.get(p.id) ?? []).sort((a, b) => (a.date < b.date ? 1 : -1))
-    const historicoUsd = historico.reduce((s, h) => s + toUsd(h.amount, p.currency, rates), 0)
+
+    const aportesEnMoneda = aportes.reduce((s, a) => {
+      if (a.currency === p.currency) return s + a.amount
+      return s + (crossCurrencySuggestion(a.amount, a.currency, p.currency, rates) ?? a.amount)
+    }, 0)
+    const historicoEnMoneda = historico.reduce((s, h) => s + h.amount, 0)
 
     return {
       ...p,
@@ -356,7 +366,7 @@ export async function loadPasanaku(
       received: recepciones.length > 0,
       received_at: recepciones[0]?.date ?? null,
       aportes_count: aportes.length + historico.length,
-      total_aportado_usd: round2(aportes.reduce((s, a) => s + a.amount_usd, 0) + historicoUsd),
+      total_aportado: roundFor(aportesEnMoneda + historicoEnMoneda, p.currency),
       historico,
     }
   })

@@ -1685,10 +1685,12 @@ async function run() {
       const listado = await json(await api('/pasanaku'))
       const p = listado.pasanaku.find(x => x.id === pasanaku.id)
       eq('van 4 aportes, cuenten de la cuenta que cuenten', p.aportes_count, 4)
-      // Cada aporte congela su propia conversión y se suma después — no es
-      // round2(1200 / 6.96) de un tirón, es round2(300/6.96) cuatro veces
-      // (el de la cuenta USD ya nació en 43.10 USD, mismo número).
-      eq('suman lo esperado', p.total_aportado_usd, round2(300 / 6.96) * 4)
+      // total_aportado queda en la moneda del pasanaku (BOB), no en USD. Los
+      // 3 aportes en BOB suman su monto tal cual (300 cada uno, sin ninguna
+      // conversión de por medio); el de la cuenta USD (43.10, ya redondeado)
+      // vuelve a Bs con la tasa de hoy — con su propio redondeo, así que no
+      // da 300 exacto, da 299.98.
+      eq('suman lo esperado, en Bs — no en USD', p.total_aportado, 300 + 300 + round2(round2(300 / 6.96) * 6.96) + 300)
 
       const excede = await api(`/pasanaku/${pasanaku.id}/aporte`, { method: 'POST', body: JSON.stringify({
         amount: 999999, date: '2026-09-10', account_id: bs.id,
@@ -1808,7 +1810,7 @@ async function run() {
       const listadoDespues = await json(await api('/pasanaku'))
       const despues = listadoDespues.pasanaku.find(x => x.id === pasanaku.id)
       eq('suma 2 al conteo de aportes', despues.aportes_count, antes.aportes_count + 2)
-      ok('suma al total aportado', despues.total_aportado_usd > antes.total_aportado_usd)
+      ok('suma al total aportado', despues.total_aportado > antes.total_aportado)
       eq('quedan listados para poder borrarlos', despues.historico.length, 2)
 
       await api(`/pasanaku/historico/${h2.id}`, { method: 'DELETE' })

@@ -226,14 +226,36 @@ Movimientos.
 - `on delete cascade` (no `set null`, a diferencia de `pasanaku_id` en
   `fin_transactions`): esta fila no tiene ningún sentido fuera de su
   pasanaku, así que borrar el pasanaku se lleva su histórico entero.
-- `loadPasanaku` suma estas filas a `aportes_count`/`total_aportado_usd`
-  junto con los aportes reales — convertidas con la tasa de **hoy** (no
-  hay tasa congelada que valga, nunca hubo transacción), mismo criterio
-  que el patrimonio total (§4.3 de `contexto_finanzas.md`).
+- `loadPasanaku` suma estas filas a `aportes_count`/`total_aportado` junto
+  con los aportes reales — directo, sin convertir nada: ya nacen en la
+  moneda del pasanaku (§4.7 de más abajo explica por qué `total_aportado`
+  no es en USD).
 - En `PasanakuAporteSheet`, el toggle **"Ya lo pagué antes de usar la
   app"** cambia el sheet entero a este modo: sin selector de cuenta, sin
   tope de saldo, un solo campo más que en el modo normal. Se listan (y se
   pueden borrar de a una) en el detalle del pasanaku.
+
+### 4.7 `total_aportado` va en la moneda del pasanaku, no en USD
+
+**Feedback del usuario, mismo día:** el total aportado tiene que verse en
+la moneda en la que se creó el pasanaku — un solo número, no un USD que
+además mezclaba los aportes de varios pasanaku distintos en un panel
+agregado arriba de la lista (ese panel se sacó entero).
+
+`PasanakuWithState.total_aportado` reemplaza a `total_aportado_usd`:
+
+- Un aporte cuya cuenta ya está en `Pasanaku.currency` suma su `amount`
+  **tal cual** — cero conversión, cero redondeo de por medio.
+- Un aporte de una cuenta en otra moneda (el caso cross-currency de §4.5)
+  se convierte con la tasa de **hoy** vía `crossCurrencySuggestion` — acá
+  sí hay un redondeo inevitable, el mismo que ya se ve al elegir esa
+  cuenta en el sheet.
+- Los históricos (§4.6) ya nacen en `Pasanaku.currency` — jamás pasan por
+  ninguna conversión.
+
+Se muestra en la fila de la lista (`N aportes · 900 Bs`) y en el detalle
+(`Total aportado: 900 Bs`) — un solo lugar, un solo número, en la moneda
+que el usuario ya está pensando.
 
 ---
 

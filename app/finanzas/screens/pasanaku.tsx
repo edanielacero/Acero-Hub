@@ -6,7 +6,7 @@ import {
   IconRotateClockwise2, IconTrash,
 } from '@tabler/icons-react'
 import type { PasanakuHistorico, PasanakuWithState } from '@/lib/finanzas/types'
-import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { formatAmount, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
@@ -31,12 +31,6 @@ export function PasanakuScreen() {
   const hoy = useMemo(() => todayISO(), [])
   const items = pasanaku
   const hay = items.length > 0
-  const activos = items.filter(p => !p.archived)
-
-  const totalAportadoUsd = useMemo(
-    () => activos.reduce((s, p) => s + p.total_aportado_usd, 0),
-    [activos],
-  )
 
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
@@ -54,15 +48,6 @@ export function PasanakuScreen() {
       />
 
       <div className="flex flex-col gap-4">
-        {activos.length > 0 && (
-          <Panel>
-            <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">Aportado hasta ahora</p>
-            <p className="mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
-              {hidden ? HIDDEN : formatUSD(totalAportadoUsd)}
-            </p>
-          </Panel>
-        )}
-
         <Panel>
           <SectionTitle>Tus pasanaku</SectionTitle>
 
@@ -139,6 +124,10 @@ export function PasanakuScreen() {
                   value={hidden ? HIDDEN : formatAmount(p.contribution_amount, p.currency)}
                 />
                 <DetailField label="Aportes registrados" value={p.aportes_count} />
+                <DetailField
+                  label="Total aportado"
+                  value={hidden ? HIDDEN : formatAmount(p.total_aportado, p.currency)}
+                />
                 <DetailField
                   label={p.received ? 'Recibiste tu turno' : 'Te toca recibir'}
                   value={formatDayLabel(p.received ? p.received_at! : p.expected_turn, hoy)}
@@ -229,7 +218,10 @@ function Row({ p, accountName, hidden, hoy, onView, onAportar, onRecibir, onEdit
           {accountName && ` · ${accountName}`}
           {' · '}
           {hidden ? HIDDEN : formatAmount(p.contribution_amount, p.currency)}/mes
-          {p.aportes_count > 0 && ` · ${p.aportes_count} ${p.aportes_count === 1 ? 'aporte' : 'aportes'}`}
+          {p.aportes_count > 0 && (
+            ` · ${p.aportes_count} ${p.aportes_count === 1 ? 'aporte' : 'aportes'}` +
+            (hidden ? '' : ` · ${formatAmount(p.total_aportado, p.currency)}`)
+          )}
         </span>
       </button>
 

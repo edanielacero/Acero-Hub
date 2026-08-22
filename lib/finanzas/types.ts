@@ -442,9 +442,9 @@ export interface PasanakuWithState extends Pasanaku {
   received_at: string | null
   /** Aportes reales (fin_transactions) + históricos (fin_pasanaku_historico). */
   aportes_count: number
-  /** Ídem, en USD — los históricos se convierten con la tasa de HOY, no una
-      congelada (no hubo transacción real que congelar nada). */
-  total_aportado_usd: number
+  /** En `currency`, no en USD — es la moneda en la que el usuario piensa el
+      pasanaku. Un aporte en otra moneda se convierte con la tasa de HOY. */
+  total_aportado: number
   /** Los aportes de antes de la app, para poder listarlos y borrar alguno. */
   historico: PasanakuHistorico[]
 }
