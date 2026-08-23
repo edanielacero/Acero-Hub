@@ -13,10 +13,12 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconArchive, IconCheck, IconGripVertical, IconPlus, IconRefresh, IconTrash } from '@tabler/icons-react'
 import type { Category, CategoryKind, Currency, PersonWithDebt } from '@/lib/finanzas/types'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
+import type { BudgetViewMode } from '@/lib/finanzas/budgets'
 import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
 import { amountFromInput, formatUSD, parseDecimalInput } from '@/lib/finanzas/money'
 import { CurrencyIcon } from '../components/currency-icon'
 import { CategoryIcon, IconPickerGrid } from '../components/category-icon'
+import { useBudgetViewPref } from '../components/budget-view-pref'
 import { useFinanzas } from '../components/data-context'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { PageHeader } from '../components/tx-row'
@@ -32,8 +34,22 @@ function relativo(iso: string): string {
   return `hace ${Math.round(hs / 24)} d`
 }
 
+const BUDGET_VIEW_OPTIONS: { value: BudgetViewMode; label: string; hint: string }[] = [
+  {
+    value: 'gastado',
+    label: 'Cuánto vas gastando',
+    hint: 'La barra arranca vacía y el número grande es lo gastado, hasta llegar al tope.',
+  },
+  {
+    value: 'disponible',
+    label: 'Cuánto te queda',
+    hint: 'La barra arranca llena con el presupuesto entero y se va descontando a medida que gastás.',
+  },
+]
+
 export function AjustesScreen() {
   const { categories, people, rates, rateList, reload } = useFinanzas()
+  const { mode: budgetView, setMode: setBudgetView } = useBudgetViewPref()
 
   const [draftRates, setDraftRates] = useState<Partial<Record<Currency, string>>>({})
   const [savingRate, setSavingRate] = useState<Currency | null>(null)
@@ -235,6 +251,39 @@ export function AjustesScreen() {
 
       <div className="flex flex-col gap-4">
         <ErrorNote>{error}</ErrorNote>
+
+        <Panel>
+          <SectionTitle>Presupuesto</SectionTitle>
+          <p className="text-[13px] text-[var(--fz-ink-2)] mb-4">
+            Cómo mostrar el progreso — aplica igual en Presupuesto y en la Home.
+          </p>
+
+          <div className="flex flex-col gap-2" role="radiogroup" aria-label="Cómo ver el presupuesto">
+            {BUDGET_VIEW_OPTIONS.map(o => {
+              const selected = budgetView === o.value
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setBudgetView(o.value)}
+                  className={`flex items-center gap-3 text-left p-3.5 rounded-[var(--fz-r-tile)] border transition-colors ${
+                    selected
+                      ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)]'
+                      : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)]'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[14px] font-semibold ${selected ? 'text-[var(--fz-accent)]' : ''}`}>{o.label}</p>
+                    <p className="text-[12px] text-[var(--fz-ink-3)]">{o.hint}</p>
+                  </div>
+                  {selected && <IconCheck size={18} stroke={2.4} className="text-[var(--fz-accent)] shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+        </Panel>
 
         <Panel>
           <SectionTitle

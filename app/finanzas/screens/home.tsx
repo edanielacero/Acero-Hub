@@ -11,8 +11,10 @@ import { debtsNeedingAttention } from '@/lib/finanzas/splits'
 import { needsAttentionSoon } from '@/lib/finanzas/recurring'
 import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { CURRENCY_META, type BudgetLineProgress } from '@/lib/finanzas/types'
+import { budgetBarView, type BudgetViewMode } from '@/lib/finanzas/budgets'
 import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
+import { useBudgetViewPref } from '../components/budget-view-pref'
 import { useHeroPref } from '../components/hero-pref'
 import { HeroSettingsSheet } from '../components/hero-settings-sheet'
 import { CategoryIcon } from '../components/category-icon'
@@ -41,6 +43,7 @@ export function HomeScreen() {
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
   const { mode: heroMode, setMode: setHeroMode } = useHeroPref()
+  const { mode: budgetMode } = useBudgetViewPref()
   const [heroSettings, setHeroSettings] = useState(false)
 
   const now = useMemo(() => new Date(), [])
@@ -91,7 +94,12 @@ export function HomeScreen() {
   const general = budgets.general
   const budgetCapacity = general ? general.amount_usd + general.extended_usd + general.carried_usd : 0
   const budgetLeft = general ? general.available_usd : 0
-  const budgetOver = !!general && budgetCapacity > 0 && general.spent_usd > budgetCapacity
+  const budgetView = general ? budgetBarView({
+    mode: budgetMode,
+    spentUsd: general.spent_usd, availableUsd: general.available_usd, capacityUsd: budgetCapacity,
+    spent: general.spent_usd, available: general.available_usd,
+    day: general.day_of_period, days: general.days_in_period,
+  }) : null
 
   const patrimonioCard = (
     <HeroCard
@@ -109,28 +117,34 @@ export function HomeScreen() {
     />
   )
 
+  // La nota de abajo siempre muestra el número que NO es el grande, así los
+  // dos modos se leen igual de completos: en "gastado" el grande es lo
+  // gastado y la nota dice cuánto queda; en "disponible" es al revés.
+  // Pasarse del tope manda por sobre eso en los dos modos — es el aviso más
+  // importante que puede dar esta card, y no tendría sentido que el modo se
+  // lo tape.
+  const budgetNote = general && !hidden && !loading
+    ? budgetLeft < 0
+      ? { text: `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`, color: 'var(--fz-out)' }
+      : budgetMode === 'disponible'
+        ? { text: `Gastaste ${formatUSD(general.spent_usd)}`, color: 'var(--fz-ink-3)' }
+        : { text: `Te quedan ${formatUSD(budgetLeft)}`, color: 'var(--fz-in)' }
+    : undefined
+
   const presupuestoCard = (
     <HeroCard
       label="Presupuesto total"
+      unit={general ? (budgetMode === 'disponible' ? 'Disponible' : 'Gastado') : undefined}
       value={
         loading ? null
-          : !general ? '—'
+          : !general || !budgetView ? '—'
           : hidden ? HIDDEN
-          : formatUSD(general.spent_usd)
+          : formatUSD(budgetView.value)
       }
       of={general && !hidden && !loading ? formatUSD(budgetCapacity) : undefined}
       foot={general ? heroFoot : 'Todavía no armaste tu presupuesto'}
-      note={general && !hidden && !loading ? {
-        text: budgetLeft >= 0
-          ? `Te quedan ${formatUSD(budgetLeft)}`
-          : `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`,
-        color: budgetLeft >= 0 ? 'var(--fz-in)' : 'var(--fz-out)',
-      } : undefined}
-      bar={general && !loading ? {
-        pct: budgetCapacity > 0 ? Math.round((general.spent_usd / budgetCapacity) * 100) : 0,
-        tickPct: general.days_in_period > 0 ? (general.day_of_period / general.days_in_period) * 100 : 0,
-        over: budgetOver,
-      } : undefined}
+      note={budgetNote}
+      bar={general && budgetView && !loading ? { pct: budgetView.fillPct, tickPct: budgetView.tickPct, danger: budgetView.danger } : undefined}
     />
   )
 
@@ -242,6 +256,7 @@ export function HomeScreen() {
                     key={line.line_id}
                     line={line}
                     hidden={hidden}
+                    mode={budgetMode}
                     icon={categories.find(c => c.id === line.category_id)?.icon ?? null}
                     onClick={() => navigate('/finanzas/presupuesto')}
                   />
@@ -477,17 +492,21 @@ export function HomeScreen() {
  * equivalente en USD. Todo en la moneda de la línea, igual que en la
  * pantalla de Presupuesto.
  */
-function BudgetTile({ line, hidden, icon, onClick }: {
+function BudgetTile({ line, hidden, mode, icon, onClick }: {
   line: BudgetLineProgress
   hidden: boolean
+  mode: BudgetViewMode
   icon: string | null
   onClick: () => void
 }) {
   const cur = line.input_currency
   const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
-  const pct = capacityUsd > 0 ? Math.round((line.spent_usd / capacityUsd) * 100) : 0
-  const over = capacityUsd > 0 && line.spent_usd > capacityUsd
   const capacity = (line.amount ?? 0) + line.extended + line.carried
+  const view = budgetBarView({
+    mode, spentUsd: line.spent_usd, availableUsd: line.available_usd ?? 0, capacityUsd,
+    spent: line.spent, available: line.available ?? 0,
+    day: line.day_of_period, days: line.days_in_period,
+  })
 
   return (
     <button
@@ -500,8 +519,13 @@ function BudgetTile({ line, hidden, icon, onClick }: {
         <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">
           {line.name ?? line.category_name}
         </p>
-        <p className={`text-[16px] font-bold tracking-[-0.01em] fz-num truncate ${over ? 'text-[var(--fz-out-text)]' : ''}`}>
-          {hidden ? HIDDEN : formatAmount(line.spent, cur)}
+        {!hidden && (
+          <p className="text-[10px] font-bold text-[var(--fz-ink-3)] uppercase tracking-[0.06em] truncate">
+            {mode === 'disponible' ? 'Disponible' : 'Gastado'}
+          </p>
+        )}
+        <p className={`text-[16px] font-bold tracking-[-0.01em] fz-num truncate ${view.danger ? 'text-[var(--fz-out-text)]' : ''}`}>
+          {hidden ? HIDDEN : formatAmount(view.value, cur)}
         </p>
         <p className="text-[11px] text-[var(--fz-ink-3)] fz-num truncate">
           {hidden ? '' : `de ${formatAmount(capacity, cur)}`}
@@ -510,10 +534,7 @@ function BudgetTile({ line, hidden, icon, onClick }: {
         <div className="relative h-1.5 mt-2 rounded-full bg-[var(--fz-surface)] overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
-            style={{
-              width: `${Math.min(100, pct)}%`,
-              background: over || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
-            }}
+            style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
           />
         </div>
       </div>
@@ -604,18 +625,23 @@ function HeroCarousel({ cards }: { cards: ReactNode[] }) {
  *
  * `value: null` = todavía cargando; se pinta el esqueleto en su lugar.
  */
-function HeroCard({ label, value, of, note, foot, bar }: {
+function HeroCard({ label, unit, value, of, note, foot, bar }: {
   label: string
+  /** "Gastado" / "Disponible" — de qué es el número grande, cuando puede
+      significar más de una cosa (el patrimonio no lo necesita). */
+  unit?: string
   value: string | null
   /** El "de $X" que acompaña al número grande — mismo tratamiento que la
       pantalla de Presupuesto: alineado a la base, chico y tenue. */
   of?: string
   note?: { text: string; color: string }
   foot: ReactNode
-  /** Misma barra que la pantalla de Presupuesto — relleno + tick del día —
-      pero sobre el fondo oscuro: el carril y el tick van en blancos
+  /** Misma barra que la pantalla de Presupuesto — relleno + tick del día,
+      ya resueltos con `budgetBarView` (el modo "gastado"/"disponible"
+      decide de qué lado arranca llena la barra y cuándo se pone en alerta)
+      — pero sobre el fondo oscuro: el carril y el tick van en blancos
       translúcidos en vez de los tokens de superficie. */
-  bar?: { pct: number; tickPct: number; over: boolean }
+  bar?: { pct: number; tickPct: number; danger: boolean }
 }) {
   return (
     <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white h-full">
@@ -626,6 +652,9 @@ function HeroCard({ label, value, of, note, foot, bar }: {
       />
 
       <p className="relative text-[13px] font-medium text-white/60">{label}</p>
+      {unit && (
+        <p className="relative mt-2 text-[11px] font-bold text-white/50 uppercase tracking-[0.08em]">{unit}</p>
+      )}
 
       {value === null ? (
         <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
@@ -642,15 +671,12 @@ function HeroCard({ label, value, of, note, foot, bar }: {
         <div className="relative mt-3 h-3 rounded-full bg-white/12 overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
-            style={{
-              width: `${Math.min(100, bar.pct)}%`,
-              background: bar.over || bar.pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
-            }}
+            style={{ width: `${bar.pct}%`, background: bar.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
           />
           {/* "Acá deberías estar hoy", según el día del mes. */}
           <div
             className="absolute inset-y-0 w-[2px] bg-white/45"
-            style={{ left: `${Math.min(100, bar.tickPct)}%` }}
+            style={{ left: `${bar.tickPct}%` }}
             aria-hidden
           />
         </div>

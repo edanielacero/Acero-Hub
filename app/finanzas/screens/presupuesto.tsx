@@ -3,9 +3,11 @@
 import { useState } from 'react'
 import { IconAlertTriangle, IconChartPie, IconListSearch, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { BudgetGeneralProgress, BudgetLineProgress, Currency, RateMap } from '@/lib/finanzas/types'
+import { budgetBarView, type BudgetViewMode } from '@/lib/finanzas/budgets'
 import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
+import { useBudgetViewPref } from '../components/budget-view-pref'
 import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
 import { BudgetClosureSheet } from '../components/budget-closure-sheet'
@@ -19,6 +21,7 @@ import { Btn, EmptyState, Panel, RowMenu, SectionTitle } from '../components/ui'
 export function PresupuestoScreen() {
   const { budgets, categories, rates, hidden, loading, reload } = useFinanzas()
   const { navigate } = useFzRouter()
+  const { mode: viewMode } = useBudgetViewPref()
   const [adding, setAdding] = useState(false)
   const [viewing, setViewing] = useState<BudgetLineProgress | null>(null)
   const [editingLine, setEditingLine] = useState<BudgetLineProgress | null>(null)
@@ -87,7 +90,7 @@ export function PresupuestoScreen() {
           </Panel>
         ) : (
           <>
-            {budgets.general && <GeneralBudgetCard general={budgets.general} hidden={hidden} rates={rates} />}
+            {budgets.general && <GeneralBudgetCard general={budgets.general} hidden={hidden} rates={rates} mode={viewMode} />}
 
             <SectionTitle
               action={
@@ -103,7 +106,7 @@ export function PresupuestoScreen() {
               {budgets.categories.map(line => (
                 <BudgetLineCard
                   key={line.line_id}
-                  line={line} hidden={hidden} icon={iconFor(line.category_id)}
+                  line={line} hidden={hidden} mode={viewMode} icon={iconFor(line.category_id)}
                   onView={() => setViewing(line)}
                   onEdit={() => setEditingLine(line)}
                   onDelete={() => setDeleting(line)}
@@ -170,21 +173,28 @@ export function PresupuestoScreen() {
  * es la suma de las de abajo. El Bs de abajo es solo de referencia, al tipo
  * de cambio de hoy — no es una segunda fuente de verdad.
  */
-function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralProgress; hidden: boolean; rates: RateMap }) {
+function GeneralBudgetCard({ general, hidden, rates, mode }: {
+  general: BudgetGeneralProgress; hidden: boolean; rates: RateMap; mode: BudgetViewMode
+}) {
   const capacity = general.amount_usd + general.extended_usd + general.carried_usd
-  const pct = capacity > 0 ? Math.round((general.spent_usd / capacity) * 100) : 0
-  const tickPct = general.days_in_period > 0 ? (general.day_of_period / general.days_in_period) * 100 : 0
-  const alreadyOver = capacity > 0 && general.spent_usd > capacity
   const projectedOver = capacity > 0 && general.projected_usd > capacity
+  const view = budgetBarView({
+    mode, spentUsd: general.spent_usd, availableUsd: general.available_usd, capacityUsd: capacity,
+    spent: general.spent_usd, available: general.available_usd,
+    day: general.day_of_period, days: general.days_in_period,
+  })
 
   return (
     <Panel className="flex flex-col gap-3">
       <SectionTitle>Presupuesto total</SectionTitle>
 
       <div>
+        <p className="text-[11px] font-bold text-[var(--fz-ink-3)] uppercase tracking-[0.08em]">
+          {mode === 'disponible' ? 'Disponible' : 'Gastado'}
+        </p>
         <div className="flex items-baseline gap-2">
-          <span className={`text-[30px] font-bold fz-num tracking-[-0.02em] leading-none ${alreadyOver ? 'text-[var(--fz-out-text)]' : ''}`}>
-            {hidden ? HIDDEN : formatUSD(general.spent_usd)}
+          <span className={`text-[30px] font-bold fz-num tracking-[-0.02em] leading-none ${view.danger ? 'text-[var(--fz-out-text)]' : ''}`}>
+            {hidden ? HIDDEN : formatUSD(view.value)}
           </span>
           {!hidden && (
             <span className="text-[14px] text-[var(--fz-ink-3)] fz-num">de {formatUSD(capacity)}</span>
@@ -192,7 +202,7 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
         </div>
         {!hidden && (
           <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
-            ≈ {formatBOB(fromUsd(general.spent_usd, 'BOB', rates))} de {formatBOB(fromUsd(capacity, 'BOB', rates))}
+            ≈ {formatBOB(fromUsd(view.value, 'BOB', rates))} de {formatBOB(fromUsd(capacity, 'BOB', rates))}
           </p>
         )}
       </div>
@@ -200,16 +210,13 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
       <div className="relative h-3 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
         <div
           className="absolute inset-y-0 left-0 rounded-full"
-          style={{
-            width: `${Math.min(100, pct)}%`,
-            background: alreadyOver || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
-          }}
+          style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
         />
-        <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${Math.min(100, tickPct)}%` }} aria-hidden />
+        <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
       </div>
 
       <p className="text-[13px] text-[var(--fz-ink-3)]">
-        {alreadyOver
+        {view.over
           ? `Ya te pasaste por ${formatUSD(general.spent_usd - capacity)}`
           : projectedOver
             ? `Te vas a pasar por ~${formatUSD(general.projected_usd - capacity)} si seguís así`
@@ -230,9 +237,10 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
  * va posicionado absoluto en la esquina, afuera del botón grande: un
  * <button> no puede anidar otro, así que son hermanos, no padre-hijo.
  */
-function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete, onSeeMovements }: {
+function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, onSeeMovements }: {
   line: BudgetLineProgress
   hidden: boolean
+  mode: BudgetViewMode
   icon: string | null
   onView: () => void
   onEdit: () => void
@@ -240,16 +248,14 @@ function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete, onSeeMov
   onSeeMovements: () => void
 }) {
   const cur = line.input_currency
-  // El % y los "¿ya te pasaste?" se deciden en USD (es donde vive el gasto
-  // real congelado); lo que se MUESTRA es el nativo, que ya viene resuelto.
   const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
-  const pct = capacityUsd > 0 ? Math.round((line.spent_usd / capacityUsd) * 100) : 0
-  const tickPct = line.days_in_period > 0 ? (line.day_of_period / line.days_in_period) * 100 : 0
-  const alreadyOver = capacityUsd > 0 && line.spent_usd > capacityUsd
-  const projectedOver = capacityUsd > 0 && line.projected_usd > capacityUsd
-
-  const spent = line.spent
   const capacity = (line.amount ?? 0) + line.extended + line.carried
+  const view = budgetBarView({
+    mode, spentUsd: line.spent_usd, availableUsd: line.available_usd ?? 0, capacityUsd,
+    spent: line.spent, available: line.available ?? 0,
+    day: line.day_of_period, days: line.days_in_period,
+  })
+  const projectedOver = capacityUsd > 0 && line.projected_usd > capacityUsd
   const displayName = line.name ?? line.category_name
 
   return (
@@ -269,32 +275,34 @@ function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete, onSeeMov
           <p className="text-[15px] font-semibold truncate min-w-0">{displayName}</p>
         </div>
 
-        <div className="flex items-baseline gap-2">
-          <span className={`text-[20px] font-bold fz-num tracking-[-0.01em] leading-none ${alreadyOver ? 'text-[var(--fz-out-text)]' : ''}`}>
-            {hidden ? HIDDEN : formatAmount(spent, cur)}
-          </span>
-          {!hidden && (
-            <span className="text-[13px] text-[var(--fz-ink-3)] fz-num">
-              de {line.amount == null ? '—' : formatAmount(capacity, cur)}
+        <div>
+          <p className="text-[11px] font-bold text-[var(--fz-ink-3)] uppercase tracking-[0.08em]">
+            {mode === 'disponible' ? 'Disponible' : 'Gastado'}
+          </p>
+          <div className="flex items-baseline gap-2">
+            <span className={`text-[20px] font-bold fz-num tracking-[-0.01em] leading-none ${view.danger ? 'text-[var(--fz-out-text)]' : ''}`}>
+              {hidden ? HIDDEN : formatAmount(view.value, cur)}
             </span>
-          )}
+            {!hidden && (
+              <span className="text-[13px] text-[var(--fz-ink-3)] fz-num">
+                de {line.amount == null ? '—' : formatAmount(capacity, cur)}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="relative h-2 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
-            style={{
-              width: `${Math.min(100, pct)}%`,
-              background: alreadyOver || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
-            }}
+            style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
           />
-          <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${Math.min(100, tickPct)}%` }} aria-hidden />
+          <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
         </div>
 
         {!hidden && (
           <p className="text-[12px] text-[var(--fz-ink-3)]">
-            {alreadyOver
-              ? `Ya te pasaste por ${formatAmount(spent - capacity, cur)}`
+            {view.over
+              ? `Ya te pasaste por ${formatAmount(line.spent - capacity, cur)}`
               : projectedOver
                 ? `Te vas a pasar por ~${formatAmount(line.projected - capacity, cur)} si seguís así`
                 : `A este ritmo: ${formatAmount(line.projected, cur)}`}

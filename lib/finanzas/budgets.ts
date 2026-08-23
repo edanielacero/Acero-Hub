@@ -311,6 +311,59 @@ export function projectedUsd(gastoRealUsd: number, day: number, days: number): n
   return round2((gastoRealUsd / day) * days)
 }
 
+/** Cómo se quiere ver el progreso de un presupuesto — configurable en
+    Ajustes, aplica igual en Presupuesto y en la Home. */
+export type BudgetViewMode = 'gastado' | 'disponible'
+
+export interface BudgetBarView {
+  /** El número grande a mostrar: gastado o disponible, según el modo. */
+  value: number
+  /** Relleno de la barra, 0–100. */
+  fillPct: number
+  /** Dónde va la marca de "deberías estar acá hoy", en la misma escala que `fillPct`. */
+  tickPct: number
+  /** Ya se pasó del tope — mismo criterio en los dos modos. */
+  over: boolean
+  /** Si la barra debería verse en alerta. En "gastado" es acercarse o pasarse
+      del tope; en "disponible" es lo opuesto — que quede poco o nada. */
+  danger: boolean
+}
+
+/**
+ * Los cuatro números que arma cualquier card de presupuesto (general, por
+ * categoría, o el hero de la Home), ya resueltos según el modo elegido —
+ * así la UI solo pinta, no decide.
+ *
+ * En "gastado" la barra arranca vacía y se llena a medida que gastás (el
+ * tope de siempre). En "disponible" arranca LLENA — representa la plata que
+ * todavía tenés — y se va vaciando a medida que gastás; por eso ahí la marca
+ * del día también se invierte: si vas al ritmo esperado, tiene que quedar
+ * exactamente lo que la marca señala, no lo que ya se gastó.
+ */
+export function budgetBarView(params: {
+  mode: BudgetViewMode
+  spentUsd: number
+  availableUsd: number
+  capacityUsd: number
+  spent: number
+  available: number
+  day: number
+  days: number
+}): BudgetBarView {
+  const { mode, spentUsd, availableUsd, capacityUsd, spent, available, day, days } = params
+  const dayPct = days > 0 ? (day / days) * 100 : 0
+  const over = capacityUsd > 0 && spentUsd > capacityUsd
+  const clamp = (n: number) => Math.min(100, Math.max(0, n))
+
+  if (mode === 'disponible') {
+    const fillPct = round2(clamp(capacityUsd > 0 ? (availableUsd / capacityUsd) * 100 : 0))
+    return { value: available, fillPct, tickPct: round2(clamp(100 - dayPct)), over, danger: over || fillPct <= 15 }
+  }
+
+  const fillPct = round2(clamp(capacityUsd > 0 ? (spentUsd / capacityUsd) * 100 : 0))
+  return { value: spent, fillPct, tickPct: round2(clamp(dayPct)), over, danger: over || fillPct >= 85 }
+}
+
 /* ─── Cierres pendientes ────────────────────────────────────────────────── */
 
 /**

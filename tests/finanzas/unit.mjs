@@ -9,7 +9,7 @@ import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, valida
 import {
   periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
   gastoRealCategoria, comprometido, carriedInto, disponible, dayOfPeriod, projectedUsd, needsClosure,
-  validateBudgetAmount, isValidPeriod, toNative,
+  validateBudgetAmount, isValidPeriod, toNative, budgetBarView,
 } from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
@@ -1488,6 +1488,50 @@ section('SPRINT 6 · barra de ritmo: tick + proyección')
   eq('mes ya cerrado: el último día, no hoy', dayOfPeriod('2026-07-01', '2026-08-22'), { day: 31, days: 31 })
   eq('proyección simple: mitad de mes, mitad gastado → llega al doble', projectedUsd(50, 15, 30), 100)
   eq('día 0 no divide por cero', projectedUsd(50, 0, 30), 0)
+}
+
+section('SPRINT 6 (revisión) · budgetBarView — "gastado" vs "disponible"')
+{
+  // 40 de 100 gastados, día 10 de 30 — mismo escenario para los dos modos,
+  // solo cambia cómo se lee.
+  const base = { spentUsd: 40, availableUsd: 60, capacityUsd: 100, spent: 40, available: 60, day: 10, days: 30 }
+
+  const gastado = budgetBarView({ mode: 'gastado', ...base })
+  eq('gastado: el número grande es lo gastado', gastado.value, 40)
+  eq('la barra se llena con lo gastado', gastado.fillPct, 40)
+  eq('el tick marca el avance del mes tal cual', gastado.tickPct, Math.round((10 / 30) * 10000) / 100)
+  eq('lejos del tope: sin alerta', gastado.danger, false)
+
+  const disponible = budgetBarView({ mode: 'disponible', ...base })
+  eq('disponible: el número grande es lo que queda', disponible.value, 60)
+  eq('la barra arranca llena y se descuenta lo gastado', disponible.fillPct, 60)
+  eq('el tick se invierte: cuánto debería quedar, no cuánto se gastó',
+     disponible.tickPct, Math.round((100 - (10 / 30) * 100) * 100) / 100)
+  eq('con 60% disponible, todavía no es alerta', disponible.danger, false)
+
+  // Ya pasado del tope: alerta en los dos modos, y el disponible da negativo.
+  const pasado = budgetBarView({
+    mode: 'gastado', spentUsd: 120, availableUsd: -20, capacityUsd: 100, spent: 120, available: -20, day: 30, days: 30,
+  })
+  ok('pasado el tope, alerta en modo gastado', pasado.danger)
+  eq('la barra no pasa de 100%', pasado.fillPct, 100)
+
+  const pasadoDisp = budgetBarView({
+    mode: 'disponible', spentUsd: 120, availableUsd: -20, capacityUsd: 100, spent: 120, available: -20, day: 30, days: 30,
+  })
+  ok('pasado el tope, alerta también en modo disponible', pasadoDisp.danger)
+  eq('la barra no baja de 0%', pasadoDisp.fillPct, 0)
+  eq('el valor grande sí muestra el negativo', pasadoDisp.value, -20)
+
+  // Casi sin nada disponible (pero no pasado): alerta solo en modo disponible.
+  const pocoDisponible = { spentUsd: 88, availableUsd: 12, capacityUsd: 100, spent: 88, available: 12, day: 20, days: 30 }
+  ok('en modo gastado, 88% todavía no es 85%... es más, así que sí alerta',
+     budgetBarView({ mode: 'gastado', ...pocoDisponible }).danger)
+  ok('en modo disponible, con solo 12% libre, también alerta',
+     budgetBarView({ mode: 'disponible', ...pocoDisponible }).danger)
+
+  eq('sin tope cargado, todo en cero sin romper',
+     budgetBarView({ mode: 'gastado', spentUsd: 0, availableUsd: 0, capacityUsd: 0, spent: 0, available: 0, day: 5, days: 30 }).fillPct, 0)
 }
 
 section('SPRINT 6 · needsClosure — la ausencia de fila es la pregunta pendiente')
