@@ -206,7 +206,7 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
         )}
       </div>
 
-      <div className="relative h-3 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
+      <div className="relative h-3 rounded-full bg-[var(--fz-hairline)] overflow-hidden">
         <div
           className="absolute inset-y-0 left-0 rounded-full"
           style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
@@ -289,7 +289,7 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
           </div>
         </div>
 
-        <div className="relative h-2 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
+        <div className="relative h-2 rounded-full bg-[var(--fz-hairline)] overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
             style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
