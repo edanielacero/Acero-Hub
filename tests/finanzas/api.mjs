@@ -2148,6 +2148,24 @@ async function run() {
     const nextMonthLine = viewNextMonth.categories.find(c => c.line_id === viviendaLine.id)
     eq('348 Bs se convierten a 50 USD, sin que el cliente mande la moneda', nextMonthLine.amount_usd, 50)
     eq('y el nativo de ese mes también queda exacto', nextMonthLine.amount, 348)
+
+    // El caso que reportó el usuario: un gasto de 10 Bs se veía como 9,99 en
+    // el presupuesto. `amount_usd` está redondeado a centavos (10 Bs a 6.96
+    // dan 1.4367... → 1.44), y reconvertir esos 1.44 daba 10.02. Sumando el
+    // monto nativo, sigue siendo 10 clavado.
+    const cuentaBs = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Bs Presupuesto', currency: 'BOB', initial_balance: 500 }),
+    }))).account
+    eq('registra un gasto de 10 Bs en la categoría presupuestada',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({ type: 'gasto', date: todayStr, account_id: cuentaBs.id, category_id: vivienda.id, amount: 10, description: 'Prueba redondeo' }),
+       })).status, 201)
+
+    const conGasto = await json(await api('/budgets'))
+    const viviendaConGasto = conGasto.categories.find(c => c.line_id === viviendaLine.id)
+    eq('el gastado en Bs es 10 exacto, no 9,99', viviendaConGasto.spent, 10)
+    eq('y el disponible cierra clavado: 696 − 10', viviendaConGasto.available, 686)
   }
 
   section('SPRINT 6 · /bootstrap incluye presupuesto')

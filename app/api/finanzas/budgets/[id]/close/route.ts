@@ -1,11 +1,18 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { num } from '@/lib/finanzas/money'
+import { num, round2 } from '@/lib/finanzas/money'
 import {
-  carriedInto, disponible, effectiveFromFor, gastoRealCategoria, isValidPeriod, montoEfectivo, periodRange, toNative,
+  carriedInto, disponible, effectiveFromFor, gastoRealCategoria, isValidPeriod, montoEfectivo, periodRange,
 } from '@/lib/finanzas/budgets'
 
-interface DebtEmbed { transaction: { id: string } | null; principal_usd: unknown; waived_at: string | null }
+interface DebtEmbed {
+  transaction: { id: string } | null
+  amount: unknown
+  currency: string
+  amount_usd: unknown
+  principal_usd: unknown
+  waived_at: string | null
+}
 
 /**
  * Responde la pregunta de cierre de UN mes de UNA línea: ¿se lleva el
@@ -27,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof body.carried !== 'boolean') return NextResponse.json({ error: 'Falta decir si se lleva o no' }, { status: 400 })
 
   const { data: line } = await supabase
-    .from('fin_budget_lines').select('id, category_id, retroactive, created_on').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_budget_lines').select('id, category_id, input_currency, retroactive, created_on').eq('id', id).eq('user_id', userId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
   const [{ data: periodRows }, { data: closureRows }] = await Promise.all([
@@ -71,34 +78,46 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const [{ data: txRows }, { data: debtRows }] = await Promise.all([
     supabase
-      .from('fin_transactions').select('id, category_id, amount_usd, flow_type, date')
+      .from('fin_transactions').select('id, category_id, amount, currency, amount_usd, flow_type, date')
       .eq('user_id', userId).eq('type', 'gasto').gte('date', from).lte('date', to),
     supabase
-      .from('fin_debts').select('principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
+      .from('fin_debts')
+      .select('amount, currency, amount_usd, principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
       .eq('user_id', userId),
   ])
 
   const txs = (txRows ?? [])
     .filter(t => t.flow_type !== 'movimiento')
-    .map(t => ({ id: t.id as string, category_id: t.category_id as string | null, amount_usd: num(t.amount_usd), date: t.date as string }))
+    .map(t => ({
+      id: t.id as string, category_id: t.category_id as string | null,
+      amount: num(t.amount), currency: t.currency as string,
+      amount_usd: num(t.amount_usd), date: t.date as string,
+    }))
   const debts = ((debtRows ?? []) as unknown as DebtEmbed[])
     .filter(d => d.transaction)
-    .map(d => ({ transaction_id: d.transaction!.id, principal_usd: num(d.principal_usd), waived_at: d.waived_at }))
+    .map(d => ({
+      transaction_id: d.transaction!.id,
+      amount: num(d.amount), currency: d.currency,
+      amount_usd: num(d.amount_usd), principal_usd: num(d.principal_usd),
+      waived_at: d.waived_at,
+    }))
 
-  const spent = gastoRealCategoria(txs, debts, line.category_id, from, to)
+  const spent = gastoRealCategoria(txs, debts, line.category_id, from, to, line.input_currency, rate)
   // Un mes ya cerrado no tiene nada "todavía por pasar": sin `comprometido`.
   const amount_usd = disponible({
     montoEfectivoUsd: effective.amountUsd,
-    gastoRealUsd: spent,
+    gastoRealUsd: spent.amountUsd,
     comprometidoUsd: 0,
     carriedUsd: carried.amountUsd,
   })!
+  // El nativo se arma con los montos exactos, no convirtiendo el USD.
+  const amount = round2(effective.amount + carried.amount - spent.amount)
 
   const { data, error } = await supabase
     .from('fin_budget_closures')
     .insert({
       user_id: userId, line_id: id, period: body.period, carried: body.carried,
-      amount: toNative(amount_usd, rate), amount_usd, exchange_rate: rate,
+      amount, amount_usd, exchange_rate: rate,
     })
     .select('id, line_id, period, carried, amount, amount_usd')
     .single()

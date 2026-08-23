@@ -11,8 +11,8 @@ import { planCerrado, planRollup } from './plans'
 import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import {
-  carriedInto, comprometidoUsd, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
-  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod, toNative,
+  carriedInto, comprometido, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
+  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
 import type {
@@ -793,12 +793,12 @@ export async function loadBudgets(
   const [{ data: txRows }, { data: debtRows }] = await Promise.all([
     supabase
       .from('fin_transactions')
-      .select('id, category_id, amount_usd, flow_type, date')
+      .select('id, category_id, amount, currency, amount_usd, flow_type, date')
       .eq('user_id', userId).eq('type', 'gasto')
       .gte('date', rangeFrom).lte('date', rangeTo),
     supabase
       .from('fin_debts')
-      .select('principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
+      .select('amount, currency, amount_usd, principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
       .eq('user_id', userId),
   ])
 
@@ -807,17 +807,30 @@ export async function loadBudgets(
   // real de siempre (Sprint 2 §4.4), acá aplicado por categoría.
   const txs: BudgetTx[] = (txRows ?? [])
     .filter(t => t.flow_type !== 'movimiento')
-    .map(t => ({ id: t.id as string, category_id: t.category_id as string | null, amount_usd: num(t.amount_usd), date: t.date as string }))
+    .map(t => ({
+      id: t.id as string, category_id: t.category_id as string | null,
+      amount: num(t.amount), currency: t.currency as string,
+      amount_usd: num(t.amount_usd), date: t.date as string,
+    }))
 
-  const debtRowsTyped = (debtRows ?? []) as unknown as
-    { principal_usd: unknown; waived_at: string | null; transaction: { id: string } | null }[]
+  const debtRowsTyped = (debtRows ?? []) as unknown as {
+    amount: unknown; currency: string; amount_usd: unknown; principal_usd: unknown
+    waived_at: string | null; transaction: { id: string } | null
+  }[]
   const debts: BudgetDebtShare[] = debtRowsTyped
     .filter(d => d.transaction)
-    .map(d => ({ transaction_id: d.transaction!.id, principal_usd: num(d.principal_usd), waived_at: d.waived_at }))
+    .map(d => ({
+      transaction_id: d.transaction!.id,
+      amount: num(d.amount), currency: d.currency,
+      amount_usd: num(d.amount_usd), principal_usd: num(d.principal_usd),
+      waived_at: d.waived_at,
+    }))
 
   const committedRecurring: CommittedRecurring[] = recurringSummary.recurring.map(r => ({
     category_id: r.category_id,
     active: r.active,
+    amount: r.amount,
+    currency: r.currency,
     amountUsd: toUsd(r.amount, r.currency, rates),
     status: r.status,
   }))
@@ -850,15 +863,16 @@ export async function loadBudgets(
       : []
     const effective = montoEfectivo(periods, extensions, line.id, currentPeriod)
     const carried = carriedInto(closures, line.id, currentPeriod)
-    const spent = gastoRealCategoria(txs, debts, line.category_id, from, to)
-    const committed = comprometidoUsd(committedRecurring, line.category_id)
+    const spent = gastoRealCategoria(txs, debts, line.category_id, from, to, line.input_currency, rate)
+    const committed = comprometido(committedRecurring, line.category_id, line.input_currency, rate)
     const available = disponible({
       montoEfectivoUsd: effective?.amountUsd ?? null,
-      gastoRealUsd: spent,
-      comprometidoUsd: committed,
+      gastoRealUsd: spent.amountUsd,
+      comprometidoUsd: committed.amountUsd,
       carriedUsd: carried.amountUsd,
     })
-    const projected = projectedUsd(spent, day, days)
+    const projectedNative = projectedUsd(spent.amount, day, days)
+    const projected = projectedUsd(spent.amountUsd, day, days)
 
     return {
       line_id: line.id,
@@ -877,15 +891,22 @@ export async function loadBudgets(
       extended_usd: round2(lineExtensions.reduce((s, e) => s + e.amount_usd, 0)),
       carried: carried.amount,
       carried_usd: carried.amountUsd,
-      spent: toNative(spent, rate),
-      spent_usd: spent,
-      committed: toNative(committed, rate),
-      committed_usd: committed,
-      available: available == null ? null : toNative(available, rate),
+      // Nativos sumados directo de los montos guardados, no reconvertidos
+      // desde el USD redondeado — ver `gastoRealCategoria`.
+      spent: spent.amount,
+      spent_usd: spent.amountUsd,
+      committed: committed.amount,
+      committed_usd: committed.amountUsd,
+      // El disponible sí se arma acá con los nativos ya exactos, en vez de
+      // convertir el disponible en USD: así "2.435 − 10 = 2.425" cierra
+      // clavado en la moneda que el usuario ve.
+      available: available == null || effective == null
+        ? null
+        : round2(effective.amount + carried.amount - spent.amount - committed.amount),
       available_usd: available,
       day_of_period: day,
       days_in_period: days,
-      projected: toNative(projected, rate),
+      projected: projectedNative,
       projected_usd: projected,
     }
   }
@@ -897,17 +918,18 @@ export async function loadBudgets(
     for (const period of pendingByLine.get(line.id) ?? []) {
       const { to: closeTo } = periodRange(period)
       const from = effectiveFromFor(line, period)
+      const periodRate = rateFor(line.id, period)
       const effective = montoEfectivo(periods, extensions, line.id, period)
       const carried = carriedInto(closures, line.id, period)
-      const spent = gastoRealCategoria(txs, debts, line.category_id, from, closeTo)
+      const spent = gastoRealCategoria(txs, debts, line.category_id, from, closeTo, line.input_currency, periodRate)
       const available = disponible({
         montoEfectivoUsd: effective?.amountUsd ?? null,
-        gastoRealUsd: spent,
+        gastoRealUsd: spent.amountUsd,
         comprometidoUsd: 0,
         carriedUsd: carried.amountUsd,
       })
       // `null` = ese mes la línea todavía no tenía ningún monto cargado: nada que cerrar.
-      if (available == null) continue
+      if (available == null || effective == null) continue
       pending_closures.push({
         line_id: line.id,
         category_id: line.category_id,
@@ -915,7 +937,7 @@ export async function loadBudgets(
         name: line.name,
         input_currency: line.input_currency,
         period,
-        amount: toNative(available, rateFor(line.id, period)),
+        amount: round2(effective.amount + carried.amount - spent.amount),
         amount_usd: available,
       })
     }
@@ -994,7 +1016,7 @@ export async function applyBudgetExtension(
   const { error } = await supabase
     .from('fin_budget_extensions').insert({
       user_id: userId, period_id: periodId,
-      amount: round2(toNative(amountUsd, rate)), amount_usd: round2(amountUsd), exchange_rate: rate,
+      amount: round2(amountUsd / (rate || 1)), amount_usd: round2(amountUsd), exchange_rate: rate,
     })
   return error ? { ok: false, error: error.message } : { ok: true }
 }

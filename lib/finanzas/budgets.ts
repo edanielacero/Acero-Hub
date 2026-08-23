@@ -143,21 +143,64 @@ export function effectiveFromFor(line: BudgetLineLike, period: string): string {
    null`. Quien arma el general suma los `BudgetLineProgress` ya resueltos de
    cada categoría (ver `loadBudgets`), no vuelve a recorrer transacciones. */
 
-export interface BudgetTx { id: string; category_id: string | null; amount_usd: number; date: string }
-export interface BudgetDebtShare { transaction_id: string; principal_usd: number; waived_at: string | null }
+export interface BudgetTx {
+  id: string
+  category_id: string | null
+  /** El monto tal cual se cargó, en `currency`. */
+  amount: number
+  currency: string
+  amount_usd: number
+  date: string
+}
+export interface BudgetDebtShare {
+  transaction_id: string
+  /** Lo repartido, en la moneda de la deuda. */
+  amount: number
+  currency: string
+  amount_usd: number
+  principal_usd: number
+  waived_at: string | null
+}
 
+/**
+ * Cuánto se gastó de verdad en una categoría, en las dos denominaciones.
+ *
+ * El USD es la suma de los `amount_usd` congelados — la unidad en la que
+ * todo se puede comparar. El nativo NO se reconstruye desde ese USD: se
+ * suman los montos nativos de las transacciones que ya están en la moneda
+ * de la línea, porque `amount_usd` está redondeado a centavos y volver
+ * atrás pierde precisión (un centavo de dólar son ~12 centavos de Bs, así
+ * que un gasto de 10 Bs volvía como 9,99). Solo las transacciones en OTRA
+ * moneda se convierten, que ahí no hay alternativa.
+ *
+ * `lineCurrency`/`lineRate` son los de la línea: su moneda y su tasa
+ * congelada (USD por 1 unidad nativa).
+ */
 export function gastoRealCategoria(
   txs: BudgetTx[], debts: BudgetDebtShare[], categoryId: string, from: string, to: string,
-): number {
+  lineCurrency = 'USD', lineRate = 1,
+): { amount: number; amountUsd: number } {
   const inRange = txs.filter(t => t.category_id === categoryId && t.date >= from && t.date <= to)
-  const bruto = inRange.reduce((s, t) => s + t.amount_usd, 0)
-
   const ids = new Set(inRange.map(t => t.id))
-  const repartido = debts
-    .filter(d => ids.has(d.transaction_id) && !d.waived_at)
-    .reduce((s, d) => s + d.principal_usd, 0)
+  const activos = debts.filter(d => ids.has(d.transaction_id) && !d.waived_at)
 
-  return round2(bruto - repartido)
+  const brutoUsd = inRange.reduce((s, t) => s + t.amount_usd, 0)
+  const repartidoUsd = activos.reduce((s, d) => s + d.principal_usd, 0)
+
+  // Misma moneda → el número exacto que se escribió. Otra moneda → no queda
+  // más que convertir su USD con la tasa de la línea.
+  const nativo = (usd: number, amount: number, currency: string) =>
+    currency === lineCurrency ? amount : toNative(usd, lineRate)
+
+  const bruto = inRange.reduce((s, t) => s + nativo(t.amount_usd, t.amount, t.currency), 0)
+  const repartido = activos.reduce((s, d) => {
+    // `principal_usd` casi siempre iguala a `amount_usd`; cuando no (hubo
+    // recargo al repartir), se toma la misma proporción sobre el nativo.
+    const proporcion = d.amount_usd > 0 ? d.principal_usd / d.amount_usd : 1
+    return s + nativo(d.principal_usd, d.amount * proporcion, d.currency)
+  }, 0)
+
+  return { amount: round2(bruto - repartido), amountUsd: round2(brutoUsd - repartidoUsd) }
 }
 
 /* ─── Comprometido: Fijos pendientes de esa categoría ──────────────────── */
@@ -165,9 +208,27 @@ export function gastoRealCategoria(
 export interface CommittedRecurring {
   category_id: string | null
   active: boolean
+  /** El monto de la plantilla, en su propia moneda. */
+  amount: number
+  currency: string
   /** Ya convertido a USD con la tasa de HOY (es un estimado, no algo congelado). */
   amountUsd: number
   status: 'pendiente' | 'registrado' | 'vencido' | 'pausado' | 'programado'
+}
+
+/** Igual que `gastoRealCategoria`: el nativo sale del monto de la plantilla
+    cuando la moneda coincide, no de reconvertir el USD. */
+export function comprometido(
+  recurring: CommittedRecurring[], categoryId: string, lineCurrency = 'USD', lineRate = 1,
+): { amount: number; amountUsd: number } {
+  const scoped = recurring.filter(
+    r => r.active && (r.status === 'pendiente' || r.status === 'vencido') && r.category_id === categoryId,
+  )
+  return {
+    amount: round2(scoped.reduce(
+      (s, r) => s + (r.currency === lineCurrency ? r.amount : toNative(r.amountUsd, lineRate)), 0)),
+    amountUsd: round2(scoped.reduce((s, r) => s + r.amountUsd, 0)),
+  }
 }
 
 export function comprometidoUsd(recurring: CommittedRecurring[], categoryId: string): number {
