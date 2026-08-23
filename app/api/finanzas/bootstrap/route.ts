@@ -2,7 +2,7 @@ import { requireUser, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse, after } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { readQuotes, refreshQuotes, quotesAreStale, QUOTE_PAIRS } from '@/lib/finanzas/quotes'
-import { loadAccounts, loadAvailableMonths, loadCategories, loadDebtPlans, loadPasanaku, loadPeople, loadRecurring, loadShared, loadTransactions } from '@/lib/finanzas/load'
+import { loadAccounts, loadAvailableMonths, loadBudgets, loadCategories, loadDebtPlans, loadPasanaku, loadPeople, loadRecurring, loadShared, loadTransactions } from '@/lib/finanzas/load'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 
 /**
@@ -55,14 +55,25 @@ export async function GET(request: Request) {
   // un fijo está vencido o todavía no.
   const today = url.searchParams.get('today') || todayISO()
 
-  const [accounts, categories, people, shared, recurring, plans, pasanaku, months, month, recent] = await Promise.all([
+  // `accounts` ya resuelve las tasas (`ensureRates`) y `recurring` es lo que
+  // `loadBudgets` necesita para "comprometido" — se piden primero para
+  // pasárselos hechos, en vez de que cada uno los vuelva a pedir por su
+  // cuenta un segundo después en el mismo viaje.
+  const [accounts, recurring] = await Promise.all([
     loadAccounts(supabase, userId, quotes),
+    loadRecurring(supabase, userId, today),
+  ])
+
+  const [categories, people, shared, plans, pasanaku, budgets, months, month, recent] = await Promise.all([
     loadCategories(supabase, userId),
     loadPeople(supabase, userId),
     loadShared(supabase, userId, range),
-    loadRecurring(supabase, userId, today),
     loadDebtPlans(supabase, userId),
     loadPasanaku(supabase, userId),
+    // El quick-add necesita esto para poder bloquear un gasto que se pasa del
+    // presupuesto en CUALQUIER pantalla, no solo en /presupuesto — por eso va
+    // acá desde el día uno y no se difiere (Decisiones Técnicas §2.1).
+    loadBudgets(supabase, userId, today, { rates: accounts.rates, recurring }),
     loadAvailableMonths(supabase, userId),
     loadTransactions(supabase, userId, { from: range.from, to: range.to, limit: monthLimit }),
     loadTransactions(supabase, userId, { limit: recentLimit }),
@@ -78,6 +89,7 @@ export async function GET(request: Request) {
     recurring,
     plans,
     pasanaku,
+    budgets,
     months,
     // Las dos consultas que la Home ya iba a hacer igual. El cliente las guarda
     // en su caché bajo la misma clave con la que después las busca.

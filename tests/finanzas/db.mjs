@@ -851,6 +851,92 @@ async function run() {
        (await rows('fin_pasanaku_historico', `&id=eq.${h1.id}`)).length, 0)
   }
 
+  section('SPRINT 6 · fin_budget_lines, fin_budget_periods, fin_budget_extensions, fin_budget_closures')
+  let budgetCategory, budgetLine, generalLine, budgetPeriod
+  {
+    const anonLines = await fetch(`${URL_}/rest/v1/fin_budget_lines?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve líneas de presupuesto', anonLines, [])
+
+    budgetCategory = (await post('fin_categories', { user_id: USER_ID, name: 'Salidas', kind: 'gasto', icon: 'ocio' }).then(r => r.json()))[0]
+    ok('crea la categoría para el presupuesto', !!budgetCategory?.id)
+
+    budgetLine = (await post('fin_budget_lines', {
+      user_id: USER_ID, category_id: budgetCategory.id, retroactive: true, created_on: '2026-08-01',
+    }).then(r => r.json()))[0]
+    ok('crea una línea de presupuesto', !!budgetLine?.id)
+    eq('sin nombre, default null (alias opcional)', budgetLine.name, null)
+    eq('sin moneda de entrada, default USD', budgetLine.input_currency, 'USD')
+
+    const dupCategory = await post('fin_budget_lines', { user_id: USER_ID, category_id: budgetCategory.id, retroactive: true })
+    ok('no deja dos líneas activas para la misma categoría', dupCategory.status >= 400, `HTTP ${dupCategory.status}`)
+
+    const otraCategoria = (await post('fin_categories', { user_id: USER_ID, name: 'Otra', kind: 'gasto', icon: 'ocio' }).then(r => r.json()))[0]
+    const monedaInvalida = await post('fin_budget_lines', {
+      user_id: USER_ID, category_id: otraCategoria.id, retroactive: true, input_currency: 'EUR',
+    })
+    ok('rechaza una moneda de entrada fuera del set soportado', monedaInvalida.status >= 400, `HTTP ${monedaInvalida.status}`)
+    await as(`/fin_categories?id=eq.${otraCategoria.id}`, { method: 'DELETE' })
+
+    generalLine = (await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true }).then(r => r.json()))[0]
+    ok('crea el tope general (category_id null)', !!generalLine?.id)
+
+    const dupGeneral = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
+    ok('no deja dos topes generales activos', dupGeneral.status >= 400, `HTTP ${dupGeneral.status}`)
+
+    // Archivar libera el hueco: el índice único es parcial (`where not archived`).
+    await as(`/fin_budget_lines?id=eq.${generalLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    const generalDeNuevoRes = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
+    ok('archivar libera el índice único general', generalDeNuevoRes.status < 400, `HTTP ${generalDeNuevoRes.status}`)
+    generalLine = (await generalDeNuevoRes.json())[0]
+
+    budgetPeriod = (await post('fin_budget_periods', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount_usd: 80,
+    }).then(r => r.json()))[0]
+    ok('crea el monto de agosto', !!budgetPeriod?.id)
+
+    const dupPeriod = await post('fin_budget_periods', { user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount_usd: 90 })
+    ok('no deja dos filas para el mismo (línea, período)', dupPeriod.status >= 400, `HTTP ${dupPeriod.status}`)
+
+    const zeroAmount = await post('fin_budget_periods', { user_id: USER_ID, line_id: budgetLine.id, period: '2026-09-01', amount_usd: 0 })
+    ok('rechaza monto en cero', zeroAmount.status >= 400, `HTTP ${zeroAmount.status}`)
+
+    const extension = (await post('fin_budget_extensions', {
+      user_id: USER_ID, period_id: budgetPeriod.id, amount_usd: 15,
+    }).then(r => r.json()))[0]
+    ok('crea una ampliación', !!extension?.id)
+
+    const zeroExtension = await post('fin_budget_extensions', { user_id: USER_ID, period_id: budgetPeriod.id, amount_usd: 0 })
+    ok('rechaza una ampliación en cero', zeroExtension.status >= 400, `HTTP ${zeroExtension.status}`)
+
+    // Un cierre en rojo es tan válido como uno en verde: sin CHECK > 0.
+    const closure = (await post('fin_budget_closures', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: false, amount_usd: -12.5,
+    }).then(r => r.json()))[0]
+    ok('un cierre con disponible negativo es válido', !!closure?.id)
+
+    const dupClosure = await post('fin_budget_closures', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: true, amount_usd: 5,
+    })
+    ok('el mismo mes no se cierra dos veces', dupClosure.status >= 400, `HTTP ${dupClosure.status}`)
+
+    const otroMes = await post('fin_budget_closures', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-06-01', carried: true, amount_usd: 8,
+    })
+    ok('otro mes sí se puede cerrar', otroMes.status < 400, `HTTP ${otroMes.status}`)
+
+    await as(`/fin_budget_periods?id=eq.${budgetPeriod.id}`, { method: 'DELETE' })
+    eq('borrar el período se lleva sus ampliaciones (cascade)',
+       (await rows('fin_budget_extensions', `&period_id=eq.${budgetPeriod.id}`)).length, 0)
+
+    await as(`/fin_categories?id=eq.${budgetCategory.id}`, { method: 'DELETE' })
+    eq('borrar la categoría se lleva su línea de presupuesto (cascade)',
+       (await rows('fin_budget_lines', `&id=eq.${budgetLine.id}`)).length, 0)
+    eq('y con ella, sus cierres (cascade sobre line_id)',
+       (await rows('fin_budget_closures', `&line_id=eq.${budgetLine.id}`)).length, 0)
+
+    await as(`/fin_budget_lines?id=eq.${generalLine.id}`, { method: 'DELETE' })
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

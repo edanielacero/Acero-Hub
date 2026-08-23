@@ -6,6 +6,11 @@ import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeD
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
 import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, validatePasanaku } from './.fin/pasanaku.mjs'
+import {
+  periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
+  gastoRealCategoria, comprometidoUsd, carriedInto, disponible, dayOfPeriod, projectedUsd, needsClosure,
+  validateBudgetAmount, isValidPeriod,
+} from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
@@ -1297,6 +1302,131 @@ section('SPRINT 5 (revisión) · crossCurrencySuggestion — un solo lugar para 
   eq('300 Bs a USD, con la tasa 6.96', crossCurrencySuggestion(300, 'BOB', 'USD', R), 43.1)
   eq('43.10 USD de vuelta a Bs (ida y vuelta)', crossCurrencySuggestion(43.1, 'USD', 'BOB', R), 299.98)
   eq('300 Bs a BTC no se rompe con montos chicos', crossCurrencySuggestion(300, 'BOB', 'BTC', R) > 0, true)
+}
+
+section('SPRINT 6 · períodos (presupuesto)')
+{
+  eq('periodStart de una fecha cualquiera', periodStart('2026-08-17'), '2026-08-01')
+  eq('periodStart de un día 1 se queda igual', periodStart('2026-08-01'), '2026-08-01')
+  eq('periodRange de agosto', periodRange('2026-08-01'), { from: '2026-08-01', to: '2026-08-31' })
+  eq('periodRange respeta febrero no bisiesto', periodRange('2026-02-01'), { from: '2026-02-01', to: '2026-02-28' })
+  eq('nextPeriod dentro del año', nextPeriod('2026-08-01'), '2026-09-01')
+  eq('nextPeriod cruza de año', nextPeriod('2026-12-01'), '2027-01-01')
+  eq('previousPeriod dentro del año', previousPeriod('2026-08-01'), '2026-07-01')
+  eq('previousPeriod cruza de año hacia atrás', previousPeriod('2026-01-01'), '2025-12-01')
+}
+
+section('SPRINT 6 · resolvePeriod y montoEfectivo')
+{
+  const periods = [
+    { id: 'p-jul', line_id: 'l1', period: '2026-07-01', amount_usd: 80 },
+    { id: 'p-ago', line_id: 'l1', period: '2026-08-01', amount_usd: 92.5 },
+  ]
+  eq('mes propio', resolvePeriod(periods, 'l1', '2026-08-01'), { periodRowId: 'p-ago', amountUsd: 92.5 })
+  eq('mes heredado del más reciente anterior', resolvePeriod(periods, 'l1', '2026-09-01'), { periodRowId: null, amountUsd: 92.5 })
+  eq('sin ningún período previo: null', resolvePeriod(periods, 'l1', '2026-06-01'), { periodRowId: null, amountUsd: null })
+  eq('línea sin ninguna fila: null', resolvePeriod(periods, 'l2', '2026-08-01'), { periodRowId: null, amountUsd: null })
+
+  const extensions = [{ period_id: 'p-ago', amount_usd: 15 }, { period_id: 'p-ago', amount_usd: 8 }]
+  eq('montoEfectivo suma las ampliaciones del período propio', montoEfectivo(periods, extensions, 'l1', '2026-08-01'), 115.5)
+  eq('un mes heredado no hereda ampliaciones ajenas', montoEfectivo(periods, extensions, 'l1', '2026-09-01'), 92.5)
+  eq('sin monto cargado: null, no cero', montoEfectivo(periods, [], 'l1', '2026-06-01'), null)
+}
+
+section('SPRINT 6 · effectiveFromFor — retroactividad, una sola vez')
+{
+  const retro = { id: 'l1', created_on: '2026-08-15', retroactive: true }
+  const fresh = { id: 'l2', created_on: '2026-08-15', retroactive: false }
+
+  eq('retroactiva: el período de creación cuenta desde el día 1', effectiveFromFor(retro, '2026-08-01'), '2026-08-01')
+  eq('no retroactiva: el período de creación cuenta desde created_on', effectiveFromFor(fresh, '2026-08-01'), '2026-08-15')
+  eq('no retroactiva, pero un mes DISTINTO al de creación cuenta normal',
+     effectiveFromFor(fresh, '2026-09-01'), '2026-09-01')
+}
+
+section('SPRINT 6 · gastoRealCategoria — bruto menos repartido')
+{
+  const txs = [
+    { id: 't1', category_id: 'comida', amount_usd: 20, date: '2026-08-05' },
+    { id: 't2', category_id: 'comida', amount_usd: 12, date: '2026-08-20' },
+    { id: 't3', category_id: 'ocio', amount_usd: 30, date: '2026-08-10' },
+    { id: 't4', category_id: 'comida', amount_usd: 50, date: '2026-07-31' }, // fuera de rango
+  ]
+  const debts = [
+    { transaction_id: 't1', principal_usd: 8, waived_at: null },
+    { transaction_id: 't2', principal_usd: 3, waived_at: '2026-08-21' }, // condonado: no resta
+  ]
+
+  eq('comida: bruto 32 − repartido 8 (el condonado no resta)',
+     gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31'), 24)
+  eq('ocio: sin reparto', gastoRealCategoria(txs, debts, 'ocio', '2026-08-01', '2026-08-31'), 30)
+  eq('general (null): todas las categorías del rango', gastoRealCategoria(txs, debts, null, '2026-08-01', '2026-08-31'), 54)
+  eq('respeta el rango: julio no entra', gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31') , 24)
+}
+
+section('SPRINT 6 · comprometidoUsd — Fijos pendientes')
+{
+  const recurring = [
+    { category_id: 'vivienda', active: true, amountUsd: 300, status: 'pendiente' },
+    { category_id: 'vivienda', active: true, amountUsd: 999, status: 'registrado' }, // ya pagado: no cuenta
+    { category_id: 'suscripciones', active: true, amountUsd: 12, status: 'vencido' },
+    { category_id: 'suscripciones', active: false, amountUsd: 500, status: 'pendiente' }, // pausado: no cuenta
+  ]
+  eq('vivienda: solo lo pendiente', comprometidoUsd(recurring, 'vivienda'), 300)
+  eq('suscripciones: vencido cuenta, pausado no', comprometidoUsd(recurring, 'suscripciones'), 12)
+  eq('general (null): pendiente + vencido de todas las categorías', comprometidoUsd(recurring, null), 312)
+  eq('categoría sin fijos: 0', comprometidoUsd(recurring, 'ocio'), 0)
+}
+
+section('SPRINT 6 · carriedInto — un solo salto hacia atrás, no una cadena')
+{
+  const closures = [
+    { line_id: 'l1', period: '2026-07-01', carried: true, amount_usd: 12.5 },
+    { line_id: 'l1', period: '2026-06-01', carried: true, amount_usd: 999 }, // más viejo: no debería mirarse
+    { line_id: 'l2', period: '2026-07-01', carried: false, amount_usd: -4 },
+  ]
+  eq('se lleva: el monto del cierre inmediato anterior', carriedInto(closures, 'l1', '2026-08-01'), 12.5)
+  eq('no se lleva: no aporta nada aunque haya cierre', carriedInto(closures, 'l2', '2026-08-01'), 0)
+  eq('sin cierre del mes anterior: 0', carriedInto(closures, 'l3', '2026-08-01'), 0)
+}
+
+section('SPRINT 6 · disponible')
+{
+  eq('caso normal', disponible({ montoEfectivoUsd: 100, gastoRealUsd: 40, comprometidoUsd: 10, carriedUsd: 5 }), 55)
+  eq('sin monto cargado: null', disponible({ montoEfectivoUsd: null, gastoRealUsd: 40, comprometidoUsd: 0, carriedUsd: 0 }), null)
+  eq('puede dar negativo (ya te pasaste)', disponible({ montoEfectivoUsd: 50, gastoRealUsd: 80, comprometidoUsd: 0, carriedUsd: 0 }), -30)
+}
+
+section('SPRINT 6 · barra de ritmo: tick + proyección')
+{
+  eq('mes en curso: día de hoy', dayOfPeriod('2026-08-01', '2026-08-22'), { day: 22, days: 31 })
+  eq('mes ya cerrado: el último día, no hoy', dayOfPeriod('2026-07-01', '2026-08-22'), { day: 31, days: 31 })
+  eq('proyección simple: mitad de mes, mitad gastado → llega al doble', projectedUsd(50, 15, 30), 100)
+  eq('día 0 no divide por cero', projectedUsd(50, 0, 30), 0)
+}
+
+section('SPRINT 6 · needsClosure — la ausencia de fila es la pregunta pendiente')
+{
+  const line = { id: 'l1', created_on: '2026-06-10' }
+  eq('sin ningún cierre: todos los meses ya terminados', needsClosure(line, [], '2026-08-22'),
+     ['2026-06-01', '2026-07-01'])
+  eq('con junio ya cerrado: solo falta julio',
+     needsClosure(line, [{ line_id: 'l1', period: '2026-06-01' }], '2026-08-22'), ['2026-07-01'])
+  eq('todo cerrado: nada pendiente',
+     needsClosure(line, [{ line_id: 'l1', period: '2026-06-01' }, { line_id: 'l1', period: '2026-07-01' }], '2026-08-22'), [])
+  eq('una línea creada este mismo mes no tiene nada que cerrar todavía',
+     needsClosure({ id: 'l2', created_on: '2026-08-22' }, [], '2026-08-22'), [])
+}
+
+section('SPRINT 6 · validación')
+{
+  eq('monto válido', validateBudgetAmount(50), null)
+  eq('monto en cero', validateBudgetAmount(0), 'El monto debe ser mayor a cero')
+  eq('monto negativo', validateBudgetAmount(-10), 'El monto debe ser mayor a cero')
+  eq('monto no numérico', validateBudgetAmount('abc'), 'El monto debe ser mayor a cero')
+  ok('período válido', isValidPeriod('2026-08-01'))
+  ok('rechaza un día que no es el 1', !isValidPeriod('2026-08-15'))
+  ok('rechaza formato libre', !isValidPeriod('agosto 2026'))
 }
 
 process.exit(summary() === 0 ? 0 : 1)

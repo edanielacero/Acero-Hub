@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { IconArrowsExchange, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
 import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
-import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
-import { useFinanzas } from './data-context'
+import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, round2, roundFor, toUsd } from '@/lib/finanzas/money'
+import { periodStart } from '@/lib/finanzas/budgets'
+import { budgetLineFor, useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryGlyph, CategoryIcon } from './category-icon'
 import { SignedAmount } from './amount'
@@ -31,7 +32,7 @@ const NEW_TITLES: Record<TxType, string> = {
 
 export function QuickAdd() {
   const { open, editing, initialType, lockType, close } = useQuickAddApi()
-  const { accounts, categories, rates, reload } = useFinanzas()
+  const { accounts, categories, rates, budgets, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
   // Gasto e Ingreso dejan de ofrecer cuentas de inversión: un ajuste de valor
@@ -56,6 +57,10 @@ export function QuickAdd() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [removing, setRemoving] = useState(false)
+  // Bloqueo de presupuesto (Sprint 6): se resetea al cambiar de categoría o de
+  // tipo, para no arrastrar una ampliación pensada para OTRA categoría.
+  const [extendBudget, setExtendBudget] = useState(false)
+  const [extensionAmount, setExtensionAmount] = useState('')
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -64,6 +69,13 @@ export function QuickAdd() {
   useEffect(() => {
     if (!open) return
     setError('')
+    // Una ampliación preparada en una sesión anterior del sheet (se abrió, se
+    // bloqueó, se tocó "Ampliar", se cerró sin guardar) no puede sobrevivir a
+    // un reabrir — ni siquiera si la categoría y el tipo coinciden, que es
+    // justo el caso que el efecto de abajo (keyed en categoryId/type) no
+    // detecta como cambio.
+    setExtendBudget(false)
+    setExtensionAmount('')
     if (editing) {
       setType(editing.type)
       setAmount(String(editing.amount))
@@ -144,6 +156,16 @@ export function QuickAdd() {
     }
   }, [open, close])
 
+  // Cambiar de categoría o de tipo invalida cualquier ampliación ya
+  // preparada: era para el presupuesto de OTRA categoría. Cambiar la fecha a
+  // otro mes también: el bloqueo se apaga fuera del período vigente (ver
+  // `dateInCurrentPeriod` más abajo), y una ampliación pensada para ESTE mes
+  // no debería colarse silenciosa contra el que quede después del cambio.
+  useEffect(() => {
+    setExtendBudget(false)
+    setExtensionAmount('')
+  }, [categoryId, type, date])
+
   const hoy = todayISO()
 
   const from = active.find(a => a.id === accountId)
@@ -159,6 +181,48 @@ export function QuickAdd() {
   const montoActual = amountFromInput(amount, { decimals: fromDecimals })
   const excede = limita && Number.isFinite(montoActual) && montoActual > disponible
   const sinFondos = limita && disponible <= 0
+
+  /**
+   * Bloqueo de presupuesto (Sprint 6, §4.6): aplica a cualquier GASTO con una
+   * categoría que tiene línea propia — alta o edición. El tope general nunca
+   * bloquea: `budgetLineFor` busca por categoría y la general no tiene una.
+   *
+   * `budgetLine.available_usd` es SIEMPRE el disponible del período VIGENTE
+   * (`loadBudgets` lo calcula así). Si la fecha elegida cae en otro mes, ese
+   * número no dice nada sobre el mes al que el gasto en realidad va a sumar
+   * — bloquear ahí sería comparar contra el presupuesto equivocado. Por eso
+   * el bloqueo entero se apaga cuando `date` no es del período vigente.
+   *
+   * En edición, `available_usd` ya viene descontando el efecto ACTUAL del
+   * movimiento que se está reemplazando (está guardado, cuenta en
+   * `spent_usd`) — hay que devolvérselo antes de medir el monto nuevo, mismo
+   * criterio que `availableFrom` ya aplica al saldo de la cuenta. Sin esto,
+   * reabrir un gasto ya cargado para corregirle la descripción se leería
+   * como "te pasás" por su propio monto de siempre. Pero esa devolución solo
+   * vale si la fecha ORIGINAL del movimiento también era del período
+   * vigente — si se estaba editando un gasto de otro mes (con o sin cambiar
+   * la fecha), nunca estuvo descontado del disponible de este mes, y
+   * devolvérselo igual acreditaría de más.
+   *
+   * Lo que hay que devolver no es `amount_usd` entero: si el gasto tiene
+   * reparto, `gastoRealCategoria` ya lo contó neto de lo repartido
+   * (`principal_usd` de cada deuda no condonada, §4.1). Devolver el bruto
+   * completo acreditaría de más y dejaría pasar un monto que sí se pasa.
+   */
+  const currentPeriod = periodStart(hoy)
+  const dateInCurrentPeriod = periodStart(date) === currentPeriod
+  const budgetLine = type === 'gasto' && dateInCurrentPeriod ? budgetLineFor(budgets, categoryId || null) : undefined
+  const montoUsd = from && Number.isFinite(montoActual) && montoActual > 0 ? toUsd(montoActual, from.currency, rates) : 0
+  const editingOwnContribution =
+    editing && editing.type === 'gasto' && editing.flow_type !== 'movimiento'
+      && editing.category_id === (categoryId || null) && periodStart(editing.date) === currentPeriod
+      ? round2(editing.amount_usd - (editing.debts ?? []).filter(d => !d.waived_at).reduce((s, d) => s + d.principal_usd, 0))
+      : 0
+  const budgetAvailableRaw = budgetLine?.available_usd ?? null
+  const budgetAvailable = budgetAvailableRaw == null ? null : budgetAvailableRaw + editingOwnContribution
+  const budgetExceeded = !!budgetLine && budgetAvailable != null && montoUsd > budgetAvailable
+  const budgetNeeded = budgetExceeded ? round2(montoUsd - budgetAvailable!) : 0
+  const budgetBlocked = budgetExceeded && !extendBudget
 
   /**
    * Lo que debería llegar según las tasas de hoy: origen → USD → destino.
@@ -240,6 +304,13 @@ export function QuickAdd() {
         `${from!.name} tiene ${formatAmount(disponible, from!.currency)} disponibles`,
       )
     }
+    if (budgetLine && budgetExceeded) {
+      if (!extendBudget) {
+        return setError(`Te pasás el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatUSD(budgetNeeded)}`)
+      }
+      const extra = amountFromInput(extensionAmount)
+      if (!Number.isFinite(extra) || extra <= 0) return setError('Poné cuánto querés ampliar')
+    }
 
     const payload: Record<string, unknown> = {
       type,
@@ -256,6 +327,10 @@ export function QuickAdd() {
       }
     } else {
       payload.category_id = categoryId || null
+      if (type === 'gasto' && extendBudget) {
+        const extra = amountFromInput(extensionAmount)
+        if (Number.isFinite(extra) && extra > 0) payload.budget_extension_usd = extra
+      }
     }
 
     setSaving(true)
@@ -494,6 +569,38 @@ export function QuickAdd() {
                   </p>
                 )}
               </div>
+
+              {budgetLine && budgetExceeded && (
+                <div className="mt-3 rounded-[var(--fz-r-field)] bg-[var(--fz-out-tint)] p-3.5 flex flex-col gap-2.5">
+                  <p className="text-[13px] font-medium text-[var(--fz-out-text)]">
+                    Te pasás el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatUSD(budgetNeeded)}
+                  </p>
+                  {!extendBudget ? (
+                    <Btn
+                      size="sm" variant="soft"
+                      onClick={() => { setExtendBudget(true); setExtensionAmount(String(budgetNeeded)) }}
+                    >
+                      Ampliar presupuesto
+                    </Btn>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <TextField
+                        value={extensionAmount}
+                        onChange={e => setExtensionAmount(parseDecimalInput(e.target.value))}
+                        inputMode="decimal"
+                        aria-label="Cuánto ampliar el presupuesto"
+                        className="fz-num h-10 flex-1"
+                      />
+                      <button
+                        type="button" onClick={() => setExtendBudget(false)}
+                        className="text-[12px] font-semibold text-[var(--fz-ink-2)] shrink-0"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -520,10 +627,11 @@ export function QuickAdd() {
                 <IconTrash size={18} stroke={1.8} />
               </Btn>
             )}
-            <Btn onClick={submit} disabled={saving || excede || sinFondos} full>
+            <Btn onClick={submit} disabled={saving || excede || sinFondos || budgetBlocked} full>
               {saving ? 'Guardando…'
                 : sinFondos ? 'Sin saldo disponible'
                 : excede ? 'Supera el saldo'
+                : budgetBlocked ? 'Supera el presupuesto'
                 : editing ? 'Guardar cambios' : 'Guardar'}
             </Btn>
           </div>

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { crossCurrencySuggestion, decimalsFor, formatAmount, num, round2, roundFor } from './money'
+import { crossCurrencySuggestion, decimalsFor, formatAmount, num, round2, roundFor, toUsd } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -10,9 +10,14 @@ import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
 import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
+import {
+  carriedInto, comprometidoUsd, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
+  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod,
+  type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
+} from './budgets'
 import type {
-  Account, AccountWithBalance, Category, Currency, PersonWithDebt,
-  Person, RateMap, Recurring, RecurringSplit, RecurringSummary,
+  Account, AccountWithBalance, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
+  Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
   DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
 } from './types'
@@ -639,4 +644,275 @@ export async function loadTransactions(
     },
     error: null,
   }
+}
+
+/* ─── Presupuesto (Sprint 6) ──────────────────────────────────────────────── */
+
+const BUDGET_LINE_COLS = 'id, category_id, name, input_currency, retroactive, created_on, archived'
+const BUDGET_PERIOD_COLS = 'id, line_id, period, amount_usd'
+const BUDGET_EXTENSION_COLS = 'id, period_id, amount_usd, created_at'
+const BUDGET_CLOSURE_COLS = 'id, line_id, period, carried, amount_usd'
+
+interface BudgetLineForCalc {
+  id: string
+  category_id: string | null
+  name: string | null
+  input_currency: Currency
+  retroactive: boolean
+  created_on: string
+}
+
+/**
+ * Todo el panel de Presupuesto: el progreso de cada línea en el período
+ * vigente, más los cierres de mes que quedaron sin responder.
+ *
+ * El quick-add necesita esto en CUALQUIER pantalla para poder bloquear un
+ * gasto que se pasa del tope — no solo en `/presupuesto` — así que viaja
+ * también por `/bootstrap` (Decisiones Técnicas §2.1: la lección de "no
+ * olvidarse de sumarlo desde el día uno", justo la que Fijos no siguió la
+ * primera vez).
+ *
+ * `precomputed` es lo que `/bootstrap` ya calculó en el mismo viaje —
+ * `loadAccounts` ya corrió `ensureRates`, y `loadRecurring` ya se pidió como
+ * hermano en el mismo `Promise.all`. Sin este atajo, cada apertura de la app
+ * volvía a traer tasas y fijos por segunda vez solo para este panel. La ruta
+ * suelta `GET /api/finanzas/budgets` no tiene nada que reusar y los calcula
+ * ella misma, como siempre.
+ */
+export async function loadBudgets(
+  supabase: SupabaseClient,
+  userId: string,
+  today: string,
+  precomputed?: { rates: RateMap; recurring: RecurringSummary },
+): Promise<BudgetsPayload> {
+  const currentPeriod = periodStart(today)
+
+  const [{ data: lineRows }, { data: catRows }] = await Promise.all([
+    supabase.from('fin_budget_lines').select(BUDGET_LINE_COLS).eq('user_id', userId).eq('archived', false),
+    supabase.from('fin_categories').select('id, name, kind, archived').eq('user_id', userId),
+  ])
+
+  const categoriesById = new Map(
+    (catRows ?? []).map(c => [c.id as string, c as { id: string; name: string; kind: string; archived: boolean }]),
+  )
+  const gastoCategoryIds = new Set(
+    (catRows ?? []).filter(c => c.kind === 'gasto' && !c.archived).map(c => c.id as string),
+  )
+
+  const lines: BudgetLineForCalc[] = (lineRows ?? []).map(r => ({
+    id: r.id as string,
+    category_id: r.category_id as string | null,
+    name: r.name as string | null,
+    input_currency: r.input_currency as Currency,
+    retroactive: r.retroactive as boolean,
+    created_on: r.created_on as string,
+  }))
+
+  const linedCategoryIds = new Set(lines.map(l => l.category_id).filter((id): id is string => id !== null))
+  const categories_without_line = [...gastoCategoryIds]
+    .filter(id => !linedCategoryIds.has(id))
+    .map(id => ({ id, name: categoriesById.get(id)!.name }))
+
+  if (lines.length === 0) {
+    return { general: null, categories: [], pending_closures: [], categories_without_line }
+  }
+
+  const lineIds = lines.map(l => l.id)
+
+  const [{ data: periodRows }, { data: closureRows }, ratesResult, recurringResult] = await Promise.all([
+    supabase.from('fin_budget_periods').select(BUDGET_PERIOD_COLS).eq('user_id', userId).in('line_id', lineIds),
+    supabase.from('fin_budget_closures').select(BUDGET_CLOSURE_COLS).eq('user_id', userId).in('line_id', lineIds),
+    precomputed ? null : ensureRates(supabase, userId),
+    precomputed ? null : loadRecurring(supabase, userId, today),
+  ])
+
+  const rates = precomputed?.rates ?? ratesResult!.rates
+  const recurringSummary = precomputed?.recurring ?? recurringResult!
+
+  const periods = (periodRows ?? []).map(p => ({
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string, amount_usd: num(p.amount_usd),
+  }))
+  const closures = (closureRows ?? []).map(c => ({
+    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean, amount_usd: num(c.amount_usd),
+  }))
+
+  const periodIds = periods.map(p => p.id)
+  const { data: extensionRows } = periodIds.length > 0
+    ? await supabase.from('fin_budget_extensions').select(BUDGET_EXTENSION_COLS).eq('user_id', userId).in('period_id', periodIds)
+    : { data: [] as { period_id: string; amount_usd: number; created_at: string }[] }
+  const extensions = (extensionRows ?? []).map(e => ({
+    period_id: e.period_id as string, amount_usd: num(e.amount_usd), created_at: e.created_at as string,
+  }))
+
+  // Qué períodos, por línea, terminaron sin la pregunta de cierre respondida.
+  const pendingByLine = new Map<string, string[]>()
+  let earliestNeeded = currentPeriod
+  for (const line of lines) {
+    const need = needsClosure(line, closures, today)
+    if (need.length > 0) {
+      pendingByLine.set(line.id, need)
+      if (need[0] < earliestNeeded) earliestNeeded = need[0]
+    }
+  }
+
+  // Un solo viaje de gasto/deudas que cubre desde el período más viejo sin
+  // cerrar hasta el final del período vigente.
+  const { from: rangeFrom } = periodRange(earliestNeeded)
+  const { to: rangeTo } = periodRange(currentPeriod)
+
+  const [{ data: txRows }, { data: debtRows }] = await Promise.all([
+    supabase
+      .from('fin_transactions')
+      .select('id, category_id, amount_usd, flow_type, date')
+      .eq('user_id', userId).eq('type', 'gasto')
+      .gte('date', rangeFrom).lte('date', rangeTo),
+    supabase
+      .from('fin_debts')
+      .select('principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
+      .eq('user_id', userId),
+  ])
+
+  // Un gasto de cuenta de inversión ("Actualizar valor") no es plata real
+  // saliendo — mismo criterio que excluye reembolsos/transferencias del gasto
+  // real de siempre (Sprint 2 §4.4), acá aplicado por categoría.
+  const txs: BudgetTx[] = (txRows ?? [])
+    .filter(t => t.flow_type !== 'movimiento')
+    .map(t => ({ id: t.id as string, category_id: t.category_id as string | null, amount_usd: num(t.amount_usd), date: t.date as string }))
+
+  const debtRowsTyped = (debtRows ?? []) as unknown as
+    { principal_usd: unknown; waived_at: string | null; transaction: { id: string } | null }[]
+  const debts: BudgetDebtShare[] = debtRowsTyped
+    .filter(d => d.transaction)
+    .map(d => ({ transaction_id: d.transaction!.id, principal_usd: num(d.principal_usd), waived_at: d.waived_at }))
+
+  const committedRecurring: CommittedRecurring[] = recurringSummary.recurring.map(r => ({
+    category_id: r.category_id,
+    active: r.active,
+    amountUsd: toUsd(r.amount, r.currency, rates),
+    status: r.status,
+  }))
+
+  function progressFor(line: BudgetLineForCalc): BudgetLineProgress {
+    const { to } = periodRange(currentPeriod)
+    const from = effectiveFromFor(line, currentPeriod)
+    const { day, days } = dayOfPeriod(currentPeriod, today)
+
+    const resolved = resolvePeriod(periods, line.id, currentPeriod)
+    const lineExtensions = resolved.periodRowId
+      ? extensions.filter(e => e.period_id === resolved.periodRowId)
+      : []
+    const extendedUsd = round2(lineExtensions.reduce((s, e) => s + e.amount_usd, 0))
+    const effectiveAmount = montoEfectivo(periods, extensions, line.id, currentPeriod)
+    const carried = carriedInto(closures, line.id, currentPeriod)
+    const spent = gastoRealCategoria(txs, debts, line.category_id, from, to)
+    const committed = comprometidoUsd(committedRecurring, line.category_id)
+    const available = disponible({
+      montoEfectivoUsd: effectiveAmount, gastoRealUsd: spent, comprometidoUsd: committed, carriedUsd: carried,
+    })
+
+    return {
+      line_id: line.id,
+      category_id: line.category_id,
+      category_name: line.category_id ? (categoriesById.get(line.category_id)?.name ?? null) : null,
+      name: line.name,
+      input_currency: line.input_currency,
+      retroactive: line.retroactive,
+      amount_usd: resolved.amountUsd,
+      extensions: lineExtensions.map(e => ({ amount_usd: e.amount_usd, created_at: e.created_at })),
+      extended_usd: extendedUsd,
+      carried_usd: carried,
+      spent_usd: spent,
+      committed_usd: committed,
+      available_usd: available,
+      day_of_period: day,
+      days_in_period: days,
+      projected_usd: projectedUsd(spent, day, days),
+    }
+  }
+
+  const generalLine = lines.find(l => l.category_id === null) ?? null
+  const categoryLines = lines.filter(l => l.category_id !== null)
+
+  // Cierres pendientes: el disponible que tenía cada mes YA terminado, sin
+  // `comprometido` — un mes cerrado no tiene nada "todavía por pasar".
+  const pending_closures: PendingClosure[] = []
+  for (const line of lines) {
+    for (const period of pendingByLine.get(line.id) ?? []) {
+      const { to: closeTo } = periodRange(period)
+      const from = effectiveFromFor(line, period)
+      const effectiveAmount = montoEfectivo(periods, extensions, line.id, period)
+      const carried = carriedInto(closures, line.id, period)
+      const spent = gastoRealCategoria(txs, debts, line.category_id, from, closeTo)
+      const available = disponible({ montoEfectivoUsd: effectiveAmount, gastoRealUsd: spent, comprometidoUsd: 0, carriedUsd: carried })
+      // `null` = ese mes la línea todavía no tenía ningún monto cargado: nada que cerrar.
+      if (available == null) continue
+      pending_closures.push({
+        line_id: line.id,
+        category_id: line.category_id,
+        category_name: line.category_id ? (categoriesById.get(line.category_id)?.name ?? null) : null,
+        name: line.name,
+        period,
+        amount_usd: available,
+      })
+    }
+  }
+
+  return {
+    general: generalLine ? progressFor(generalLine) : null,
+    categories: categoryLines.map(progressFor),
+    pending_closures,
+    categories_without_line,
+  }
+}
+
+/**
+ * Si el quick-add bloqueó un gasto por presupuesto y el usuario eligió
+ * "Ampliar", registra la ampliación de ESE mes — materializando antes la fila
+ * del período si todavía se heredaba de un mes anterior (§3.3 del spec: sin
+ * eso la ampliación no tendría una base clara contra la cual sumarse).
+ *
+ * Nunca hace fallar el gasto en sí: es contabilidad secundaria de
+ * presupuesto, y el llamador (`POST`/`PATCH /transactions`) ya insertó el
+ * movimiento real cuando esto corre. Pero tampoco falla en silencio total —
+ * devuelve `{ ok: false, error }` para que la respuesta pueda avisar que la
+ * ampliación en particular no se guardó, en vez de que la categoría aparezca
+ * "pasada de presupuesto" sin ninguna pista de por qué.
+ */
+export async function applyBudgetExtension(
+  supabase: SupabaseClient,
+  userId: string,
+  categoryId: string | null,
+  date: string,
+  amountUsd: number,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!categoryId || !(amountUsd > 0)) return { ok: true }
+
+  const { data: line } = await supabase
+    .from('fin_budget_lines')
+    .select('id').eq('user_id', userId).eq('category_id', categoryId).eq('archived', false).maybeSingle()
+  if (!line) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
+
+  const period = periodStart(date)
+  const { data: periodRows } = await supabase
+    .from('fin_budget_periods').select('id, line_id, period, amount_usd').eq('user_id', userId).eq('line_id', line.id)
+  const periods = (periodRows ?? []).map(p => ({
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string, amount_usd: num(p.amount_usd),
+  }))
+
+  const resolved = resolvePeriod(periods, line.id, period)
+  let periodId = resolved.periodRowId
+  if (!periodId) {
+    if (resolved.amountUsd == null) return { ok: false, error: 'Esa línea todavía no tiene un monto cargado' }
+    const { data: created, error: createError } = await supabase
+      .from('fin_budget_periods')
+      .insert({ user_id: userId, line_id: line.id, period, amount_usd: resolved.amountUsd })
+      .select('id')
+      .single()
+    if (createError || !created) return { ok: false, error: createError?.message ?? 'No se pudo registrar el período' }
+    periodId = created.id
+  }
+
+  const { error } = await supabase
+    .from('fin_budget_extensions').insert({ user_id: userId, period_id: periodId, amount_usd: round2(amountUsd) })
+  return error ? { ok: false, error: error.message } : { ok: true }
 }

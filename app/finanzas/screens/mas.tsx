@@ -19,7 +19,7 @@ import { FzLink } from '../components/router'
  * visual.
  */
 export function MasScreen() {
-  const { shared, recurring, pasanaku, loading } = useFinanzas()
+  const { shared, recurring, pasanaku, budgets, loading } = useFinanzas()
 
   // El menú no es una lista muerta: los datos ya están en el contexto, así que
   // cada card puede decir en qué estado está su sección sin pedir nada extra.
@@ -48,6 +48,14 @@ export function MasScreen() {
     if (tuTurno > 0) {
       meta['/finanzas/pasanaku'] = (
         <span style={{ color: 'var(--fz-out-text)' }}>Te toca</span>
+      )
+    }
+
+    if (budgets.pending_closures.length > 0) {
+      meta['/finanzas/presupuesto'] = (
+        <span style={{ color: 'var(--fz-out-text)' }}>
+          {budgets.pending_closures.length} por cerrar
+        </span>
       )
     }
   }

@@ -13,6 +13,7 @@ export const SCREEN_PATHS = [
   '/finanzas/fijos',
   '/finanzas/deudas',
   '/finanzas/pasanaku',
+  '/finanzas/presupuesto',
   '/finanzas/mas',
   '/finanzas/ajustes',
 ] as const

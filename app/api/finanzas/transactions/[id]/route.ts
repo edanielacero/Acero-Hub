@@ -5,7 +5,7 @@ import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { flowTypeOnEdit, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
-import { assertBalance } from '@/lib/finanzas/load'
+import { applyBudgetExtension, assertBalance } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
@@ -204,8 +204,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  const budgetExtensionUsd = body.budget_extension_usd == null ? undefined : num(body.budget_extension_usd)
+  let budgetExtensionError: string | undefined
+  if (merged.type === 'gasto' && budgetExtensionUsd) {
+    const result = await applyBudgetExtension(supabase, userId, merged.category_id ?? null, merged.date!, budgetExtensionUsd)
+    if (!result.ok) budgetExtensionError = result.error
+  }
+
   const splits = await readDebts(supabase, userId, id)
-  return NextResponse.json({ transaction: { ...data, debts: splits } })
+  return NextResponse.json({ transaction: { ...data, debts: splits }, budget_extension_error: budgetExtensionError })
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {

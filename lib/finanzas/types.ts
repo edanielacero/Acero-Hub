@@ -496,6 +496,93 @@ export interface TransactionInput {
   flow_type?: FlowType
   /** Reparto entre personas. Solo válido en `gasto`. */
   splits?: DebtInput[]
+  /** Si el quick-add bloqueó el gasto por presupuesto y el usuario eligió
+      "Ampliar", cuánto agregar al tope de ESE mes antes de guardar (Sprint 6,
+      §4.6 de sprint_6_presupuesto.md). */
+  budget_extension_usd?: number
+}
+
+/* ─── Presupuesto (Sprint 6) ─────────────────────────────────────────────────
+
+   Una línea por categoría de gasto, más una general (`category_id: null`).
+   El monto es editable mes a mes (`fin_budget_periods`, perezoso: solo se
+   guardan los meses que alguien tocó). Cada ampliación al bloquear el
+   quick-add queda auditada aparte (`fin_budget_extensions`), sin pisar el
+   monto original. Y el rollover NO es una configuración fija: es una
+   pregunta que se responde una vez por mes, por línea, al cerrarlo
+   (`fin_budget_closures`) — la ausencia de fila es la pregunta pendiente. */
+
+export interface BudgetLine {
+  id: string
+  category_id: string | null
+  /** Alias propio. `null` = usar el nombre de la categoría (o "Presupuesto
+      general") — ese es el default real, no un simple placeholder. */
+  name: string | null
+  /** En qué moneda se ESCRIBE el monto mensual de esta línea. Se elige una
+      sola vez al crear, igual que `retroactive`. `amount_usd` sigue siendo
+      la fuente de verdad — esto es solo comodidad de entrada. */
+  input_currency: Currency
+  /** Si el período de creación cuenta desde el día 1 del mes o desde
+      `created_on` en adelante. Se elige una sola vez y queda fijo. */
+  retroactive: boolean
+  created_on: string
+  archived: boolean
+}
+
+export interface BudgetExtensionEntry {
+  amount_usd: number
+  created_at: string
+}
+
+/** Una línea con su progreso ya resuelto para un período determinado. */
+export interface BudgetLineProgress {
+  line_id: string
+  /** `null` = la línea general. */
+  category_id: string | null
+  category_name: string | null
+  /** Alias propio, o `null` si usa el nombre de la categoría de default. */
+  name: string | null
+  input_currency: Currency
+  retroactive: boolean
+  /** `null` = todavía no se cargó ningún monto para esta línea. */
+  amount_usd: number | null
+  extensions: BudgetExtensionEntry[]
+  extended_usd: number
+  carried_usd: number
+  spent_usd: number
+  committed_usd: number
+  available_usd: number | null
+  day_of_period: number
+  days_in_period: number
+  projected_usd: number
+}
+
+/** Un mes ya terminado de una línea, sin decisión de cierre todavía —
+    lo que dispara la pregunta "¿llevás el sobrante/sobregasto al próximo?". */
+export interface PendingClosure {
+  line_id: string
+  category_id: string | null
+  category_name: string | null
+  name: string | null
+  period: string
+  amount_usd: number
+}
+
+export interface BudgetsPayload {
+  general: BudgetLineProgress | null
+  categories: BudgetLineProgress[]
+  pending_closures: PendingClosure[]
+  /** Categorías de gasto sin línea todavía — alimenta el wizard y "+ Agregar". */
+  categories_without_line: { id: string; name: string }[]
+}
+
+export interface BudgetLineInput {
+  /** Ausente/`null` = la línea general. */
+  category_id?: string | null
+  name?: string | null
+  amount: number
+  currency?: Currency
+  retroactive?: boolean
 }
 
 /** Las 14 categorías que siembra POST /api/finanzas/seed. */

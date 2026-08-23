@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect,
   useMemo, useRef, useState,
 } from 'react'
-import type { AccountWithBalance, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
+import type { AccountWithBalance, BudgetsPayload, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
 import type { RateDetail } from '@/lib/finanzas/rates'
 import type { TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
@@ -37,6 +37,8 @@ interface FinanzasData {
   plans: DebtPlanWithCuotas[]
   /** Los pasanaku con su estado derivado (aportes, si ya recibiste tu turno). */
   pasanaku: PasanakuWithState[]
+  /** Presupuesto del período vigente + cierres de mes sin responder (Sprint 6). */
+  budgets: BudgetsPayload
   /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
       viejo — puebla el filtro de mes de Movimientos. */
   months: string[]
@@ -86,6 +88,10 @@ const EMPTY_SHARED: SharedSummary = {
   por_persona: [], historial: [],
 }
 
+const EMPTY_BUDGETS: BudgetsPayload = {
+  general: null, categories: [], pending_closures: [], categories_without_line: [],
+}
+
 const EMPTY: TxResult = {
   transactions: [], total_gasto_usd: 0, total_ingreso_usd: 0,
   total_repartido_usd: 0, total_gasto_real_usd: 0,
@@ -132,6 +138,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [recurring, setRecurring] = useState<RecurringSummary>(EMPTY_RECURRING)
   const [plans, setPlans] = useState<DebtPlanWithCuotas[]>([])
   const [pasanaku, setPasanaku] = useState<PasanakuWithState[]>([])
+  const [budgets, setBudgets] = useState<BudgetsPayload>(EMPTY_BUDGETS)
   const [months, setMonths] = useState<string[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -154,6 +161,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     setRecurring(snap.recurring ?? EMPTY_RECURRING)
     setPlans(snap.plans ?? [])
     setPasanaku(snap.pasanaku ?? [])
+    setBudgets(snap.budgets ?? EMPTY_BUDGETS)
     setMonths(snap.months ?? [])
     setTotal(snap.total_usd)
     for (const [key, data] of Object.entries(snap.tx)) {
@@ -261,6 +269,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       recurring: data.recurring ?? EMPTY_RECURRING,
       plans: data.plans ?? [],
       pasanaku: data.pasanaku ?? [],
+      budgets: data.budgets ?? EMPTY_BUDGETS,
       months: data.months ?? [],
       tx,
     }
@@ -293,11 +302,11 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<FinanzasData>(
     () => ({
-      accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, months, totalUsd,
+      accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, months, totalUsd,
       loading, stale: pending && !loading, pending, error,
       reload, version, seed, hidden, toggleHidden, userName,
     }),
-    [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, months, totalUsd,
+    [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, months, totalUsd,
      loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
   )
 
@@ -313,6 +322,17 @@ export function useFinanzas(): FinanzasData {
 /** La query del mes que comparten la Home y Movimientos sin filtros. */
 export function monthQuery(range: { from: string; to: string }) {
   return { from: range.from, to: range.to, limit: MONTH_LIMIT }
+}
+
+/**
+ * El progreso de presupuesto de una categoría, si tiene línea propia — lo
+ * que el quick-add necesita para decidir si un gasto nuevo se bloquea
+ * (§4.6 de sprint_6_presupuesto.md). El tope general no se resuelve acá
+ * porque nunca bloquea: no hace falta buscarlo para esta decisión puntual.
+ */
+export function budgetLineFor(budgets: BudgetsPayload, categoryId: string | null) {
+  if (!categoryId) return undefined
+  return budgets.categories.find(c => c.category_id === categoryId)
 }
 
 /**

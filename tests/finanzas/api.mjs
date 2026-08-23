@@ -1924,6 +1924,219 @@ async function run() {
       eq('la cuenta sigue sin marcar', sigue.accounts.find(a => a.id === bs.id).is_investment, false)
     }
   }
+
+  section('SPRINT 6 · Presupuesto')
+  {
+    // Fechas calculadas en vez de fijas: el suite no depende de en qué año
+    // corra. `thisMonth` es el período vigente real (el que usa el server).
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const thisMonth = `${todayStr.slice(0, 7)}-01`
+    const addMonths = (period, n) => {
+      const [y, m] = period.split('-').map(Number)
+      const total = y * 12 + (m - 1) + n
+      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}-01`
+    }
+    const nextMonth = addMonths(thisMonth, 1)
+    const prevMonth = addMonths(thisMonth, -1)
+
+    const cats = await json(await api('/categories'))
+    const comida = cats.categories.find(c => c.name === 'Comida')
+    const sueldo = cats.categories.find(c => c.name === 'Sueldo')
+    ok('hay categoría Comida', !!comida)
+
+    const before = await json(await api('/budgets'))
+    ok('Comida aparece sin línea todavía',
+       before.categories_without_line.some(c => c.id === comida.id))
+
+    eq('monto en cero → 400',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 0 }) })).status, 400)
+    eq('una categoría de INGRESO no admite presupuesto → 400',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: sueldo.id, amount: 50 }) })).status, 400)
+    eq('categoría inexistente → 400',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: '00000000-0000-0000-0000-000000000000', amount: 50 }) })).status, 400)
+    eq('moneda inválida → 400',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 50, currency: 'EUR' }) })).status, 400)
+
+    const comidaLine = (await json(await api('/budgets', {
+      method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 80 }),
+    }))).line
+    ok('crea la línea de Comida', !!comidaLine?.id)
+    eq('retroactive por default: true', comidaLine.retroactive, true)
+    eq('sin nombre, name queda null (alias opcional)', comidaLine.name, null)
+    eq('sin moneda, input_currency por default USD', comidaLine.input_currency, 'USD')
+
+    eq('la misma categoría de nuevo → 409',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 50 }) })).status, 409)
+
+    const generalLine = (await json(await api('/budgets', {
+      method: 'POST', body: JSON.stringify({ amount: 500 }),
+    }))).line
+    ok('crea el tope general sin category_id', !!generalLine && generalLine.category_id === null)
+    eq('otro tope general → 409',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ amount: 100 }) })).status, 409)
+
+    const after = await json(await api('/budgets'))
+    ok('Comida ya no aparece sin línea', !after.categories_without_line.some(c => c.id === comida.id))
+    eq('arranca sin gastar nada', after.categories.find(c => c.line_id === comidaLine.id).spent_usd, 0)
+    eq('disponible = monto entero', after.categories.find(c => c.line_id === comidaLine.id).available_usd, 80)
+    eq('el general también aparece', after.general.line_id, generalLine.id)
+
+    // Cuenta dedicada: no depende del saldo que hayan dejado otras secciones.
+    const cuenta = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Presupuesto Test', currency: 'USD', initial_balance: 1000 }),
+    }))).account
+
+    await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'gasto', date: todayStr, account_id: cuenta.id, category_id: comida.id, amount: 30, description: 'Super' }),
+    })
+    const afterGasto = await json(await api('/budgets'))
+    eq('gastado 30', afterGasto.categories.find(c => c.line_id === comidaLine.id).spent_usd, 30)
+    eq('disponible 50', afterGasto.categories.find(c => c.line_id === comidaLine.id).available_usd, 50)
+
+    // El server NO bloquea con dureza (§4.6 del spec): la app es la puerta
+    // real. Un gasto que se pasa igual se guarda si no viene por el quick-add.
+    const overRes = await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'gasto', date: todayStr, account_id: cuenta.id, category_id: comida.id, amount: 60, description: 'Se pasó' }),
+    })
+    eq('el server no frena un gasto que excede el presupuesto', overRes.status, 201)
+    const overBudget = await json(await api('/budgets'))
+    eq('disponible negativo', overBudget.categories.find(c => c.line_id === comidaLine.id).available_usd, -10)
+
+    section('PATCH /budgets/[id]/period — no toca otros meses')
+    {
+      eq('actualiza el monto del mes siguiente',
+         (await api(`/budgets/${comidaLine.id}/period`, { method: 'PATCH', body: JSON.stringify({ period: nextMonth, amount: 120 }) })).status, 200)
+
+      const viewNextMonth = await json(await api(`/budgets?today=${nextMonth.slice(0, 8)}15`))
+      eq('el mes siguiente ya tiene 120', viewNextMonth.categories.find(c => c.line_id === comidaLine.id).amount_usd, 120)
+
+      const stillToday = await json(await api('/budgets'))
+      eq('el mes actual sigue en 80, sin tocarse', stillToday.categories.find(c => c.line_id === comidaLine.id).amount_usd, 80)
+
+      eq('período inválido (no es el día 1) → 400',
+         (await api(`/budgets/${comidaLine.id}/period`, { method: 'PATCH', body: JSON.stringify({ period: `${thisMonth.slice(0, 8)}15`, amount: 10 }) })).status, 400)
+    }
+
+    section('POST /budgets/[id]/extend — ampliar un mes puntual')
+    {
+      eq('el tope general no se amplía — nunca bloquea, nada que ampliar',
+         (await api(`/budgets/${generalLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: thisMonth, amount_usd: 10 }) })).status, 400)
+
+      eq('registra la ampliación del mes siguiente',
+         (await api(`/budgets/${comidaLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: nextMonth, amount_usd: 15 }) })).status, 201)
+
+      const withExt = await json(await api(`/budgets?today=${nextMonth.slice(0, 8)}15`))
+      const comidaExt = withExt.categories.find(c => c.line_id === comidaLine.id)
+      eq('el monto ampliado queda aparte del original', comidaExt.extended_usd, 15)
+      ok('la ampliación queda auditada, no pisa el monto', comidaExt.extensions.some(e => Number(e.amount_usd) === 15))
+    }
+
+    section('POST /budgets/[id]/close — la pregunta de cierre de mes')
+    {
+      // Un mes YA terminado necesita una línea cuyo `created_on` sea de antes
+      // — la API siempre la crea con `created_on = hoy`, así que se backdatea
+      // directo con la service role (igual que db.mjs prueba constraints que
+      // no se pueden ejercitar desde afuera).
+      const transporte = (await json(await api('/categories'))).categories.find(c => c.name === 'Transporte')
+      const pastLine = (await json(await api('/budgets', {
+        method: 'POST', body: JSON.stringify({ category_id: transporte.id, amount: 40 }),
+      }))).line
+
+      await adminFetch(`/rest/v1/fin_budget_lines?id=eq.${pastLine.id}`, {
+        method: 'PATCH', body: JSON.stringify({ created_on: prevMonth }),
+      })
+      await adminFetch(`/rest/v1/fin_budget_periods?line_id=eq.${pastLine.id}`, {
+        method: 'PATCH', body: JSON.stringify({ period: prevMonth }),
+      })
+
+      const withPending = await json(await api('/budgets'))
+      ok('el mes pasado de Transporte queda pendiente de cierre',
+         withPending.pending_closures.some(p => p.line_id === pastLine.id && p.period === prevMonth))
+
+      const closed = await json(await api(`/budgets/${pastLine.id}/close`, {
+        method: 'POST', body: JSON.stringify({ period: prevMonth, carried: true }),
+      }))
+      ok('cierra el mes pasado', !!closed?.closure?.id)
+      eq('el disponible congelado es el monto entero (sin gasto ese mes)', Number(closed.closure.amount_usd), 40)
+
+      eq('el mismo mes no se cierra dos veces',
+         (await api(`/budgets/${pastLine.id}/close`, { method: 'POST', body: JSON.stringify({ period: prevMonth, carried: false }) })).status, 409)
+
+      const afterClose = await json(await api('/budgets'))
+      ok('ya no queda pendiente', !afterClose.pending_closures.some(p => p.line_id === pastLine.id))
+      eq('el mes en curso ya arranca con los 40 llevados',
+         afterClose.categories.find(c => c.line_id === pastLine.id).carried_usd, 40)
+    }
+
+    section('DELETE /budgets/[id] y PATCH archived')
+    {
+      eq('archiva el tope general', (await api(`/budgets/${generalLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
+      eq('borra la línea de Comida — configuración, sin 409 posible',
+         (await api(`/budgets/${comidaLine.id}`, { method: 'DELETE' })).status, 200)
+
+      const finalState = await json(await api('/budgets'))
+      ok('Comida vuelve a estar disponible para presupuestar',
+         finalState.categories_without_line.some(c => c.id === comida.id))
+    }
+  }
+
+  section('SPRINT 6 (revisión) · nombre propio y moneda de entrada')
+  {
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const thisMonth = `${todayStr.slice(0, 7)}-01`
+    const addMonths = (period, n) => {
+      const [y, m] = period.split('-').map(Number)
+      const total = y * 12 + (m - 1) + n
+      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}-01`
+    }
+    const nextMonth = addMonths(thisMonth, 1)
+
+    const vivienda = (await json(await api('/categories'))).categories.find(c => c.name === 'Vivienda')
+
+    // 696 Bs a 6.96 Bs/USD (fijada al principio de la suite) da exactamente
+    // 100 USD — un número redondo para no depender de decimales de más.
+    const viviendaLine = (await json(await api('/budgets', {
+      method: 'POST',
+      body: JSON.stringify({ category_id: vivienda.id, name: 'Alquiler y depósito', amount: 696, currency: 'BOB' }),
+    }))).line
+    eq('el alias queda guardado', viviendaLine.name, 'Alquiler y depósito')
+    eq('la moneda de entrada queda guardada', viviendaLine.input_currency, 'BOB')
+
+    const withVivienda = await json(await api('/budgets'))
+    const viviendaProgress = withVivienda.categories.find(c => c.line_id === viviendaLine.id)
+    eq('696 Bs se convierten a 100 USD al crear', viviendaProgress.amount_usd, 100)
+    eq('el progreso trae el mismo alias', viviendaProgress.name, 'Alquiler y depósito')
+
+    eq('renombrar la línea', (await api(`/budgets/${viviendaLine.id}`, {
+      method: 'PATCH', body: JSON.stringify({ name: 'Depa' }),
+    })).status, 200)
+    const renamed = await json(await api('/budgets'))
+    eq('el nuevo alias se ve en el progreso', renamed.categories.find(c => c.line_id === viviendaLine.id).name, 'Depa')
+
+    eq('vaciar el nombre lo vuelve al default (null → nombre de categoría)', (await json(await api(`/budgets/${viviendaLine.id}`, {
+      method: 'PATCH', body: JSON.stringify({ name: '' }),
+    }))).line.name, null)
+
+    // El monto del mes siguiente también se escribe en Bs — la moneda quedó
+    // fija en la línea al crearla, no hace falta volver a mandarla.
+    eq('el monto de otro mes también se escribe en la moneda de la línea',
+       (await api(`/budgets/${viviendaLine.id}/period`, {
+         method: 'PATCH', body: JSON.stringify({ period: nextMonth, amount: 348 }),
+       })).status, 200)
+    const viewNextMonth = await json(await api(`/budgets?today=${nextMonth.slice(0, 8)}15`))
+    eq('348 Bs se convierten a 50 USD, sin que el cliente mande la moneda',
+       viewNextMonth.categories.find(c => c.line_id === viviendaLine.id).amount_usd, 50)
+  }
+
+  section('SPRINT 6 · /bootstrap incluye presupuesto')
+  {
+    const boot = await json(await api('/bootstrap'))
+    ok('el payload trae budgets con su forma esperada',
+       boot.budgets && Array.isArray(boot.budgets.categories) && Array.isArray(boot.budgets.pending_closures),
+       JSON.stringify(boot.budgets))
+  }
 }
 
 await setup()
