@@ -90,6 +90,17 @@ export function MovimientosScreen() {
     navigate('/finanzas/movimientos')
   }
 
+  /** El ✕ del chip de varias categorías. Saca el filtro y lo saca TAMBIÉN de
+      la URL — si no, recargar lo traía de vuelta como si nunca se hubiera
+      tocado. Los demás filtros que el usuario haya puesto se conservan. */
+  function quitarCategorias() {
+    setCategoryIds([])
+    const params = new URLSearchParams(query)
+    params.delete('category')
+    const qs = params.toString()
+    navigate(`/finanzas/movimientos${qs ? `?${qs}` : ''}`)
+  }
+
   const esFijo = type === 'fijo' || type === 'fijo_compartido'
 
   // `monthQuery` y no un objeto propio: sin filtros, esta consulta tiene que dar
@@ -174,7 +185,7 @@ export function MovimientosScreen() {
               // forma de representar esto ahí sin perder cuáles son.
               <button
                 type="button"
-                onClick={() => setCategoryIds([])}
+                onClick={quitarCategorias}
                 aria-label={`Quitar el filtro de ${categoryIds.length} categorías`}
                 className="h-12 min-w-0 px-3.5 rounded-[var(--fz-r-field)] border border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[14px] font-semibold text-[var(--fz-accent)] flex items-center justify-between gap-1.5"
               >

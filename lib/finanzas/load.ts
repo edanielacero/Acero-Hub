@@ -758,6 +758,12 @@ export async function loadBudgets(
     if (list) list.push(r.category_id as string)
     else categoryIdsByLine.set(r.line_id as string, [r.category_id as string])
   }
+  // Por nombre y no en el orden que vino: la consulta no lleva ORDER BY, así
+  // que Postgres puede devolver las filas en cualquier orden, y el título de
+  // la card ("Personal, Salud") cambiaría de una recarga a otra.
+  for (const ids of categoryIdsByLine.values()) {
+    ids.sort((a, b) => (categoriesById.get(a)?.name ?? '').localeCompare(categoriesById.get(b)?.name ?? ''))
+  }
 
   const lines: BudgetLineForCalc[] = (lineRows ?? []).map(r => ({
     id: r.id as string,

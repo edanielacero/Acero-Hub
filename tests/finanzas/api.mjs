@@ -2134,11 +2134,111 @@ async function run() {
       ok('trae el gasto de salud', movsGrupo.some(t => t.description === 'Consulta'))
       ok('trae el gasto de personal', movsGrupo.some(t => t.description === 'Corte'))
 
+      eq('el orden de las categorías es estable, no el que devuelva Postgres',
+         grupoProgress.category_names, [...grupoProgress.category_names].sort((a, b) => a.localeCompare(b)))
+
+      // Editar el monto de una línea agrupada no toca sus categorías.
+      eq('cambia el monto del grupo',
+         (await api(`/budgets/${grupoLine.id}/period`, {
+           method: 'PATCH', body: JSON.stringify({ period: thisMonth, amount: 200 }),
+         })).status, 200)
+      const grupoTrasEditar = (await json(await api('/budgets'))).categories.find(c => c.line_id === grupoLine.id)
+      eq('el monto nuevo se aplica', grupoTrasEditar.amount_usd, 200)
+      eq('y sigue cubriendo las dos categorías', grupoTrasEditar.category_ids.length, 2)
+      eq('el gasto acumulado de las dos no se pierde', grupoTrasEditar.spent_usd, 40)
+
+      // Editar las categorías del grupo sin perder el historial: es lo que
+      // evita tener que borrar y recrear para sumar una categoría más.
+      const educacionCat = (await json(await api('/categories'))).categories.find(c => c.name === 'Educación')
+      eq('suma una categoría al grupo ya creado',
+         (await api(`/budgets/${grupoLine.id}`, {
+           method: 'PATCH', body: JSON.stringify({ category_ids: [salud.id, personal.id, educacionCat.id] }),
+         })).status, 200)
+      const conTres = (await json(await api('/budgets'))).categories.find(c => c.line_id === grupoLine.id)
+      eq('ahora cubre tres categorías', conTres.category_ids.length, 3)
+      eq('el monto sigue siendo el mismo', conTres.amount_usd, 200)
+      eq('y el gasto de las dos originales tampoco se perdió', conTres.spent_usd, 40)
+
+      eq('saca una categoría del grupo',
+         (await api(`/budgets/${grupoLine.id}`, {
+           method: 'PATCH', body: JSON.stringify({ category_ids: [salud.id, educacionCat.id] }),
+         })).status, 200)
+      const sinPersonal = (await json(await api('/budgets'))).categories.find(c => c.line_id === grupoLine.id)
+      ok('personal ya no está en el grupo', !sinPersonal.category_ids.includes(personal.id))
+      eq('y su gasto deja de contar: quedan los 15 de salud', sinPersonal.spent_usd, 15)
+      const librePersonal = await json(await api('/budgets'))
+      ok('personal vuelve a estar disponible para otro presupuesto',
+         librePersonal.categories_without_line.some(c => c.id === personal.id))
+
+      eq('dejar el grupo sin ninguna categoría → 400, no lo borra en silencio',
+         (await api(`/budgets/${grupoLine.id}`, {
+           method: 'PATCH', body: JSON.stringify({ category_ids: [] }),
+         })).status, 400)
+      ok('el grupo sigue vivo tras el intento fallido',
+         (await json(await api('/budgets'))).categories.some(c => c.line_id === grupoLine.id))
+
+      // Una categoría que ya es de OTRA línea no se puede robar.
+      const otraLinea = (await json(await api('/budgets', {
+        method: 'POST', body: JSON.stringify({ category_ids: [personal.id], amount: 10 }),
+      }))).line
+      eq('no se puede sumar al grupo una categoría que ya tiene otro presupuesto → 409',
+         (await api(`/budgets/${grupoLine.id}`, {
+           method: 'PATCH', body: JSON.stringify({ category_ids: [salud.id, educacionCat.id, personal.id] }),
+         })).status, 409)
+      await api(`/budgets/${otraLinea.id}`, { method: 'DELETE' })
+
+      // Volver al par original para que el resto de la sección siga igual.
+      await api(`/budgets/${grupoLine.id}`, {
+        method: 'PATCH', body: JSON.stringify({ category_ids: [salud.id, personal.id] }),
+      })
+
       eq('borra la línea del grupo', (await api(`/budgets/${grupoLine.id}`, { method: 'DELETE' })).status, 200)
       const afterGrupoDelete = await json(await api('/budgets'))
       ok('las dos categorías vuelven a estar libres',
          afterGrupoDelete.categories_without_line.some(c => c.id === salud.id)
          && afterGrupoDelete.categories_without_line.some(c => c.id === personal.id))
+    }
+
+    section('Presupuesto · borrar una categoría de un grupo, y la última')
+    {
+      const cats = (await json(await api('/categories'))).categories
+      const educacion = cats.find(c => c.name === 'Educación')
+      const otros = cats.find(c => c.name === 'Otros' && c.kind === 'gasto')
+
+      const parLine = (await json(await api('/budgets', {
+        method: 'POST', body: JSON.stringify({ category_ids: [educacion.id, otros.id], amount: 60 }),
+      }))).line
+      ok('crea un presupuesto con dos categorías', !!parLine?.id)
+
+      // Borrar UNA: el presupuesto sobrevive con la que queda.
+      eq('borra una de las dos categorías', (await api(`/categories/${otros.id}`, { method: 'DELETE' })).status, 200)
+      const trasUna = await json(await api('/budgets'))
+      const sobreviviente = trasUna.categories.find(c => c.line_id === parLine.id)
+      ok('el presupuesto sigue existiendo', !!sobreviviente)
+      eq('y le queda solo la categoría que no se borró', sobreviviente.category_ids, [educacion.id])
+
+      // Borrar la ÚLTIMA: el trigger se lleva el presupuesto entero.
+      eq('borra la última categoría que le quedaba',
+         (await api(`/categories/${educacion.id}`, { method: 'DELETE' })).status, 200)
+      const trasUltima = await json(await api('/budgets'))
+      ok('sin categorías, el presupuesto desaparece solo',
+         !trasUltima.categories.some(c => c.line_id === parLine.id))
+    }
+
+    section('Presupuesto · una categoría archivada no se puede presupuestar')
+    {
+      const ocio = (await json(await api('/categories'))).categories.find(c => c.name === 'Ocio')
+      eq('archiva la categoría',
+         (await api(`/categories/${ocio.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
+
+      const budgetsConArchivada = await json(await api('/budgets'))
+      ok('una categoría archivada no se ofrece para presupuestar',
+         !budgetsConArchivada.categories_without_line.some(c => c.id === ocio.id))
+
+      eq('y el server la rechaza igual → 400',
+         (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [ocio.id], amount: 30 }) })).status, 400)
+
+      await api(`/categories/${ocio.id}`, { method: 'PATCH', body: JSON.stringify({ archived: false }) })
     }
   }
 

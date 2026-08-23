@@ -48,7 +48,18 @@ const BUDGET_VIEW_OPTIONS: { value: BudgetViewMode; label: string; hint: string 
 ]
 
 export function AjustesScreen() {
-  const { categories, people, rates, rateList, reload } = useFinanzas()
+  const { categories, people, rates, rateList, budgets, reload } = useFinanzas()
+
+  // Antes de borrar una categoría hay que saber si tiene un presupuesto
+  // activo colgando. Si es la ÚNICA categoría de esa línea, borrarla se
+  // lleva el presupuesto entero (§ trigger de limpieza); si la línea tiene
+  // otras, solo sale de ahí y el presupuesto sigue con las demás — el aviso
+  // tiene que distinguir los dos casos, no asustar de más ni de menos.
+  const budgetFor = (categoryId: string) => {
+    const line = budgets.categories.find(c => c.category_ids.includes(categoryId))
+    if (!line) return null
+    return { name: line.name ?? line.category_names.join(', '), sole: line.category_ids.length === 1 }
+  }
   const { mode: budgetView, setMode: setBudgetView } = useBudgetViewPref()
 
   const [draftRates, setDraftRates] = useState<Partial<Record<Currency, string>>>({})
@@ -436,8 +447,8 @@ export function AjustesScreen() {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-2 mt-5">
-              <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} />
-              <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} />
+              <CategoryList title="Gastos" items={gastos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} budgetFor={budgetFor} />
+              <CategoryList title="Ingresos" items={ingresos} onPatch={patchCategory} onRemove={removeCategory} onReorder={reorderCategories} budgetFor={budgetFor} />
             </div>
           )}
         </Panel>
@@ -505,12 +516,13 @@ function useReorderSensors() {
   )
 }
 
-function CategoryList({ title, items, onPatch, onRemove, onReorder }: {
+function CategoryList({ title, items, onPatch, onRemove, onReorder, budgetFor }: {
   title: string
   items: Category[]
   onPatch: (id: string, body: Record<string, unknown>) => void
   onRemove: (id: string) => void
   onReorder: (ids: string[]) => Promise<void>
+  budgetFor: (categoryId: string) => { name: string; sole: boolean } | null
 }) {
   // El ícono se edita en el lugar: tocar el chip abre la grilla justo debajo
   // de esa fila, y elegir cierra — no hay un modo edición aparte que mantener.
@@ -567,6 +579,7 @@ function CategoryList({ title, items, onPatch, onRemove, onReorder }: {
                 onToggleOpen={() => setOpenId(openId === c.id ? null : c.id)}
                 onPatch={onPatch}
                 onDelete={() => setDeleting(c)}
+                budget={budgetFor(c.id)}
               />
             ))}
           </div>
@@ -580,24 +593,34 @@ function CategoryList({ title, items, onPatch, onRemove, onReorder }: {
         title="Eliminar categoría"
         confirming={confirming}
       >
-        {deleting && (
-          <DeletePreview
-            icon={<CategoryIcon slug={deleting.icon} name={deleting.name} size={40} />}
-            title={deleting.name}
-            subtitle={deleting.kind === 'gasto' ? 'Gasto' : 'Ingreso'}
-          />
-        )}
+        {deleting && (() => {
+          const budget = budgetFor(deleting.id)
+          return (
+            <DeletePreview
+              icon={<CategoryIcon slug={deleting.icon} name={deleting.name} size={40} />}
+              title={deleting.name}
+              subtitle={
+                !budget
+                  ? (deleting.kind === 'gasto' ? 'Gasto' : 'Ingreso')
+                  : budget.sole
+                    ? `Se borra con su presupuesto "${budget.name}"`
+                    : `Sale del presupuesto "${budget.name}", que sigue con sus otras categorías`
+              }
+            />
+          )
+        })()}
       </DeleteConfirmSheet>
     </section>
   )
 }
 
-function CategoryRow({ category: c, open, onToggleOpen, onPatch, onDelete }: {
+function CategoryRow({ category: c, open, onToggleOpen, onPatch, onDelete, budget }: {
   category: Category
   open: boolean
   onToggleOpen: () => void
   onPatch: (id: string, body: Record<string, unknown>) => void
   onDelete: () => void
+  budget: { name: string; sole: boolean } | null
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id })
   const style: React.CSSProperties = {
@@ -652,6 +675,7 @@ function CategoryRow({ category: c, open, onToggleOpen, onPatch, onDelete }: {
               icon: <IconTrash size={16} stroke={1.8} />,
               onClick: onDelete,
               danger: true,
+              title: budget?.sole ? `Se borra con su presupuesto "${budget.name}"` : undefined,
             },
           ]}
         />

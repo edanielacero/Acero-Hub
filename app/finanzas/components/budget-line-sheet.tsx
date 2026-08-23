@@ -30,7 +30,15 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   // Las categorías elegibles se capturan al abrir: crear una línea las saca
   // de `categories_without_line` en el próximo reload, y leerlas en vivo las
   // haría desaparecer del selector bajo el propio dedo del usuario.
-  const [pickable] = useState(() => budgets.categories_without_line)
+  //
+  // Editando, las que ya son de ESTA línea también son elegibles: si no,
+  // aparecerían como no seleccionables justo las que hay que poder destildar.
+  const [pickable] = useState(() => {
+    const libres = budgets.categories_without_line
+    if (!editing) return libres
+    const propias = editing.category_ids.map((id, i) => ({ id, name: editing.category_names[i] ?? '' }))
+    return [...propias, ...libres].sort((a, b) => a.name.localeCompare(b.name))
+  })
 
   // Varias categorías por línea (rediseño post-Sprint 6): acá se juntan los
   // ids elegidos, tocando cada chip prende o apaga su selección.
@@ -43,7 +51,9 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setSelected([])
+    // Editando arranca con las que ya tiene marcadas, para poder sumar o
+    // sacar sin volver a armar el grupo entero desde cero.
+    setSelected(editing ? editing.category_ids : [])
     setName(editing?.name ?? '')
     setCurrency(editing?.input_currency ?? 'USD')
     // El monto que se precarga es el NATIVO guardado, tal cual se escribió —
@@ -62,17 +72,14 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   const decimals = decimalsFor(currency)
   // Los nombres de las categorías tal cual, sin alias — es lo que el campo
   // "Nombre" usa como placeholder: a qué vuelve si se vacía, no cómo se
-  // llama ahora mismo si ya tiene un alias puesto.
-  const fallbackName = editing
-    ? editing.category_names.join(', ')
-    : selected.map(id => pickable.find(c => c.id === id)?.name).filter(Boolean).join(', ')
-  // Para el encabezado en modo edición sí importa el alias actual, si hay
-  // uno — es el mismo nombre que ya se ve en la card y en el resto de la app.
-  const currentDisplayName = editing ? (editing.name ?? fallbackName) : fallbackName
-  const nothingLeftToPick = !editing && pickable.length === 0
+  // llama ahora mismo si ya tiene un alias puesto. Sale de lo que está
+  // marcado AHORA, no de lo guardado: si se suma una categoría, el
+  // placeholder ya la incluye.
+  const fallbackName = selected.map(id => pickable.find(c => c.id === id)?.name).filter(Boolean).join(', ')
+  const nothingLeftToPick = pickable.length === 0
 
   async function submit() {
-    if (!editing && selected.length === 0) return setError('Elige al menos una categoría')
+    if (selected.length === 0) return setError('Elige al menos una categoría')
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
@@ -80,23 +87,32 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
 
     if (editing) {
       const newName = name.trim() || null
-      const [periodRes, nameRes] = await Promise.all([
+      // Las categorías solo viajan si de verdad cambiaron: mandarlas iguales
+      // haría reescribir la tabla puente sin ninguna razón.
+      const sameCategories =
+        selected.length === editing.category_ids.length
+        && selected.every(id => editing.category_ids.includes(id))
+      const linePatch: Record<string, unknown> = {}
+      if (newName !== editing.name) linePatch.name = newName
+      if (!sameCategories) linePatch.category_ids = selected
+
+      const [periodRes, lineRes] = await Promise.all([
         fetch(`/api/finanzas/budgets/${editing.line_id}/period`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ period: periodStart(todayISO()), amount: value }),
         }),
-        newName !== editing.name
+        Object.keys(linePatch).length > 0
           ? fetch(`/api/finanzas/budgets/${editing.line_id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: newName }),
+              body: JSON.stringify(linePatch),
             })
           : Promise.resolve(null),
       ])
       setSaving(false)
 
-      const bad = !periodRes.ok ? periodRes : (nameRes && !nameRes.ok ? nameRes : null)
+      const bad = !periodRes.ok ? periodRes : (lineRes && !lineRes.ok ? lineRes : null)
       if (bad) {
         const data = await bad.json().catch(() => ({}))
         return setError(data.error ?? 'No se pudo guardar')
@@ -148,29 +164,25 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
         </div>
 
         <div className="px-5 pb-5 flex flex-col gap-4">
-          {editing ? (
-            <p className="text-[15px] font-semibold">{currentDisplayName}</p>
-          ) : (
-            <div>
-              <Label>Categorías (una o varias)</Label>
-              {nothingLeftToPick ? (
-                <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                  Ya tienes presupuesto en todas las categorías.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {pickable.map(c => (
-                    <PickChip
-                      key={c.id}
-                      label={c.name}
-                      selected={selected.includes(c.id)}
-                      onClick={() => toggleCategory(c.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div>
+            <Label>Categorías (una o varias)</Label>
+            {nothingLeftToPick ? (
+              <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
+                Ya tienes presupuesto en todas las categorías.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {pickable.map(c => (
+                  <PickChip
+                    key={c.id}
+                    label={c.name}
+                    selected={selected.includes(c.id)}
+                    onClick={() => toggleCategory(c.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
           <div>
             <Label>Nombre (opcional)</Label>

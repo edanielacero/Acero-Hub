@@ -58,12 +58,18 @@ export async function POST(request: Request) {
   if (invalidAmount) return NextResponse.json({ error: invalidAmount }, { status: 400 })
 
   const { data: categories } = await supabase
-    .from('fin_categories').select('id, kind').eq('user_id', userId).in('id', categoryIds)
+    .from('fin_categories').select('id, kind, archived').eq('user_id', userId).in('id', categoryIds)
   if ((categories ?? []).length !== categoryIds.length) {
     return NextResponse.json({ error: 'Alguna de esas categorías no existe' }, { status: 400 })
   }
   if ((categories ?? []).some(c => c.kind !== 'gasto')) {
     return NextResponse.json({ error: 'El presupuesto solo aplica a categorías de gasto' }, { status: 400 })
+  }
+  // Una categoría archivada ya no se ofrece al registrar un gasto, así que un
+  // presupuesto sobre ella nunca podría moverse. El selector tampoco la
+  // muestra — esto ataja el caso de archivarla con el sheet ya abierto.
+  if ((categories ?? []).some(c => c.archived)) {
+    return NextResponse.json({ error: 'No se puede presupuestar una categoría archivada' }, { status: 400 })
   }
 
   // Chequeo previo para un mensaje legible — el índice único de
