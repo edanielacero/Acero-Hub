@@ -75,9 +75,9 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   const nothingLeftToPick = !editing && pickable.length === 0
 
   async function submit() {
-    if (!activeTarget) return setError('Elegí una categoría')
+    if (!activeTarget) return setError('Elige una categoría')
     const value = amountFromInput(amount, { decimals })
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     setSaving(true)
 
@@ -158,7 +158,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
               <Label>Categoría</Label>
               {nothingLeftToPick ? (
                 <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                  Ya tenés presupuesto en todas las categorías.
+                  Ya tienes presupuesto en todas las categorías.
                 </p>
               ) : (
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">

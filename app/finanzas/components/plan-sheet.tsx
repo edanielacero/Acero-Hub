@@ -134,8 +134,8 @@ export function PlanSheet({ plan, debt, onClose, onSaved }: {
     if (regenerando && (!Number.isFinite(principalNum) || principalNum <= 0)) {
       return setError('El capital debe ser mayor a cero')
     }
-    if (n < 1) return setError('Elegí al menos una cuota')
-    if (!startsOn) return setError('Elegí desde cuándo arranca')
+    if (n < 1) return setError('Elige al menos una cuota')
+    if (!startsOn) return setError('Elige desde cuándo arranca')
     if (interestMode === 'con' && (!Number.isFinite(interestNum) || (interestNum ?? -1) < 0)) {
       return setError('El interés no puede ser negativo')
     }

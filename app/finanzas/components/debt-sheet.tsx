@@ -69,9 +69,9 @@ export function DebtSheet({ editing, onClose, onSaved }: {
   async function submit() {
     setError('')
     const value = amountFromInput(amount, { decimals })
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
-    if (!editing && !personId) return setError('Elegí quién te debe')
-    if (!desdeGasto && !concept.trim()) return setError('Decí de qué es la deuda')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
+    if (!editing && !personId) return setError('Elige quién te debe')
+    if (!desdeGasto && !concept.trim()) return setError('Di de qué es la deuda')
 
     setSaving(true)
     const res = await fetch(

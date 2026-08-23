@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     // saltaría el tope de saldo (ver assertBalance). La UI ya no ofrece estas
     // cuentas; esto es la defensa del lado del server.
     if (account.is_investment) {
-      return NextResponse.json({ error: 'No podés usar una cuenta de inversión para un pasanaku' }, { status: 400 })
+      return NextResponse.json({ error: 'No puedes usar una cuenta de inversión para un pasanaku' }, { status: 400 })
     }
   }
 

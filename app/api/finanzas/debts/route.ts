@@ -57,12 +57,12 @@ export async function POST(request: Request) {
   }
 
   const concept = typeof body.concept === 'string' ? body.concept.trim() : ''
-  if (!concept) return NextResponse.json({ error: 'Decí de qué es la deuda' }, { status: 400 })
+  if (!concept) return NextResponse.json({ error: 'Di de qué es la deuda' }, { status: 400 })
 
   const personId = typeof body.person_id === 'string' ? body.person_id : undefined
   const personName = typeof body.person_name === 'string' ? body.person_name : undefined
   if (!personId && !personName) {
-    return NextResponse.json({ error: 'Elegí quién te debe' }, { status: 400 })
+    return NextResponse.json({ error: 'Elige quién te debe' }, { status: 400 })
   }
 
   const { resolved, error: peopleError } = await resolvePeople(

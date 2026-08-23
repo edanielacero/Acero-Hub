@@ -62,11 +62,11 @@ export function currentRound(startDate: string, todayISO: string): number {
 }
 
 export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
-  if (!input.name || !input.name.trim()) return 'Ponele un nombre'
+  if (!input.name || !input.name.trim()) return 'Ponle un nombre'
   // Sin cuenta a propósito: se elige al aportar/recibir, no al crear (mismo
   // criterio que un fijo). Lo que sí hace falta es saber en qué moneda está
   // pensado el aporte — sin eso no hay decimales ni label que mostrar.
-  if (!input.currency || !CURRENCIES.includes(input.currency)) return 'Elegí una moneda'
+  if (!input.currency || !CURRENCIES.includes(input.currency)) return 'Elige una moneda'
   if (typeof input.contribution_amount !== 'number' || !Number.isFinite(input.contribution_amount) || input.contribution_amount <= 0) {
     return 'El aporte debe ser mayor a cero'
   }
@@ -79,6 +79,6 @@ export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
   if ((input.my_slot as number) > (input.total_slots as number)) {
     return 'Tu puesto no puede ser mayor que el total de puestos'
   }
-  if (!input.start_date || !/^\d{4}-\d{2}-\d{2}$/.test(input.start_date)) return 'Elegí una fecha de inicio'
+  if (!input.start_date || !/^\d{4}-\d{2}-\d{2}$/.test(input.start_date)) return 'Elige una fecha de inicio'
   return null
 }

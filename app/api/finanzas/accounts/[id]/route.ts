@@ -129,7 +129,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .eq('account_id', id)
   if ((pasanakuCount ?? 0) > 0) {
     return NextResponse.json(
-      { error: 'Esta cuenta tiene un pasanaku asociado. Archivala en vez de borrarla, o borrá el pasanaku primero.' },
+      { error: 'Esta cuenta tiene un pasanaku asociado. Archívala en vez de borrarla, o borra el pasanaku primero.' },
       { status: 409 },
     )
   }

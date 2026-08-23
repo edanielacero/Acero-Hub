@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const categoryId = typeof body.category_id === 'string' && body.category_id ? body.category_id : null
-  if (!categoryId) return NextResponse.json({ error: 'Elegí una categoría' }, { status: 400 })
+  if (!categoryId) return NextResponse.json({ error: 'Elige una categoría' }, { status: 400 })
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null
   const currency = (body.currency ?? 'USD') as Currency

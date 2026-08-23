@@ -36,10 +36,10 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const ids: string[] = Array.isArray(body.split_ids) ? body.split_ids.filter((x: unknown) => typeof x === 'string') : []
-  if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda para cobrar' }, { status: 400 })
+  if (ids.length === 0) return NextResponse.json({ error: 'Elige al menos una deuda para cobrar' }, { status: 400 })
 
   const accountId = typeof body.account_id === 'string' ? body.account_id : ''
-  if (!accountId) return NextResponse.json({ error: 'Indicá a qué cuenta entró la plata' }, { status: 400 })
+  if (!accountId) return NextResponse.json({ error: 'Indica a qué cuenta entró la plata' }, { status: 400 })
 
   const amount = num(body.amount, NaN)
   if (!Number.isFinite(amount) || amount <= 0) {

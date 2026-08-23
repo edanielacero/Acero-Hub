@@ -79,8 +79,8 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
 
   async function submit() {
     setError('')
-    if (!accountId) return setError('Elegí a qué cuenta entra')
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!accountId) return setError('Elige a qué cuenta entra')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     setSaving(true)
     const res = await fetch(`/api/finanzas/pasanaku/${pasanaku.id}/recibir`, {
@@ -157,7 +157,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
             <Label>Entra a</Label>
             {candidatas.length === 0 ? (
               <p className="text-[13px] text-[var(--fz-out-text)]">
-                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar el cobro.
+                Todavía no tienes cuentas. Crea una en Cuentas para poder registrar el cobro.
               </p>
             ) : (
               <>

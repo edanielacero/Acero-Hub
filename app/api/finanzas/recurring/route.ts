@@ -29,7 +29,7 @@ export function validateRecurring(body: Partial<RecurringInput>): string | null 
   if (!body.name || !body.name.trim()) return 'El fijo necesita un nombre'
   // La cuenta se elige recién al registrar cada instancia (§ RegisterSheet):
   // la plantilla solo necesita saber en qué moneda está el monto.
-  if (!body.currency || !CURRENCIES.includes(body.currency)) return 'Elegí una moneda'
+  if (!body.currency || !CURRENCIES.includes(body.currency)) return 'Elige una moneda'
   if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) {
     return 'El monto debe ser mayor a cero'
   }

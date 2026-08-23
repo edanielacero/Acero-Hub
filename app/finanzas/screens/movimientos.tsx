@@ -191,7 +191,7 @@ export function MovimientosScreen() {
             <EmptyState
               icon={IconSearch}
               title="Nada en este período"
-              description="Probá con otro mes o quitá algún filtro."
+              description="Prueba con otro mes o quita algún filtro."
             />
           ) : (
             <div className="flex flex-col gap-5">

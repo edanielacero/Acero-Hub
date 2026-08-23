@@ -61,7 +61,7 @@ export function FijosScreen() {
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
       <PageHeader
         title="Gastos Fijos"
-        subtitle="Lo que pagás todos los meses"
+        subtitle="Lo que pagas todos los meses"
         action={
           <>
             <HideToggle />
@@ -112,7 +112,7 @@ export function FijosScreen() {
             <EmptyState
               icon={IconRepeat}
               title="Todavía no cargaste ningún fijo"
-              description="Spotify, el alquiler, TradingView. Los cargás una vez y después es un toque por mes — y la app te dice cuáles te faltan."
+              description="Spotify, el alquiler, TradingView. Los cargas una vez y después es un toque por mes — y la app te dice cuáles te faltan."
               action={<Btn onClick={() => setCreando(true)}>Crear el primero</Btn>}
             />
           ) : (

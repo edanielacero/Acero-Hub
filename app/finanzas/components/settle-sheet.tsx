@@ -95,11 +95,11 @@ export function SettleSheet({ debt, onClose, onDone }: {
 
   async function submit() {
     setError('')
-    if (picked.length === 0) return setError('Elegí al menos una deuda')
-    if (!accountId) return setError('Elegí a qué cuenta entró la plata')
+    if (picked.length === 0) return setError('Elige al menos una deuda')
+    if (!accountId) return setError('Elige a qué cuenta entró la plata')
 
     const value = amountFromInput(amount, { decimals })
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     setSaving(true)
     const res = await fetch('/api/finanzas/debts/settle', {

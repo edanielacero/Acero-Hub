@@ -92,7 +92,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
 
   async function submit() {
     setError('')
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     if (esHistorico) {
       setSaving(true)
@@ -110,7 +110,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
       return onDone()
     }
 
-    if (!accountId) return setError('Elegí de qué cuenta sale')
+    if (!accountId) return setError('Elige de qué cuenta sale')
     if (excede) return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
 
     setSaving(true)
@@ -197,7 +197,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
               <Label>Sale de</Label>
               {candidatas.length === 0 ? (
                 <p className="text-[13px] text-[var(--fz-out-text)]">
-                  Todavía no tenés cuentas. Creá una en Cuentas para poder registrar el aporte.
+                  Todavía no tienes cuentas. Crea una en Cuentas para poder registrar el aporte.
                 </p>
               ) : (
                 <>
@@ -249,7 +249,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
             <Label>Fecha</Label>
             <DateField value={date} onChange={setDate} today={todayISO()} />
             <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-              También podés cargar acá los aportes de meses anteriores que ya diste.
+              También puedes cargar acá los aportes de meses anteriores que ya diste.
             </p>
           </div>
 

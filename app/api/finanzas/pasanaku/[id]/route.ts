@@ -41,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // Mismo motivo que en POST /pasanaku: un aporte ahí quedaría indistinguible
     // de un ajuste de valor y desaparecería de Movimientos.
     if (account.is_investment) {
-      return NextResponse.json({ error: 'No podés usar una cuenta de inversión para un pasanaku' }, { status: 400 })
+      return NextResponse.json({ error: 'No puedes usar una cuenta de inversión para un pasanaku' }, { status: 400 })
     }
   }
 

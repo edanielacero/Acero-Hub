@@ -101,8 +101,8 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
   async function submit() {
     setError('')
-    if (!accountId) return setError('Elegí de qué cuenta sale')
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!accountId) return setError('Elige de qué cuenta sale')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
     if (excede) {
       return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
     }
@@ -202,7 +202,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
             <Label>Sale de</Label>
             {candidatas.length === 0 ? (
               <p className="text-[13px] text-[var(--fz-out-text)]">
-                Todavía no tenés cuentas. Creá una en Cuentas para poder registrar este fijo.
+                Todavía no tienes cuentas. Crea una en Cuentas para poder registrar este fijo.
               </p>
             ) : (
               <>
@@ -269,7 +269,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
                 ))}
                 <div className="flex items-center gap-3 h-9 border-t border-[var(--fz-hairline)] mt-1 pt-1">
                   <span className="flex-1 text-[14px] font-semibold">
-                    {kind === 'ganas' ? 'Ganás' : 'Tu parte'}
+                    {kind === 'ganas' ? 'Ganas' : 'Tu parte'}
                   </span>
                   <span
                     className="fz-num text-[14px] font-bold"

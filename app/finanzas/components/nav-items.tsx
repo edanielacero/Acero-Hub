@@ -26,7 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/finanzas/movimientos',  label: 'Movimientos',               tab: true, Icon: IconReceipt, IconActive: IconReceiptFilled },
   {
     href: '/finanzas/fijos', label: 'Gastos Fijos', tab: true,
-    description: 'Lo que pagás todos los meses',
+    description: 'Lo que pagas todos los meses',
     Icon: IconRepeat, IconActive: IconRepeat,
   },
   {

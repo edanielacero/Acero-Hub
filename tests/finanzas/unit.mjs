@@ -1321,16 +1321,16 @@ section('SPRINT 5 · validatePasanaku')
     total_slots: 8, my_slot: 4, start_date: '2026-08-05',
   }
   eq('un pasanaku válido no da error', validatePasanaku(base), null)
-  eq('sin nombre', validatePasanaku({ ...base, name: '' }), 'Ponele un nombre')
-  eq('sin moneda', validatePasanaku({ ...base, currency: undefined }), 'Elegí una moneda')
-  eq('moneda fuera del enum', validatePasanaku({ ...base, currency: 'EUR' }), 'Elegí una moneda')
+  eq('sin nombre', validatePasanaku({ ...base, name: '' }), 'Ponle un nombre')
+  eq('sin moneda', validatePasanaku({ ...base, currency: undefined }), 'Elige una moneda')
+  eq('moneda fuera del enum', validatePasanaku({ ...base, currency: 'EUR' }), 'Elige una moneda')
   eq('aporte en cero', validatePasanaku({ ...base, contribution_amount: 0 }), 'El aporte debe ser mayor a cero')
   eq('un solo puesto no es una ronda', validatePasanaku({ ...base, total_slots: 1 }), 'Los puestos tienen que ser al menos 2')
   eq('puesto en cero', validatePasanaku({ ...base, my_slot: 0 }), 'Tu puesto tiene que ser 1 o más')
   eq('tu puesto no puede superar el total',
      validatePasanaku({ ...base, my_slot: 9 }), 'Tu puesto no puede ser mayor que el total de puestos')
   eq('el último puesto sí es válido', validatePasanaku({ ...base, my_slot: 8 }), null)
-  eq('sin fecha de inicio', validatePasanaku({ ...base, start_date: '' }), 'Elegí una fecha de inicio')
+  eq('sin fecha de inicio', validatePasanaku({ ...base, start_date: '' }), 'Elige una fecha de inicio')
 }
 
 section('SPRINT 5 (revisión) · crossCurrencySuggestion — un solo lugar para no repetir el bug')

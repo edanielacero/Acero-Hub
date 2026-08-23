@@ -305,9 +305,9 @@ export function QuickAdd() {
   async function submit() {
     setError('')
     const value = amountFromInput(amount, { decimals: fromDecimals })
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
-    if (!accountId) return setError('Elegí una cuenta')
-    if (type === 'transferencia' && !toAccountId) return setError('Elegí la cuenta destino')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
+    if (!accountId) return setError('Elige una cuenta')
+    if (type === 'transferencia' && !toAccountId) return setError('Elige la cuenta destino')
     if (limita && value > disponible) {
       return setError(
         `${from!.name} tiene ${formatAmount(disponible, from!.currency)} disponibles`,
@@ -316,11 +316,16 @@ export function QuickAdd() {
     if (budgetLine && budgetExceeded) {
       if (!extendBudget) {
         return setError(
-          `Te pasás el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`,
+          `Te pasas el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`,
         )
       }
       const extra = amountFromInput(extensionAmount, { decimals: decimalsFor(budgetLine.input_currency) })
-      if (!Number.isFinite(extra) || extra <= 0) return setError('Poné cuánto querés ampliar')
+      if (!Number.isFinite(extra) || extra <= 0) return setError('Pon cuánto quieres ampliar')
+      // Menos que el faltante no saca el gasto de "pasado" — la ampliación
+      // tiene que cubrirlo entero, o el bloqueo no significaría nada.
+      if (round2(extra) < budgetNeededDisplay) {
+        return setError(`La ampliación tiene que cubrir el faltante: ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`)
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -334,7 +339,7 @@ export function QuickAdd() {
       payload.to_account_id = toAccountId
       payload.to_amount = crossCurrency ? recibido : null
       if (crossCurrency && (!Number.isFinite(recibido) || recibido <= 0)) {
-        return setError(`Indicá cuánto llegó realmente a ${to?.name}`)
+        return setError(`Indica cuánto llegó realmente a ${to?.name}`)
       }
     } else {
       payload.category_id = categoryId || null
@@ -359,14 +364,21 @@ export function QuickAdd() {
       },
     )
     setSaving(false)
+    const data = await res.json().catch(() => ({}))
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo guardar')
     }
 
     window.localStorage.setItem(LAST_ACCOUNT_KEY, accountId)
     await reload()
+
+    // El gasto ya se guardó — no hay nada que reintentar acá. Si la
+    // ampliación de presupuesto falló, avisar sin cerrar en vez de dejar la
+    // categoría "pasada" sin ninguna explicación (§ POST /transactions).
+    if (data.budget_extension_error) {
+      return setError(`El gasto se guardó, pero no se pudo ampliar el presupuesto: ${data.budget_extension_error}`)
+    }
     close()
   }
 
@@ -549,7 +561,7 @@ export function QuickAdd() {
                       </span>
                     ) : (
                       <span className="text-[12px] text-[var(--fz-ink-3)]">
-                        {sugerido != null ? 'Según la tasa de hoy' : 'Poné el monto que sale'}
+                        {sugerido != null ? 'Según la tasa de hoy' : 'Pon el monto que sale'}
                       </span>
                     )}
 
@@ -589,7 +601,7 @@ export function QuickAdd() {
               {budgetLine && budgetExceeded && (
                 <div className="mt-3 rounded-[var(--fz-r-field)] bg-[var(--fz-out-tint)] p-3.5 flex flex-col gap-2.5">
                   <p className="text-[13px] font-medium text-[var(--fz-out-text)]">
-                    Te pasás el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatAmount(budgetNeededDisplay, budgetLine.input_currency)}
+                    Te pasas el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatAmount(budgetNeededDisplay, budgetLine.input_currency)}
                   </p>
                   {!extendBudget ? (
                     <Btn

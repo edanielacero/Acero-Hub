@@ -5,8 +5,8 @@ import { IconCheck, IconX } from '@tabler/icons-react'
 import type { HeroMode } from './hero-pref'
 
 const OPTIONS: { value: HeroMode; label: string; hint: string }[] = [
-  { value: 'patrimonio', label: 'Patrimonio total', hint: 'Todo lo que tenés, sumado en dólares' },
-  { value: 'presupuesto', label: 'Presupuesto total', hint: 'Cuánto llevás gastado de lo que te pusiste de tope' },
+  { value: 'patrimonio', label: 'Patrimonio total', hint: 'Todo lo que tienes, sumado en dólares' },
+  { value: 'presupuesto', label: 'Presupuesto total', hint: 'Cuánto llevas gastado de lo que te pusiste de tope' },
   { value: 'ambos', label: 'Los dos', hint: 'El card se desliza entre uno y otro' },
 ]
 

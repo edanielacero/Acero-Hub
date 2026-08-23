@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // El pasanaku no tiene cuenta propia — se elige recién acá, igual que en
   // /aporte. `p.account_id` solo sirve como último default si ya se usó una vez.
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : p.account_id
-  if (!accountId) return NextResponse.json({ error: 'Elegí a qué cuenta entra' }, { status: 400 })
+  if (!accountId) return NextResponse.json({ error: 'Elige a qué cuenta entra' }, { status: 400 })
 
   const { data: accountRow } = await supabase
     .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
@@ -50,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Misma razón que en /aporte: quedaría indistinguible de un ajuste de valor
   // de inversión y desaparecería de Movimientos.
   if (account.is_investment) {
-    return NextResponse.json({ error: 'No podés recibir en una cuenta de inversión' }, { status: 400 })
+    return NextResponse.json({ error: 'No puedes recibir en una cuenta de inversión' }, { status: 400 })
   }
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)

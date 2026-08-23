@@ -164,7 +164,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
               <IconUsersGroup size={11} stroke={2.2} className="opacity-70" />
               {/* Si repartiste por encima del costo, la resta da negativo: eso
                   no es "tu parte −$2.01", es plata que ganaste. */}
-              {parte!.kind === 'ganas' ? 'ganás ' : 'tu parte '}
+              {parte!.kind === 'ganas' ? 'ganas ' : 'tu parte '}
               {formatAmount(Math.abs(parte!.mine), tx.currency)}
             </span>
           ) : tx.currency !== 'USD' && !hidden ? (
@@ -235,7 +235,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           )}
           {generoDeudas && (
             <DetailField
-              label={parte!.kind === 'ganas' ? 'Ganás' : 'Tu parte'}
+              label={parte!.kind === 'ganas' ? 'Ganas' : 'Tu parte'}
               value={formatAmount(Math.abs(parte!.mine), tx.currency)}
             />
           )}

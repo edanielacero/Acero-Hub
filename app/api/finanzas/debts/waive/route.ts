@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     ? body.split_ids.filter((x: unknown) => typeof x === 'string')
     : []
 
-  if (ids.length === 0) return NextResponse.json({ error: 'Elegí al menos una deuda para perdonar' }, { status: 400 })
+  if (ids.length === 0) return NextResponse.json({ error: 'Elige al menos una deuda para perdonar' }, { status: 400 })
 
   const { data: rows } = await supabase
     .from('fin_debts')

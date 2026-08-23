@@ -65,7 +65,7 @@ export function AccountValueSheet() {
 
   async function submit() {
     setError('')
-    if (!Number.isFinite(typed)) return setError('Poné un valor válido')
+    if (!Number.isFinite(typed)) return setError('Pon un valor válido')
     if (!resolved) return setError('El valor no cambió')
 
     const payload = {

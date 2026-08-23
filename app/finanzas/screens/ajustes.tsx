@@ -43,7 +43,7 @@ const BUDGET_VIEW_OPTIONS: { value: BudgetViewMode; label: string; hint: string 
   {
     value: 'disponible',
     label: 'Cuánto te queda',
-    hint: 'La barra arranca llena con el presupuesto entero y se va descontando a medida que gastás.',
+    hint: 'La barra arranca llena con el presupuesto entero y se va descontando a medida que gastas.',
   },
 ]
 
@@ -297,8 +297,8 @@ export function AjustesScreen() {
             Tipo de cambio
           </SectionTitle>
           <p className="text-[13px] text-[var(--fz-ink-2)] mb-4">
-            Se actualizan solas cuando abrís la app. Cada movimiento congela la tasa
-            del momento en que lo registrás, así que esto <strong>no altera</strong> nada
+            Se actualizan solas cuando abres la app. Cada movimiento congela la tasa
+            del momento en que lo registras, así que esto <strong>no altera</strong> nada
             de lo ya guardado — solo cuánto vale hoy tu patrimonio.
           </p>
 
@@ -432,7 +432,7 @@ export function AjustesScreen() {
 
           {categories.length === 0 ? (
             <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
-              Todavía no hay categorías. Sembrá las 14 iniciales o creá la tuya.
+              Todavía no hay categorías. Siembra las 14 iniciales o crea la tuya.
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-2 mt-5">
@@ -445,7 +445,7 @@ export function AjustesScreen() {
         <Panel>
           <SectionTitle>Personas</SectionTitle>
           <p className="text-[13px] text-[var(--fz-ink-2)] -mt-2 mb-3">
-            Con quiénes compartís gastos. Son etiquetas tuyas: nadie más las ve ni entra a la app.
+            Con quiénes compartes gastos. Son etiquetas tuyas: nadie más las ve ni entra a la app.
           </p>
 
           <div className="grid grid-cols-1 gap-2 min-[900px]:grid-cols-[1fr_auto] items-end">
@@ -463,7 +463,7 @@ export function AjustesScreen() {
 
           {people.length === 0 ? (
             <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
-              Todavía no hay personas. También podés crearlas al vuelo desde el quick-add.
+              Todavía no hay personas. También puedes crearlas al vuelo desde el quick-add.
             </p>
           ) : (
             <PersonList

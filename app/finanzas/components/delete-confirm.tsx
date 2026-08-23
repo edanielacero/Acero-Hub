@@ -72,7 +72,7 @@ export function DeleteConfirmSheet({ open, onClose, onConfirm, title, confirming
         <div className="px-5 pb-6 pt-3 flex flex-col gap-4">
           {children}
           <ErrorNote>{error}</ErrorNote>
-          <SlideToConfirm label="Deslizá para eliminar" onConfirm={onConfirm} busy={confirming} />
+          <SlideToConfirm label="Desliza para eliminar" onConfirm={onConfirm} busy={confirming} />
         </div>
       </div>
     </div>

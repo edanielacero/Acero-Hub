@@ -86,10 +86,10 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
   async function submit() {
     setError('')
-    if (!name.trim()) return setError('Ponele un nombre')
+    if (!name.trim()) return setError('Ponle un nombre')
 
     const value = amountFromInput(amount, { decimals })
-    if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
+    if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
@@ -206,7 +206,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
               inputMode="decimal" placeholder="0.00" className="fz-num"
             />
             <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
-              Es el valor por defecto. Lo podés cambiar al registrar cada mes.
+              Es el valor por defecto. Lo puedes cambiar al registrar cada mes.
             </p>
           </div>
 

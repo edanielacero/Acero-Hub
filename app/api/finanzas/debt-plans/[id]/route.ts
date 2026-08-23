@@ -24,7 +24,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (body.concept !== undefined) {
     const concept = typeof body.concept === 'string' ? body.concept.trim() : ''
-    if (!concept) return NextResponse.json({ error: 'Decí de qué es el plan' }, { status: 400 })
+    if (!concept) return NextResponse.json({ error: 'Di de qué es el plan' }, { status: 400 })
     patch.concept = concept
   }
   if (body.note !== undefined) {

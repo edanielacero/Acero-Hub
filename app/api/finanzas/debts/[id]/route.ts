@@ -27,7 +27,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (!isOpen(current)) {
     return NextResponse.json(
-      { error: 'Esta deuda ya está cerrada. Deshacé el cobro antes de editarla.' },
+      { error: 'Esta deuda ya está cerrada. Deshaz el cobro antes de editarla.' },
       { status: 409 },
     )
   }
@@ -94,7 +94,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const concept = typeof body.concept === 'string' ? body.concept.trim() : ''
     // Una deuda suelta necesita concepto; una que vino de un gasto lo hereda.
     if (!concept && !current.transaction_id) {
-      return NextResponse.json({ error: 'Decí de qué es la deuda' }, { status: 400 })
+      return NextResponse.json({ error: 'Di de qué es la deuda' }, { status: 400 })
     }
     patch.concept = concept || null
   }
@@ -128,7 +128,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   if (current.settled_tx_id) {
     return NextResponse.json(
-      { error: 'Esta deuda ya fue cobrada. Deshacé el cobro antes de borrarla.' },
+      { error: 'Esta deuda ya fue cobrada. Deshaz el cobro antes de borrarla.' },
       { status: 409 },
     )
   }

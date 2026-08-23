@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const debtId = typeof body.debt_id === 'string' ? body.debt_id : ''
-  if (!debtId) return NextResponse.json({ error: 'Elegí sobre qué deuda armar el plan' }, { status: 400 })
+  if (!debtId) return NextResponse.json({ error: 'Elige sobre qué deuda armar el plan' }, { status: 400 })
 
   const { data: debt } = await supabase
     .from('fin_debts')
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
 
   const installments = Math.trunc(num(body.installments, NaN))
   if (!Number.isFinite(installments) || installments < 1) {
-    return NextResponse.json({ error: 'Elegí al menos una cuota' }, { status: 400 })
+    return NextResponse.json({ error: 'Elige al menos una cuota' }, { status: 400 })
   }
 
   const frequency = (body.frequency ?? 'mensual') as PlanFrequency
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   }
 
   const startsOn = typeof body.starts_on === 'string' && ISO_DATE.test(body.starts_on) ? body.starts_on : ''
-  if (!startsOn) return NextResponse.json({ error: 'Elegí desde cuándo arranca' }, { status: 400 })
+  if (!startsOn) return NextResponse.json({ error: 'Elige desde cuándo arranca' }, { status: 400 })
 
   const mode = body.mode === 'manual' ? 'manual' : 'iguales'
 
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
   if (mode === 'manual') {
     const raw = Array.isArray(body.cuotas) ? body.cuotas : []
     if (raw.length !== installments) {
-      return NextResponse.json({ error: `Cargá las ${installments} cuotas` }, { status: 400 })
+      return NextResponse.json({ error: `Carga las ${installments} cuotas` }, { status: 400 })
     }
     cuotas = raw.map((c: unknown) => {
       const row = c as { amount?: unknown; incurred_on?: unknown }

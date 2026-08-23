@@ -228,7 +228,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const cobrados = splits.filter(s => s.settled_tx_id).length
   if (cobrados > 0) {
     return NextResponse.json(
-      { error: `Este gasto tiene ${cobrados} parte(s) ya cobrada(s). Deshacé el cobro antes de borrarlo.` },
+      { error: `Este gasto tiene ${cobrados} parte(s) ya cobrada(s). Deshaz el cobro antes de borrarlo.` },
       { status: 409 },
     )
   }

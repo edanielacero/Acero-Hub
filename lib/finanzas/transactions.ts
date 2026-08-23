@@ -51,7 +51,7 @@ export function validateInput(
       if (typeof input.to_amount !== 'number' || !Number.isFinite(input.to_amount) || input.to_amount <= 0) {
         return {
           ok: false,
-          error: `Indicá cuánto llegó realmente a ${to.name} (${to.currency})`,
+          error: `Indica cuánto llegó realmente a ${to.name} (${to.currency})`,
         }
       }
     } else if (input.to_amount != null) {

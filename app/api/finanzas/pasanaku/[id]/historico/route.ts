@@ -30,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : null
-  if (!date) return NextResponse.json({ error: 'Elegí una fecha' }, { status: 400 })
+  if (!date) return NextResponse.json({ error: 'Elige una fecha' }, { status: 400 })
 
   const note = typeof body.note === 'string' ? body.note.trim() || null : null
 

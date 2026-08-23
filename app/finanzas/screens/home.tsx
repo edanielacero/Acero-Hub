@@ -165,7 +165,7 @@ export function HomeScreen() {
           <EmptyState
             icon={IconWifiOff}
             title="No pudimos cargar tus datos"
-            description="Revisá la conexión y volvé a intentar."
+            description="Revisa la conexión y vuelve a intentar."
             action={<Btn onClick={() => void reload()}>Reintentar</Btn>}
           />
         </Panel>
@@ -180,8 +180,8 @@ export function HomeScreen() {
         <Panel>
           <EmptyState
             icon={IconBuildingBank}
-            title="Empezá por tus cuentas"
-            description="Cargá dónde tenés tu plata hoy — efectivo, banco, broker, cripto. Sin cuentas, un movimiento no tiene de dónde salir."
+            title="Empieza por tus cuentas"
+            description="Carga dónde tienes tu plata hoy — efectivo, banco, broker, cripto. Sin cuentas, un movimiento no tiene de dónde salir."
             action={<Btn onClick={() => navigate('/finanzas/cuentas')}>Crear mi primera cuenta</Btn>}
           />
         </Panel>
@@ -416,7 +416,7 @@ export function HomeScreen() {
                 <EmptyState
                   icon={IconNotes}
                   title="Todavía no registraste nada"
-                  description="Tocá el + y anotá tu primer gasto."
+                  description="Toca el + y anota tu primer gasto."
                 />
               ) : (
                 <div className="flex flex-col divide-y divide-[var(--fz-hairline)]">
@@ -589,7 +589,7 @@ function HeroCarousel({ cards }: { cards: ReactNode[] }) {
         // Sin padding lateral a propósito: el cálculo del paso asume que el
         // scroller arranca en 0, y un px-1 lo corre unos pixeles.
         className="fz-scroll-x flex flex-1 gap-3 overflow-x-auto snap-x snap-mandatory"
-        aria-label="Deslizá para ver patrimonio o presupuesto"
+        aria-label="Desliza para ver patrimonio o presupuesto"
       >
         {cards.map((card, i) => (
           // `snap-start`, no center: con un ancho menor al 100% alcanza para

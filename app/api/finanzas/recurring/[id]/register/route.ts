@@ -90,7 +90,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : base.account_id
-  if (!accountId) return NextResponse.json({ error: 'Elegí de qué cuenta sale' }, { status: 400 })
+  if (!accountId) return NextResponse.json({ error: 'Elige de qué cuenta sale' }, { status: 400 })
 
   const { data: accountRow } = await supabase
     .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()

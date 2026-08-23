@@ -40,7 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // fijo (§ RegisterSheet). `p.account_id` solo sirve como último default si
   // ya se usó una vez; sin body ni default, no hay de dónde sacarla.
   const accountId = typeof body.account_id === 'string' && body.account_id ? body.account_id : p.account_id
-  if (!accountId) return NextResponse.json({ error: 'Elegí de qué cuenta sale' }, { status: 400 })
+  if (!accountId) return NextResponse.json({ error: 'Elige de qué cuenta sale' }, { status: 400 })
 
   const { data: accountRow } = await supabase
     .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
@@ -50,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // (mismo `flow_type: 'movimiento'`) y desaparecería de Movimientos — ver
   // isInvestmentAdjustment() en lib/finanzas/transactions.ts.
   if (account.is_investment) {
-    return NextResponse.json({ error: 'No podés aportar desde una cuenta de inversión' }, { status: 400 })
+    return NextResponse.json({ error: 'No puedes aportar desde una cuenta de inversión' }, { status: 400 })
   }
 
   const currency = account.currency as Currency

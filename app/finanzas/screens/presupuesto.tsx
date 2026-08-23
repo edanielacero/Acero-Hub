@@ -71,7 +71,7 @@ export function PresupuestoScreen() {
           <Panel className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fz-out-text)]">
               <IconAlertTriangle size={18} stroke={2} />
-              Tenés {pendingCount} {pendingCount === 1 ? 'mes' : 'meses'} por cerrar
+              Tienes {pendingCount} {pendingCount === 1 ? 'mes' : 'meses'} por cerrar
             </span>
             <Btn size="sm" onClick={() => setClosureOpen(true)}>Revisar</Btn>
           </Panel>
@@ -84,7 +84,7 @@ export function PresupuestoScreen() {
             <EmptyState
               icon={IconChartPie}
               title="Todavía no armaste tu presupuesto"
-              description="Poné un tope por categoría —Comida, Transporte, lo que sea— y la app te avisa antes de pasarte. El total se arma solo, sumando tus categorías."
+              description="Pon un tope por categoría —Comida, Transporte, lo que sea— y la app te avisa antes de pasarte. El total se arma solo, sumando tus categorías."
               action={<Btn onClick={() => setAdding(true)}>Crear el primero</Btn>}
             />
           </Panel>
@@ -215,12 +215,20 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
         <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
       </div>
 
+      {/* En modo "disponible" el número grande es lo que queda, no lo gastado
+          — sin esto no había ningún lugar que dijera el acumulado real. */}
+      {mode === 'disponible' && !hidden && (
+        <p className="text-[13px] text-[var(--fz-ink-3)]">
+          Llevas gastado {formatUSD(general.spent_usd)}
+        </p>
+      )}
+
       <p className="text-[13px] text-[var(--fz-ink-3)]">
         {view.over
           ? `Ya te pasaste por ${formatUSD(general.spent_usd - capacity)}`
           : projectedOver
-            ? `Te vas a pasar por ~${formatUSD(general.projected_usd - capacity)} si seguís así`
-            : `A este ritmo: ${formatUSD(general.projected_usd)} el día ${general.days_in_period}`}
+            ? `Te vas a pasar por ~${formatUSD(general.projected_usd - capacity)} si sigues así`
+            : `Si sigues así, vas a terminar gastando ${formatUSD(general.projected_usd)} este mes`}
       </p>
     </Panel>
   )
@@ -299,13 +307,19 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
           <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
         </div>
 
+        {mode === 'disponible' && !hidden && (
+          <p className="text-[12px] text-[var(--fz-ink-3)]">
+            Llevas gastado {formatAmount(line.spent, cur)}
+          </p>
+        )}
+
         {!hidden && (
           <p className="text-[12px] text-[var(--fz-ink-3)]">
             {view.over
               ? `Ya te pasaste por ${formatAmount(line.spent - capacity, cur)}`
               : projectedOver
-                ? `Te vas a pasar por ~${formatAmount(line.projected - capacity, cur)} si seguís así`
-                : `A este ritmo: ${formatAmount(line.projected, cur)}`}
+                ? `Te vas a pasar por ~${formatAmount(line.projected - capacity, cur)} si sigues así`
+                : `Si sigues así, vas a terminar gastando ${formatAmount(line.projected, cur)} este mes`}
           </p>
         )}
       </button>

@@ -126,7 +126,7 @@ export function DeudasScreen() {
             <EmptyState
               icon={IconUsersGroup}
               title="Nadie te debe nada"
-              description="Las deudas aparecen acá de dos formas: cuando registrás un fijo compartido, o cuando cargás una a mano."
+              description="Las deudas aparecen acá de dos formas: cuando registras un fijo compartido, o cuando cargas una a mano."
               action={<Btn onClick={() => setCreando(true)}>Registrar una deuda</Btn>}
             />
           ) : (

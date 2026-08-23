@@ -414,7 +414,7 @@ export function CuentasScreen() {
           {visible.length === 0 ? (
             <p className="text-[14px] text-[var(--fz-ink-3)] py-6 text-center">
               {accounts.length === 0
-                ? 'Todavía no hay cuentas. Creá la primera para empezar a registrar.'
+                ? 'Todavía no hay cuentas. Crea la primera para empezar a registrar.'
                 : 'Ninguna cuenta coincide con la búsqueda.'}
             </p>
           ) : hayFiltro ? (

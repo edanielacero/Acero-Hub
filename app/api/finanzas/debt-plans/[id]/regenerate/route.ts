@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const principal = body.principal !== undefined ? num(body.principal, NaN) : saldoRestante
   if (!Number.isFinite(principal) || principal <= 0) {
-    return NextResponse.json({ error: 'No hay saldo pendiente para regenerar: indicá un capital' }, { status: 400 })
+    return NextResponse.json({ error: 'No hay saldo pendiente para regenerar: indica un capital' }, { status: 400 })
   }
 
   const interestRate = body.interest_rate == null ? null : num(body.interest_rate, NaN)
@@ -53,7 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const installments = Math.trunc(num(body.installments, NaN))
   if (!Number.isFinite(installments) || installments < 1) {
-    return NextResponse.json({ error: 'Elegí al menos una cuota' }, { status: 400 })
+    return NextResponse.json({ error: 'Elige al menos una cuota' }, { status: 400 })
   }
 
   const frequency = (body.frequency ?? plan.frequency) as PlanFrequency
@@ -62,7 +62,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const startsOn = typeof body.starts_on === 'string' && ISO_DATE.test(body.starts_on) ? body.starts_on : ''
-  if (!startsOn) return NextResponse.json({ error: 'Elegí desde cuándo arranca' }, { status: 400 })
+  if (!startsOn) return NextResponse.json({ error: 'Elige desde cuándo arranca' }, { status: 400 })
 
   const mode = body.mode === 'manual' ? 'manual' : 'iguales'
 
@@ -70,7 +70,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (mode === 'manual') {
     const raw = Array.isArray(body.cuotas) ? body.cuotas : []
     if (raw.length !== installments) {
-      return NextResponse.json({ error: `Cargá las ${installments} cuotas` }, { status: 400 })
+      return NextResponse.json({ error: `Carga las ${installments} cuotas` }, { status: 400 })
     }
     nuevas = raw.map((c: unknown) => {
       const row = c as { amount?: unknown; incurred_on?: unknown }

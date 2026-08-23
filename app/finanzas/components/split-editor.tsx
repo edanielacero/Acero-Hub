@@ -132,7 +132,7 @@ export function SplitEditor({
                 tiene un nombre: ganancia. */}
             <div className="flex items-center gap-3 h-11 border-t border-[var(--fz-hairline)] mt-1 pt-1">
               <span className="flex-1 text-[14px] font-semibold">
-                {kind === 'ganas' ? 'Ganás' : 'Tu parte'}
+                {kind === 'ganas' ? 'Ganas' : 'Tu parte'}
               </span>
               <span
                 className="fz-num text-[15px] font-bold"
@@ -150,7 +150,7 @@ export function SplitEditor({
           )}
           {kind === 'exacto' && repartido > 0 && (
             <p className="text-[12px] text-[var(--fz-ink-3)]">
-              El reparto cubre el gasto entero: no ponés nada de tu bolsillo.
+              El reparto cubre el gasto entero: no pones nada de tu bolsillo.
             </p>
           )}
         </>
