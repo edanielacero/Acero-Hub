@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconArrowsLeftRight, IconBuildingBank,
@@ -107,7 +107,8 @@ export function HomeScreen() {
           : hidden ? HIDDEN
           : formatUSD(general.spent_usd)
       }
-      foot={general ? `de ${formatUSD(budgetCapacity)} presupuestado` : 'Todavía no armaste tu presupuesto'}
+      of={general && !hidden && !loading ? formatUSD(budgetCapacity) : undefined}
+      foot={general ? heroFoot : 'Todavía no armaste tu presupuesto'}
       note={general && !hidden && !loading ? {
         text: budgetLeft >= 0
           ? `Te quedan ${formatUSD(budgetLeft)}`
@@ -191,18 +192,7 @@ export function HomeScreen() {
             {/* Hero: el único bloque oscuro de la pantalla. Según la
                 preferencia muestra patrimonio, presupuesto, o los dos como
                 carrusel — el diseño del card no cambia, solo el dato. */}
-            {heroCards.length === 1 ? (
-              heroCards[0]
-            ) : (
-              <div
-                className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
-                aria-label="Deslizá para ver patrimonio o presupuesto"
-              >
-                {heroCards.map((card, i) => (
-                  <div key={i} className="snap-center shrink-0 w-full min-w-0">{card}</div>
-                ))}
-              </div>
-            )}
+            {heroCards.length === 1 ? heroCards[0] : <HeroCarousel cards={heroCards} />}
 
             {/* Única puerta de entrada para registrar: no hay un "Nuevo
                 movimiento" aparte, que llevaría al mismo panel y volvería
@@ -518,15 +508,80 @@ function BudgetTile({ line, hidden, icon, onClick }: {
 }
 
 /**
+ * Los dos heroes en carrusel, con barritas debajo que dicen en cuál estás.
+ *
+ * El índice sale del scroll real y no de un estado propio: así el indicador
+ * sigue al dedo aunque el swipe quede a mitad de camino, en vez de saltar
+ * solo cuando termina. Tocar una barrita lleva a su card.
+ */
+function HeroCarousel({ cards }: { cards: ReactNode[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [active, setActive] = useState(0)
+
+  function onScroll() {
+    const el = ref.current
+    if (!el) return
+    // El ancho de una "página" es el del viewport del carrusel, no el del
+    // contenido: cada card ocupa exactamente eso.
+    const i = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
+    setActive(Math.min(cards.length - 1, Math.max(0, i)))
+  }
+
+  function goTo(i: number) {
+    const el = ref.current
+    if (!el) return
+    el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div
+        ref={ref}
+        onScroll={onScroll}
+        // `flex-1`: desde 900px la fila estira el hero, y sin esto el
+        // carrusel se quedaba a la altura del contenido dejando un hueco.
+        // Sin padding lateral a propósito: `scrollLeft / clientWidth` tiene
+        // que dar el índice exacto, y un px-1 lo corre unos pixeles.
+        className="fz-scroll-x flex flex-1 gap-3 overflow-x-auto snap-x snap-mandatory"
+        aria-label="Deslizá para ver patrimonio o presupuesto"
+      >
+        {cards.map((card, i) => (
+          <div key={i} className="snap-center shrink-0 w-full min-w-0">{card}</div>
+        ))}
+      </div>
+
+      {/* Barritas en vez de puntos: la activa es más larga y opaca. */}
+      <div className="flex items-center justify-center gap-1.5">
+        {cards.map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => goTo(i)}
+            aria-label={`Ver card ${i + 1} de ${cards.length}`}
+            aria-current={i === active}
+            className={`h-1 rounded-full transition-all duration-200 ${
+              i === active ? 'w-6 bg-[var(--fz-ink-2)]' : 'w-3 bg-[var(--fz-hairline)]'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
  * El card oscuro de arriba. El diseño es fijo — rótulo chico, número grande,
  * una nota con signo y el pie — y lo único que cambia es qué se le pasa:
  * patrimonio o presupuesto. Así los dos se ven idénticos al deslizar.
  *
  * `value: null` = todavía cargando; se pinta el esqueleto en su lugar.
  */
-function HeroCard({ label, value, note, foot, bar }: {
+function HeroCard({ label, value, of, note, foot, bar }: {
   label: string
   value: string | null
+  /** El "de $X" que acompaña al número grande — mismo tratamiento que la
+      pantalla de Presupuesto: alineado a la base, chico y tenue. */
+  of?: string
   note?: { text: string; color: string }
   foot: ReactNode
   /** Misma barra que la pantalla de Presupuesto — relleno + tick del día —
@@ -547,9 +602,12 @@ function HeroCard({ label, value, note, foot, bar }: {
       {value === null ? (
         <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
       ) : (
-        <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
-          {value}
-        </p>
+        <div className="relative mt-1 flex items-baseline gap-2 min-w-0">
+          <p className="text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+            {value}
+          </p>
+          {of && <span className="text-[14px] text-white/50 fz-num shrink-0">de {of}</span>}
+        </div>
       )}
 
       {bar && (
