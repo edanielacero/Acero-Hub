@@ -45,17 +45,27 @@ export function previousPeriod(period: string): string {
    Solo se guarda una fila de `fin_budget_periods` por mes que alguien tocó.
    Si no hay una para el período pedido, se hereda la más reciente anterior —
    así "editable mes a mes con el mes pasado de default" no necesita un cron
-   que precree filas. */
+   que precree filas.
+
+   Cada fila guarda el monto NATIVO (el que el usuario escribió, en la moneda
+   de la línea) y su equivalente en USD congelado a la tasa de ese momento —
+   mismo criterio que `fin_transactions`. El nativo es lo que se muestra y
+   nunca se mueve; el USD es lo que permite comparar y sumar entre líneas de
+   distinta moneda. */
 
 export interface BudgetPeriodRow {
   id: string
   line_id: string
   period: string
+  /** El monto tal cual se escribió, en la moneda de la línea. */
+  amount: number
+  /** Su equivalente en USD, congelado al escribirlo. Nunca se recalcula. */
   amount_usd: number
 }
 
 export interface BudgetExtensionRow {
   period_id: string
+  amount: number
   amount_usd: number
 }
 
@@ -63,6 +73,7 @@ export interface ResolvedPeriod {
   /** El id de la fila para ESTE período exacto, o `null` si se heredó de otro. */
   periodRowId: string | null
   /** `null` = la línea todavía no tiene ningún monto cargado, ni propio ni heredado. */
+  amount: number | null
   amountUsd: number | null
 }
 
@@ -70,26 +81,38 @@ export function resolvePeriod(
   periods: BudgetPeriodRow[], lineId: string, period: string,
 ): ResolvedPeriod {
   const own = periods.find(p => p.line_id === lineId && p.period === period)
-  if (own) return { periodRowId: own.id, amountUsd: own.amount_usd }
+  if (own) return { periodRowId: own.id, amount: own.amount, amountUsd: own.amount_usd }
 
   const prior = periods
     .filter(p => p.line_id === lineId && p.period < period)
     .sort((a, b) => (a.period < b.period ? 1 : -1))[0]
 
-  return { periodRowId: null, amountUsd: prior ? prior.amount_usd : null }
+  return {
+    periodRowId: null,
+    amount: prior ? prior.amount : null,
+    amountUsd: prior ? prior.amount_usd : null,
+  }
 }
 
-/** Monto original + la suma de sus ampliaciones (§3.3 del spec). */
+/**
+ * Monto original + la suma de sus ampliaciones (§3.3 del spec), en las dos
+ * denominaciones: la nativa (lo que se muestra) y la de USD (lo que se
+ * compara). Las dos se suman por separado sobre valores ya congelados —
+ * nunca se convierte una en la otra acá.
+ */
 export function montoEfectivo(
   periods: BudgetPeriodRow[], extensions: BudgetExtensionRow[], lineId: string, period: string,
-): number | null {
+): { amount: number; amountUsd: number } | null {
   const resolved = resolvePeriod(periods, lineId, period)
-  if (resolved.amountUsd == null) return null
+  if (resolved.amountUsd == null || resolved.amount == null) return null
 
-  const extended = resolved.periodRowId
-    ? extensions.filter(e => e.period_id === resolved.periodRowId).reduce((s, e) => s + e.amount_usd, 0)
-    : 0
-  return round2(resolved.amountUsd + extended)
+  const own = resolved.periodRowId
+    ? extensions.filter(e => e.period_id === resolved.periodRowId)
+    : []
+  return {
+    amount: round2(resolved.amount + own.reduce((s, e) => s + e.amount, 0)),
+    amountUsd: round2(resolved.amountUsd + own.reduce((s, e) => s + e.amount_usd, 0)),
+  }
 }
 
 /* ─── Retroactividad de la primera línea ────────────────────────────────── */
@@ -161,16 +184,31 @@ export interface BudgetClosureRow {
   line_id: string
   period: string
   carried: boolean
+  /** El disponible congelado, en la moneda de la línea. */
+  amount: number
   amount_usd: number
 }
 
-export function carriedInto(closures: BudgetClosureRow[], lineId: string, period: string): number {
+/** Lo que el mes anterior dejó, en las dos denominaciones: la nativa (para
+    mostrar) y la de USD (para comparar), ambas ya congeladas al cerrar. */
+export function carriedInto(
+  closures: BudgetClosureRow[], lineId: string, period: string,
+): { amount: number; amountUsd: number } {
   const prev = previousPeriod(period)
   const c = closures.find(x => x.line_id === lineId && x.period === prev)
-  return c && c.carried ? c.amount_usd : 0
+  return c && c.carried ? { amount: c.amount, amountUsd: c.amount_usd } : { amount: 0, amountUsd: 0 }
 }
 
-/* ─── Disponible ────────────────────────────────────────────────────────── */
+/* ─── Disponible ──────────────────────────────────────────────────────────
+   Se calcula en USD, siempre: el gasto real sale de transacciones que ya
+   vienen congeladas en USD (cada una con SU tasa del día en que se cargó),
+   así que USD es la única unidad en la que todo eso se puede sumar sin
+   inventar conversiones.
+
+   Para MOSTRARLO en la moneda de la línea está `toNative`, que usa la tasa
+   congelada de esa línea — no la de hoy. Así el card entero queda expresado
+   a una sola tasa coherente, y el monto que el usuario escribió sigue siendo
+   exactamente el que él escribió. */
 
 export function disponible(params: {
   montoEfectivoUsd: number | null
@@ -180,6 +218,17 @@ export function disponible(params: {
 }): number | null {
   if (params.montoEfectivoUsd == null) return null
   return round2(params.montoEfectivoUsd + params.carriedUsd - params.gastoRealUsd - params.comprometidoUsd)
+}
+
+/**
+ * Un valor derivado en USD, expresado en la moneda de la línea con la tasa
+ * que esa línea congeló. `rate` sigue la convención de toda la app
+ * (`freezeRate`): USD por 1 unidad nativa, de modo que
+ * `amount_usd = amount × rate` — así que volver a nativo es dividir.
+ */
+export function toNative(usd: number, rate: number): number {
+  if (!Number.isFinite(rate) || rate <= 0) return round2(usd)
+  return round2(usd / rate)
 }
 
 /* ─── Barra de ritmo: tick + proyección ────────────────────────────────── */

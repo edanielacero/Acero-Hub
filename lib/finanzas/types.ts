@@ -533,11 +533,22 @@ export interface BudgetLine {
 }
 
 export interface BudgetExtensionEntry {
+  amount: number
   amount_usd: number
   created_at: string
 }
 
-/** Una línea con su progreso ya resuelto para un período determinado. */
+/**
+ * Una línea con su progreso ya resuelto para un período determinado.
+ *
+ * Los campos `*_usd` son la unidad de comparación (todo el gasto real viene
+ * congelado en USD desde `fin_transactions`); los sin sufijo están en la
+ * `input_currency` de la línea y son los que se muestran. `amount` en
+ * particular es EXACTAMENTE lo que el usuario escribió — no se recalcula
+ * nunca desde el USD, para que "2.400 Bs" siga diciendo 2.400 aunque la
+ * tasa se mueva. El resto de los nativos sí son derivados, convertidos con
+ * la tasa que la línea congeló (`exchange_rate`), no con la de hoy.
+ */
 export interface BudgetLineProgress {
   line_id: string
   category_id: string
@@ -545,17 +556,26 @@ export interface BudgetLineProgress {
   /** Alias propio, o `null` si usa el nombre de la categoría de default. */
   name: string | null
   input_currency: Currency
+  /** Cuántas unidades de `input_currency` vale 1 USD, congelado al escribir. */
+  exchange_rate: number
   retroactive: boolean
   /** `null` = todavía no se cargó ningún monto para esta línea. */
+  amount: number | null
   amount_usd: number | null
   extensions: BudgetExtensionEntry[]
+  extended: number
   extended_usd: number
+  carried: number
   carried_usd: number
+  spent: number
   spent_usd: number
+  committed: number
   committed_usd: number
+  available: number | null
   available_usd: number | null
   day_of_period: number
   days_in_period: number
+  projected: number
   projected_usd: number
 }
 
@@ -585,6 +605,8 @@ export interface PendingClosure {
   name: string | null
   input_currency: Currency
   period: string
+  /** El disponible de ese mes, en la moneda de la línea (lo que se muestra). */
+  amount: number
   amount_usd: number
 }
 

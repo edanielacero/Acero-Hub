@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { num, round2, toUsd } from '@/lib/finanzas/money'
+import { freezeRate, num, round2, toUsd } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { isValidPeriod, validateBudgetAmount } from '@/lib/finanzas/budgets'
 
@@ -31,16 +31,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_budget_lines').select('id, input_currency').eq('id', id).eq('user_id', userId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
+  // El monto nativo se guarda tal cual y la tasa se congela — el número que
+  // el usuario escribió no se vuelve a derivar del USD nunca más.
   const { rates } = await ensureRates(supabase, userId)
+  const exchangeRate = freezeRate(line.input_currency, rates)
   const amountUsd = round2(toUsd(rawAmount, line.input_currency, rates))
 
   const { data, error } = await supabase
     .from('fin_budget_periods')
     .upsert(
-      { user_id: userId, line_id: id, period: body.period, amount_usd: amountUsd, updated_at: new Date().toISOString() },
+      {
+        user_id: userId, line_id: id, period: body.period,
+        amount: rawAmount, amount_usd: amountUsd, exchange_rate: exchangeRate,
+        updated_at: new Date().toISOString(),
+      },
       { onConflict: 'line_id,period' },
     )
-    .select('id, line_id, period, amount_usd')
+    .select('id, line_id, period, amount, amount_usd, exchange_rate')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })

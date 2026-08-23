@@ -9,7 +9,7 @@ import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, valida
 import {
   periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
   gastoRealCategoria, comprometidoUsd, carriedInto, disponible, dayOfPeriod, projectedUsd, needsClosure,
-  validateBudgetAmount, isValidPeriod,
+  validateBudgetAmount, isValidPeriod, toNative,
 } from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
@@ -1318,19 +1318,38 @@ section('SPRINT 6 · períodos (presupuesto)')
 
 section('SPRINT 6 · resolvePeriod y montoEfectivo')
 {
+  // Línea en Bs a 11.6 Bs/USD: exchange_rate es "USD por 1 Bs" (la
+  // convención de freezeRate), o sea 1/11.6. El monto nativo es el que el
+  // usuario escribió; el USD es lo derivado y congelado.
   const periods = [
-    { id: 'p-jul', line_id: 'l1', period: '2026-07-01', amount_usd: 80 },
-    { id: 'p-ago', line_id: 'l1', period: '2026-08-01', amount_usd: 92.5 },
+    { id: 'p-jul', line_id: 'l1', period: '2026-07-01', amount: 928, amount_usd: 80, exchange_rate: 1 / 11.6 },
+    { id: 'p-ago', line_id: 'l1', period: '2026-08-01', amount: 1073, amount_usd: 92.5, exchange_rate: 1 / 11.6 },
   ]
-  eq('mes propio', resolvePeriod(periods, 'l1', '2026-08-01'), { periodRowId: 'p-ago', amountUsd: 92.5 })
-  eq('mes heredado del más reciente anterior', resolvePeriod(periods, 'l1', '2026-09-01'), { periodRowId: null, amountUsd: 92.5 })
-  eq('sin ningún período previo: null', resolvePeriod(periods, 'l1', '2026-06-01'), { periodRowId: null, amountUsd: null })
-  eq('línea sin ninguna fila: null', resolvePeriod(periods, 'l2', '2026-08-01'), { periodRowId: null, amountUsd: null })
+  eq('mes propio', resolvePeriod(periods, 'l1', '2026-08-01'), { periodRowId: 'p-ago', amount: 1073, amountUsd: 92.5 })
+  eq('mes heredado del más reciente anterior',
+     resolvePeriod(periods, 'l1', '2026-09-01'), { periodRowId: null, amount: 1073, amountUsd: 92.5 })
+  eq('sin ningún período previo: null',
+     resolvePeriod(periods, 'l1', '2026-06-01'), { periodRowId: null, amount: null, amountUsd: null })
+  eq('línea sin ninguna fila: null',
+     resolvePeriod(periods, 'l2', '2026-08-01'), { periodRowId: null, amount: null, amountUsd: null })
 
-  const extensions = [{ period_id: 'p-ago', amount_usd: 15 }, { period_id: 'p-ago', amount_usd: 8 }]
-  eq('montoEfectivo suma las ampliaciones del período propio', montoEfectivo(periods, extensions, 'l1', '2026-08-01'), 115.5)
-  eq('un mes heredado no hereda ampliaciones ajenas', montoEfectivo(periods, extensions, 'l1', '2026-09-01'), 92.5)
+  const extensions = [
+    { period_id: 'p-ago', amount: 174, amount_usd: 15 },
+    { period_id: 'p-ago', amount: 93, amount_usd: 8 },
+  ]
+  eq('montoEfectivo suma las ampliaciones del período propio, en las dos denominaciones',
+     montoEfectivo(periods, extensions, 'l1', '2026-08-01'), { amount: 1340, amountUsd: 115.5 })
+  eq('un mes heredado no hereda ampliaciones ajenas',
+     montoEfectivo(periods, extensions, 'l1', '2026-09-01'), { amount: 1073, amountUsd: 92.5 })
   eq('sin monto cargado: null, no cero', montoEfectivo(periods, [], 'l1', '2026-06-01'), null)
+}
+
+section('SPRINT 6 (revisión) · toNative — el derivado vuelve a la moneda de la línea')
+{
+  // `exchange_rate` = USD por 1 unidad nativa, así que volver a nativo divide.
+  eq('Bs: 10 USD a 1/11.6 vuelven a 116 Bs', toNative(10, 1 / 11.6), 116)
+  eq('USD: la tasa 1 no toca el número', toNative(42.5, 1), 42.5)
+  eq('una tasa inválida no rompe: devuelve el USD tal cual', toNative(30, 0), 30)
 }
 
 section('SPRINT 6 · effectiveFromFor — retroactividad, una sola vez')
@@ -1379,13 +1398,16 @@ section('SPRINT 6 · comprometidoUsd — Fijos pendientes')
 section('SPRINT 6 · carriedInto — un solo salto hacia atrás, no una cadena')
 {
   const closures = [
-    { line_id: 'l1', period: '2026-07-01', carried: true, amount_usd: 12.5 },
-    { line_id: 'l1', period: '2026-06-01', carried: true, amount_usd: 999 }, // más viejo: no debería mirarse
-    { line_id: 'l2', period: '2026-07-01', carried: false, amount_usd: -4 },
+    { line_id: 'l1', period: '2026-07-01', carried: true, amount: 145, amount_usd: 12.5 },
+    { line_id: 'l1', period: '2026-06-01', carried: true, amount: 9999, amount_usd: 999 }, // más viejo: no debería mirarse
+    { line_id: 'l2', period: '2026-07-01', carried: false, amount: -46, amount_usd: -4 },
   ]
-  eq('se lleva: el monto del cierre inmediato anterior', carriedInto(closures, 'l1', '2026-08-01'), 12.5)
-  eq('no se lleva: no aporta nada aunque haya cierre', carriedInto(closures, 'l2', '2026-08-01'), 0)
-  eq('sin cierre del mes anterior: 0', carriedInto(closures, 'l3', '2026-08-01'), 0)
+  eq('se lleva: el monto del cierre inmediato anterior, en las dos denominaciones',
+     carriedInto(closures, 'l1', '2026-08-01'), { amount: 145, amountUsd: 12.5 })
+  eq('no se lleva: no aporta nada aunque haya cierre',
+     carriedInto(closures, 'l2', '2026-08-01'), { amount: 0, amountUsd: 0 })
+  eq('sin cierre del mes anterior: 0',
+     carriedInto(closures, 'l3', '2026-08-01'), { amount: 0, amountUsd: 0 })
 }
 
 section('SPRINT 6 · disponible')

@@ -12,7 +12,7 @@ import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import {
   carriedInto, comprometidoUsd, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
-  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod,
+  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod, toNative,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
 import type {
@@ -649,9 +649,9 @@ export async function loadTransactions(
 /* ─── Presupuesto (Sprint 6) ──────────────────────────────────────────────── */
 
 const BUDGET_LINE_COLS = 'id, category_id, name, input_currency, retroactive, created_on, archived'
-const BUDGET_PERIOD_COLS = 'id, line_id, period, amount_usd'
-const BUDGET_EXTENSION_COLS = 'id, period_id, amount_usd, created_at'
-const BUDGET_CLOSURE_COLS = 'id, line_id, period, carried, amount_usd'
+const BUDGET_PERIOD_COLS = 'id, line_id, period, amount, amount_usd, exchange_rate'
+const BUDGET_EXTENSION_COLS = 'id, period_id, amount, amount_usd, created_at'
+const BUDGET_CLOSURE_COLS = 'id, line_id, period, carried, amount, amount_usd'
 
 interface BudgetLineForCalc {
   id: string
@@ -674,6 +674,8 @@ function sumGeneral(categories: BudgetLineProgress[]): BudgetGeneralProgress | n
   if (categories.length === 0) return null
   const sum = (f: (c: BudgetLineProgress) => number) => round2(categories.reduce((s, c) => s + f(c), 0))
   return {
+    // Solo USD: sumar montos nativos de líneas en monedas distintas no
+    // significaría nada.
     amount_usd: sum(c => c.amount_usd ?? 0),
     extended_usd: sum(c => c.extended_usd),
     carried_usd: sum(c => c.carried_usd),
@@ -755,18 +757,21 @@ export async function loadBudgets(
   const recurringSummary = precomputed?.recurring ?? recurringResult!
 
   const periods = (periodRows ?? []).map(p => ({
-    id: p.id as string, line_id: p.line_id as string, period: p.period as string, amount_usd: num(p.amount_usd),
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string,
+    amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
   }))
   const closures = (closureRows ?? []).map(c => ({
-    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean, amount_usd: num(c.amount_usd),
+    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean,
+    amount: num(c.amount), amount_usd: num(c.amount_usd),
   }))
 
   const periodIds = periods.map(p => p.id)
   const { data: extensionRows } = periodIds.length > 0
     ? await supabase.from('fin_budget_extensions').select(BUDGET_EXTENSION_COLS).eq('user_id', userId).in('period_id', periodIds)
-    : { data: [] as { period_id: string; amount_usd: number; created_at: string }[] }
+    : { data: [] as { period_id: string; amount: number; amount_usd: number; created_at: string }[] }
   const extensions = (extensionRows ?? []).map(e => ({
-    period_id: e.period_id as string, amount_usd: num(e.amount_usd), created_at: e.created_at as string,
+    period_id: e.period_id as string, amount: num(e.amount), amount_usd: num(e.amount_usd),
+    created_at: e.created_at as string,
   }))
 
   // Qué períodos, por línea, terminaron sin la pregunta de cierre respondida.
@@ -817,23 +822,43 @@ export async function loadBudgets(
     status: r.status,
   }))
 
+  /**
+   * La tasa que esta línea tiene congelada para un período: la de la fila de
+   * ese mes, o la de la que se hereda. Con ella se expresan en moneda nativa
+   * los derivados que solo existen en USD (gasto real, comprometido) — nunca
+   * con la tasa de hoy, para que el card entero quede a una sola tasa
+   * coherente con el monto que el usuario escribió.
+   */
+  function rateFor(lineId: string, period: string): number {
+    const own = periods.find(p => p.line_id === lineId && p.period === period)
+    if (own) return own.exchange_rate
+    const prior = periods
+      .filter(p => p.line_id === lineId && p.period < period)
+      .sort((a, b) => (a.period < b.period ? 1 : -1))[0]
+    return prior ? prior.exchange_rate : 1
+  }
+
   function progressFor(line: BudgetLineForCalc): BudgetLineProgress {
     const { to } = periodRange(currentPeriod)
     const from = effectiveFromFor(line, currentPeriod)
     const { day, days } = dayOfPeriod(currentPeriod, today)
+    const rate = rateFor(line.id, currentPeriod)
 
     const resolved = resolvePeriod(periods, line.id, currentPeriod)
     const lineExtensions = resolved.periodRowId
       ? extensions.filter(e => e.period_id === resolved.periodRowId)
       : []
-    const extendedUsd = round2(lineExtensions.reduce((s, e) => s + e.amount_usd, 0))
-    const effectiveAmount = montoEfectivo(periods, extensions, line.id, currentPeriod)
+    const effective = montoEfectivo(periods, extensions, line.id, currentPeriod)
     const carried = carriedInto(closures, line.id, currentPeriod)
     const spent = gastoRealCategoria(txs, debts, line.category_id, from, to)
     const committed = comprometidoUsd(committedRecurring, line.category_id)
     const available = disponible({
-      montoEfectivoUsd: effectiveAmount, gastoRealUsd: spent, comprometidoUsd: committed, carriedUsd: carried,
+      montoEfectivoUsd: effective?.amountUsd ?? null,
+      gastoRealUsd: spent,
+      comprometidoUsd: committed,
+      carriedUsd: carried.amountUsd,
     })
+    const projected = projectedUsd(spent, day, days)
 
     return {
       line_id: line.id,
@@ -841,17 +866,27 @@ export async function loadBudgets(
       category_name: categoriesById.get(line.category_id)?.name ?? '',
       name: line.name,
       input_currency: line.input_currency,
+      exchange_rate: rate,
       retroactive: line.retroactive,
+      // El monto nativo sale tal cual de la base: es lo que el usuario
+      // escribió, no una reconversión.
+      amount: resolved.amount,
       amount_usd: resolved.amountUsd,
-      extensions: lineExtensions.map(e => ({ amount_usd: e.amount_usd, created_at: e.created_at })),
-      extended_usd: extendedUsd,
-      carried_usd: carried,
+      extensions: lineExtensions.map(e => ({ amount: e.amount, amount_usd: e.amount_usd, created_at: e.created_at })),
+      extended: round2(lineExtensions.reduce((s, e) => s + e.amount, 0)),
+      extended_usd: round2(lineExtensions.reduce((s, e) => s + e.amount_usd, 0)),
+      carried: carried.amount,
+      carried_usd: carried.amountUsd,
+      spent: toNative(spent, rate),
       spent_usd: spent,
+      committed: toNative(committed, rate),
       committed_usd: committed,
+      available: available == null ? null : toNative(available, rate),
       available_usd: available,
       day_of_period: day,
       days_in_period: days,
-      projected_usd: projectedUsd(spent, day, days),
+      projected: toNative(projected, rate),
+      projected_usd: projected,
     }
   }
 
@@ -862,10 +897,15 @@ export async function loadBudgets(
     for (const period of pendingByLine.get(line.id) ?? []) {
       const { to: closeTo } = periodRange(period)
       const from = effectiveFromFor(line, period)
-      const effectiveAmount = montoEfectivo(periods, extensions, line.id, period)
+      const effective = montoEfectivo(periods, extensions, line.id, period)
       const carried = carriedInto(closures, line.id, period)
       const spent = gastoRealCategoria(txs, debts, line.category_id, from, closeTo)
-      const available = disponible({ montoEfectivoUsd: effectiveAmount, gastoRealUsd: spent, comprometidoUsd: 0, carriedUsd: carried })
+      const available = disponible({
+        montoEfectivoUsd: effective?.amountUsd ?? null,
+        gastoRealUsd: spent,
+        comprometidoUsd: 0,
+        carriedUsd: carried.amountUsd,
+      })
       // `null` = ese mes la línea todavía no tenía ningún monto cargado: nada que cerrar.
       if (available == null) continue
       pending_closures.push({
@@ -875,6 +915,7 @@ export async function loadBudgets(
         name: line.name,
         input_currency: line.input_currency,
         period,
+        amount: toNative(available, rateFor(line.id, period)),
         amount_usd: available,
       })
     }
@@ -914,23 +955,36 @@ export async function applyBudgetExtension(
 
   const { data: line } = await supabase
     .from('fin_budget_lines')
-    .select('id').eq('user_id', userId).eq('category_id', categoryId).eq('archived', false).maybeSingle()
+    .select('id, input_currency').eq('user_id', userId).eq('category_id', categoryId).eq('archived', false).maybeSingle()
   if (!line) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
 
   const period = periodStart(date)
   const { data: periodRows } = await supabase
-    .from('fin_budget_periods').select('id, line_id, period, amount_usd').eq('user_id', userId).eq('line_id', line.id)
+    .from('fin_budget_periods')
+    .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('user_id', userId).eq('line_id', line.id)
   const periods = (periodRows ?? []).map(p => ({
-    id: p.id as string, line_id: p.line_id as string, period: p.period as string, amount_usd: num(p.amount_usd),
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string,
+    amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
   }))
 
   const resolved = resolvePeriod(periods, line.id, period)
   let periodId = resolved.periodRowId
+  // La tasa que la línea ya tiene congelada — la ampliación se expresa a la
+  // misma, para no mezclar dos tasas dentro del mismo mes.
+  const inherited = periods.find(p => p.id === resolved.periodRowId)
+    ?? periods.filter(p => p.period < period).sort((a, b) => (a.period < b.period ? 1 : -1))[0]
+  const rate = inherited ? inherited.exchange_rate : 1
+
   if (!periodId) {
-    if (resolved.amountUsd == null) return { ok: false, error: 'Esa línea todavía no tiene un monto cargado' }
+    if (resolved.amountUsd == null || resolved.amount == null) {
+      return { ok: false, error: 'Esa línea todavía no tiene un monto cargado' }
+    }
     const { data: created, error: createError } = await supabase
       .from('fin_budget_periods')
-      .insert({ user_id: userId, line_id: line.id, period, amount_usd: resolved.amountUsd })
+      .insert({
+        user_id: userId, line_id: line.id, period,
+        amount: resolved.amount, amount_usd: resolved.amountUsd, exchange_rate: rate,
+      })
       .select('id')
       .single()
     if (createError || !created) return { ok: false, error: createError?.message ?? 'No se pudo registrar el período' }
@@ -938,6 +992,9 @@ export async function applyBudgetExtension(
   }
 
   const { error } = await supabase
-    .from('fin_budget_extensions').insert({ user_id: userId, period_id: periodId, amount_usd: round2(amountUsd) })
+    .from('fin_budget_extensions').insert({
+      user_id: userId, period_id: periodId,
+      amount: round2(toNative(amountUsd, rate)), amount_usd: round2(amountUsd), exchange_rate: rate,
+    })
   return error ? { ok: false, error: error.message } : { ok: true }
 }

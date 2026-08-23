@@ -882,37 +882,63 @@ async function run() {
     ok('category_id es obligatorio — no hay más "tope general" como línea', sinCategoria.status >= 400, `HTTP ${sinCategoria.status}`)
 
     budgetPeriod = (await post('fin_budget_periods', {
-      user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount_usd: 80,
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01',
+      amount: 80, amount_usd: 80, exchange_rate: 1,
     }).then(r => r.json()))[0]
     ok('crea el monto de agosto', !!budgetPeriod?.id)
+    eq('guarda el monto nativo tal cual', Number(budgetPeriod.amount), 80)
 
-    const dupPeriod = await post('fin_budget_periods', { user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount_usd: 90 })
+    // El monto nativo y la tasa son obligatorios: sin ellos el número que el
+    // usuario escribió tendría que reconstruirse, que es justo lo que se
+    // dejó de hacer.
+    const sinNativo = await post('fin_budget_periods', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-10-01', amount_usd: 50,
+    })
+    ok('sin monto nativo → rechazado', sinNativo.status >= 400, `HTTP ${sinNativo.status}`)
+
+    const dupPeriod = await post('fin_budget_periods', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount: 90, amount_usd: 90, exchange_rate: 1,
+    })
     ok('no deja dos filas para el mismo (línea, período)', dupPeriod.status >= 400, `HTTP ${dupPeriod.status}`)
 
-    const zeroAmount = await post('fin_budget_periods', { user_id: USER_ID, line_id: budgetLine.id, period: '2026-09-01', amount_usd: 0 })
+    const zeroAmount = await post('fin_budget_periods', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-09-01', amount: 0, amount_usd: 0, exchange_rate: 1,
+    })
     ok('rechaza monto en cero', zeroAmount.status >= 400, `HTTP ${zeroAmount.status}`)
 
+    const badRate = await post('fin_budget_periods', {
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-09-01', amount: 10, amount_usd: 10, exchange_rate: 0,
+    })
+    ok('rechaza una tasa en cero', badRate.status >= 400, `HTTP ${badRate.status}`)
+
     const extension = (await post('fin_budget_extensions', {
-      user_id: USER_ID, period_id: budgetPeriod.id, amount_usd: 15,
+      user_id: USER_ID, period_id: budgetPeriod.id, amount: 15, amount_usd: 15, exchange_rate: 1,
     }).then(r => r.json()))[0]
     ok('crea una ampliación', !!extension?.id)
 
-    const zeroExtension = await post('fin_budget_extensions', { user_id: USER_ID, period_id: budgetPeriod.id, amount_usd: 0 })
+    const zeroExtension = await post('fin_budget_extensions', {
+      user_id: USER_ID, period_id: budgetPeriod.id, amount: 0, amount_usd: 0, exchange_rate: 1,
+    })
     ok('rechaza una ampliación en cero', zeroExtension.status >= 400, `HTTP ${zeroExtension.status}`)
 
-    // Un cierre en rojo es tan válido como uno en verde: sin CHECK > 0.
+    // Un cierre en rojo es tan válido como uno en verde: sin CHECK > 0 — ni
+    // en el USD ni en el nativo.
     const closure = (await post('fin_budget_closures', {
-      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: false, amount_usd: -12.5,
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: false,
+      amount: -12.5, amount_usd: -12.5, exchange_rate: 1,
     }).then(r => r.json()))[0]
     ok('un cierre con disponible negativo es válido', !!closure?.id)
+    eq('y su monto nativo también puede ser negativo', Number(closure.amount), -12.5)
 
     const dupClosure = await post('fin_budget_closures', {
-      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: true, amount_usd: 5,
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-07-01', carried: true,
+      amount: 5, amount_usd: 5, exchange_rate: 1,
     })
     ok('el mismo mes no se cierra dos veces', dupClosure.status >= 400, `HTTP ${dupClosure.status}`)
 
     const otroMes = await post('fin_budget_closures', {
-      user_id: USER_ID, line_id: budgetLine.id, period: '2026-06-01', carried: true, amount_usd: 8,
+      user_id: USER_ID, line_id: budgetLine.id, period: '2026-06-01', carried: true,
+      amount: 8, amount_usd: 8, exchange_rate: 1,
     })
     ok('otro mes sí se puede cerrar', otroMes.status < 400, `HTTP ${otroMes.status}`)
 

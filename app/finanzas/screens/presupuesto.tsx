@@ -85,7 +85,7 @@ export function PresupuestoScreen() {
               {budgets.categories.map(line => (
                 <BudgetLineCard
                   key={line.line_id}
-                  line={line} hidden={hidden} rates={rates} icon={iconFor(line.category_id)}
+                  line={line} hidden={hidden} icon={iconFor(line.category_id)}
                   onView={() => setViewing(line)}
                   onEdit={() => setEditingLine(line)}
                   onDelete={() => setDeleting(line)}
@@ -211,24 +211,25 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
  * va posicionado absoluto en la esquina, afuera del botón grande: un
  * <button> no puede anidar otro, así que son hermanos, no padre-hijo.
  */
-function BudgetLineCard({ line, hidden, rates, icon, onView, onEdit, onDelete }: {
+function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete }: {
   line: BudgetLineProgress
   hidden: boolean
-  rates: RateMap
   icon: string | null
   onView: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
   const cur = line.input_currency
+  // El % y los "¿ya te pasaste?" se deciden en USD (es donde vive el gasto
+  // real congelado); lo que se MUESTRA es el nativo, que ya viene resuelto.
   const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
   const pct = capacityUsd > 0 ? Math.round((line.spent_usd / capacityUsd) * 100) : 0
   const tickPct = line.days_in_period > 0 ? (line.day_of_period / line.days_in_period) * 100 : 0
   const alreadyOver = capacityUsd > 0 && line.spent_usd > capacityUsd
   const projectedOver = capacityUsd > 0 && line.projected_usd > capacityUsd
 
-  const spent = fromUsd(line.spent_usd, cur, rates)
-  const capacity = fromUsd(capacityUsd, cur, rates)
+  const spent = line.spent
+  const capacity = (line.amount ?? 0) + line.extended + line.carried
   const displayName = line.name ?? line.category_name
 
   return (
@@ -254,7 +255,7 @@ function BudgetLineCard({ line, hidden, rates, icon, onView, onEdit, onDelete }:
           </span>
           {!hidden && (
             <span className="text-[13px] text-[var(--fz-ink-3)] fz-num">
-              de {line.amount_usd == null ? '—' : formatAmount(capacity, cur)}
+              de {line.amount == null ? '—' : formatAmount(capacity, cur)}
             </span>
           )}
         </div>
@@ -273,10 +274,10 @@ function BudgetLineCard({ line, hidden, rates, icon, onView, onEdit, onDelete }:
         {!hidden && (
           <p className="text-[12px] text-[var(--fz-ink-3)]">
             {alreadyOver
-              ? `Ya te pasaste por ${formatAmount(fromUsd(line.spent_usd - capacityUsd, cur, rates), cur)}`
+              ? `Ya te pasaste por ${formatAmount(spent - capacity, cur)}`
               : projectedOver
-                ? `Te vas a pasar por ~${formatAmount(fromUsd(line.projected_usd - capacityUsd, cur, rates), cur)} si seguís así`
-                : `A este ritmo: ${formatAmount(fromUsd(line.projected_usd, cur, rates), cur)}`}
+                ? `Te vas a pasar por ~${formatAmount(line.projected - capacity, cur)} si seguís así`
+                : `A este ritmo: ${formatAmount(line.projected, cur)}`}
           </p>
         )}
       </button>
@@ -284,11 +285,15 @@ function BudgetLineCard({ line, hidden, rates, icon, onView, onEdit, onDelete }:
   )
 }
 
-/** El resumen que abre <DetailSheet> al tocar una card — todo en la moneda
-    de la línea, más su equivalente en la otra moneda de referencia (USD
-    si la línea está en Bs, Bs si está en USD) con el tipo de cambio del
-    momento — la tasa es dinámica, así que se muestra siempre junto al
-    equivalente, nunca memorizada aparte. */
+/**
+ * El resumen que abre <DetailSheet> al tocar una card — todo en la moneda de
+ * la línea, con los montos NATIVOS que ya vienen resueltos del server (nunca
+ * reconvertidos desde USD: el monto que el usuario escribió es el dato real).
+ *
+ * El equivalente en la otra moneda sí es una referencia calculada al tipo de
+ * cambio de HOY — por eso va junto a la tasa que se usó, para que se lea como
+ * lo que es: una conversión del momento, no un segundo registro.
+ */
 function BudgetDetail({ line, hidden, rates, icon }: {
   line: BudgetLineProgress
   hidden: boolean
@@ -296,13 +301,13 @@ function BudgetDetail({ line, hidden, rates, icon }: {
   icon: string | null
 }) {
   const cur = line.input_currency
-  const conv = (usd: number) => formatAmount(fromUsd(usd, cur, rates), cur)
-  const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
+  const fmt = (n: number) => formatAmount(n, cur)
+  const capacity = (line.amount ?? 0) + line.extended + line.carried
   // Solo tiene sentido mostrar el tope aparte del monto cuando de verdad
   // difiere — si no hubo ampliación ni carry, es el mismo número dos veces.
-  const hasAdjustment = line.extended_usd > 0 || line.carried_usd !== 0
+  const hasAdjustment = line.extended > 0 || line.carried !== 0
 
-  const otherCur: Currency = cur === 'BOB' ? 'USD' : cur === 'USD' ? 'BOB' : 'USD'
+  const otherCur: Currency = cur === 'USD' ? 'BOB' : 'USD'
   const bobRate = fromUsd(1, 'BOB', rates)
 
   return (
@@ -311,10 +316,10 @@ function BudgetDetail({ line, hidden, rates, icon }: {
         icon={<CategoryIcon slug={icon} name={line.name ?? line.category_name} size={40} />}
         title={line.name ?? line.category_name}
         subtitle={line.name ? line.category_name : undefined}
-        amount={hidden ? HIDDEN : conv(line.spent_usd)}
+        amount={hidden ? HIDDEN : fmt(line.spent)}
       />
       <div>
-        <DetailField label="Monto mensual" value={hidden ? null : (line.amount_usd == null ? '—' : conv(line.amount_usd))} />
+        <DetailField label="Monto mensual" value={hidden ? null : (line.amount == null ? '—' : fmt(line.amount))} />
         <DetailField
           label={`Equivalente en ${otherCur}`}
           value={
@@ -323,19 +328,19 @@ function BudgetDetail({ line, hidden, rates, icon }: {
               : `${formatAmount(fromUsd(line.amount_usd, otherCur, rates), otherCur)} (1 USD = ${formatAmount(bobRate, 'BOB')})`
           }
         />
-        <DetailField label="Ampliado este mes" value={!hidden && line.extended_usd > 0 ? conv(line.extended_usd) : null} />
+        <DetailField label="Ampliado este mes" value={!hidden && line.extended > 0 ? fmt(line.extended) : null} />
         <DetailField
-          label={line.carried_usd >= 0 ? 'Llevado del mes pasado' : 'Restado del mes pasado'}
-          value={!hidden && line.carried_usd !== 0 ? conv(Math.abs(line.carried_usd)) : null}
+          label={line.carried >= 0 ? 'Llevado del mes pasado' : 'Restado del mes pasado'}
+          value={!hidden && line.carried !== 0 ? fmt(Math.abs(line.carried)) : null}
         />
         {hasAdjustment && (
-          <DetailField label="Tope total del mes" value={hidden ? null : conv(capacityUsd)} />
+          <DetailField label="Tope total del mes" value={hidden ? null : fmt(capacity)} />
         )}
-        <DetailField label="Comprometido (fijos pendientes)" value={!hidden && line.committed_usd > 0 ? conv(line.committed_usd) : null} />
-        <DetailField label="Gastado" value={hidden ? null : conv(line.spent_usd)} />
+        <DetailField label="Comprometido (fijos pendientes)" value={!hidden && line.committed > 0 ? fmt(line.committed) : null} />
+        <DetailField label="Gastado" value={hidden ? null : fmt(line.spent)} />
         <DetailField
           label="Disponible"
-          value={hidden || line.available_usd == null ? null : conv(line.available_usd)}
+          value={hidden || line.available == null ? null : fmt(line.available)}
         />
       </div>
     </>

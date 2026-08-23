@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { BudgetLineProgress } from '@/lib/finanzas/types'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, fromUsd, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/money'
 import { periodStart } from '@/lib/finanzas/budgets'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
@@ -30,7 +30,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const { budgets, rates, reload } = useFinanzas()
+  const { budgets, reload } = useFinanzas()
 
   // Las categorías elegibles se capturan al abrir: crear una línea las saca
   // de `categories_without_line` en el próximo reload, y leerlas en vivo las
@@ -49,11 +49,10 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
     setSelected(undefined)
     setName(editing?.name ?? '')
     setCurrency(editing?.input_currency ?? 'USD')
-    setAmount(
-      editing?.amount_usd != null
-        ? String(fromUsd(editing.amount_usd, editing.input_currency, rates))
-        : '',
-    )
+    // El monto que se precarga es el NATIVO guardado, tal cual se escribió —
+    // no una reconversión del USD, que haría aparecer "2.400,02" donde el
+    // usuario había puesto 2.400.
+    setAmount(editing?.amount != null ? String(editing.amount) : '')
     setRetroactive('si')
     setError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps

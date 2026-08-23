@@ -225,9 +225,12 @@ export function QuickAdd() {
   const budgetExceeded = !!budgetLine && budgetAvailable != null && montoUsd > budgetAvailable
   const budgetNeeded = budgetExceeded ? round2(montoUsd - budgetAvailable!) : 0
   // El faltante se muestra y se escribe en la moneda de la línea, nunca en
-  // USD — mismo criterio del rediseño post-Sprint 6 para toda la pantalla
-  // de Presupuesto.
-  const budgetNeededDisplay = budgetLine ? fromUsd(budgetNeeded, budgetLine.input_currency, rates) : 0
+  // USD. Se convierte con la tasa que la línea tiene CONGELADA, no con la de
+  // hoy: así el "te pasás por X" queda a la misma tasa que el tope contra el
+  // que se está comparando.
+  const budgetNeededDisplay = budgetLine
+    ? round2(budgetNeeded / (budgetLine.exchange_rate || 1))
+    : 0
   const budgetBlocked = budgetExceeded && !extendBudget
 
   /**
@@ -337,9 +340,12 @@ export function QuickAdd() {
       payload.category_id = categoryId || null
       if (type === 'gasto' && extendBudget && budgetLine) {
         const extra = amountFromInput(extensionAmount, { decimals: decimalsFor(budgetLine.input_currency) })
-        // `extra` está en la moneda de la línea (comodidad de escritura) —
-        // el server solo entiende USD.
-        if (Number.isFinite(extra) && extra > 0) payload.budget_extension_usd = toUsd(extra, budgetLine.input_currency, rates)
+        // `extra` está en la moneda de la línea (comodidad de escritura) — el
+        // server lo recibe en USD, a la misma tasa congelada con la que se
+        // midió el faltante.
+        if (Number.isFinite(extra) && extra > 0) {
+          payload.budget_extension_usd = round2(extra * (budgetLine.exchange_rate || 1))
+        }
       }
     }
 

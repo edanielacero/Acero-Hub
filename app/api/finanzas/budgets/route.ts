@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { num, round2, toUsd } from '@/lib/finanzas/money'
+import { freezeRate, num, round2, toUsd } from '@/lib/finanzas/money'
 import { loadBudgets } from '@/lib/finanzas/load'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { periodStart, validateBudgetAmount } from '@/lib/finanzas/budgets'
@@ -72,12 +72,19 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
+  // El monto nativo se guarda tal cual y la tasa se CONGELA — mismo criterio
+  // que `fin_transactions`. Así "2.400 Bs" sigue diciendo 2.400 aunque el
+  // paralelo se mueva; el USD es lo derivado, para comparar entre líneas.
   const { rates } = await ensureRates(supabase, userId)
+  const exchangeRate = freezeRate(currency, rates)
   const amountUsd = round2(toUsd(rawAmount, currency, rates))
 
   const { error: periodError } = await supabase
     .from('fin_budget_periods')
-    .insert({ user_id: userId, line_id: line.id, period: periodStart(today), amount_usd: amountUsd })
+    .insert({
+      user_id: userId, line_id: line.id, period: periodStart(today),
+      amount: rawAmount, amount_usd: amountUsd, exchange_rate: exchangeRate,
+    })
 
   if (periodError) {
     // Compensación: sin su primer monto, la línea no queda a medias — mismo

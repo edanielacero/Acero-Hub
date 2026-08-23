@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
-import { formatAmount, fromUsd } from '@/lib/finanzas/money'
+import { formatAmount } from '@/lib/finanzas/money'
 import { monthLabel } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { Btn, ErrorNote } from './ui'
@@ -17,7 +17,7 @@ import { Btn, ErrorNote } from './ui'
  * `reload()` de este mismo sheet, y leerla en vivo desincronizaría el índice.
  */
 export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const { budgets, rates, reload } = useFinanzas()
+  const { budgets, reload } = useFinanzas()
   const [queue] = useState(() => budgets.pending_closures)
   const [index, setIndex] = useState(0)
   const [error, setError] = useState('')
@@ -80,7 +80,7 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
           <p className="text-[15px]">
             {sobra ? 'Te sobraron ' : 'Te pasaste '}
             <strong className={sobra ? 'text-[var(--fz-in-text)]' : 'text-[var(--fz-out-text)]'}>
-              {formatAmount(Math.abs(fromUsd(current.amount_usd, current.input_currency, rates)), current.input_currency)}
+              {formatAmount(Math.abs(current.amount), current.input_currency)}
             </strong>
             {sobra ? '.' : ' de lo que tenías presupuestado.'}
           </p>

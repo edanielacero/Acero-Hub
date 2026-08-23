@@ -2,7 +2,7 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import {
-  carriedInto, disponible, effectiveFromFor, gastoRealCategoria, isValidPeriod, montoEfectivo, periodRange,
+  carriedInto, disponible, effectiveFromFor, gastoRealCategoria, isValidPeriod, montoEfectivo, periodRange, toNative,
 } from '@/lib/finanzas/budgets'
 
 interface DebtEmbed { transaction: { id: string } | null; principal_usd: unknown; waived_at: string | null }
@@ -31,27 +31,39 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
   const [{ data: periodRows }, { data: closureRows }] = await Promise.all([
-    supabase.from('fin_budget_periods').select('id, line_id, period, amount_usd').eq('user_id', userId).eq('line_id', id),
-    supabase.from('fin_budget_closures').select('line_id, period, carried, amount_usd').eq('user_id', userId).eq('line_id', id),
+    supabase.from('fin_budget_periods')
+      .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('user_id', userId).eq('line_id', id),
+    supabase.from('fin_budget_closures')
+      .select('line_id, period, carried, amount, amount_usd').eq('user_id', userId).eq('line_id', id),
   ])
   const periods = (periodRows ?? []).map(p => ({
-    id: p.id as string, line_id: p.line_id as string, period: p.period as string, amount_usd: num(p.amount_usd),
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string,
+    amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
   }))
   const closures = (closureRows ?? []).map(c => ({
-    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean, amount_usd: num(c.amount_usd),
+    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean,
+    amount: num(c.amount), amount_usd: num(c.amount_usd),
   }))
 
   const periodIds = periods.map(p => p.id)
   const { data: extensionRows } = periodIds.length > 0
-    ? await supabase.from('fin_budget_extensions').select('period_id, amount_usd').in('period_id', periodIds)
-    : { data: [] as { period_id: string; amount_usd: number }[] }
-  const extensions = (extensionRows ?? []).map(e => ({ period_id: e.period_id as string, amount_usd: num(e.amount_usd) }))
+    ? await supabase.from('fin_budget_extensions').select('period_id, amount, amount_usd').in('period_id', periodIds)
+    : { data: [] as { period_id: string; amount: number; amount_usd: number }[] }
+  const extensions = (extensionRows ?? []).map(e => ({
+    period_id: e.period_id as string, amount: num(e.amount), amount_usd: num(e.amount_usd),
+  }))
 
   // Sin esto, cerrar un mes que tuvo una ampliación (§4.6) congelaba un
   // disponible que ignoraba esos dólares extra — el número que se lleva o se
   // pierde al mes siguiente quedaba mal para siempre.
-  const effectiveAmount = montoEfectivo(periods, extensions, id, body.period)
-  if (effectiveAmount == null) return NextResponse.json({ error: 'Ese período no tenía monto cargado' }, { status: 400 })
+  const effective = montoEfectivo(periods, extensions, id, body.period)
+  if (effective == null) return NextResponse.json({ error: 'Ese período no tenía monto cargado' }, { status: 400 })
+
+  // La tasa con la que ese mes quedó expresado — el disponible congelado se
+  // guarda también en moneda nativa, para poder mostrarlo sin reconvertir.
+  const periodRow = periods.find(p => p.period === body.period)
+    ?? periods.filter(p => p.period < body.period).sort((a, b) => (a.period < b.period ? 1 : -1))[0]
+  const rate = periodRow ? periodRow.exchange_rate : 1
 
   const { to } = periodRange(body.period)
   const from = effectiveFromFor(line, body.period)
@@ -75,12 +87,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const spent = gastoRealCategoria(txs, debts, line.category_id, from, to)
   // Un mes ya cerrado no tiene nada "todavía por pasar": sin `comprometido`.
-  const amount_usd = disponible({ montoEfectivoUsd: effectiveAmount, gastoRealUsd: spent, comprometidoUsd: 0, carriedUsd: carried })!
+  const amount_usd = disponible({
+    montoEfectivoUsd: effective.amountUsd,
+    gastoRealUsd: spent,
+    comprometidoUsd: 0,
+    carriedUsd: carried.amountUsd,
+  })!
 
   const { data, error } = await supabase
     .from('fin_budget_closures')
-    .insert({ user_id: userId, line_id: id, period: body.period, carried: body.carried, amount_usd })
-    .select('id, line_id, period, carried, amount_usd')
+    .insert({
+      user_id: userId, line_id: id, period: body.period, carried: body.carried,
+      amount: toNative(amount_usd, rate), amount_usd, exchange_rate: rate,
+    })
+    .select('id, line_id, period, carried, amount, amount_usd')
     .single()
 
   if (error) {

@@ -2024,14 +2024,15 @@ async function run() {
     section('POST /budgets/[id]/extend — ampliar un mes puntual')
     {
       eq('línea inexistente → 404',
-         (await api(`/budgets/00000000-0000-0000-0000-000000000000/extend`, { method: 'POST', body: JSON.stringify({ period: thisMonth, amount_usd: 10 }) })).status, 404)
+         (await api(`/budgets/00000000-0000-0000-0000-000000000000/extend`, { method: 'POST', body: JSON.stringify({ period: thisMonth, amount: 10 }) })).status, 404)
 
       eq('registra la ampliación del mes siguiente',
-         (await api(`/budgets/${comidaLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: nextMonth, amount_usd: 15 }) })).status, 201)
+         (await api(`/budgets/${comidaLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: nextMonth, amount: 15 }) })).status, 201)
 
       const withExt = await json(await api(`/budgets?today=${nextMonth.slice(0, 8)}15`))
       const comidaExt = withExt.categories.find(c => c.line_id === comidaLine.id)
       eq('el monto ampliado queda aparte del original', comidaExt.extended_usd, 15)
+      eq('y también en la moneda de la línea (acá USD, así que el mismo)', comidaExt.extended, 15)
       ok('la ampliación queda auditada, no pisa el monto', comidaExt.extensions.some(e => Number(e.amount_usd) === 15))
     }
 
@@ -2114,7 +2115,18 @@ async function run() {
     const withVivienda = await json(await api('/budgets'))
     const viviendaProgress = withVivienda.categories.find(c => c.line_id === viviendaLine.id)
     eq('696 Bs se convierten a 100 USD al crear', viviendaProgress.amount_usd, 100)
+    eq('pero el monto nativo queda EXACTO — 696, no reconvertido', viviendaProgress.amount, 696)
     eq('el progreso trae el mismo alias', viviendaProgress.name, 'Alquiler y depósito')
+
+    // El corazón del arreglo: la tasa se mueve y el monto que el usuario
+    // escribió NO. Antes se recalculaba desde el USD en cada lectura, y
+    // "2.400 Bs" volvía como "2.400,02 Bs".
+    await api('/rates', { method: 'PATCH', body: JSON.stringify({ currency: 'BOB', rate: 12.4 }) })
+    const afterRateMove = await json(await api('/budgets'))
+    const stillExact = afterRateMove.categories.find(c => c.line_id === viviendaLine.id)
+    eq('con otra tasa, el monto en Bs sigue siendo 696 clavado', stillExact.amount, 696)
+    eq('y su USD congelado tampoco se recalcula', stillExact.amount_usd, 100)
+    await api('/rates', { method: 'PATCH', body: JSON.stringify({ currency: 'BOB', rate: 6.96 }) })
 
     eq('renombrar la línea', (await api(`/budgets/${viviendaLine.id}`, {
       method: 'PATCH', body: JSON.stringify({ name: 'Depa' }),
@@ -2133,8 +2145,9 @@ async function run() {
          method: 'PATCH', body: JSON.stringify({ period: nextMonth, amount: 348 }),
        })).status, 200)
     const viewNextMonth = await json(await api(`/budgets?today=${nextMonth.slice(0, 8)}15`))
-    eq('348 Bs se convierten a 50 USD, sin que el cliente mande la moneda',
-       viewNextMonth.categories.find(c => c.line_id === viviendaLine.id).amount_usd, 50)
+    const nextMonthLine = viewNextMonth.categories.find(c => c.line_id === viviendaLine.id)
+    eq('348 Bs se convierten a 50 USD, sin que el cliente mande la moneda', nextMonthLine.amount_usd, 50)
+    eq('y el nativo de ese mes también queda exacto', nextMonthLine.amount, 348)
   }
 
   section('SPRINT 6 · /bootstrap incluye presupuesto')
