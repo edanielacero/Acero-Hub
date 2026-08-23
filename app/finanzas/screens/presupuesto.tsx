@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { IconAlertTriangle, IconChartPie, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
-import type { BudgetGeneralProgress, BudgetLineProgress, RateMap } from '@/lib/finanzas/types'
-import { formatAmount, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
+import type { BudgetGeneralProgress, BudgetLineProgress, Currency, RateMap } from '@/lib/finanzas/types'
+import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
@@ -69,34 +69,29 @@ export function PresupuestoScreen() {
           </Panel>
         ) : (
           <>
-            {budgets.general && <GeneralBudgetCard general={budgets.general} hidden={hidden} />}
+            {budgets.general && <GeneralBudgetCard general={budgets.general} hidden={hidden} rates={rates} />}
 
-            <Panel>
-              <SectionTitle
-                action={
-                  <button
-                    type="button" onClick={() => setAdding(true)}
-                    className="flex items-center gap-1 text-[13px] font-semibold text-[var(--fz-accent)]"
-                  >
-                    <IconPlus size={15} stroke={2} /> Nuevo
-                  </button>
-                }
-              >
-                Por categoría
-              </SectionTitle>
+            <SectionTitle
+              action={
+                <Btn size="sm" onClick={() => setAdding(true)}>
+                  <IconPlus size={15} stroke={2} /> Nuevo
+                </Btn>
+              }
+            >
+              Por categoría
+            </SectionTitle>
 
-              <div className="grid grid-cols-2 min-[600px]:grid-cols-3 gap-2.5 mt-3">
-                {budgets.categories.map(line => (
-                  <BudgetLineMiniCard
-                    key={line.line_id}
-                    line={line} hidden={hidden} rates={rates} icon={iconFor(line.category_id)}
-                    onView={() => setViewing(line)}
-                    onEdit={() => setEditingLine(line)}
-                    onDelete={() => setDeleting(line)}
-                  />
-                ))}
-              </div>
-            </Panel>
+            <div className="flex flex-col gap-3">
+              {budgets.categories.map(line => (
+                <BudgetLineCard
+                  key={line.line_id}
+                  line={line} hidden={hidden} rates={rates} icon={iconFor(line.category_id)}
+                  onView={() => setViewing(line)}
+                  onEdit={() => setEditingLine(line)}
+                  onDelete={() => setDeleting(line)}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -153,9 +148,10 @@ export function PresupuestoScreen() {
  * El card grande: el agregado de todas las categorías presupuestadas,
  * siempre en USD (cada categoría puede tener su propia moneda de entrada —
  * sumarlas necesita una unidad común). No se puede tocar: no es una línea,
- * es la suma de las de abajo.
+ * es la suma de las de abajo. El Bs de abajo es solo de referencia, al tipo
+ * de cambio de hoy — no es una segunda fuente de verdad.
  */
-function GeneralBudgetCard({ general, hidden }: { general: BudgetGeneralProgress; hidden: boolean }) {
+function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralProgress; hidden: boolean; rates: RateMap }) {
   const capacity = general.amount_usd + general.extended_usd + general.carried_usd
   const pct = capacity > 0 ? Math.round((general.spent_usd / capacity) * 100) : 0
   const tickPct = general.days_in_period > 0 ? (general.day_of_period / general.days_in_period) * 100 : 0
@@ -166,12 +162,19 @@ function GeneralBudgetCard({ general, hidden }: { general: BudgetGeneralProgress
     <Panel className="flex flex-col gap-3">
       <SectionTitle>Presupuesto general</SectionTitle>
 
-      <div className="flex items-baseline gap-2">
-        <span className={`text-[30px] font-bold fz-num tracking-[-0.02em] leading-none ${alreadyOver ? 'text-[var(--fz-out-text)]' : ''}`}>
-          {hidden ? HIDDEN : formatUSD(general.spent_usd)}
-        </span>
+      <div>
+        <div className="flex items-baseline gap-2">
+          <span className={`text-[30px] font-bold fz-num tracking-[-0.02em] leading-none ${alreadyOver ? 'text-[var(--fz-out-text)]' : ''}`}>
+            {hidden ? HIDDEN : formatUSD(general.spent_usd)}
+          </span>
+          {!hidden && (
+            <span className="text-[14px] text-[var(--fz-ink-3)] fz-num">de {formatUSD(capacity)}</span>
+          )}
+        </div>
         {!hidden && (
-          <span className="text-[14px] text-[var(--fz-ink-3)] fz-num">de {formatUSD(capacity)}</span>
+          <p className="text-[12px] text-[var(--fz-ink-3)] fz-num">
+            ≈ {formatBOB(fromUsd(general.spent_usd, 'BOB', rates))} de {formatBOB(fromUsd(capacity, 'BOB', rates))}
+          </p>
         )}
       </div>
 
@@ -198,16 +201,17 @@ function GeneralBudgetCard({ general, hidden }: { general: BudgetGeneralProgress
 }
 
 /**
- * Mini-card por categoría. Todo se muestra en la moneda que el usuario
- * eligió para ESTA línea (`input_currency`) — nunca en USD, aunque por
- * dentro se compare y se sume en USD.
+ * Card por categoría — mismo tratamiento que el general (`<Panel>` a lo
+ * ancho, no una mini-card), todo mostrado en la moneda que el usuario
+ * eligió para ESTA línea (`input_currency`), aunque por dentro se compare
+ * y se sume en USD.
  *
  * Tocar la card abre el detalle (`onView`), nunca la edición directa — el
  * ⋮ es el atajo para quien ya sabe que quiere Editar o Eliminar. El menú
  * va posicionado absoluto en la esquina, afuera del botón grande: un
  * <button> no puede anidar otro, así que son hermanos, no padre-hijo.
  */
-function BudgetLineMiniCard({ line, hidden, rates, icon, onView, onEdit, onDelete }: {
+function BudgetLineCard({ line, hidden, rates, icon, onView, onEdit, onDelete }: {
   line: BudgetLineProgress
   hidden: boolean
   rates: RateMap
@@ -228,8 +232,8 @@ function BudgetLineMiniCard({ line, hidden, rates, icon, onView, onEdit, onDelet
   const displayName = line.name ?? line.category_name
 
   return (
-    <div className="relative rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] min-w-0">
-      <div className="absolute top-2 right-2 z-10">
+    <Panel className="relative">
+      <div className="absolute top-4 right-4 z-10">
         <RowMenu
           items={[
             { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
@@ -238,13 +242,24 @@ function BudgetLineMiniCard({ line, hidden, rates, icon, onView, onEdit, onDelet
         />
       </div>
 
-      <button type="button" onClick={onView} className="w-full text-left p-3 flex flex-col gap-2 min-w-0">
-        <div className="flex items-center gap-2 min-w-0 pr-7">
-          <CategoryIcon slug={icon} name={displayName} size={22} />
-          <p className="text-[13px] font-semibold truncate min-w-0">{displayName}</p>
+      <button type="button" onClick={onView} className="w-full text-left flex flex-col gap-2.5 min-w-0 pr-9">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <CategoryIcon slug={icon} name={displayName} size={28} />
+          <p className="text-[15px] font-semibold truncate min-w-0">{displayName}</p>
         </div>
 
-        <div className="relative h-1.5 rounded-full bg-[var(--fz-surface)] overflow-hidden">
+        <div className="flex items-baseline gap-2">
+          <span className={`text-[20px] font-bold fz-num tracking-[-0.01em] leading-none ${alreadyOver ? 'text-[var(--fz-out-text)]' : ''}`}>
+            {hidden ? HIDDEN : formatAmount(spent, cur)}
+          </span>
+          {!hidden && (
+            <span className="text-[13px] text-[var(--fz-ink-3)] fz-num">
+              de {line.amount_usd == null ? '—' : formatAmount(capacity, cur)}
+            </span>
+          )}
+        </div>
+
+        <div className="relative h-2 rounded-full bg-[var(--fz-surface-sunk)] overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
             style={{
@@ -255,26 +270,25 @@ function BudgetLineMiniCard({ line, hidden, rates, icon, onView, onEdit, onDelet
           <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${Math.min(100, tickPct)}%` }} aria-hidden />
         </div>
 
-        <span className={`text-[12px] font-semibold fz-num truncate ${alreadyOver ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-          {hidden ? HIDDEN : `${formatAmount(spent, cur)} / ${line.amount_usd == null ? '—' : formatAmount(capacity, cur)}`}
-        </span>
-
         {!hidden && (
-          <p className="text-[11px] text-[var(--fz-ink-3)] truncate">
+          <p className="text-[12px] text-[var(--fz-ink-3)]">
             {alreadyOver
-              ? `+${formatAmount(fromUsd(line.spent_usd - capacityUsd, cur, rates), cur)} pasado`
+              ? `Ya te pasaste por ${formatAmount(fromUsd(line.spent_usd - capacityUsd, cur, rates), cur)}`
               : projectedOver
-                ? `~${formatAmount(fromUsd(line.projected_usd - capacityUsd, cur, rates), cur)} de más`
-                : `Ritmo: ${formatAmount(fromUsd(line.projected_usd, cur, rates), cur)}`}
+                ? `Te vas a pasar por ~${formatAmount(fromUsd(line.projected_usd - capacityUsd, cur, rates), cur)} si seguís así`
+                : `A este ritmo: ${formatAmount(fromUsd(line.projected_usd, cur, rates), cur)}`}
           </p>
         )}
       </button>
-    </div>
+    </Panel>
   )
 }
 
-/** El resumen que abre <DetailSheet> al tocar una mini-card — todo en la
-    moneda de la línea, igual que la card. */
+/** El resumen que abre <DetailSheet> al tocar una card — todo en la moneda
+    de la línea, más su equivalente en la otra moneda de referencia (USD
+    si la línea está en Bs, Bs si está en USD) con el tipo de cambio del
+    momento — la tasa es dinámica, así que se muestra siempre junto al
+    equivalente, nunca memorizada aparte. */
 function BudgetDetail({ line, hidden, rates, icon }: {
   line: BudgetLineProgress
   hidden: boolean
@@ -284,6 +298,12 @@ function BudgetDetail({ line, hidden, rates, icon }: {
   const cur = line.input_currency
   const conv = (usd: number) => formatAmount(fromUsd(usd, cur, rates), cur)
   const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
+  // Solo tiene sentido mostrar el tope aparte del monto cuando de verdad
+  // difiere — si no hubo ampliación ni carry, es el mismo número dos veces.
+  const hasAdjustment = line.extended_usd > 0 || line.carried_usd !== 0
+
+  const otherCur: Currency = cur === 'BOB' ? 'USD' : cur === 'USD' ? 'BOB' : 'USD'
+  const bobRate = fromUsd(1, 'BOB', rates)
 
   return (
     <>
@@ -295,18 +315,28 @@ function BudgetDetail({ line, hidden, rates, icon }: {
       />
       <div>
         <DetailField label="Monto mensual" value={hidden ? null : (line.amount_usd == null ? '—' : conv(line.amount_usd))} />
+        <DetailField
+          label={`Equivalente en ${otherCur}`}
+          value={
+            hidden || line.amount_usd == null
+              ? null
+              : `${formatAmount(fromUsd(line.amount_usd, otherCur, rates), otherCur)} (1 USD = ${formatAmount(bobRate, 'BOB')})`
+          }
+        />
         <DetailField label="Ampliado este mes" value={!hidden && line.extended_usd > 0 ? conv(line.extended_usd) : null} />
         <DetailField
           label={line.carried_usd >= 0 ? 'Llevado del mes pasado' : 'Restado del mes pasado'}
           value={!hidden && line.carried_usd !== 0 ? conv(Math.abs(line.carried_usd)) : null}
         />
+        {hasAdjustment && (
+          <DetailField label="Tope total del mes" value={hidden ? null : conv(capacityUsd)} />
+        )}
         <DetailField label="Comprometido (fijos pendientes)" value={!hidden && line.committed_usd > 0 ? conv(line.committed_usd) : null} />
         <DetailField label="Gastado" value={hidden ? null : conv(line.spent_usd)} />
         <DetailField
           label="Disponible"
           value={hidden || line.available_usd == null ? null : conv(line.available_usd)}
         />
-        <DetailField label="Tope total del mes" value={hidden ? null : conv(capacityUsd)} />
       </div>
     </>
   )
