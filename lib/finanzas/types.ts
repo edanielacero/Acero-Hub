@@ -502,11 +502,13 @@ export interface TransactionInput {
   budget_extension_usd?: number
 }
 
-/* ─── Presupuesto (Sprint 6) ─────────────────────────────────────────────────
+/* ─── Presupuesto (Sprint 6, rediseñado) ─────────────────────────────────────
 
-   Una línea por categoría de gasto, más una general (`category_id: null`).
-   El monto es editable mes a mes (`fin_budget_periods`, perezoso: solo se
-   guardan los meses que alguien tocó). Cada ampliación al bloquear el
+   Una línea por categoría de gasto, siempre — el "tope general" ya NO es una
+   línea propia: es un agregado derivado (la suma de las categorías
+   presupuestadas), sin monto, moneda, retroactividad ni cierre propios. El
+   monto de cada línea es editable mes a mes (`fin_budget_periods`, perezoso:
+   solo se guardan los meses que alguien tocó). Cada ampliación al bloquear el
    quick-add queda auditada aparte (`fin_budget_extensions`), sin pisar el
    monto original. Y el rollover NO es una configuración fija: es una
    pregunta que se responde una vez por mes, por línea, al cerrarlo
@@ -514,13 +516,14 @@ export interface TransactionInput {
 
 export interface BudgetLine {
   id: string
-  category_id: string | null
-  /** Alias propio. `null` = usar el nombre de la categoría (o "Presupuesto
-      general") — ese es el default real, no un simple placeholder. */
+  category_id: string
+  /** Alias propio. `null` = usar el nombre de la categoría — ese es el
+      default real, no un simple placeholder. */
   name: string | null
-  /** En qué moneda se ESCRIBE el monto mensual de esta línea. Se elige una
-      sola vez al crear, igual que `retroactive`. `amount_usd` sigue siendo
-      la fuente de verdad — esto es solo comodidad de entrada. */
+  /** En qué moneda se ESCRIBE (y se MUESTRA) el monto mensual de esta línea.
+      Se elige una sola vez al crear, igual que `retroactive`. `amount_usd`
+      sigue siendo la fuente de verdad interna para comparar y sumar entre
+      líneas — esta moneda es la que ve el usuario en todos lados. */
   input_currency: Currency
   /** Si el período de creación cuenta desde el día 1 del mes o desde
       `created_on` en adelante. Se elige una sola vez y queda fijo. */
@@ -537,9 +540,8 @@ export interface BudgetExtensionEntry {
 /** Una línea con su progreso ya resuelto para un período determinado. */
 export interface BudgetLineProgress {
   line_id: string
-  /** `null` = la línea general. */
-  category_id: string | null
-  category_name: string | null
+  category_id: string
+  category_name: string
   /** Alias propio, o `null` si usa el nombre de la categoría de default. */
   name: string | null
   input_currency: Currency
@@ -557,28 +559,45 @@ export interface BudgetLineProgress {
   projected_usd: number
 }
 
+/** El tope general: la SUMA de todas las líneas por categoría, siempre en
+    USD (cada línea puede tener su propia moneda de entrada — sumarlas
+    necesita una unidad común). No es una línea: no se crea, no se edita, no
+    tiene cierre ni ampliación propios. `null` cuando todavía no hay ninguna
+    categoría presupuestada. */
+export interface BudgetGeneralProgress {
+  amount_usd: number
+  extended_usd: number
+  carried_usd: number
+  spent_usd: number
+  committed_usd: number
+  available_usd: number
+  day_of_period: number
+  days_in_period: number
+  projected_usd: number
+}
+
 /** Un mes ya terminado de una línea, sin decisión de cierre todavía —
     lo que dispara la pregunta "¿llevás el sobrante/sobregasto al próximo?". */
 export interface PendingClosure {
   line_id: string
-  category_id: string | null
-  category_name: string | null
+  category_id: string
+  category_name: string
   name: string | null
+  input_currency: Currency
   period: string
   amount_usd: number
 }
 
 export interface BudgetsPayload {
-  general: BudgetLineProgress | null
+  general: BudgetGeneralProgress | null
   categories: BudgetLineProgress[]
   pending_closures: PendingClosure[]
-  /** Categorías de gasto sin línea todavía — alimenta el wizard y "+ Agregar". */
+  /** Categorías de gasto sin línea todavía — alimenta el selector al crear. */
   categories_without_line: { id: string; name: string }[]
 }
 
 export interface BudgetLineInput {
-  /** Ausente/`null` = la línea general. */
-  category_id?: string | null
+  category_id: string
   name?: string | null
   amount: number
   currency?: Currency

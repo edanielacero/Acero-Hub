@@ -12,8 +12,7 @@ import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
 
 interface Target {
-  /** `null` = el tope general. */
-  categoryId: string | null
+  categoryId: string
   categoryName: string
 }
 
@@ -34,14 +33,10 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
 }) {
   const { budgets, rates, reload } = useFinanzas()
 
-  // Las opciones del selector se capturan al abrir: crear una línea la saca
-  // de `categories_without_line` en el próximo reload, y leerlo en vivo la
-  // haría desaparecer del selector bajo el propio dedo del usuario — mismo
-  // criterio que la cola del wizard.
-  const [pickable] = useState(() => ({
-    general: !budgets.general,
-    categories: budgets.categories_without_line,
-  }))
+  // Las categorías elegibles se capturan al abrir: crear una línea las saca
+  // de `categories_without_line` en el próximo reload, y leerlas en vivo las
+  // haría desaparecer del selector bajo el propio dedo del usuario.
+  const [pickable] = useState(() => budgets.categories_without_line)
 
   const [selected, setSelected] = useState<Target | undefined>(target)
   const [name, setName] = useState('')
@@ -65,24 +60,24 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, target])
 
-  // Editando, la categoría/general ya está fija en `editing`; creando, es lo
-  // que se haya elegido en el selector de acá abajo (o nada todavía).
+  // Editando, la categoría ya está fija en `editing`; creando, es la que se
+  // haya elegido en el selector de acá abajo (o nada todavía).
   const activeTarget: Target | undefined = editing
-    ? { categoryId: editing.category_id, categoryName: editing.category_name ?? 'Presupuesto general' }
+    ? { categoryId: editing.category_id, categoryName: editing.category_name }
     : selected
 
   const decimals = decimalsFor(currency)
-  // El nombre de la categoría (o "Presupuesto general") tal cual, sin alias —
-  // es lo que el campo "Nombre" usa como placeholder: a qué vuelve si se
-  // vacía, no cómo se llama ahora mismo si ya tiene un alias puesto.
+  // El nombre de la categoría tal cual, sin alias — es lo que el campo
+  // "Nombre" usa como placeholder: a qué vuelve si se vacía, no cómo se
+  // llama ahora mismo si ya tiene un alias puesto.
   const fallbackName = activeTarget?.categoryName ?? ''
   // Para el encabezado en modo edición sí importa el alias actual, si hay
   // uno — es el mismo nombre que ya se ve en la card y en el resto de la app.
   const currentDisplayName = editing ? (editing.name ?? fallbackName) : fallbackName
-  const nothingLeftToPick = !editing && !pickable.general && pickable.categories.length === 0
+  const nothingLeftToPick = !editing && pickable.length === 0
 
   async function submit() {
-    if (!activeTarget) return setError('Elegí una categoría, o el presupuesto general')
+    if (!activeTarget) return setError('Elegí una categoría')
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Poné un monto mayor a cero')
 
@@ -165,18 +160,11 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
               <Label>Categoría</Label>
               {nothingLeftToPick ? (
                 <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                  Ya tenés presupuesto en todas las categorías y en el general.
+                  Ya tenés presupuesto en todas las categorías.
                 </p>
               ) : (
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                  {pickable.general && (
-                    <PickChip
-                      label="Presupuesto general"
-                      selected={selected?.categoryId === null}
-                      onClick={() => setSelected({ categoryId: null, categoryName: 'Presupuesto general' })}
-                    />
-                  )}
-                  {pickable.categories.map(c => (
+                  {pickable.map(c => (
                     <PickChip
                       key={c.id}
                       label={c.name}
@@ -200,7 +188,7 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
 
           {!editing && (
             <div>
-              <Label>Moneda para escribir el monto</Label>
+              <Label>Moneda de este presupuesto</Label>
               <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
                 {CURRENCIES.map(c => {
                   const isSelected = currency === c
@@ -239,11 +227,7 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
 
           {!editing && (
             <div>
-              <Label>
-                {activeTarget?.categoryId
-                  ? '¿Contar lo que ya gastaste este mes en esta categoría?'
-                  : '¿Contar lo que ya gastaste este mes en todas las categorías?'}
-              </Label>
+              <Label>¿Contar lo que ya gastaste este mes en esta categoría?</Label>
               <Segmented
                 options={[
                   { value: 'si', label: 'Sí, contarlo' },

@@ -184,8 +184,10 @@ export function QuickAdd() {
 
   /**
    * Bloqueo de presupuesto (Sprint 6, §4.6): aplica a cualquier GASTO con una
-   * categoría que tiene línea propia — alta o edición. El tope general nunca
-   * bloquea: `budgetLineFor` busca por categoría y la general no tiene una.
+   * categoría que tiene línea propia — alta o edición. El general ya no es
+   * una línea (es la suma de las categorías, ver `sumGeneral`), así que no
+   * hay nada que "bloquear por el general": `budgetLineFor` solo resuelve
+   * líneas de categoría.
    *
    * `budgetLine.available_usd` es SIEMPRE el disponible del período VIGENTE
    * (`loadBudgets` lo calcula así). Si la fecha elegida cae en otro mes, ese
@@ -222,6 +224,10 @@ export function QuickAdd() {
   const budgetAvailable = budgetAvailableRaw == null ? null : budgetAvailableRaw + editingOwnContribution
   const budgetExceeded = !!budgetLine && budgetAvailable != null && montoUsd > budgetAvailable
   const budgetNeeded = budgetExceeded ? round2(montoUsd - budgetAvailable!) : 0
+  // El faltante se muestra y se escribe en la moneda de la línea, nunca en
+  // USD — mismo criterio del rediseño post-Sprint 6 para toda la pantalla
+  // de Presupuesto.
+  const budgetNeededDisplay = budgetLine ? fromUsd(budgetNeeded, budgetLine.input_currency, rates) : 0
   const budgetBlocked = budgetExceeded && !extendBudget
 
   /**
@@ -306,9 +312,11 @@ export function QuickAdd() {
     }
     if (budgetLine && budgetExceeded) {
       if (!extendBudget) {
-        return setError(`Te pasás el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatUSD(budgetNeeded)}`)
+        return setError(
+          `Te pasás el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`,
+        )
       }
-      const extra = amountFromInput(extensionAmount)
+      const extra = amountFromInput(extensionAmount, { decimals: decimalsFor(budgetLine.input_currency) })
       if (!Number.isFinite(extra) || extra <= 0) return setError('Poné cuánto querés ampliar')
     }
 
@@ -327,9 +335,11 @@ export function QuickAdd() {
       }
     } else {
       payload.category_id = categoryId || null
-      if (type === 'gasto' && extendBudget) {
-        const extra = amountFromInput(extensionAmount)
-        if (Number.isFinite(extra) && extra > 0) payload.budget_extension_usd = extra
+      if (type === 'gasto' && extendBudget && budgetLine) {
+        const extra = amountFromInput(extensionAmount, { decimals: decimalsFor(budgetLine.input_currency) })
+        // `extra` está en la moneda de la línea (comodidad de escritura) —
+        // el server solo entiende USD.
+        if (Number.isFinite(extra) && extra > 0) payload.budget_extension_usd = toUsd(extra, budgetLine.input_currency, rates)
       }
     }
 
@@ -573,12 +583,12 @@ export function QuickAdd() {
               {budgetLine && budgetExceeded && (
                 <div className="mt-3 rounded-[var(--fz-r-field)] bg-[var(--fz-out-tint)] p-3.5 flex flex-col gap-2.5">
                   <p className="text-[13px] font-medium text-[var(--fz-out-text)]">
-                    Te pasás el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatUSD(budgetNeeded)}
+                    Te pasás el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatAmount(budgetNeededDisplay, budgetLine.input_currency)}
                   </p>
                   {!extendBudget ? (
                     <Btn
                       size="sm" variant="soft"
-                      onClick={() => { setExtendBudget(true); setExtensionAmount(String(budgetNeeded)) }}
+                      onClick={() => { setExtendBudget(true); setExtensionAmount(String(budgetNeededDisplay)) }}
                     >
                       Ampliar presupuesto
                     </Btn>
@@ -586,9 +596,9 @@ export function QuickAdd() {
                     <div className="flex items-center gap-2">
                       <TextField
                         value={extensionAmount}
-                        onChange={e => setExtensionAmount(parseDecimalInput(e.target.value))}
+                        onChange={e => setExtensionAmount(parseDecimalInput(e.target.value, { decimals: decimalsFor(budgetLine.input_currency) }))}
                         inputMode="decimal"
-                        aria-label="Cuánto ampliar el presupuesto"
+                        aria-label={`Cuánto ampliar el presupuesto, en ${budgetLine.input_currency}`}
                         className="fz-num h-10 flex-1"
                       />
                       <button

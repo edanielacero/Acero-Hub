@@ -29,10 +29,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
 
   const { data: line } = await supabase
-    .from('fin_budget_lines').select('id, category_id').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_budget_lines').select('id').eq('id', id).eq('user_id', userId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
-  // El tope general nunca bloquea (§4.6): no hay nada que ampliar por acá.
-  if (line.category_id === null) return NextResponse.json({ error: 'El tope general no se amplía' }, { status: 400 })
 
   const { data: periodRows } = await supabase
     .from('fin_budget_periods').select('id, line_id, period, amount_usd').eq('user_id', userId).eq('line_id', id)

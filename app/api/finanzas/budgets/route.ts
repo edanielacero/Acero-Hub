@@ -20,15 +20,15 @@ export async function GET(request: Request) {
 }
 
 /**
- * Crea una línea de presupuesto con su primer monto. `category_id` ausente o
- * `null` es el tope general — nunca bloquea el quick-add (§4.6 del spec),
- * pero sigue el mismo mecanismo de línea + período que cualquier categoría.
+ * Crea una línea de presupuesto con su primer monto. Siempre atada a una
+ * categoría — el tope general ya no es una línea propia, es la suma de
+ * estas (`sumGeneral` en `lib/finanzas/load.ts`).
  *
- * `amount` viaja en `currency` (comodidad de entrada, revisión post-Sprint
- * 6: el usuario piensa en Bs, no en USD) — acá se convierte y de ahí en más
- * `amount_usd` es lo único que se guarda. `name` es un alias opcional; sin
- * él, el cliente muestra el nombre de la categoría (o "Presupuesto
- * general") como default, así que acá no hace falta resolver nada.
+ * `amount` viaja en `currency` (comodidad de entrada Y de visualización,
+ * revisión post-Sprint 6: el usuario piensa en Bs, no en USD) — acá se
+ * convierte y de ahí en más `amount_usd` es lo único que se guarda. `name`
+ * es un alias opcional; sin él, el cliente muestra el nombre de la
+ * categoría como default, así que acá no hace falta resolver nada.
  */
 export async function POST(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -37,7 +37,9 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
-  const categoryId: string | null = typeof body.category_id === 'string' && body.category_id ? body.category_id : null
+  const categoryId = typeof body.category_id === 'string' && body.category_id ? body.category_id : null
+  if (!categoryId) return NextResponse.json({ error: 'Elegí una categoría' }, { status: 400 })
+
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null
   const currency = (body.currency ?? 'USD') as Currency
   const rawAmount = num(body.amount, NaN)
@@ -48,26 +50,18 @@ export async function POST(request: Request) {
   const invalidAmount = validateBudgetAmount(rawAmount)
   if (invalidAmount) return NextResponse.json({ error: invalidAmount }, { status: 400 })
 
-  if (categoryId) {
-    const { data: category } = await supabase
-      .from('fin_categories').select('id, kind').eq('user_id', userId).eq('id', categoryId).maybeSingle()
-    if (!category) return NextResponse.json({ error: 'La categoría no existe' }, { status: 400 })
-    if (category.kind !== 'gasto') {
-      return NextResponse.json({ error: 'El presupuesto solo aplica a categorías de gasto' }, { status: 400 })
-    }
+  const { data: category } = await supabase
+    .from('fin_categories').select('id, kind').eq('user_id', userId).eq('id', categoryId).maybeSingle()
+  if (!category) return NextResponse.json({ error: 'La categoría no existe' }, { status: 400 })
+  if (category.kind !== 'gasto') {
+    return NextResponse.json({ error: 'El presupuesto solo aplica a categorías de gasto' }, { status: 400 })
   }
 
   // Chequeo previo para un mensaje legible — el índice único parcial es la
-  // red de verdad (`fin_budget_lines_category_idx` / `..._general_idx`).
-  let dupQuery = supabase.from('fin_budget_lines').select('id').eq('user_id', userId).eq('archived', false)
-  dupQuery = categoryId ? dupQuery.eq('category_id', categoryId) : dupQuery.is('category_id', null)
-  const { data: dup } = await dupQuery.maybeSingle()
-  if (dup) {
-    return NextResponse.json(
-      { error: categoryId ? 'Esa categoría ya tiene una línea de presupuesto' : 'Ya existe un tope general' },
-      { status: 409 },
-    )
-  }
+  // red de verdad (`fin_budget_lines_category_idx`).
+  const { data: dup } = await supabase
+    .from('fin_budget_lines').select('id').eq('user_id', userId).eq('archived', false).eq('category_id', categoryId).maybeSingle()
+  if (dup) return NextResponse.json({ error: 'Esa categoría ya tiene una línea de presupuesto' }, { status: 409 })
 
   const today = todayISO()
   const { data: line, error } = await supabase

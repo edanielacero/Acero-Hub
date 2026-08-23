@@ -109,20 +109,24 @@ export function effectiveFromFor(line: BudgetLineLike, period: string): string {
   return isCreationPeriod && !line.retroactive ? line.created_on : from
 }
 
-/* ─── Gasto real por categoría (o general) ─────────────────────────────────
+/* ─── Gasto real por categoría ──────────────────────────────────────────────
    Mismo criterio que `gasto_real_usd` de Deudas (Sprint 2 §4.4): bruto menos
    lo repartido con otras personas, sin restar lo condonado — perdonar una
-   deuda es hacerse cargo de ella. */
+   deuda es hacerse cargo de ella.
+
+   El tope general ya no es una línea propia (rediseño post-Sprint 6): es la
+   SUMA de las categorías presupuestadas, no un cálculo independiente sobre
+   todas las transacciones — por eso esta función ya no admite `categoryId:
+   null`. Quien arma el general suma los `BudgetLineProgress` ya resueltos de
+   cada categoría (ver `loadBudgets`), no vuelve a recorrer transacciones. */
 
 export interface BudgetTx { id: string; category_id: string | null; amount_usd: number; date: string }
 export interface BudgetDebtShare { transaction_id: string; principal_usd: number; waived_at: string | null }
 
-/** `categoryId: null` suma TODAS las categorías — es el tope general. */
 export function gastoRealCategoria(
-  txs: BudgetTx[], debts: BudgetDebtShare[], categoryId: string | null, from: string, to: string,
+  txs: BudgetTx[], debts: BudgetDebtShare[], categoryId: string, from: string, to: string,
 ): number {
-  const pool = categoryId === null ? txs : txs.filter(t => t.category_id === categoryId)
-  const inRange = pool.filter(t => t.date >= from && t.date <= to)
+  const inRange = txs.filter(t => t.category_id === categoryId && t.date >= from && t.date <= to)
   const bruto = inRange.reduce((s, t) => s + t.amount_usd, 0)
 
   const ids = new Set(inRange.map(t => t.id))
@@ -143,11 +147,9 @@ export interface CommittedRecurring {
   status: 'pendiente' | 'registrado' | 'vencido' | 'pausado' | 'programado'
 }
 
-/** `categoryId: null` = todas las categorías (para el tope general). */
-export function comprometidoUsd(recurring: CommittedRecurring[], categoryId: string | null): number {
+export function comprometidoUsd(recurring: CommittedRecurring[], categoryId: string): number {
   const pending = recurring.filter(r => r.active && (r.status === 'pendiente' || r.status === 'vencido'))
-  const scoped = categoryId === null ? pending : pending.filter(r => r.category_id === categoryId)
-  return round2(scoped.reduce((s, r) => s + r.amountUsd, 0))
+  return round2(pending.filter(r => r.category_id === categoryId).reduce((s, r) => s + r.amountUsd, 0))
 }
 
 /* ─── Carry: un solo salto hacia atrás, no una cadena ──────────────────────

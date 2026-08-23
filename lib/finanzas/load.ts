@@ -16,7 +16,7 @@ import {
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
 import type {
-  Account, AccountWithBalance, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
+  Account, AccountWithBalance, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
   DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
@@ -655,11 +655,36 @@ const BUDGET_CLOSURE_COLS = 'id, line_id, period, carried, amount_usd'
 
 interface BudgetLineForCalc {
   id: string
-  category_id: string | null
+  category_id: string
   name: string | null
   input_currency: Currency
   retroactive: boolean
   created_on: string
+}
+
+/**
+ * El tope general ya no es una línea propia (rediseño post-Sprint 6): es la
+ * suma de las categorías ya presupuestadas, siempre en USD — cada categoría
+ * puede tener su propia moneda de entrada, y sumarlas necesita una unidad
+ * común. Sumar los campos ya resueltos de cada `BudgetLineProgress` es
+ * exactamente equivalente a recalcular `disponible()` sobre los totales
+ * (la fórmula es lineal), así que no hace falta un segundo cálculo.
+ */
+function sumGeneral(categories: BudgetLineProgress[]): BudgetGeneralProgress | null {
+  if (categories.length === 0) return null
+  const sum = (f: (c: BudgetLineProgress) => number) => round2(categories.reduce((s, c) => s + f(c), 0))
+  return {
+    amount_usd: sum(c => c.amount_usd ?? 0),
+    extended_usd: sum(c => c.extended_usd),
+    carried_usd: sum(c => c.carried_usd),
+    spent_usd: sum(c => c.spent_usd),
+    committed_usd: sum(c => c.committed_usd),
+    available_usd: sum(c => c.available_usd ?? 0),
+    // Mismo período para todas — vienen del mismo `currentPeriod`/`today`.
+    day_of_period: categories[0].day_of_period,
+    days_in_period: categories[0].days_in_period,
+    projected_usd: sum(c => c.projected_usd),
+  }
 }
 
 /**
@@ -701,14 +726,14 @@ export async function loadBudgets(
 
   const lines: BudgetLineForCalc[] = (lineRows ?? []).map(r => ({
     id: r.id as string,
-    category_id: r.category_id as string | null,
+    category_id: r.category_id as string,
     name: r.name as string | null,
     input_currency: r.input_currency as Currency,
     retroactive: r.retroactive as boolean,
     created_on: r.created_on as string,
   }))
 
-  const linedCategoryIds = new Set(lines.map(l => l.category_id).filter((id): id is string => id !== null))
+  const linedCategoryIds = new Set(lines.map(l => l.category_id))
   const categories_without_line = [...gastoCategoryIds]
     .filter(id => !linedCategoryIds.has(id))
     .map(id => ({ id, name: categoriesById.get(id)!.name }))
@@ -813,7 +838,7 @@ export async function loadBudgets(
     return {
       line_id: line.id,
       category_id: line.category_id,
-      category_name: line.category_id ? (categoriesById.get(line.category_id)?.name ?? null) : null,
+      category_name: categoriesById.get(line.category_id)?.name ?? '',
       name: line.name,
       input_currency: line.input_currency,
       retroactive: line.retroactive,
@@ -829,9 +854,6 @@ export async function loadBudgets(
       projected_usd: projectedUsd(spent, day, days),
     }
   }
-
-  const generalLine = lines.find(l => l.category_id === null) ?? null
-  const categoryLines = lines.filter(l => l.category_id !== null)
 
   // Cierres pendientes: el disponible que tenía cada mes YA terminado, sin
   // `comprometido` — un mes cerrado no tiene nada "todavía por pasar".
@@ -849,17 +871,20 @@ export async function loadBudgets(
       pending_closures.push({
         line_id: line.id,
         category_id: line.category_id,
-        category_name: line.category_id ? (categoriesById.get(line.category_id)?.name ?? null) : null,
+        category_name: categoriesById.get(line.category_id)?.name ?? '',
         name: line.name,
+        input_currency: line.input_currency,
         period,
         amount_usd: available,
       })
     }
   }
 
+  const categories = lines.map(progressFor)
+
   return {
-    general: generalLine ? progressFor(generalLine) : null,
-    categories: categoryLines.map(progressFor),
+    general: sumGeneral(categories),
+    categories,
     pending_closures,
     categories_without_line,
   }

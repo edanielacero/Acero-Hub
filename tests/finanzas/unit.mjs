@@ -1360,7 +1360,6 @@ section('SPRINT 6 · gastoRealCategoria — bruto menos repartido')
   eq('comida: bruto 32 − repartido 8 (el condonado no resta)',
      gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31'), 24)
   eq('ocio: sin reparto', gastoRealCategoria(txs, debts, 'ocio', '2026-08-01', '2026-08-31'), 30)
-  eq('general (null): todas las categorías del rango', gastoRealCategoria(txs, debts, null, '2026-08-01', '2026-08-31'), 54)
   eq('respeta el rango: julio no entra', gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31') , 24)
 }
 
@@ -1374,7 +1373,6 @@ section('SPRINT 6 · comprometidoUsd — Fijos pendientes')
   ]
   eq('vivienda: solo lo pendiente', comprometidoUsd(recurring, 'vivienda'), 300)
   eq('suscripciones: vencido cuenta, pausado no', comprometidoUsd(recurring, 'suscripciones'), 12)
-  eq('general (null): pendiente + vencido de todas las categorías', comprometidoUsd(recurring, null), 312)
   eq('categoría sin fijos: 0', comprometidoUsd(recurring, 'ocio'), 0)
 }
 

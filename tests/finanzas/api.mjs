@@ -1968,18 +1968,17 @@ async function run() {
     eq('la misma categoría de nuevo → 409',
        (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 50 }) })).status, 409)
 
-    const generalLine = (await json(await api('/budgets', {
-      method: 'POST', body: JSON.stringify({ amount: 500 }),
-    }))).line
-    ok('crea el tope general sin category_id', !!generalLine && generalLine.category_id === null)
-    eq('otro tope general → 409',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ amount: 100 }) })).status, 409)
+    // El tope general ya no es una línea propia: no hay category_id que
+    // omitir, es simplemente obligatorio.
+    eq('sin category_id → 400 (no existe más el "tope general" como línea)',
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ amount: 500 }) })).status, 400)
 
     const after = await json(await api('/budgets'))
     ok('Comida ya no aparece sin línea', !after.categories_without_line.some(c => c.id === comida.id))
     eq('arranca sin gastar nada', after.categories.find(c => c.line_id === comidaLine.id).spent_usd, 0)
     eq('disponible = monto entero', after.categories.find(c => c.line_id === comidaLine.id).available_usd, 80)
-    eq('el general también aparece', after.general.line_id, generalLine.id)
+    ok('el general es la suma de las categorías (solo Comida, por ahora)',
+       after.general.amount_usd === 80 && after.general.available_usd === 80)
 
     // Cuenta dedicada: no depende del saldo que hayan dejado otras secciones.
     const cuenta = (await json(await api('/accounts', {
@@ -2003,6 +2002,9 @@ async function run() {
     eq('el server no frena un gasto que excede el presupuesto', overRes.status, 201)
     const overBudget = await json(await api('/budgets'))
     eq('disponible negativo', overBudget.categories.find(c => c.line_id === comidaLine.id).available_usd, -10)
+    eq('el general arrastra el mismo negativo (es la única categoría)', overBudget.general.available_usd, -10)
+
+    let pastLine
 
     section('PATCH /budgets/[id]/period — no toca otros meses')
     {
@@ -2021,8 +2023,8 @@ async function run() {
 
     section('POST /budgets/[id]/extend — ampliar un mes puntual')
     {
-      eq('el tope general no se amplía — nunca bloquea, nada que ampliar',
-         (await api(`/budgets/${generalLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: thisMonth, amount_usd: 10 }) })).status, 400)
+      eq('línea inexistente → 404',
+         (await api(`/budgets/00000000-0000-0000-0000-000000000000/extend`, { method: 'POST', body: JSON.stringify({ period: thisMonth, amount_usd: 10 }) })).status, 404)
 
       eq('registra la ampliación del mes siguiente',
          (await api(`/budgets/${comidaLine.id}/extend`, { method: 'POST', body: JSON.stringify({ period: nextMonth, amount_usd: 15 }) })).status, 201)
@@ -2040,7 +2042,7 @@ async function run() {
       // directo con la service role (igual que db.mjs prueba constraints que
       // no se pueden ejercitar desde afuera).
       const transporte = (await json(await api('/categories'))).categories.find(c => c.name === 'Transporte')
-      const pastLine = (await json(await api('/budgets', {
+      pastLine = (await json(await api('/budgets', {
         method: 'POST', body: JSON.stringify({ category_id: transporte.id, amount: 40 }),
       }))).line
 
@@ -2072,13 +2074,18 @@ async function run() {
 
     section('DELETE /budgets/[id] y PATCH archived')
     {
-      eq('archiva el tope general', (await api(`/budgets/${generalLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
       eq('borra la línea de Comida — configuración, sin 409 posible',
          (await api(`/budgets/${comidaLine.id}`, { method: 'DELETE' })).status, 200)
 
       const finalState = await json(await api('/budgets'))
       ok('Comida vuelve a estar disponible para presupuestar',
          finalState.categories_without_line.some(c => c.id === comida.id))
+      ok('el general sigue existiendo — todavía queda Transporte', !!finalState.general)
+
+      eq('archiva Transporte también',
+         (await api(`/budgets/${pastLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
+      const empty = await json(await api('/budgets'))
+      eq('sin ninguna categoría presupuestada, el general es null', empty.general, null)
     }
   }
 

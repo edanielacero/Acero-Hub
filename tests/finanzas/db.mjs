@@ -852,7 +852,7 @@ async function run() {
   }
 
   section('SPRINT 6 · fin_budget_lines, fin_budget_periods, fin_budget_extensions, fin_budget_closures')
-  let budgetCategory, budgetLine, generalLine, budgetPeriod
+  let budgetCategory, budgetLine, budgetPeriod
   {
     const anonLines = await fetch(`${URL_}/rest/v1/fin_budget_lines?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
     eq('sin sesión no ve líneas de presupuesto', anonLines, [])
@@ -877,17 +877,9 @@ async function run() {
     ok('rechaza una moneda de entrada fuera del set soportado', monedaInvalida.status >= 400, `HTTP ${monedaInvalida.status}`)
     await as(`/fin_categories?id=eq.${otraCategoria.id}`, { method: 'DELETE' })
 
-    generalLine = (await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true }).then(r => r.json()))[0]
-    ok('crea el tope general (category_id null)', !!generalLine?.id)
-
-    const dupGeneral = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
-    ok('no deja dos topes generales activos', dupGeneral.status >= 400, `HTTP ${dupGeneral.status}`)
-
-    // Archivar libera el hueco: el índice único es parcial (`where not archived`).
-    await as(`/fin_budget_lines?id=eq.${generalLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
-    const generalDeNuevoRes = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
-    ok('archivar libera el índice único general', generalDeNuevoRes.status < 400, `HTTP ${generalDeNuevoRes.status}`)
-    generalLine = (await generalDeNuevoRes.json())[0]
+    // El tope general ya no es una línea propia: category_id es NOT NULL.
+    const sinCategoria = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
+    ok('category_id es obligatorio — no hay más "tope general" como línea', sinCategoria.status >= 400, `HTTP ${sinCategoria.status}`)
 
     budgetPeriod = (await post('fin_budget_periods', {
       user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01', amount_usd: 80,
@@ -933,8 +925,6 @@ async function run() {
        (await rows('fin_budget_lines', `&id=eq.${budgetLine.id}`)).length, 0)
     eq('y con ella, sus cierres (cascade sobre line_id)',
        (await rows('fin_budget_closures', `&line_id=eq.${budgetLine.id}`)).length, 0)
-
-    await as(`/fin_budget_lines?id=eq.${generalLine.id}`, { method: 'DELETE' })
   }
 
   section('borrado y edición recalculan')
