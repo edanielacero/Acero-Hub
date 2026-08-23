@@ -292,10 +292,10 @@ export function toNative(usd: number, rate: number): number {
   return round2(usd / rate)
 }
 
-/* ─── Barra de ritmo: tick + proyección ────────────────────────────────── */
+/* ─── Día del período: para el tick de la barra ────────────────────────── */
 
 /** Día de referencia dentro del período: hoy si es el vigente, el último día
-    si ya terminó (no hay nada que proyectar en un mes cerrado). */
+    si ya terminó. Alimenta el tick de "deberías estar acá" de `budgetBarView`. */
 export function dayOfPeriod(period: string, todayISO: string): { day: number; days: number } {
   const [y, m] = period.split('-').map(Number)
   const days = daysInMonth(y, m)
@@ -303,12 +303,6 @@ export function dayOfPeriod(period: string, todayISO: string): { day: number; da
   const isCurrent = todayISO >= period && todayISO <= to
   const day = isCurrent ? Number(todayISO.slice(8, 10)) : days
   return { day, days }
-}
-
-/** Regla de tres simple sobre el gasto real llevado hasta hoy. */
-export function projectedUsd(gastoRealUsd: number, day: number, days: number): number {
-  if (day <= 0) return 0
-  return round2((gastoRealUsd / day) * days)
 }
 
 /** Cómo se quiere ver el progreso de un presupuesto — configurable en

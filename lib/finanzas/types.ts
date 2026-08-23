@@ -575,8 +575,6 @@ export interface BudgetLineProgress {
   available_usd: number | null
   day_of_period: number
   days_in_period: number
-  projected: number
-  projected_usd: number
 }
 
 /** El tope general: la SUMA de todas las líneas por categoría, siempre en
@@ -593,7 +591,6 @@ export interface BudgetGeneralProgress {
   available_usd: number
   day_of_period: number
   days_in_period: number
-  projected_usd: number
 }
 
 /** Un mes ya terminado de una línea, sin decisión de cierre todavía —

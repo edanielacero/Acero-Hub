@@ -12,7 +12,7 @@ import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
 import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import {
   carriedInto, comprometido, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
-  montoEfectivo, needsClosure, periodRange, periodStart, projectedUsd, resolvePeriod,
+  montoEfectivo, needsClosure, periodRange, periodStart, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
 import type {
@@ -685,7 +685,6 @@ function sumGeneral(categories: BudgetLineProgress[]): BudgetGeneralProgress | n
     // Mismo período para todas — vienen del mismo `currentPeriod`/`today`.
     day_of_period: categories[0].day_of_period,
     days_in_period: categories[0].days_in_period,
-    projected_usd: sum(c => c.projected_usd),
   }
 }
 
@@ -871,9 +870,6 @@ export async function loadBudgets(
       comprometidoUsd: committed.amountUsd,
       carriedUsd: carried.amountUsd,
     })
-    const projectedNative = projectedUsd(spent.amount, day, days)
-    const projected = projectedUsd(spent.amountUsd, day, days)
-
     return {
       line_id: line.id,
       category_id: line.category_id,
@@ -906,8 +902,6 @@ export async function loadBudgets(
       available_usd: available,
       day_of_period: day,
       days_in_period: days,
-      projected: projectedNative,
-      projected_usd: projected,
     }
   }
 

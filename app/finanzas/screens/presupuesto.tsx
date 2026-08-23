@@ -177,7 +177,6 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
   general: BudgetGeneralProgress; hidden: boolean; rates: RateMap; mode: BudgetViewMode
 }) {
   const capacity = general.amount_usd + general.extended_usd + general.carried_usd
-  const projectedOver = capacity > 0 && general.projected_usd > capacity
   const view = budgetBarView({
     mode, spentUsd: general.spent_usd, availableUsd: general.available_usd, capacityUsd: capacity,
     spent: general.spent_usd, available: general.available_usd,
@@ -222,14 +221,6 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
           Llevas gastado {formatUSD(general.spent_usd)}
         </p>
       )}
-
-      <p className="text-[13px] text-[var(--fz-ink-3)]">
-        {view.over
-          ? `Ya te pasaste por ${formatUSD(general.spent_usd - capacity)}`
-          : projectedOver
-            ? `Te vas a pasar por ~${formatUSD(general.projected_usd - capacity)} si sigues así`
-            : `Si sigues así, vas a terminar gastando ${formatUSD(general.projected_usd)} este mes`}
-      </p>
     </Panel>
   )
 }
@@ -263,7 +254,6 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
     spent: line.spent, available: line.available ?? 0,
     day: line.day_of_period, days: line.days_in_period,
   })
-  const projectedOver = capacityUsd > 0 && line.projected_usd > capacityUsd
   const displayName = line.name ?? line.category_name
 
   return (
@@ -310,16 +300,6 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
         {mode === 'disponible' && !hidden && (
           <p className="text-[12px] text-[var(--fz-ink-3)]">
             Llevas gastado {formatAmount(line.spent, cur)}
-          </p>
-        )}
-
-        {!hidden && (
-          <p className="text-[12px] text-[var(--fz-ink-3)]">
-            {view.over
-              ? `Ya te pasaste por ${formatAmount(line.spent - capacity, cur)}`
-              : projectedOver
-                ? `Te vas a pasar por ~${formatAmount(line.projected - capacity, cur)} si sigues así`
-                : `Si sigues así, vas a terminar gastando ${formatAmount(line.projected, cur)} este mes`}
           </p>
         )}
       </button>

@@ -8,7 +8,7 @@ import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planC
 import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, validatePasanaku } from './.fin/pasanaku.mjs'
 import {
   periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
-  gastoRealCategoria, comprometido, carriedInto, disponible, dayOfPeriod, projectedUsd, needsClosure,
+  gastoRealCategoria, comprometido, carriedInto, disponible, dayOfPeriod, needsClosure,
   validateBudgetAmount, isValidPeriod, toNative, budgetBarView,
 } from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
@@ -1482,12 +1482,10 @@ section('SPRINT 6 · disponible')
   eq('puede dar negativo (ya te pasaste)', disponible({ montoEfectivoUsd: 50, gastoRealUsd: 80, comprometidoUsd: 0, carriedUsd: 0 }), -30)
 }
 
-section('SPRINT 6 · barra de ritmo: tick + proyección')
+section('SPRINT 6 · día del período: para el tick de la barra')
 {
   eq('mes en curso: día de hoy', dayOfPeriod('2026-08-01', '2026-08-22'), { day: 22, days: 31 })
   eq('mes ya cerrado: el último día, no hoy', dayOfPeriod('2026-07-01', '2026-08-22'), { day: 31, days: 31 })
-  eq('proyección simple: mitad de mes, mitad gastado → llega al doble', projectedUsd(50, 15, 30), 100)
-  eq('día 0 no divide por cero', projectedUsd(50, 0, 30), 0)
 }
 
 section('SPRINT 6 (revisión) · budgetBarView — "gastado" vs "disponible"')
