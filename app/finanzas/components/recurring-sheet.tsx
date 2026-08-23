@@ -90,13 +90,16 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
+    // Sin categoría el fijo no entra en el "comprometido" de ningún
+    // presupuesto — quedaba afuera del cálculo sin que nada lo dijera.
+    if (!categoryId) return setError('Elige una categoría')
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
       icon,
       amount: value,
       currency,
-      category_id: categoryId || null,
+      category_id: categoryId,
       frequency,
       ...fieldsFromDate(fecha, frequency),
       // En modo parejo el monto va en null: se recalcula con el precio de cada
@@ -239,7 +242,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
               {gastos.map(c => (
                 <button
                   key={c.id} type="button"
-                  onClick={() => setCategoryId(c.id === categoryId ? '' : c.id)}
+                  onClick={() => setCategoryId(c.id)}
                   aria-pressed={c.id === categoryId}
                   className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
                     c.id === categoryId

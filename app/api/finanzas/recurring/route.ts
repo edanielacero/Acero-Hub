@@ -33,6 +33,10 @@ export function validateRecurring(body: Partial<RecurringInput>): string | null 
   if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) {
     return 'El monto debe ser mayor a cero'
   }
+  // Sin categoría, un fijo no puede contarse como "comprometido" en ningún
+  // presupuesto (§ `comprometido` en lib/finanzas/budgets.ts) — quedaba
+  // fuera del cálculo sin que nada lo dijera.
+  if (!body.category_id) return 'Elige una categoría'
   const freq = body.frequency ?? 'mensual'
   if (!FREQUENCIES.includes(freq)) return 'Frecuencia inválida'
 

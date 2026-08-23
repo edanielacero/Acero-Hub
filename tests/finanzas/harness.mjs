@@ -36,11 +36,22 @@ export async function sweepTestUsers(URL_, SRV) {
   if (!res.ok) return 0
   const { users } = await res.json()
   const viejos = (users ?? []).filter(u => (u.email ?? '').includes('acerotest.local'))
+  let borrados = 0
+  const fallidos = []
   for (const u of viejos) {
-    await fetch(`${URL_}/auth/v1/admin/users/${u.id}`, { method: 'DELETE', headers: h })
+    const res2 = await fetch(`${URL_}/auth/v1/admin/users/${u.id}`, { method: 'DELETE', headers: h })
+    if (res2.ok) borrados++
+    else fallidos.push(`${u.email}: HTTP ${res2.status}`)
   }
-  if (viejos.length > 0) {
-    console.log(`Limpieza previa: ${viejos.length} usuario(s) de prueba huérfano(s) eliminado(s).\n`)
+  if (borrados > 0) {
+    console.log(`Limpieza previa: ${borrados} usuario(s) de prueba huérfano(s) eliminado(s).\n`)
   }
-  return viejos.length
+  // Sin esto el barrido decía "listo" aunque el DELETE hubiera fallado, y los
+  // huérfanos se acumulaban en la base real sin que nada lo avisara — es como
+  // pasó inadvertido que un trigger sin SECURITY DEFINER rompía el borrado de
+  // usuarios (migración 20260823040000).
+  if (fallidos.length > 0) {
+    console.warn(`⚠️  No se pudieron borrar ${fallidos.length} usuario(s) de prueba:\n   ${fallidos.join('\n   ')}\n`)
+  }
+  return borrados
 }

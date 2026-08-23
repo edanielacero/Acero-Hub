@@ -17,7 +17,8 @@ import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
 
 export function FijosScreen() {
-  const { recurring, rates, hidden, loading, reload } = useFinanzas()
+  const { recurring, categories, rates, hidden, loading, reload } = useFinanzas()
+  const categoryName = (id: string | null) => categories.find(c => c.id === id)?.name ?? null
   const [viendo, setViendo] = useState<RecurringWithState | null>(null)
   const [editando, setEditando] = useState<RecurringWithState | null>(null)
   const [creando, setCreando] = useState(false)
@@ -123,6 +124,7 @@ export function FijosScreen() {
                   r={r}
                   hidden={hidden}
                   hoy={hoy}
+                  categoryName={categoryName(r.category_id)}
                   busy={busy === r.id}
                   onView={() => setViendo(r)}
                   onRegister={() => setRegistrando(r)}
@@ -168,6 +170,7 @@ export function FijosScreen() {
               amount={hidden ? HIDDEN : formatAmount(viendo.amount, viendo.currency)}
             />
             <div>
+              <DetailField label="Categoría" value={categoryName(viendo.category_id)} />
               <DetailField
                 label={viendo.status === 'programado' ? 'Arranca' : 'Vence'}
                 value={formatDayLabel(viendo.due, hoy)}
@@ -219,10 +222,11 @@ export function FijosScreen() {
   )
 }
 
-function Row({ r, hidden, hoy, busy, onView, onRegister, onEdit, onTogglePause, onDelete }: {
+function Row({ r, hidden, hoy, categoryName, busy, onView, onRegister, onEdit, onTogglePause, onDelete }: {
   r: RecurringWithState
   hidden: boolean
   hoy: string
+  categoryName: string | null
   busy: boolean
   onView: () => void
   onRegister: () => void
@@ -247,6 +251,15 @@ function Row({ r, hidden, hoy, busy, onView, onRegister, onEdit, onTogglePause, 
       <button type="button" onClick={onView} className="flex-1 min-w-[55%] text-left">
         <span className="flex items-center gap-1.5 min-w-0">
           <span className="text-[15px] font-semibold truncate">{r.name}</span>
+          {/* El ícono de la izquierda ya es el de la categoría, pero no la
+              nombra — y con dos categorías de ícono parecido no se distingue.
+              En gris y no en acento: el chip de compartido es el que tiene que
+              saltar, este es contexto. */}
+          {categoryName && (
+            <span className="shrink-0 h-[18px] px-1.5 rounded-full bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-[var(--fz-ink-2)] text-[11px] font-semibold leading-[16px] max-w-[40%] truncate">
+              {categoryName}
+            </span>
+          )}
           {compartido && (
             <span
               className="shrink-0 inline-flex items-center gap-0.5 h-[18px] px-1.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[11px] font-bold"

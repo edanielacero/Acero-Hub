@@ -83,6 +83,10 @@ async function run() {
   }
 
   let airtm, efectivo, broker
+  // Todo fijo necesita categoría (§ validateRecurring). Los tests de abajo no
+  // prueban nada sobre CUÁL es, así que comparten una y se concentran en lo
+  // suyo; los que sí prueban la categoría la eligen a propósito.
+  let catFijo
   section('flujo completo')
   {
     // Las tasas ahora salen del mercado y se mueven solas. Un suite de pruebas
@@ -109,6 +113,7 @@ async function run() {
 
     const cats = await json(await api('/categories'))
     const comida = cats.categories.find(c => c.name === 'Comida')
+    catFijo = cats.categories.find(c => c.name === 'Suscripciones').id
 
     const gasto = (await json(await api('/transactions', {
       method: 'POST',
@@ -830,7 +835,7 @@ async function run() {
       // registrar Spotify tarde la hacía parecer más nueva de lo que es y la
       // lista de Deudas quedaba mal ordenada.
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Fecha', amount: 12, account_id: airtm.id, day_of_month: 5,
+        name: 'Fecha', category_id: catFijo, amount: 12, account_id: airtm.id, day_of_month: 5,
         splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
 
       const tx = (await json(await api(`/recurring/${t.id}/register`, {
@@ -952,7 +957,7 @@ async function run() {
       // Con el toggle fuera del quick-add, el margen vive donde tiene sentido:
       // en el fijo compartido. Le cobrás a cada uno un poco más que su parte.
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Margen', amount: 10, account_id: airtm.id, day_of_month: 3,
+        name: 'Margen', category_id: catFijo, amount: 10, account_id: airtm.id, day_of_month: 3,
         splits: [{ person_id: ana.id, amount: 8 }, { person_id: juan.id, amount: 8 }],
       })}))).recurring
 
@@ -975,7 +980,7 @@ async function run() {
       // repartido proporcional: cada deuda de $8 trae $5 de costo real y $3 de
       // margen (ratio 10/16 = 0.625 aplicado a cada una).
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'MargenCobro', amount: 10, account_id: airtm.id, day_of_month: 3,
+        name: 'MargenCobro', category_id: catFijo, amount: 10, account_id: airtm.id, day_of_month: 3,
         splits: [{ person_id: ana.id, amount: 8 }, { person_id: juan.id, amount: 8 }],
       })}))).recurring
 
@@ -1034,14 +1039,18 @@ async function run() {
     let spotifyFijo
     {
       eq('sin nombre → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ amount: 5, account_id: airtm.id }) })).status, 400)
-      eq('sin cuenta → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5 }) })).status, 400)
-      eq('monto cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 0, account_id: airtm.id }) })).status, 400)
-      eq('día 45 → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id, day_of_month: 45 }) })).status, 400)
-      eq('anual sin mes → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id, frequency: 'anual' }) })).status, 400)
-      eq('cuenta que no existe → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
+      // Sin categoría un fijo no entra en el "comprometido" de ningún
+      // presupuesto, así que es obligatoria — igual que el nombre o el monto.
+      eq('sin categoría → 400',
+         (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id }) })).status, 400)
+      eq('sin cuenta → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5 }) })).status, 400)
+      eq('monto cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 0, account_id: airtm.id }) })).status, 400)
+      eq('día 45 → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5, account_id: airtm.id, day_of_month: 45 }) })).status, 400)
+      eq('anual sin mes → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5, account_id: airtm.id, frequency: 'anual' }) })).status, 400)
+      eq('cuenta que no existe → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5, account_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
 
       const r = await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Spotify', icon: 'suscripciones', amount: 11.99, account_id: airtm.id,
+        name: 'Spotify', category_id: catFijo, icon: 'suscripciones', amount: 11.99, account_id: airtm.id,
         frequency: 'mensual', day_of_month: 5,
         // `amount: null` = parte pareja, se recalcula con el precio de cada mes.
         splits: [{ person_id: ana.id, amount: null }, { person_id: juan.id, amount: null }],
@@ -1101,7 +1110,7 @@ async function run() {
     {
       // Otro fijo para no ensuciar el de arriba, y en un período limpio.
       const tv = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'TradingView', amount: 29.95, account_id: airtm.id, day_of_month: 12,
+        name: 'TradingView', category_id: catFijo, amount: 29.95, account_id: airtm.id, day_of_month: 12,
         splits: [{ person_id: ana.id, amount: null }],
       })}))).recurring
 
@@ -1121,7 +1130,7 @@ async function run() {
     section('SPRINT 3 · un fijo sin cuenta propia no se puede registrar sin elegir una')
     {
       const sinCuenta = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'SinCuenta', amount: 20, currency: 'USD', day_of_month: 1,
+        name: 'SinCuenta', category_id: catFijo, amount: 20, currency: 'USD', day_of_month: 1,
       })}))).recurring
       eq('nace sin cuenta', sinCuenta.account_id, null)
       eq('pero con la moneda que se pidió', sinCuenta.currency, 'USD')
@@ -1139,7 +1148,7 @@ async function run() {
       // USD. La plantilla no se entera — sigue en Bs para el próximo mes —
       // pero ESTE movimiento queda en la moneda de la cuenta que se usó.
       const alquiler = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Alquiler', amount: 500, currency: 'BOB', day_of_month: 1,
+        name: 'Alquiler', category_id: catFijo, amount: 500, currency: 'BOB', day_of_month: 1,
         splits: [{ person_id: ana.id, amount: null }],
       })}))).recurring
 
@@ -1169,7 +1178,7 @@ async function run() {
       const antesSaldo = (await json(await api('/accounts'))).accounts.find(a => a.id === broker.id)
 
       const caro = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Demasiado caro', amount: antesSaldo.balance + 1000, currency: 'USD', day_of_month: 1,
+        name: 'Demasiado caro', category_id: catFijo, amount: antesSaldo.balance + 1000, currency: 'USD', day_of_month: 1,
       })}))).recurring
 
       const r = await api(`/recurring/${caro.id}/register`, { method: 'POST', body: JSON.stringify({
@@ -1230,19 +1239,19 @@ async function run() {
       const lola = (await json(await api('/people', { method: 'POST', body: JSON.stringify({ name: 'Lola' }) }))).person
 
       const dup = await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Dup', amount: 10, account_id: airtm.id,
+        name: 'Dup', category_id: catFijo, amount: 10, account_id: airtm.id,
         splits: [{ person_id: pepe.id, amount: null }, { person_id: pepe.id, amount: null }] }) })
       eq('la misma persona dos veces en la plantilla → 400', dup.status, 400)
       ok('con un mensaje legible, no el de Postgres',
          !(await json(dup)).error.includes('constraint'))
 
       const cruzado = await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Dup2', amount: 10, account_id: airtm.id,
+        name: 'Dup2', category_id: catFijo, amount: 10, account_id: airtm.id,
         splits: [{ person_id: pepe.id, amount: null }, { person_name: 'pepe', amount: null }] }) })
       eq('por id y por nombre, la misma → 400', cruzado.status, 400)
 
       eq('una parte en cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Cero', amount: 10, account_id: airtm.id,
+        name: 'Cero', category_id: catFijo, amount: 10, account_id: airtm.id,
         splits: [{ person_id: pepe.id, amount: 0 }] }) })).status, 400)
 
       eq('y ninguno de esos intentos dejó una plantilla colgada',
@@ -1250,7 +1259,7 @@ async function run() {
 
       // El bug caro: un PATCH inválido borraba el reparto y DESPUÉS fallaba.
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Intacto', amount: 10, account_id: airtm.id,
+        name: 'Intacto', category_id: catFijo, amount: 10, account_id: airtm.id,
         splits: [{ person_id: pepe.id, amount: null }] }) }))).recurring
 
       const malo = await api(`/recurring/${t.id}`, { method: 'PATCH', body: JSON.stringify({
@@ -1268,7 +1277,7 @@ async function run() {
     {
       // Empieza el mes que viene: no reclama nada todavía.
       const futuro = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Futuro', amount: 5, account_id: airtm.id, day_of_month: 5,
+        name: 'Futuro', category_id: catFijo, amount: 5, account_id: airtm.id, day_of_month: 5,
         starts_on: '2026-12-01' }) }))).recurring
       const f = (await json(await api('/recurring'))).recurring.find(x => x.id === futuro.id)
       eq('queda programado', f.status, 'programado')
@@ -1276,7 +1285,7 @@ async function run() {
 
       // Cargado tarde: hay meses que recuperar, del más viejo al más nuevo.
       const viejo = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'Atrasado', amount: 7, account_id: airtm.id, day_of_month: 5,
+        name: 'Atrasado', category_id: catFijo, amount: 7, account_id: airtm.id, day_of_month: 5,
         starts_on: '2026-06-01' }) }))).recurring
       const v = (await json(await api('/recurring'))).recurring.find(x => x.id === viejo.id)
       eq('tres meses sin registrar', v.pending.length, 3)
@@ -1323,7 +1332,7 @@ async function run() {
 
       // Una deuda que vino de un gasto no: su moneda es la del gasto.
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'ConGasto', amount: 12, account_id: airtm.id, day_of_month: 9,
+        name: 'ConGasto', category_id: catFijo, amount: 12, account_id: airtm.id, day_of_month: 9,
         splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
       const tx = (await json(await api(`/recurring/${t.id}/register`, {
         method: 'POST', body: JSON.stringify({}) }))).transaction
@@ -1398,7 +1407,7 @@ async function run() {
       // Una deuda que vino de un gasto compartido no es plannable: los planes
       // son para deudas sueltas.
       const t = (await json(await api('/recurring', { method: 'POST', body: JSON.stringify({
-        name: 'ConGasto', amount: 12, account_id: airtm.id, day_of_month: 9,
+        name: 'ConGasto', category_id: catFijo, amount: 12, account_id: airtm.id, day_of_month: 9,
         splits: [{ person_id: ana.id, amount: null }] }) }))).recurring
       const tx = (await json(await api(`/recurring/${t.id}/register`, {
         method: 'POST', body: JSON.stringify({}) }))).transaction
