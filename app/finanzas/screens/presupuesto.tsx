@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { IconAlertTriangle, IconChartPie, IconPlus } from '@tabler/icons-react'
+import { IconAlertTriangle, IconChartPie, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { BudgetGeneralProgress, BudgetLineProgress, RateMap } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
@@ -9,22 +9,33 @@ import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
 import { BudgetClosureSheet } from '../components/budget-closure-sheet'
 import { BudgetLineSheet } from '../components/budget-line-sheet'
+import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
+import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
-import { Btn, EmptyState, Panel, SectionTitle } from '../components/ui'
+import { Btn, EmptyState, Panel, RowMenu, SectionTitle } from '../components/ui'
 
 export function PresupuestoScreen() {
-  const { budgets, categories, rates, hidden, loading } = useFinanzas()
-  const [editingLine, setEditingLine] = useState<BudgetLineProgress | null>(null)
-  // Sin target: el propio sheet muestra el selector de categoría. Con target:
-  // atajo desde un chip puntual — el sheet lo arranca ya elegido igual.
+  const { budgets, categories, rates, hidden, loading, reload } = useFinanzas()
   const [adding, setAdding] = useState(false)
-  const [addingCategory, setAddingCategory] = useState<{ id: string; name: string } | null>(null)
+  const [viewing, setViewing] = useState<BudgetLineProgress | null>(null)
+  const [editingLine, setEditingLine] = useState<BudgetLineProgress | null>(null)
+  const [deleting, setDeleting] = useState<BudgetLineProgress | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [closureOpen, setClosureOpen] = useState(false)
 
   const hasAnything = budgets.categories.length > 0
   const pendingCount = budgets.pending_closures.length
 
   const iconFor = (categoryId: string) => categories.find(c => c.id === categoryId)?.icon ?? null
+
+  async function confirmDelete() {
+    if (!deleting) return
+    setConfirmingDelete(true)
+    await fetch(`/api/finanzas/budgets/${deleting.line_id}`, { method: 'DELETE' })
+    await reload()
+    setConfirmingDelete(false)
+    setDeleting(null)
+  }
 
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
@@ -74,45 +85,26 @@ export function PresupuestoScreen() {
                 Por categoría
               </SectionTitle>
 
-              {budgets.categories.length > 0 && (
-                <div className="grid grid-cols-2 min-[600px]:grid-cols-3 gap-2.5 mt-3">
-                  {budgets.categories.map(line => (
-                    <BudgetLineMiniCard
-                      key={line.line_id}
-                      line={line} hidden={hidden} rates={rates} icon={iconFor(line.category_id)}
-                      onEdit={() => setEditingLine(line)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {budgets.categories_without_line.length > 0 && (
-                <div className={budgets.categories.length > 0 ? 'mt-4 pt-4 border-t border-[var(--fz-hairline)]' : 'mt-3'}>
-                  <p className="text-[13px] font-medium text-[var(--fz-ink-2)] mb-2">Agregar categoría</p>
-                  <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                    {budgets.categories_without_line.map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => setAddingCategory(c)}
-                        className="shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]"
-                      >
-                        <IconPlus size={15} stroke={2} /> {c.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="grid grid-cols-2 min-[600px]:grid-cols-3 gap-2.5 mt-3">
+                {budgets.categories.map(line => (
+                  <BudgetLineMiniCard
+                    key={line.line_id}
+                    line={line} hidden={hidden} rates={rates} icon={iconFor(line.category_id)}
+                    onView={() => setViewing(line)}
+                    onEdit={() => setEditingLine(line)}
+                    onDelete={() => setDeleting(line)}
+                  />
+                ))}
+              </div>
             </Panel>
           </>
         )}
       </div>
 
-      {(adding || addingCategory) && (
+      {adding && (
         <BudgetLineSheet
-          target={addingCategory ? { categoryId: addingCategory.id, categoryName: addingCategory.name } : undefined}
-          onClose={() => { setAdding(false); setAddingCategory(null) }}
-          onSaved={() => { setAdding(false); setAddingCategory(null) }}
+          onClose={() => setAdding(false)}
+          onSaved={() => setAdding(false)}
         />
       )}
 
@@ -123,6 +115,32 @@ export function PresupuestoScreen() {
           onSaved={() => setEditingLine(null)}
         />
       )}
+
+      <DetailSheet
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title="Presupuesto"
+        onEdit={() => { const l = viewing!; setViewing(null); setEditingLine(l) }}
+        onDelete={() => { const l = viewing!; setViewing(null); setDeleting(l) }}
+      >
+        {viewing && <BudgetDetail line={viewing} hidden={hidden} rates={rates} icon={iconFor(viewing.category_id)} />}
+      </DetailSheet>
+
+      <DeleteConfirmSheet
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={confirmDelete}
+        title="Eliminar presupuesto"
+        confirming={confirmingDelete}
+      >
+        {deleting && (
+          <DeletePreview
+            icon={<CategoryIcon slug={iconFor(deleting.category_id)} name={deleting.name ?? deleting.category_name} size={40} />}
+            title={deleting.name ?? deleting.category_name}
+            subtitle="Se borra la configuración — tus movimientos ya registrados no se tocan"
+          />
+        )}
+      </DeleteConfirmSheet>
 
       {closureOpen && (
         <BudgetClosureSheet onClose={() => setClosureOpen(false)} onDone={() => setClosureOpen(false)} />
@@ -183,13 +201,20 @@ function GeneralBudgetCard({ general, hidden }: { general: BudgetGeneralProgress
  * Mini-card por categoría. Todo se muestra en la moneda que el usuario
  * eligió para ESTA línea (`input_currency`) — nunca en USD, aunque por
  * dentro se compare y se sume en USD.
+ *
+ * Tocar la card abre el detalle (`onView`), nunca la edición directa — el
+ * ⋮ es el atajo para quien ya sabe que quiere Editar o Eliminar. El menú
+ * va posicionado absoluto en la esquina, afuera del botón grande: un
+ * <button> no puede anidar otro, así que son hermanos, no padre-hijo.
  */
-function BudgetLineMiniCard({ line, hidden, rates, icon, onEdit }: {
+function BudgetLineMiniCard({ line, hidden, rates, icon, onView, onEdit, onDelete }: {
   line: BudgetLineProgress
   hidden: boolean
   rates: RateMap
   icon: string | null
+  onView: () => void
   onEdit: () => void
+  onDelete: () => void
 }) {
   const cur = line.input_currency
   const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
@@ -203,39 +228,86 @@ function BudgetLineMiniCard({ line, hidden, rates, icon, onEdit }: {
   const displayName = line.name ?? line.category_name
 
   return (
-    <button
-      type="button" onClick={onEdit}
-      className="text-left rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3 flex flex-col gap-2 min-w-0"
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <CategoryIcon slug={icon} name={displayName} size={22} />
-        <p className="text-[13px] font-semibold truncate min-w-0">{displayName}</p>
-      </div>
-
-      <div className="relative h-1.5 rounded-full bg-[var(--fz-surface)] overflow-hidden">
-        <div
-          className="absolute inset-y-0 left-0 rounded-full"
-          style={{
-            width: `${Math.min(100, pct)}%`,
-            background: alreadyOver || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
-          }}
+    <div className="relative rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] min-w-0">
+      <div className="absolute top-2 right-2 z-10">
+        <RowMenu
+          items={[
+            { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: onEdit },
+            { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: onDelete, danger: true },
+          ]}
         />
-        <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${Math.min(100, tickPct)}%` }} aria-hidden />
       </div>
 
-      <span className={`text-[12px] font-semibold fz-num truncate ${alreadyOver ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-        {hidden ? HIDDEN : `${formatAmount(spent, cur)} / ${line.amount_usd == null ? '—' : formatAmount(capacity, cur)}`}
-      </span>
+      <button type="button" onClick={onView} className="w-full text-left p-3 flex flex-col gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 pr-7">
+          <CategoryIcon slug={icon} name={displayName} size={22} />
+          <p className="text-[13px] font-semibold truncate min-w-0">{displayName}</p>
+        </div>
 
-      {!hidden && (
-        <p className="text-[11px] text-[var(--fz-ink-3)] truncate">
-          {alreadyOver
-            ? `+${formatAmount(fromUsd(line.spent_usd - capacityUsd, cur, rates), cur)} pasado`
-            : projectedOver
-              ? `~${formatAmount(fromUsd(line.projected_usd - capacityUsd, cur, rates), cur)} de más`
-              : `Ritmo: ${formatAmount(fromUsd(line.projected_usd, cur, rates), cur)}`}
-        </p>
-      )}
-    </button>
+        <div className="relative h-1.5 rounded-full bg-[var(--fz-surface)] overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              background: alreadyOver || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
+            }}
+          />
+          <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${Math.min(100, tickPct)}%` }} aria-hidden />
+        </div>
+
+        <span className={`text-[12px] font-semibold fz-num truncate ${alreadyOver ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+          {hidden ? HIDDEN : `${formatAmount(spent, cur)} / ${line.amount_usd == null ? '—' : formatAmount(capacity, cur)}`}
+        </span>
+
+        {!hidden && (
+          <p className="text-[11px] text-[var(--fz-ink-3)] truncate">
+            {alreadyOver
+              ? `+${formatAmount(fromUsd(line.spent_usd - capacityUsd, cur, rates), cur)} pasado`
+              : projectedOver
+                ? `~${formatAmount(fromUsd(line.projected_usd - capacityUsd, cur, rates), cur)} de más`
+                : `Ritmo: ${formatAmount(fromUsd(line.projected_usd, cur, rates), cur)}`}
+          </p>
+        )}
+      </button>
+    </div>
+  )
+}
+
+/** El resumen que abre <DetailSheet> al tocar una mini-card — todo en la
+    moneda de la línea, igual que la card. */
+function BudgetDetail({ line, hidden, rates, icon }: {
+  line: BudgetLineProgress
+  hidden: boolean
+  rates: RateMap
+  icon: string | null
+}) {
+  const cur = line.input_currency
+  const conv = (usd: number) => formatAmount(fromUsd(usd, cur, rates), cur)
+  const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
+
+  return (
+    <>
+      <DeletePreview
+        icon={<CategoryIcon slug={icon} name={line.name ?? line.category_name} size={40} />}
+        title={line.name ?? line.category_name}
+        subtitle={line.name ? line.category_name : undefined}
+        amount={hidden ? HIDDEN : conv(line.spent_usd)}
+      />
+      <div>
+        <DetailField label="Monto mensual" value={hidden ? null : (line.amount_usd == null ? '—' : conv(line.amount_usd))} />
+        <DetailField label="Ampliado este mes" value={!hidden && line.extended_usd > 0 ? conv(line.extended_usd) : null} />
+        <DetailField
+          label={line.carried_usd >= 0 ? 'Llevado del mes pasado' : 'Restado del mes pasado'}
+          value={!hidden && line.carried_usd !== 0 ? conv(Math.abs(line.carried_usd)) : null}
+        />
+        <DetailField label="Comprometido (fijos pendientes)" value={!hidden && line.committed_usd > 0 ? conv(line.committed_usd) : null} />
+        <DetailField label="Gastado" value={hidden ? null : conv(line.spent_usd)} />
+        <DetailField
+          label="Disponible"
+          value={hidden || line.available_usd == null ? null : conv(line.available_usd)}
+        />
+        <DetailField label="Tope total del mes" value={hidden ? null : conv(capacityUsd)} />
+      </div>
+    </>
   )
 }

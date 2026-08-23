@@ -25,8 +25,7 @@ interface Target {
  * camino de edición que las vuelva a tocar. El alias sí se puede cambiar
  * cuando sea: es cosmético, no estructural.
  */
-export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
-  target?: Target
+export function BudgetLineSheet({ editing, onClose, onSaved }: {
   editing?: BudgetLineProgress | null
   onClose: () => void
   onSaved: () => void
@@ -38,7 +37,7 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
   // haría desaparecer del selector bajo el propio dedo del usuario.
   const [pickable] = useState(() => budgets.categories_without_line)
 
-  const [selected, setSelected] = useState<Target | undefined>(target)
+  const [selected, setSelected] = useState<Target | undefined>(undefined)
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
   const [amount, setAmount] = useState('')
@@ -47,7 +46,7 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setSelected(editing ? undefined : target)
+    setSelected(undefined)
     setName(editing?.name ?? '')
     setCurrency(editing?.input_currency ?? 'USD')
     setAmount(
@@ -58,7 +57,7 @@ export function BudgetLineSheet({ target, editing, onClose, onSaved }: {
     setRetroactive('si')
     setError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, target])
+  }, [editing])
 
   // Editando, la categoría ya está fija en `editing`; creando, es la que se
   // haya elegido en el selector de acá abajo (o nada todavía).
