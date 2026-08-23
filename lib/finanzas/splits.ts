@@ -170,6 +170,23 @@ export function daysBetween(fromISO: string, toISO: string): number {
   return Math.round((b - a) / 86_400_000)
 }
 
+/**
+ * De las deudas abiertas, cuáles ameritan la alerta de "Te deben" en la
+ * Home. Una suelta (`plan_installment_no` null) cuenta siempre — no tiene
+ * fecha propia, así que no hay "cuándo" que esperar. Una cuota de un plan sí
+ * tiene la suya (`incurred_on` es la fecha que le tocaba según el calendario
+ * del plan, ver `installmentDate` en plans.ts): solo cuenta si ya venció o
+ * si vence dentro de `days` días, y en ese caso pesa por SU monto propio —
+ * quien llame a esto suma `amount_usd` de lo que devuelva, nunca el
+ * pendiente total del plan (feedback del usuario: no adelantar cuotas que
+ * todavía faltan).
+ */
+export function debtsNeedingAttention<T extends Pick<DebtWithContext, 'plan_installment_no' | 'incurred_on'>>(
+  debts: T[], todayISO: string, days = 7,
+): T[] {
+  return debts.filter(d => d.plan_installment_no == null || daysBetween(todayISO, d.incurred_on) <= days)
+}
+
 /* ─── Agrupado para la pantalla de Compartidos ─────────────────────────────── */
 
 /** Agrupa las deudas abiertas por persona, de la que más debe a la que menos. */

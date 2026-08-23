@@ -2,8 +2,8 @@ import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor, crossCurrencySuggestion } from './.fin/money.mjs'
 import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
-import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName } from './.fin/splits.mjs'
-import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields } from './.fin/recurring.mjs'
+import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
+import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
 import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, validatePasanaku } from './.fin/pasanaku.mjs'
 import {
@@ -691,6 +691,24 @@ section('SPRINT 2 · agrupado por persona')
   eq('y envejece por la fecha de la deuda', conSueltas[0].oldest_days, 78)
 }
 
+section('Home (revisión) · debtsNeedingAttention — la alerta de "Te deben"')
+{
+  const hoy = '2026-08-18'
+  const suelta = { plan_installment_no: null, incurred_on: '2026-01-01', amount_usd: 20 } // sin fecha propia: cuenta siempre
+  const cuotaVencida = { plan_installment_no: 2, incurred_on: '2026-08-10', amount_usd: 100 } // ya venció
+  const cuotaProxima = { plan_installment_no: 3, incurred_on: '2026-08-24', amount_usd: 50 } // vence en 6 días
+  const cuotaLejana = { plan_installment_no: 4, incurred_on: '2026-09-20', amount_usd: 999 } // recién en un mes
+
+  const relevantes = debtsNeedingAttention([suelta, cuotaVencida, cuotaProxima, cuotaLejana], hoy)
+  eq('la suelta, la vencida y la próxima cuentan — la lejana no',
+     relevantes.map(d => d.amount_usd).sort((a, b) => a - b), [20, 50, 100])
+  ok('la cuota lejana queda afuera', !relevantes.includes(cuotaLejana))
+
+  eq('sin nada que atender, lista vacía', debtsNeedingAttention([cuotaLejana], hoy), [])
+  eq('el límite de 7 días es inclusive', debtsNeedingAttention([{ plan_installment_no: 1, incurred_on: '2026-08-25', amount_usd: 1 }], hoy).length, 1)
+  eq('8 días ya no entra', debtsNeedingAttention([{ plan_installment_no: 1, incurred_on: '2026-08-26', amount_usd: 1 }], hoy).length, 0)
+}
+
 /* ─── Snapshot del dispositivo ──────────────────────────────────────────────
    Lo que hace que abrir la app muestre el patrimonio real en el primer frame
    en vez de $0. Se prueba acá porque un fallo silencioso —una cookie que no se
@@ -1086,6 +1104,25 @@ section('SPRINT 3 · orden y progreso de la lista')
 
   eq('el progreso ignora los pausados', progress(orden), { done: 1, total: 4, pending: 3 })
   eq('sin fijos no divide por cero', progress([]), { done: 0, total: 0, pending: 0 })
+}
+
+section('Home (revisión) · needsAttentionSoon — la alerta de "Gastos Fijos"')
+{
+  const hoy = '2026-08-18'
+  const mk = (id, status, due, active = true) => ({ id, status, due, active })
+
+  ok('un vencido siempre necesita atención',
+     needsAttentionSoon([mk('1', 'vencido', '2026-08-01')], hoy))
+  ok('un pendiente que vence hoy mismo cuenta',
+     needsAttentionSoon([mk('1', 'pendiente', hoy)], hoy))
+  ok('un pendiente que vence en 3 días cuenta',
+     needsAttentionSoon([mk('1', 'pendiente', '2026-08-21')], hoy))
+  ok('uno que recién vence en 20 días todavía no es urgente',
+     !needsAttentionSoon([mk('1', 'pendiente', '2026-09-07')], hoy))
+  ok('un pausado no cuenta aunque figure vencido',
+     !needsAttentionSoon([mk('1', 'vencido', '2026-08-01', false)], hoy))
+  ok('registrado no necesita nada', !needsAttentionSoon([mk('1', 'registrado', hoy)], hoy))
+  ok('sin fijos, sin alerta', !needsAttentionSoon([], hoy))
 }
 
 section('SPRINT 3 · validación del reparto de una plantilla')

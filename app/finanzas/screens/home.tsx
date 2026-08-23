@@ -6,8 +6,10 @@ import {
   IconArrowsLeftRight, IconBuildingBank,
   IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconSettings, IconUsersGroup, IconWifiOff,
 } from '@tabler/icons-react'
-import { monthRange } from '@/lib/finanzas/transactions'
-import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
+import { monthRange, todayISO } from '@/lib/finanzas/transactions'
+import { debtsNeedingAttention } from '@/lib/finanzas/splits'
+import { needsAttentionSoon } from '@/lib/finanzas/recurring'
+import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { CURRENCY_META, type BudgetLineProgress } from '@/lib/finanzas/types'
 import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
@@ -59,9 +61,18 @@ export function HomeScreen() {
   // Los dos bloques son condicionales: si no tenés deudas ni fijos, la Home se
   // ve exactamente igual que antes. La feature no le cobra espacio a quien no
   // la usa.
-  const teDeben = shared.por_cobrar_usd > 0
   const hayReparto = gastoRealMes !== gastoMes
-  const hayFijos = recurring.total > 0
+  const hoy = todayISO()
+
+  // Las dos son alertas, no resúmenes — solo aparecen si hay algo que de
+  // verdad requiere atención (ver `needsAttentionSoon`/`debtsNeedingAttention`).
+  const hayFijos = needsAttentionSoon(recurring.recurring, hoy)
+
+  const deudasAbiertas = shared.por_persona.flatMap(p => p.debts)
+  const deudasRelevantes = debtsNeedingAttention(deudasAbiertas, hoy)
+  const montoTeDeben = round2(deudasRelevantes.reduce((s, d) => s + d.amount_usd, 0))
+  const personasTeDeben = new Set(deudasRelevantes.map(d => d.person_id)).size
+  const teDeben = montoTeDeben > 0
 
   const visible = accounts.filter(a => !a.archived)
   const hasBtc = visible.some(a => a.currency === 'BTC')
@@ -262,7 +273,7 @@ export function HomeScreen() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium text-[var(--fz-ink-2)]">
-                  Fijos de {monthName(now.getMonth())}
+                  Gastos Fijos de {monthName(now.getMonth())}
                 </span>
                 <span className="block text-[21px] font-bold tracking-[-0.01em] fz-num truncate">
                   {recurring.done} de {recurring.total}
@@ -293,11 +304,11 @@ export function HomeScreen() {
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium text-[var(--fz-ink-2)]">Te deben</span>
                 <span className="block text-[21px] font-bold tracking-[-0.01em] fz-num truncate">
-                  <AmountUSD value={shared.por_cobrar_usd} />
+                  <AmountUSD value={montoTeDeben} />
                 </span>
               </span>
               <span className="text-[13px] text-[var(--fz-ink-3)] shrink-0">
-                {shared.por_persona.length} {shared.por_persona.length === 1 ? 'persona' : 'personas'}
+                {personasTeDeben} {personasTeDeben === 1 ? 'persona' : 'personas'}
               </span>
               <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0" />
             </FzLink>
@@ -343,7 +354,7 @@ export function HomeScreen() {
                   href="/finanzas/fijos"
                   tone={recurring.pending > 0 ? 'out' : 'in'}
                   icon={<IconRepeat size={18} stroke={1.9} />}
-                  label={`Fijos de ${monthName(now.getMonth())}`}
+                  label={`Gastos Fijos de ${monthName(now.getMonth())}`}
                   value={<>{recurring.done}<span className="text-[14px] font-semibold text-[var(--fz-ink-3)]">/{recurring.total}</span></>}
                   meta={recurring.pending > 0
                     ? `${recurring.pending} ${recurring.pending === 1 ? 'pendiente' : 'pendientes'}`
@@ -358,8 +369,8 @@ export function HomeScreen() {
                   tone="out"
                   icon={<IconUsersGroup size={18} stroke={1.9} />}
                   label="Te deben"
-                  value={<AmountUSD value={shared.por_cobrar_usd} />}
-                  meta={`${shared.por_persona.length} ${shared.por_persona.length === 1 ? 'persona' : 'personas'}`}
+                  value={<AmountUSD value={montoTeDeben} />}
+                  meta={`${personasTeDeben} ${personasTeDeben === 1 ? 'persona' : 'personas'}`}
                 />
               </div>
             )}

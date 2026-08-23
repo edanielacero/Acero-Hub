@@ -1,5 +1,5 @@
 import type { Currency, Frequency, Person, RateMap, RecurringSplit, Recurring, RecurringStatus, RecurringWithState } from './types'
-import { evenSplit, normalizeName } from './splits'
+import { daysBetween, evenSplit, normalizeName } from './splits'
 import { round2, roundFor, toUsd } from './money'
 
 /** Último día del mes, para no proponer un 31 de febrero. */
@@ -271,6 +271,23 @@ export function progress(items: RecurringWithState[]): { done: number; total: nu
   const activos = enPeriodo(items)
   const done = activos.filter(r => r.status === 'registrado').length
   return { done, total: activos.length, pending: activos.length - done }
+}
+
+/**
+ * ¿Hace falta la alerta de "Gastos Fijos" en la Home? Es eso, una alerta, no
+ * un resumen — así que no basta con que haya fijos: tiene que haber uno que
+ * de verdad requiera atención. Vencido cuenta siempre; pendiente solo si cae
+ * dentro de los próximos `days` días. Uno que recién vence en 20 días no es
+ * urgente todavía, y ya se ve completo en la pantalla de Fijos.
+ */
+export function needsAttentionSoon(
+  items: Pick<RecurringWithState, 'active' | 'status' | 'due'>[], todayISO: string, days = 3,
+): boolean {
+  return items.some(r => {
+    if (!r.active) return false
+    if (r.status === 'vencido') return true
+    return r.status === 'pendiente' && daysBetween(todayISO, r.due) <= days
+  })
 }
 
 /**
