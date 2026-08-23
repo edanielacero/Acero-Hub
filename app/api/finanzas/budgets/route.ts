@@ -7,7 +7,7 @@ import { periodStart, validateBudgetAmount } from '@/lib/finanzas/budgets'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
-export const BUDGET_LINE_COLS = 'id, category_id, name, input_currency, retroactive, created_on, archived'
+export const BUDGET_LINE_COLS = 'id, name, input_currency, retroactive, created_on, archived'
 
 export async function GET(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -20,15 +20,20 @@ export async function GET(request: Request) {
 }
 
 /**
- * Crea una línea de presupuesto con su primer monto. Siempre atada a una
- * categoría — el tope general ya no es una línea propia, es la suma de
- * estas (`sumGeneral` en `lib/finanzas/load.ts`).
+ * Crea una línea de presupuesto con su primer monto. Siempre atada a al
+ * menos una categoría — el tope general ya no es una línea propia, es la
+ * suma de estas (`sumGeneral` en `lib/finanzas/load.ts`).
+ *
+ * Una línea puede cubrir varias categorías (`fin_budget_line_categories`),
+ * pero ninguna de ellas puede pertenecer a otra línea activa a la vez: si
+ * dos presupuestos reclamaran la misma categoría, el general contaría ese
+ * gasto dos veces.
  *
  * `amount` viaja en `currency` (comodidad de entrada Y de visualización,
  * revisión post-Sprint 6: el usuario piensa en Bs, no en USD) — acá se
  * convierte y de ahí en más `amount_usd` es lo único que se guarda. `name`
- * es un alias opcional; sin él, el cliente muestra el nombre de la
- * categoría como default, así que acá no hace falta resolver nada.
+ * es un alias opcional; sin él, el cliente muestra los nombres de las
+ * categorías como default, así que acá no hace falta resolver nada.
  */
 export async function POST(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -37,8 +42,10 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
-  const categoryId = typeof body.category_id === 'string' && body.category_id ? body.category_id : null
-  if (!categoryId) return NextResponse.json({ error: 'Elige una categoría' }, { status: 400 })
+  const categoryIds = Array.isArray(body.category_ids)
+    ? [...new Set(body.category_ids.filter((id: unknown): id is string => typeof id === 'string' && !!id))]
+    : []
+  if (categoryIds.length === 0) return NextResponse.json({ error: 'Elige al menos una categoría' }, { status: 400 })
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null
   const currency = (body.currency ?? 'USD') as Currency
@@ -50,27 +57,40 @@ export async function POST(request: Request) {
   const invalidAmount = validateBudgetAmount(rawAmount)
   if (invalidAmount) return NextResponse.json({ error: invalidAmount }, { status: 400 })
 
-  const { data: category } = await supabase
-    .from('fin_categories').select('id, kind').eq('user_id', userId).eq('id', categoryId).maybeSingle()
-  if (!category) return NextResponse.json({ error: 'La categoría no existe' }, { status: 400 })
-  if (category.kind !== 'gasto') {
+  const { data: categories } = await supabase
+    .from('fin_categories').select('id, kind').eq('user_id', userId).in('id', categoryIds)
+  if ((categories ?? []).length !== categoryIds.length) {
+    return NextResponse.json({ error: 'Alguna de esas categorías no existe' }, { status: 400 })
+  }
+  if ((categories ?? []).some(c => c.kind !== 'gasto')) {
     return NextResponse.json({ error: 'El presupuesto solo aplica a categorías de gasto' }, { status: 400 })
   }
 
-  // Chequeo previo para un mensaje legible — el índice único parcial es la
-  // red de verdad (`fin_budget_lines_category_idx`).
+  // Chequeo previo para un mensaje legible — el índice único de
+  // `fin_budget_line_categories` (user_id, category_id) es la red de verdad.
   const { data: dup } = await supabase
-    .from('fin_budget_lines').select('id').eq('user_id', userId).eq('archived', false).eq('category_id', categoryId).maybeSingle()
-  if (dup) return NextResponse.json({ error: 'Esa categoría ya tiene una línea de presupuesto' }, { status: 409 })
+    .from('fin_budget_line_categories').select('category_id').eq('user_id', userId).in('category_id', categoryIds)
+  if ((dup ?? []).length > 0) {
+    return NextResponse.json({ error: 'Alguna de esas categorías ya tiene un presupuesto' }, { status: 409 })
+  }
 
   const today = todayISO()
   const { data: line, error } = await supabase
     .from('fin_budget_lines')
-    .insert({ user_id: userId, category_id: categoryId, name, input_currency: currency, retroactive, created_on: today })
+    .insert({ user_id: userId, name, input_currency: currency, retroactive, created_on: today })
     .select(BUDGET_LINE_COLS)
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  const { error: categoriesError } = await supabase
+    .from('fin_budget_line_categories')
+    .insert(categoryIds.map(category_id => ({ user_id: userId, line_id: line.id, category_id })))
+
+  if (categoriesError) {
+    await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('user_id', userId)
+    return NextResponse.json({ error: `No se pudieron guardar las categorías: ${categoriesError.message}` }, { status: 400 })
+  }
 
   // El monto nativo se guarda tal cual y la tasa se CONGELA — mismo criterio
   // que `fin_transactions`. Así "2.400 Bs" sigue diciendo 2.400 aunque el
@@ -88,7 +108,8 @@ export async function POST(request: Request) {
 
   if (periodError) {
     // Compensación: sin su primer monto, la línea no queda a medias — mismo
-    // criterio que el reparto de un gasto (Sprint 2 §4.7).
+    // criterio que el reparto de un gasto (Sprint 2 §4.7). Cascade se lleva
+    // las filas de fin_budget_line_categories.
     await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('user_id', userId)
     return NextResponse.json({ error: `No se pudo guardar el monto: ${periodError.message}` }, { status: 400 })
   }

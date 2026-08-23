@@ -38,7 +38,7 @@ export interface Snapshot {
 
 const PREFIX = 'fz:snap:'
 /** Sube cuando cambia la forma del snapshot: descarta los viejos sin migrarlos. */
-const VERSION = 6
+const VERSION = 7
 /** Un patrimonio de hace más de una semana ya no informa nada: mejor el esqueleto. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** Tope de tamaño. Serializar de más bloquea el hilo principal en cada guardado. */

@@ -3,9 +3,9 @@ import { NextResponse } from 'next/server'
 import { BUDGET_LINE_COLS } from '../route'
 
 /**
- * `archived` y/o `name`. `category_id`, `input_currency` y `retroactive` son
+ * `archived` y/o `name`. Las categorías, `input_currency` y `retroactive` son
  * inmutables (se eligen una sola vez, al crear la línea — §3.1 del spec) y
- * no hay endpoint que los toque; para el monto de cada mes está `/period`, y
+ * no hay endpoint que las toque; para el monto de cada mes está `/period`, y
  * para el rollover, `/close`. El alias, en cambio, es solo cosmético — no
  * hay razón para congelarlo, así que se puede renombrar cuando sea.
  */
@@ -31,6 +31,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  // Archivar deja la línea invisible en todos lados (`loadBudgets` solo trae
+  // `archived = false`) — sin esto sus categorías quedaban "reservadas" para
+  // siempre por el índice único de `fin_budget_line_categories`, sin ninguna
+  // línea activa que las mostrara.
+  if (patch.archived === true) {
+    await supabase.from('fin_budget_line_categories').delete().eq('line_id', id).eq('user_id', userId)
+  }
+
   return NextResponse.json({ line: data })
 }
 

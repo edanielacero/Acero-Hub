@@ -332,7 +332,7 @@ export function monthQuery(range: { from: string; to: string }) {
  */
 export function budgetLineFor(budgets: BudgetsPayload, categoryId: string | null) {
   if (!categoryId) return undefined
-  return budgets.categories.find(c => c.category_id === categoryId)
+  return budgets.categories.find(c => c.category_ids.includes(categoryId))
 }
 
 /**

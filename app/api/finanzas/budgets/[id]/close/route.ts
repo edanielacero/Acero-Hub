@@ -34,15 +34,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof body.carried !== 'boolean') return NextResponse.json({ error: 'Falta decir si se lleva o no' }, { status: 400 })
 
   const { data: line } = await supabase
-    .from('fin_budget_lines').select('id, category_id, input_currency, retroactive, created_on').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_budget_lines').select('id, input_currency, retroactive, created_on').eq('id', id).eq('user_id', userId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
-  const [{ data: periodRows }, { data: closureRows }] = await Promise.all([
+  const [{ data: periodRows }, { data: closureRows }, { data: lineCatRows }] = await Promise.all([
     supabase.from('fin_budget_periods')
       .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('user_id', userId).eq('line_id', id),
     supabase.from('fin_budget_closures')
       .select('line_id, period, carried, amount, amount_usd').eq('user_id', userId).eq('line_id', id),
+    supabase.from('fin_budget_line_categories').select('category_id').eq('user_id', userId).eq('line_id', id),
   ])
+  const categoryIds = (lineCatRows ?? []).map(r => r.category_id as string)
   const periods = (periodRows ?? []).map(p => ({
     id: p.id as string, line_id: p.line_id as string, period: p.period as string,
     amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
@@ -102,7 +104,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       waived_at: d.waived_at,
     }))
 
-  const spent = gastoRealCategoria(txs, debts, line.category_id, from, to, line.input_currency, rate)
+  const spent = gastoRealCategoria(txs, debts, categoryIds, from, to, line.input_currency, rate)
   // Un mes ya cerrado no tiene nada "todavía por pasar": sin `comprometido`.
   const amount_usd = disponible({
     montoEfectivoUsd: effective.amountUsd,

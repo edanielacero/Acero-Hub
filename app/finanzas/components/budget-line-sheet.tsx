@@ -11,16 +11,11 @@ import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
 
-interface Target {
-  categoryId: string
-  categoryName: string
-}
-
 /**
  * Crea una línea nueva, o edita el monto (y el alias) de ESTE mes de una
  * existente.
  *
- * La categoría, la moneda de entrada y la retroactividad (§3.1 del spec)
+ * Las categorías, la moneda de entrada y la retroactividad (§3.1 del spec)
  * solo se preguntan al crear — quedan fijas para siempre, no hay ningún
  * camino de edición que las vuelva a tocar. El alias sí se puede cambiar
  * cuando sea: es cosmético, no estructural.
@@ -37,7 +32,9 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   // haría desaparecer del selector bajo el propio dedo del usuario.
   const [pickable] = useState(() => budgets.categories_without_line)
 
-  const [selected, setSelected] = useState<Target | undefined>(undefined)
+  // Varias categorías por línea (rediseño post-Sprint 6): acá se juntan los
+  // ids elegidos, tocando cada chip prende o apaga su selección.
+  const [selected, setSelected] = useState<string[]>([])
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
   const [amount, setAmount] = useState('')
@@ -46,7 +43,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setSelected(undefined)
+    setSelected([])
     setName(editing?.name ?? '')
     setCurrency(editing?.input_currency ?? 'USD')
     // El monto que se precarga es el NATIVO guardado, tal cual se escribió —
@@ -58,24 +55,24 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
 
-  // Editando, la categoría ya está fija en `editing`; creando, es la que se
-  // haya elegido en el selector de acá abajo (o nada todavía).
-  const activeTarget: Target | undefined = editing
-    ? { categoryId: editing.category_id, categoryName: editing.category_name }
-    : selected
+  function toggleCategory(id: string) {
+    setSelected(sel => (sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]))
+  }
 
   const decimals = decimalsFor(currency)
-  // El nombre de la categoría tal cual, sin alias — es lo que el campo
+  // Los nombres de las categorías tal cual, sin alias — es lo que el campo
   // "Nombre" usa como placeholder: a qué vuelve si se vacía, no cómo se
   // llama ahora mismo si ya tiene un alias puesto.
-  const fallbackName = activeTarget?.categoryName ?? ''
+  const fallbackName = editing
+    ? editing.category_names.join(', ')
+    : selected.map(id => pickable.find(c => c.id === id)?.name).filter(Boolean).join(', ')
   // Para el encabezado en modo edición sí importa el alias actual, si hay
   // uno — es el mismo nombre que ya se ve en la card y en el resto de la app.
   const currentDisplayName = editing ? (editing.name ?? fallbackName) : fallbackName
   const nothingLeftToPick = !editing && pickable.length === 0
 
   async function submit() {
-    if (!activeTarget) return setError('Elige una categoría')
+    if (!editing && selected.length === 0) return setError('Elige al menos una categoría')
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
@@ -109,7 +106,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          category_id: activeTarget.categoryId,
+          category_ids: selected,
           name: name.trim() || null,
           amount: value,
           currency,
@@ -155,19 +152,19 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
             <p className="text-[15px] font-semibold">{currentDisplayName}</p>
           ) : (
             <div>
-              <Label>Categoría</Label>
+              <Label>Categorías (una o varias)</Label>
               {nothingLeftToPick ? (
                 <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
                   Ya tienes presupuesto en todas las categorías.
                 </p>
               ) : (
-                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                <div className="flex flex-wrap gap-2">
                   {pickable.map(c => (
                     <PickChip
                       key={c.id}
                       label={c.name}
-                      selected={selected?.categoryId === c.id}
-                      onClick={() => setSelected({ categoryId: c.id, categoryName: c.name })}
+                      selected={selected.includes(c.id)}
+                      onClick={() => toggleCategory(c.id)}
                     />
                   ))}
                 </div>
@@ -225,7 +222,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
 
           {!editing && (
             <div>
-              <Label>¿Contar lo que ya gastaste este mes en esta categoría?</Label>
+              <Label>¿Contar lo que ya gastaste este mes en esas categorías?</Label>
               <Segmented
                 options={[
                   { value: 'si', label: 'Sí, contarlo' },

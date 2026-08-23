@@ -514,24 +514,6 @@ export interface TransactionInput {
    pregunta que se responde una vez por mes, por línea, al cerrarlo
    (`fin_budget_closures`) — la ausencia de fila es la pregunta pendiente. */
 
-export interface BudgetLine {
-  id: string
-  category_id: string
-  /** Alias propio. `null` = usar el nombre de la categoría — ese es el
-      default real, no un simple placeholder. */
-  name: string | null
-  /** En qué moneda se ESCRIBE (y se MUESTRA) el monto mensual de esta línea.
-      Se elige una sola vez al crear, igual que `retroactive`. `amount_usd`
-      sigue siendo la fuente de verdad interna para comparar y sumar entre
-      líneas — esta moneda es la que ve el usuario en todos lados. */
-  input_currency: Currency
-  /** Si el período de creación cuenta desde el día 1 del mes o desde
-      `created_on` en adelante. Se elige una sola vez y queda fijo. */
-  retroactive: boolean
-  created_on: string
-  archived: boolean
-}
-
 export interface BudgetExtensionEntry {
   amount: number
   amount_usd: number
@@ -551,9 +533,11 @@ export interface BudgetExtensionEntry {
  */
 export interface BudgetLineProgress {
   line_id: string
-  category_id: string
-  category_name: string
-  /** Alias propio, o `null` si usa el nombre de la categoría de default. */
+  /** Una línea cubre una o más categorías — nunca cero, y ninguna de ellas
+      puede pertenecer a otra línea activa a la vez (§ fin_budget_line_categories). */
+  category_ids: string[]
+  category_names: string[]
+  /** Alias propio, o `null` si usa los nombres de las categorías de default. */
   name: string | null
   input_currency: Currency
   /** Cuántas unidades de `input_currency` vale 1 USD, congelado al escribir. */
@@ -597,8 +581,8 @@ export interface BudgetGeneralProgress {
     lo que dispara la pregunta "¿llevás el sobrante/sobregasto al próximo?". */
 export interface PendingClosure {
   line_id: string
-  category_id: string
-  category_name: string
+  category_ids: string[]
+  category_names: string[]
   name: string | null
   input_currency: Currency
   period: string
@@ -616,7 +600,7 @@ export interface BudgetsPayload {
 }
 
 export interface BudgetLineInput {
-  category_id: string
+  category_ids: string[]
   name?: string | null
   amount: number
   currency?: Currency

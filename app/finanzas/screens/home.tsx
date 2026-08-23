@@ -257,7 +257,7 @@ export function HomeScreen() {
                     line={line}
                     hidden={hidden}
                     mode={budgetMode}
-                    icon={categories.find(c => c.id === line.category_id)?.icon ?? null}
+                    icon={categories.find(c => c.id === line.category_ids[0])?.icon ?? null}
                     onClick={() => navigate('/finanzas/presupuesto')}
                   />
                 ))}
@@ -514,10 +514,10 @@ function BudgetTile({ line, hidden, mode, icon, onClick }: {
       onClick={onClick}
       className="snap-start shrink-0 w-[148px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-2.5 text-left"
     >
-      <CategoryIcon slug={icon} name={line.name ?? line.category_name} size={30} />
+      <CategoryIcon slug={icon} name={line.name ?? line.category_names.join(', ')} size={30} />
       <div className="min-w-0 w-full">
         <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">
-          {line.name ?? line.category_name}
+          {line.name ?? line.category_names.join(', ')}
         </p>
         {!hidden && (
           <p className="text-[10px] font-bold text-[var(--fz-ink-3)] uppercase tracking-[0.06em] truncate">

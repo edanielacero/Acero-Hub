@@ -580,7 +580,13 @@ export async function loadTransactions(
   if (f.from) query = query.gte('date', f.from)
   if (f.to) query = query.lte('date', f.to)
   if (f.type) query = query.eq('type', f.type)
-  if (f.categoryId) query = query.eq('category_id', f.categoryId)
+  // Una línea de presupuesto con varias categorías manda una lista separada
+  // por comas (§ verMovimientos en presupuesto.tsx) — con una sola, se
+  // comporta exactamente igual que antes.
+  if (f.categoryId) {
+    const ids = f.categoryId.split(',').filter(Boolean)
+    query = ids.length > 1 ? query.in('category_id', ids) : query.eq('category_id', ids[0])
+  }
   if (f.recurringOnly) query = query.not('recurring_id', 'is', null)
   // Una cuenta aparece como origen o como destino de una transferencia.
   if (f.accountId) query = query.or(`account_id.eq.${f.accountId},to_account_id.eq.${f.accountId}`)
@@ -648,14 +654,17 @@ export async function loadTransactions(
 
 /* ─── Presupuesto (Sprint 6) ──────────────────────────────────────────────── */
 
-const BUDGET_LINE_COLS = 'id, category_id, name, input_currency, retroactive, created_on, archived'
+const BUDGET_LINE_COLS = 'id, name, input_currency, retroactive, created_on, archived'
+const BUDGET_LINE_CATEGORY_COLS = 'line_id, category_id'
 const BUDGET_PERIOD_COLS = 'id, line_id, period, amount, amount_usd, exchange_rate'
 const BUDGET_EXTENSION_COLS = 'id, period_id, amount, amount_usd, created_at'
 const BUDGET_CLOSURE_COLS = 'id, line_id, period, carried, amount, amount_usd'
 
 interface BudgetLineForCalc {
   id: string
-  category_id: string
+  /** Una línea cubre una o más categorías, nunca solapadas con otra línea
+      activa (§ fin_budget_line_categories). */
+  category_ids: string[]
   name: string | null
   input_currency: Currency
   retroactive: boolean
@@ -725,35 +734,44 @@ export async function loadBudgets(
     (catRows ?? []).filter(c => c.kind === 'gasto' && !c.archived).map(c => c.id as string),
   )
 
-  const lines: BudgetLineForCalc[] = (lineRows ?? []).map(r => ({
-    id: r.id as string,
-    category_id: r.category_id as string,
-    name: r.name as string | null,
-    input_currency: r.input_currency as Currency,
-    retroactive: r.retroactive as boolean,
-    created_on: r.created_on as string,
-  }))
+  const lineIds = (lineRows ?? []).map(r => r.id as string)
 
-  const linedCategoryIds = new Set(lines.map(l => l.category_id))
-  const categories_without_line = [...gastoCategoryIds]
-    .filter(id => !linedCategoryIds.has(id))
-    .map(id => ({ id, name: categoriesById.get(id)!.name }))
-
-  if (lines.length === 0) {
+  if (lineIds.length === 0) {
+    const categories_without_line = [...gastoCategoryIds].map(id => ({ id, name: categoriesById.get(id)!.name }))
     return { general: null, categories: [], pending_closures: [], categories_without_line }
   }
 
-  const lineIds = lines.map(l => l.id)
-
-  const [{ data: periodRows }, { data: closureRows }, ratesResult, recurringResult] = await Promise.all([
+  const [{ data: periodRows }, { data: closureRows }, { data: lineCatRows }, ratesResult, recurringResult] = await Promise.all([
     supabase.from('fin_budget_periods').select(BUDGET_PERIOD_COLS).eq('user_id', userId).in('line_id', lineIds),
     supabase.from('fin_budget_closures').select(BUDGET_CLOSURE_COLS).eq('user_id', userId).in('line_id', lineIds),
+    supabase.from('fin_budget_line_categories').select(BUDGET_LINE_CATEGORY_COLS).eq('user_id', userId).in('line_id', lineIds),
     precomputed ? null : ensureRates(supabase, userId),
     precomputed ? null : loadRecurring(supabase, userId, today),
   ])
 
   const rates = precomputed?.rates ?? ratesResult!.rates
   const recurringSummary = precomputed?.recurring ?? recurringResult!
+
+  const categoryIdsByLine = new Map<string, string[]>()
+  for (const r of lineCatRows ?? []) {
+    const list = categoryIdsByLine.get(r.line_id as string)
+    if (list) list.push(r.category_id as string)
+    else categoryIdsByLine.set(r.line_id as string, [r.category_id as string])
+  }
+
+  const lines: BudgetLineForCalc[] = (lineRows ?? []).map(r => ({
+    id: r.id as string,
+    category_ids: categoryIdsByLine.get(r.id as string) ?? [],
+    name: r.name as string | null,
+    input_currency: r.input_currency as Currency,
+    retroactive: r.retroactive as boolean,
+    created_on: r.created_on as string,
+  }))
+
+  const linedCategoryIds = new Set(lines.flatMap(l => l.category_ids))
+  const categories_without_line = [...gastoCategoryIds]
+    .filter(id => !linedCategoryIds.has(id))
+    .map(id => ({ id, name: categoriesById.get(id)!.name }))
 
   const periods = (periodRows ?? []).map(p => ({
     id: p.id as string, line_id: p.line_id as string, period: p.period as string,
@@ -850,6 +868,8 @@ export async function loadBudgets(
     return prior ? prior.exchange_rate : 1
   }
 
+  const namesFor = (ids: string[]) => ids.map(id => categoriesById.get(id)?.name ?? '')
+
   function progressFor(line: BudgetLineForCalc): BudgetLineProgress {
     const { to } = periodRange(currentPeriod)
     const from = effectiveFromFor(line, currentPeriod)
@@ -862,8 +882,8 @@ export async function loadBudgets(
       : []
     const effective = montoEfectivo(periods, extensions, line.id, currentPeriod)
     const carried = carriedInto(closures, line.id, currentPeriod)
-    const spent = gastoRealCategoria(txs, debts, line.category_id, from, to, line.input_currency, rate)
-    const committed = comprometido(committedRecurring, line.category_id, line.input_currency, rate)
+    const spent = gastoRealCategoria(txs, debts, line.category_ids, from, to, line.input_currency, rate)
+    const committed = comprometido(committedRecurring, line.category_ids, line.input_currency, rate)
     const available = disponible({
       montoEfectivoUsd: effective?.amountUsd ?? null,
       gastoRealUsd: spent.amountUsd,
@@ -872,8 +892,8 @@ export async function loadBudgets(
     })
     return {
       line_id: line.id,
-      category_id: line.category_id,
-      category_name: categoriesById.get(line.category_id)?.name ?? '',
+      category_ids: line.category_ids,
+      category_names: namesFor(line.category_ids),
       name: line.name,
       input_currency: line.input_currency,
       exchange_rate: rate,
@@ -915,7 +935,7 @@ export async function loadBudgets(
       const periodRate = rateFor(line.id, period)
       const effective = montoEfectivo(periods, extensions, line.id, period)
       const carried = carriedInto(closures, line.id, period)
-      const spent = gastoRealCategoria(txs, debts, line.category_id, from, closeTo, line.input_currency, periodRate)
+      const spent = gastoRealCategoria(txs, debts, line.category_ids, from, closeTo, line.input_currency, periodRate)
       const available = disponible({
         montoEfectivoUsd: effective?.amountUsd ?? null,
         gastoRealUsd: spent.amountUsd,
@@ -926,8 +946,8 @@ export async function loadBudgets(
       if (available == null || effective == null) continue
       pending_closures.push({
         line_id: line.id,
-        category_id: line.category_id,
-        category_name: categoriesById.get(line.category_id)?.name ?? '',
+        category_ids: line.category_ids,
+        category_names: namesFor(line.category_ids),
         name: line.name,
         input_currency: line.input_currency,
         period,
@@ -969,9 +989,14 @@ export async function applyBudgetExtension(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!categoryId || !(amountUsd > 0)) return { ok: true }
 
+  const { data: membership } = await supabase
+    .from('fin_budget_line_categories')
+    .select('line_id').eq('user_id', userId).eq('category_id', categoryId).maybeSingle()
+  if (!membership) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
+
   const { data: line } = await supabase
     .from('fin_budget_lines')
-    .select('id, input_currency').eq('user_id', userId).eq('category_id', categoryId).eq('archived', false).maybeSingle()
+    .select('id, input_currency').eq('user_id', userId).eq('id', membership.line_id).eq('archived', false).maybeSingle()
   if (!line) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
 
   const period = periodStart(date)

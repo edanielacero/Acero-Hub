@@ -860,26 +860,41 @@ async function run() {
     budgetCategory = (await post('fin_categories', { user_id: USER_ID, name: 'Salidas', kind: 'gasto', icon: 'ocio' }).then(r => r.json()))[0]
     ok('crea la categoría para el presupuesto', !!budgetCategory?.id)
 
+    // Una línea ya no lleva su categoría en una columna propia — la
+    // categoría vive en `fin_budget_line_categories`, la tabla puente que
+    // permite varias por línea (§ rediseño multi-categoría).
     budgetLine = (await post('fin_budget_lines', {
-      user_id: USER_ID, category_id: budgetCategory.id, retroactive: true, created_on: '2026-08-01',
+      user_id: USER_ID, retroactive: true, created_on: '2026-08-01',
     }).then(r => r.json()))[0]
     ok('crea una línea de presupuesto', !!budgetLine?.id)
     eq('sin nombre, default null (alias opcional)', budgetLine.name, null)
     eq('sin moneda de entrada, default USD', budgetLine.input_currency, 'USD')
 
-    const dupCategory = await post('fin_budget_lines', { user_id: USER_ID, category_id: budgetCategory.id, retroactive: true })
-    ok('no deja dos líneas activas para la misma categoría', dupCategory.status >= 400, `HTTP ${dupCategory.status}`)
+    const link1 = await post('fin_budget_line_categories', { user_id: USER_ID, line_id: budgetLine.id, category_id: budgetCategory.id })
+    ok('liga la categoría a la línea', link1.status < 300, `HTTP ${link1.status}`)
+
+    const otraLinea = (await post('fin_budget_lines', { user_id: USER_ID, retroactive: true }).then(r => r.json()))[0]
+    const dupCategory = await post('fin_budget_line_categories', { user_id: USER_ID, line_id: otraLinea.id, category_id: budgetCategory.id })
+    ok('no deja la misma categoría en dos líneas a la vez', dupCategory.status >= 400, `HTTP ${dupCategory.status}`)
+    await as(`/fin_budget_lines?id=eq.${otraLinea.id}`, { method: 'DELETE' })
 
     const otraCategoria = (await post('fin_categories', { user_id: USER_ID, name: 'Otra', kind: 'gasto', icon: 'ocio' }).then(r => r.json()))[0]
-    const monedaInvalida = await post('fin_budget_lines', {
-      user_id: USER_ID, category_id: otraCategoria.id, retroactive: true, input_currency: 'EUR',
-    })
+    const monedaInvalida = await post('fin_budget_lines', { user_id: USER_ID, retroactive: true, input_currency: 'EUR' })
     ok('rechaza una moneda de entrada fuera del set soportado', monedaInvalida.status >= 400, `HTTP ${monedaInvalida.status}`)
-    await as(`/fin_categories?id=eq.${otraCategoria.id}`, { method: 'DELETE' })
 
-    // El tope general ya no es una línea propia: category_id es NOT NULL.
-    const sinCategoria = await post('fin_budget_lines', { user_id: USER_ID, category_id: null, retroactive: true })
-    ok('category_id es obligatorio — no hay más "tope general" como línea', sinCategoria.status >= 400, `HTTP ${sinCategoria.status}`)
+    // Una línea puede cubrir varias categorías — se suma la segunda a la
+    // misma línea que ya tenía `budgetCategory`.
+    const link2 = await post('fin_budget_line_categories', { user_id: USER_ID, line_id: budgetLine.id, category_id: otraCategoria.id })
+    ok('la misma línea admite una segunda categoría', link2.status < 300, `HTTP ${link2.status}`)
+    eq('la línea queda con las dos categorías',
+       (await rows('fin_budget_line_categories', `&line_id=eq.${budgetLine.id}`)).length, 2)
+
+    // Borrar UNA de las dos no se lleva la línea: todavía le queda la otra.
+    await as(`/fin_categories?id=eq.${otraCategoria.id}`, { method: 'DELETE' })
+    eq('con una categoría borrada, la línea sigue viva — le queda la otra',
+       (await rows('fin_budget_lines', `&id=eq.${budgetLine.id}`)).length, 1)
+    eq('y le queda solo la categoría que no se borró',
+       (await rows('fin_budget_line_categories', `&line_id=eq.${budgetLine.id}`)).length, 1)
 
     budgetPeriod = (await post('fin_budget_periods', {
       user_id: USER_ID, line_id: budgetLine.id, period: '2026-08-01',
@@ -946,8 +961,11 @@ async function run() {
     eq('borrar el período se lleva sus ampliaciones (cascade)',
        (await rows('fin_budget_extensions', `&period_id=eq.${budgetPeriod.id}`)).length, 0)
 
+    // `budgetCategory` es la ÚLTIMA categoría que le queda a la línea — al
+    // borrarla, el trigger `fin_budget_line_categories_cleanup` se lleva la
+    // línea entera por quedar sin ninguna.
     await as(`/fin_categories?id=eq.${budgetCategory.id}`, { method: 'DELETE' })
-    eq('borrar la categoría se lleva su línea de presupuesto (cascade)',
+    eq('sin categorías, el trigger se lleva la línea de presupuesto',
        (await rows('fin_budget_lines', `&id=eq.${budgetLine.id}`)).length, 0)
     eq('y con ella, sus cierres (cascade sobre line_id)',
        (await rows('fin_budget_closures', `&line_id=eq.${budgetLine.id}`)).length, 0)

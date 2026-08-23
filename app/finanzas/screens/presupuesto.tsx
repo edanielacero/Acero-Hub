@@ -51,7 +51,7 @@ export function PresupuestoScreen() {
    */
   function verMovimientos(line: BudgetLineProgress) {
     const params = new URLSearchParams({
-      category: line.category_id,
+      category: line.category_ids.join(','),
       type: 'gasto',
       month: todayISO().slice(0, 7),
     })
@@ -106,7 +106,7 @@ export function PresupuestoScreen() {
               {budgets.categories.map(line => (
                 <BudgetLineCard
                   key={line.line_id}
-                  line={line} hidden={hidden} mode={viewMode} icon={iconFor(line.category_id)}
+                  line={line} hidden={hidden} mode={viewMode} icon={iconFor(line.category_ids[0])}
                   onView={() => setViewing(line)}
                   onEdit={() => setEditingLine(line)}
                   onDelete={() => setDeleting(line)}
@@ -140,7 +140,7 @@ export function PresupuestoScreen() {
         onEdit={() => { const l = viewing!; setViewing(null); setEditingLine(l) }}
         onDelete={() => { const l = viewing!; setViewing(null); setDeleting(l) }}
       >
-        {viewing && <BudgetDetail line={viewing} hidden={hidden} rates={rates} icon={iconFor(viewing.category_id)} />}
+        {viewing && <BudgetDetail line={viewing} hidden={hidden} rates={rates} icon={iconFor(viewing.category_ids[0])} />}
       </DetailSheet>
 
       <DeleteConfirmSheet
@@ -152,8 +152,8 @@ export function PresupuestoScreen() {
       >
         {deleting && (
           <DeletePreview
-            icon={<CategoryIcon slug={iconFor(deleting.category_id)} name={deleting.name ?? deleting.category_name} size={40} />}
-            title={deleting.name ?? deleting.category_name}
+            icon={<CategoryIcon slug={iconFor(deleting.category_ids[0])} name={deleting.name ?? deleting.category_names.join(', ')} size={40} />}
+            title={deleting.name ?? deleting.category_names.join(', ')}
             subtitle="Se borra la configuración — tus movimientos ya registrados no se tocan"
           />
         )}
@@ -254,7 +254,7 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
     spent: line.spent, available: line.available ?? 0,
     day: line.day_of_period, days: line.days_in_period,
   })
-  const displayName = line.name ?? line.category_name
+  const displayName = line.name ?? line.category_names.join(', ')
 
   return (
     <Panel className="relative">
@@ -342,15 +342,21 @@ function BudgetDetail({ line, hidden, rates, icon }: {
   const otherCur: Currency = cur === 'USD' ? 'BOB' : 'USD'
   const bobRate = fromUsd(1, 'BOB', rates)
 
+  const categoryNames = line.category_names.join(', ')
+  // Solo hace falta mostrar las categorías aparte cuando el alias las tapa,
+  // o cuando son varias — con una sola y sin alias, el título ya lo dice.
+  const showCategories = !!line.name || line.category_ids.length > 1
+
   return (
     <>
       <DeletePreview
-        icon={<CategoryIcon slug={icon} name={line.name ?? line.category_name} size={40} />}
-        title={line.name ?? line.category_name}
-        subtitle={line.name ? line.category_name : undefined}
+        icon={<CategoryIcon slug={icon} name={line.name ?? categoryNames} size={40} />}
+        title={line.name ?? categoryNames}
+        subtitle={line.name ? categoryNames : undefined}
         amount={hidden ? HIDDEN : fmt(line.spent)}
       />
       <div>
+        <DetailField label="Categorías" value={showCategories ? categoryNames : null} />
         <DetailField label="Monto mensual" value={hidden ? null : (line.amount == null ? '—' : fmt(line.amount))} />
         <DetailField
           label={`Equivalente en ${otherCur}`}

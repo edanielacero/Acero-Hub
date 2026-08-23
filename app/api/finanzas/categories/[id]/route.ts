@@ -49,6 +49,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * Borra la categoría. Los movimientos que la usaban quedan con `category_id`
  * en null (`on delete set null`), no se pierden. Para conservar el historial
  * legible conviene archivar en vez de borrar.
+ *
+ * Si esta categoría era la única de una línea de presupuesto, un trigger en
+ * la base (`fin_budget_line_categories_cleanup`) se lleva la línea entera al
+ * quedar sin ninguna categoría — no hace falta replicarlo acá.
  */
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()

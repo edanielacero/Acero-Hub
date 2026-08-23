@@ -66,7 +66,7 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
 
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
           <h2 className="text-[17px] font-bold tracking-[-0.01em]">
-            {monthLabel(current.period.slice(0, 7))} — {current.name ?? current.category_name}
+            {monthLabel(current.period.slice(0, 7))} — {current.name ?? current.category_names.join(', ')}
           </h2>
           <button
             type="button" onClick={onClose} aria-label="Cerrar"

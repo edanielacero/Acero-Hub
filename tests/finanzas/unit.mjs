@@ -1415,10 +1415,12 @@ section('SPRINT 6 · gastoRealCategoria — bruto menos repartido')
   ]
 
   eq('comida: bruto 32 − repartido 8 (el condonado no resta)',
-     gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31').amountUsd, 24)
-  eq('ocio: sin reparto', gastoRealCategoria(txs, debts, 'ocio', '2026-08-01', '2026-08-31').amountUsd, 30)
+     gastoRealCategoria(txs, debts, ['comida'], '2026-08-01', '2026-08-31').amountUsd, 24)
+  eq('ocio: sin reparto', gastoRealCategoria(txs, debts, ['ocio'], '2026-08-01', '2026-08-31').amountUsd, 30)
   eq('respeta el rango: julio no entra',
-     gastoRealCategoria(txs, debts, 'comida', '2026-08-01', '2026-08-31').amountUsd, 24)
+     gastoRealCategoria(txs, debts, ['comida'], '2026-08-01', '2026-08-31').amountUsd, 24)
+  eq('una línea con varias categorías suma las dos, sin duplicar nada',
+     gastoRealCategoria(txs, debts, ['comida', 'ocio'], '2026-08-01', '2026-08-31').amountUsd, 54)
 }
 
 section('SPRINT 6 (revisión) · gastoRealCategoria — el nativo no pierde centavos')
@@ -1429,14 +1431,14 @@ section('SPRINT 6 (revisión) · gastoRealCategoria — el nativo no pierde cent
   const rate = 0.08605852
   const txs = [{ id: 't1', category_id: 'comida', amount: 10, currency: 'BOB', amount_usd: 0.86, date: '2026-08-23' }]
 
-  const r = gastoRealCategoria(txs, [], 'comida', '2026-08-01', '2026-08-31', 'BOB', rate)
+  const r = gastoRealCategoria(txs, [], ['comida'], '2026-08-01', '2026-08-31', 'BOB', rate)
   eq('el gasto en Bs se suma tal cual: 10, no 9.99', r.amount, 10)
   eq('y su USD sigue siendo el congelado', r.amountUsd, 0.86)
 
   // Un gasto en OTRA moneda sí se convierte: no hay alternativa.
   const mixto = [{ id: 't2', category_id: 'comida', amount: 5, currency: 'USD', amount_usd: 5, date: '2026-08-23' }]
   eq('un gasto en USD dentro de una línea en Bs se convierte con la tasa de la línea',
-     gastoRealCategoria(mixto, [], 'comida', '2026-08-01', '2026-08-31', 'BOB', rate).amount, 58.10)
+     gastoRealCategoria(mixto, [], ['comida'], '2026-08-01', '2026-08-31', 'BOB', rate).amount, 58.10)
 }
 
 section('SPRINT 6 · comprometido — Fijos pendientes')
@@ -1450,14 +1452,16 @@ section('SPRINT 6 · comprometido — Fijos pendientes')
     r('suscripciones', 12, 'vencido'),
     r('suscripciones', 500, 'pendiente', false), // pausado: no cuenta
   ]
-  eq('vivienda: solo lo pendiente', comprometido(recurring, 'vivienda').amountUsd, 300)
-  eq('suscripciones: vencido cuenta, pausado no', comprometido(recurring, 'suscripciones').amountUsd, 12)
-  eq('categoría sin fijos: 0', comprometido(recurring, 'ocio').amountUsd, 0)
+  eq('vivienda: solo lo pendiente', comprometido(recurring, ['vivienda']).amountUsd, 300)
+  eq('suscripciones: vencido cuenta, pausado no', comprometido(recurring, ['suscripciones']).amountUsd, 12)
+  eq('categoría sin fijos: 0', comprometido(recurring, ['ocio']).amountUsd, 0)
+  eq('una línea con varias categorías suma los fijos de las dos',
+     comprometido(recurring, ['vivienda', 'suscripciones']).amountUsd, 312)
 
   // Un fijo en Bs dentro de una línea en Bs no pasa por USD.
   const enBs = [{ category_id: 'comida', active: true, amount: 1420, currency: 'BOB', amountUsd: 122.2, status: 'pendiente' }]
   eq('el fijo en Bs suma su monto nativo exacto',
-     comprometido(enBs, 'comida', 'BOB', 0.08605852).amount, 1420)
+     comprometido(enBs, ['comida'], 'BOB', 0.08605852).amount, 1420)
 }
 
 section('SPRINT 6 · carriedInto — un solo salto hacia atrás, no una cadena')

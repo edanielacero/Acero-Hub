@@ -316,7 +316,7 @@ export function QuickAdd() {
     if (budgetLine && budgetExceeded) {
       if (!extendBudget) {
         return setError(
-          `Te pasas el presupuesto de ${budgetLine.name ?? budgetLine.category_name} por ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`,
+          `Te pasas el presupuesto de ${budgetLine.name ?? budgetLine.category_names.join(', ')} por ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`,
         )
       }
       const extra = amountFromInput(extensionAmount, { decimals: decimalsFor(budgetLine.input_currency) })
@@ -601,7 +601,7 @@ export function QuickAdd() {
               {budgetLine && budgetExceeded && (
                 <div className="mt-3 rounded-[var(--fz-r-field)] bg-[var(--fz-out-tint)] p-3.5 flex flex-col gap-2.5">
                   <p className="text-[13px] font-medium text-[var(--fz-out-text)]">
-                    Te pasas el presupuesto de {budgetLine.name ?? budgetLine.category_name} por {formatAmount(budgetNeededDisplay, budgetLine.input_currency)}
+                    Te pasas el presupuesto de {budgetLine.name ?? budgetLine.category_names.join(', ')} por {formatAmount(budgetNeededDisplay, budgetLine.input_currency)}
                   </p>
                   {!extendBudget ? (
                     <Btn

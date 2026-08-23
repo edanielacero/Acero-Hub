@@ -1949,16 +1949,16 @@ async function run() {
        before.categories_without_line.some(c => c.id === comida.id))
 
     eq('monto en cero → 400',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 0 }) })).status, 400)
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [comida.id], amount: 0 }) })).status, 400)
     eq('una categoría de INGRESO no admite presupuesto → 400',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: sueldo.id, amount: 50 }) })).status, 400)
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [sueldo.id], amount: 50 }) })).status, 400)
     eq('categoría inexistente → 400',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: '00000000-0000-0000-0000-000000000000', amount: 50 }) })).status, 400)
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: ['00000000-0000-0000-0000-000000000000'], amount: 50 }) })).status, 400)
     eq('moneda inválida → 400',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 50, currency: 'EUR' }) })).status, 400)
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [comida.id], amount: 50, currency: 'EUR' }) })).status, 400)
 
     const comidaLine = (await json(await api('/budgets', {
-      method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 80 }),
+      method: 'POST', body: JSON.stringify({ category_ids: [comida.id], amount: 80 }),
     }))).line
     ok('crea la línea de Comida', !!comidaLine?.id)
     eq('retroactive por default: true', comidaLine.retroactive, true)
@@ -1966,11 +1966,11 @@ async function run() {
     eq('sin moneda, input_currency por default USD', comidaLine.input_currency, 'USD')
 
     eq('la misma categoría de nuevo → 409',
-       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_id: comida.id, amount: 50 }) })).status, 409)
+       (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [comida.id], amount: 50 }) })).status, 409)
 
-    // El tope general ya no es una línea propia: no hay category_id que
-    // omitir, es simplemente obligatorio.
-    eq('sin category_id → 400 (no existe más el "tope general" como línea)',
+    // El tope general ya no es una línea propia: no hay categoría que
+    // omitir, es simplemente obligatorio tener al menos una.
+    eq('sin category_ids → 400 (no existe más el "tope general" como línea)',
        (await api('/budgets', { method: 'POST', body: JSON.stringify({ amount: 500 }) })).status, 400)
 
     const after = await json(await api('/budgets'))
@@ -2044,7 +2044,7 @@ async function run() {
       // no se pueden ejercitar desde afuera).
       const transporte = (await json(await api('/categories'))).categories.find(c => c.name === 'Transporte')
       pastLine = (await json(await api('/budgets', {
-        method: 'POST', body: JSON.stringify({ category_id: transporte.id, amount: 40 }),
+        method: 'POST', body: JSON.stringify({ category_ids: [transporte.id], amount: 40 }),
       }))).line
 
       await adminFetch(`/rest/v1/fin_budget_lines?id=eq.${pastLine.id}`, {
@@ -2087,6 +2087,58 @@ async function run() {
          (await api(`/budgets/${pastLine.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })).status, 200)
       const empty = await json(await api('/budgets'))
       eq('sin ninguna categoría presupuestada, el general es null', empty.general, null)
+      const transporteCat = (await json(await api('/categories'))).categories.find(c => c.name === 'Transporte')
+      ok('Transporte también vuelve a estar libre — archivar no la deja reservada para siempre',
+         empty.categories_without_line.some(c => c.id === transporteCat.id))
+    }
+
+    section('Presupuesto con varias categorías — exclusividad entre líneas')
+    {
+      const salud = (await json(await api('/categories'))).categories.find(c => c.name === 'Salud')
+      const personal = (await json(await api('/categories'))).categories.find(c => c.name === 'Personal')
+
+      const grupoLine = (await json(await api('/budgets', {
+        method: 'POST',
+        body: JSON.stringify({ category_ids: [salud.id, personal.id], name: 'Salud y Personal', amount: 100 }),
+      }))).line
+      ok('crea una línea con dos categorías', !!grupoLine?.id)
+
+      const withGrupo = await json(await api('/budgets'))
+      ok('ninguna de las dos aparece ya sin línea',
+         !withGrupo.categories_without_line.some(c => c.id === salud.id || c.id === personal.id))
+
+      eq('una de esas dos categorías, sola, ya no se puede presupuestar aparte → 409',
+         (await api('/budgets', { method: 'POST', body: JSON.stringify({ category_ids: [salud.id], amount: 20 }) })).status, 409)
+
+      const cuenta = (await json(await api('/accounts', {
+        method: 'POST', body: JSON.stringify({ name: 'Grupo Test', currency: 'USD', initial_balance: 1000 }),
+      }))).account
+      await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'gasto', date: todayStr, account_id: cuenta.id, category_id: salud.id, amount: 15, description: 'Consulta' }),
+      })
+      await api('/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'gasto', date: todayStr, account_id: cuenta.id, category_id: personal.id, amount: 25, description: 'Corte' }),
+      })
+
+      const grupoProgress = (await json(await api('/budgets'))).categories.find(c => c.line_id === grupoLine.id)
+      eq('el gasto de las dos categorías se suma en la misma línea', grupoProgress.spent_usd, 40)
+      eq('las dos categorías quedan en category_ids',
+         [...grupoProgress.category_ids].sort(), [personal.id, salud.id].sort())
+
+      // "Ver movimientos" de una línea con varias categorías manda las dos
+      // separadas por coma — Movimientos tiene que traer los gastos de
+      // CUALQUIERA de ellas, no solo de la primera.
+      const movsGrupo = (await json(await api(`/transactions?category_id=${salud.id},${personal.id}`))).transactions
+      ok('trae el gasto de salud', movsGrupo.some(t => t.description === 'Consulta'))
+      ok('trae el gasto de personal', movsGrupo.some(t => t.description === 'Corte'))
+
+      eq('borra la línea del grupo', (await api(`/budgets/${grupoLine.id}`, { method: 'DELETE' })).status, 200)
+      const afterGrupoDelete = await json(await api('/budgets'))
+      ok('las dos categorías vuelven a estar libres',
+         afterGrupoDelete.categories_without_line.some(c => c.id === salud.id)
+         && afterGrupoDelete.categories_without_line.some(c => c.id === personal.id))
     }
   }
 
@@ -2107,7 +2159,7 @@ async function run() {
     // 100 USD — un número redondo para no depender de decimales de más.
     const viviendaLine = (await json(await api('/budgets', {
       method: 'POST',
-      body: JSON.stringify({ category_id: vivienda.id, name: 'Alquiler y depósito', amount: 696, currency: 'BOB' }),
+      body: JSON.stringify({ category_ids: [vivienda.id], name: 'Alquiler y depósito', amount: 696, currency: 'BOB' }),
     }))).line
     eq('el alias queda guardado', viviendaLine.name, 'Alquiler y depósito')
     eq('la moneda de entrada queda guardada', viviendaLine.input_currency, 'BOB')

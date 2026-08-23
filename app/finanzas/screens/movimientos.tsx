@@ -59,7 +59,18 @@ export function MovimientosScreen() {
     () => (TYPE_FILTER_OPTIONS.some(o => o.value === query.get('type')) ? query.get('type') as TypeFilter : 'todos'),
   )
   const [accountId, setAccountId] = useState(() => query.get('account') ?? '')
-  const [categoryId, setCategoryId] = useState(() => query.get('category') ?? '')
+  // Una línea de presupuesto con varias categorías llega acá con `category`
+  // separado por comas — el dropdown de abajo es de una sola, así que ese
+  // caso se muestra aparte (un chip con las N categorías) en vez de forzarlo
+  // ahí. Con una sola categoría, sigue siendo el dropdown de siempre.
+  const [categoryId, setCategoryId] = useState(() => {
+    const ids = (query.get('category') ?? '').split(',').filter(Boolean)
+    return ids.length === 1 ? ids[0] : ''
+  })
+  const [categoryIds, setCategoryIds] = useState<string[]>(() => {
+    const ids = (query.get('category') ?? '').split(',').filter(Boolean)
+    return ids.length > 1 ? ids : []
+  })
 
   const range = useMemo(() => {
     if (!month) return monthRange()
@@ -67,12 +78,13 @@ export function MovimientosScreen() {
     return monthRange(new Date(y, m - 1, 1))
   }, [month])
 
-  const hayFiltros = monthOverride !== null || type !== 'todos' || !!accountId || !!categoryId
+  const hayFiltros = monthOverride !== null || type !== 'todos' || !!accountId || !!categoryId || categoryIds.length > 0
   function limpiarFiltros() {
     setMonthOverride(null)
     setType('todos')
     setAccountId('')
     setCategoryId('')
+    setCategoryIds([])
     // Y también de la URL: si vino filtrado desde Presupuesto, dejarla con el
     // query puesto haría volver los filtros al recargar.
     navigate('/finanzas/movimientos')
@@ -86,7 +98,7 @@ export function MovimientosScreen() {
     ...monthQuery(range),
     type: type === 'todos' ? undefined : esFijo ? 'gasto' : type,
     account_id: accountId || undefined,
-    category_id: categoryId || undefined,
+    category_id: categoryIds.length > 0 ? categoryIds.join(',') : (categoryId || undefined),
     recurring: esFijo ? '1' : undefined,
     shared: type === 'fijo_compartido' ? '1' : undefined,
   })
@@ -156,13 +168,28 @@ export function MovimientosScreen() {
               options={accounts.map(a => ({ value: a.id, label: a.name }))}
             />
 
-            <DropdownField
-              label="Categoría"
-              placeholder="Todas las categorías"
-              value={categoryId}
-              onChange={setCategoryId}
-              options={categories.filter(c => !c.archived).map(c => ({ value: c.id, label: c.name }))}
-            />
+            {categoryIds.length > 0 ? (
+              // Varias categorías a la vez (llegó así desde un presupuesto
+              // agrupado) — el dropdown de abajo es de una sola, no hay
+              // forma de representar esto ahí sin perder cuáles son.
+              <button
+                type="button"
+                onClick={() => setCategoryIds([])}
+                aria-label={`Quitar el filtro de ${categoryIds.length} categorías`}
+                className="h-12 min-w-0 px-3.5 rounded-[var(--fz-r-field)] border border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[14px] font-semibold text-[var(--fz-accent)] flex items-center justify-between gap-1.5"
+              >
+                <span className="truncate">{categoryIds.length} categorías</span>
+                <IconX size={15} stroke={2.2} className="shrink-0" />
+              </button>
+            ) : (
+              <DropdownField
+                label="Categoría"
+                placeholder="Todas las categorías"
+                value={categoryId}
+                onChange={setCategoryId}
+                options={categories.filter(c => !c.archived).map(c => ({ value: c.id, label: c.name }))}
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-4">

@@ -141,7 +141,11 @@ export function effectiveFromFor(line: BudgetLineLike, period: string): string {
    SUMA de las categorías presupuestadas, no un cálculo independiente sobre
    todas las transacciones — por eso esta función ya no admite `categoryId:
    null`. Quien arma el general suma los `BudgetLineProgress` ya resueltos de
-   cada categoría (ver `loadBudgets`), no vuelve a recorrer transacciones. */
+   cada categoría (ver `loadBudgets`), no vuelve a recorrer transacciones.
+
+   Una línea puede cubrir varias categorías a la vez (§ rediseño
+   multi-categoría) — nunca se solapan entre líneas activas, así que sumar
+   el gasto de todas las de esta línea nunca cuenta el mismo gasto dos veces. */
 
 export interface BudgetTx {
   id: string
@@ -177,10 +181,11 @@ export interface BudgetDebtShare {
  * congelada (USD por 1 unidad nativa).
  */
 export function gastoRealCategoria(
-  txs: BudgetTx[], debts: BudgetDebtShare[], categoryId: string, from: string, to: string,
+  txs: BudgetTx[], debts: BudgetDebtShare[], categoryIds: string[], from: string, to: string,
   lineCurrency = 'USD', lineRate = 1,
 ): { amount: number; amountUsd: number } {
-  const inRange = txs.filter(t => t.category_id === categoryId && t.date >= from && t.date <= to)
+  const ownIds = new Set(categoryIds)
+  const inRange = txs.filter(t => t.category_id != null && ownIds.has(t.category_id) && t.date >= from && t.date <= to)
   const ids = new Set(inRange.map(t => t.id))
   const activos = debts.filter(d => ids.has(d.transaction_id) && !d.waived_at)
 
@@ -219,21 +224,18 @@ export interface CommittedRecurring {
 /** Igual que `gastoRealCategoria`: el nativo sale del monto de la plantilla
     cuando la moneda coincide, no de reconvertir el USD. */
 export function comprometido(
-  recurring: CommittedRecurring[], categoryId: string, lineCurrency = 'USD', lineRate = 1,
+  recurring: CommittedRecurring[], categoryIds: string[], lineCurrency = 'USD', lineRate = 1,
 ): { amount: number; amountUsd: number } {
+  const ownIds = new Set(categoryIds)
   const scoped = recurring.filter(
-    r => r.active && (r.status === 'pendiente' || r.status === 'vencido') && r.category_id === categoryId,
+    r => r.active && (r.status === 'pendiente' || r.status === 'vencido')
+      && r.category_id != null && ownIds.has(r.category_id),
   )
   return {
     amount: round2(scoped.reduce(
       (s, r) => s + (r.currency === lineCurrency ? r.amount : toNative(r.amountUsd, lineRate)), 0)),
     amountUsd: round2(scoped.reduce((s, r) => s + r.amountUsd, 0)),
   }
-}
-
-export function comprometidoUsd(recurring: CommittedRecurring[], categoryId: string): number {
-  const pending = recurring.filter(r => r.active && (r.status === 'pendiente' || r.status === 'vencido'))
-  return round2(pending.filter(r => r.category_id === categoryId).reduce((s, r) => s + r.amountUsd, 0))
 }
 
 /* ─── Carry: un solo salto hacia atrás, no una cadena ──────────────────────
