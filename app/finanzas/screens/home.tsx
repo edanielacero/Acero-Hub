@@ -1,16 +1,19 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconArrowsLeftRight, IconBuildingBank,
-  IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconUsersGroup, IconWifiOff,
+  IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconSettings, IconUsersGroup, IconWifiOff,
 } from '@tabler/icons-react'
 import { monthRange } from '@/lib/finanzas/transactions'
 import { formatAmount, formatUSD, HIDDEN } from '@/lib/finanzas/money'
-import { CURRENCY_META } from '@/lib/finanzas/types'
+import { CURRENCY_META, type BudgetLineProgress } from '@/lib/finanzas/types'
 import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
+import { useHeroPref } from '../components/hero-pref'
+import { HeroSettingsSheet } from '../components/hero-settings-sheet'
+import { CategoryIcon } from '../components/category-icon'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { CurrencyIcon } from '../components/currency-icon'
 import { IconGasto, IconIngreso } from '../components/flow-icon'
@@ -31,10 +34,12 @@ function firstName(name: string | null): string {
 }
 
 export function HomeScreen() {
-  const { accounts, categories, shared, recurring, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
+  const { accounts, categories, shared, recurring, budgets, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
+  const { mode: heroMode, setMode: setHeroMode } = useHeroPref()
+  const [heroSettings, setHeroSettings] = useState(false)
 
   const now = useMemo(() => new Date(), [])
   const range = useMemo(() => monthRange(now), [now])
@@ -60,6 +65,63 @@ export function HomeScreen() {
 
   const visible = accounts.filter(a => !a.archived)
   const hasBtc = visible.some(a => a.currency === 'BTC')
+
+  // El pie del hero es el mismo en los dos cards: la tasa del día es un dato
+  // que se mira seguido en Bolivia, y no depende de qué número esté arriba.
+  const heroFoot = loading ? 'Cargando tus cuentas…' : stale ? 'actualizando…' : (
+    <>
+      {`1 USD = Bs ${(rates.BOB ?? CURRENCY_META.BOB.defaultRate).toFixed(2)}`}
+      {/* El BTC solo aparece si el usuario realmente tiene una cuenta en esa
+          moneda — no tiene sentido mostrar una tasa que no usa. */}
+      {hasBtc && ` · 1 BTC = ${formatUSD(rates.BTC ?? CURRENCY_META.BTC.defaultRate)}`}
+    </>
+  )
+
+  const general = budgets.general
+  const budgetCapacity = general ? general.amount_usd + general.extended_usd + general.carried_usd : 0
+  const budgetLeft = general ? general.available_usd : 0
+
+  const patrimonioCard = (
+    <HeroCard
+      label="Patrimonio total"
+      value={loading ? null : hidden ? HIDDEN : formatUSD(totalUsd)}
+      foot={heroFoot}
+      // Reemplaza a la barra de proporción ingreso/gasto: un número con signo
+      // dice más que una barra sin escala (§16.1 / §18). Mismo verde/rojo que
+      // el resto de la app — nunca lima para "entró plata": ese es el color de
+      // marca, no el semántico.
+      note={!loading && !hidden && !mes.loading ? {
+        text: `${netoMes >= 0 ? '↗ +' : '↘ −'}${formatUSD(Math.abs(netoMes))} este mes`,
+        color: netoMes >= 0 ? 'var(--fz-in)' : 'var(--fz-out)',
+      } : undefined}
+    />
+  )
+
+  const presupuestoCard = (
+    <HeroCard
+      label="Presupuesto total"
+      value={
+        loading ? null
+          : !general ? '—'
+          : hidden ? HIDDEN
+          : formatUSD(general.spent_usd)
+      }
+      foot={general ? `de ${formatUSD(budgetCapacity)} presupuestado` : 'Todavía no armaste tu presupuesto'}
+      note={general && !hidden && !loading ? {
+        text: budgetLeft >= 0
+          ? `Te quedan ${formatUSD(budgetLeft)}`
+          : `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`,
+        color: budgetLeft >= 0 ? 'var(--fz-in)' : 'var(--fz-out)',
+      } : undefined}
+    />
+  )
+
+  const heroCards =
+    heroMode === 'patrimonio' ? [patrimonioCard]
+      : heroMode === 'presupuesto' ? [presupuestoCard]
+      : [patrimonioCard, presupuestoCard]
+
+  const budgetLines = budgets.categories
 
   // Sin datos y sin poder pedirlos. Decirlo es lo único honesto: un esqueleto
   // eterno se lee como "ya casi", y un $0 se lee como un saldo.
@@ -100,7 +162,19 @@ export function HomeScreen() {
       <PageHeader
         title={firstName(userName)}
         subtitle={greeting()}
-        action={<HideToggle />}
+        action={
+          <>
+            <HideToggle />
+            <button
+              type="button"
+              onClick={() => setHeroSettings(true)}
+              aria-label="Elegir qué mostrar arriba"
+              className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] hover:text-[var(--fz-ink)] transition-colors"
+            >
+              <IconSettings size={18} stroke={1.8} />
+            </button>
+          </>
+        }
       />
 
       <div className="flex flex-col gap-5 min-w-0">
@@ -108,50 +182,21 @@ export function HomeScreen() {
               de 1 columna, igual que antes); desde 900px comparten fila — el
               hero manda el alto y las acciones se estiran a juego (§22). */}
           <div className="grid grid-cols-1 gap-5 min-[900px]:grid-cols-[1fr_240px] min-[900px]:items-stretch">
-            {/* Hero: el único bloque oscuro de la pantalla. */}
-            <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white">
+            {/* Hero: el único bloque oscuro de la pantalla. Según la
+                preferencia muestra patrimonio, presupuesto, o los dos como
+                carrusel — el diseño del card no cambia, solo el dato. */}
+            {heroCards.length === 1 ? (
+              heroCards[0]
+            ) : (
               <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0"
-                style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
-              />
-
-              <p className="relative text-[13px] font-medium text-white/60">Patrimonio total</p>
-
-              {loading ? (
-                <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
-              ) : (
-                <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
-                  {hidden ? HIDDEN : formatUSD(totalUsd)}
-                </p>
-              )}
-
-              {/* Reemplaza a la barra de proporción ingreso/gasto: un número con
-                  signo dice más que una barra sin escala (§16.1 / §18). Mismo
-                  verde/rojo que el resto de la app — nunca lima para "entró
-                  plata": ese es el color de marca, no el semántico. */}
-              {!loading && !hidden && !mes.loading && (
-                <p
-                  className="relative mt-2 text-[13px] font-semibold fz-num"
-                  style={{ color: netoMes >= 0 ? 'var(--fz-in)' : 'var(--fz-out)' }}
-                >
-                  {netoMes >= 0 ? '↗ +' : '↘ −'}{formatUSD(Math.abs(netoMes))} este mes
-                </p>
-              )}
-
-              <p className="relative mt-2 text-[13px] text-white/50">
-                {loading ? 'Cargando tus cuentas…' : stale ? 'actualizando…' : (
-                  <>
-                    {/* La tasa del día es un dato que se mira seguido en Bolivia:
-                        decirla es más útil que la cantidad de cuentas (§16.1). */}
-                    {`1 USD = Bs ${(rates.BOB ?? CURRENCY_META.BOB.defaultRate).toFixed(2)}`}
-                    {/* El BTC solo aparece si el usuario realmente tiene una cuenta
-                        en esa moneda — no tiene sentido mostrar una tasa que no usa. */}
-                    {hasBtc && ` · 1 BTC = ${formatUSD(rates.BTC ?? CURRENCY_META.BTC.defaultRate)}`}
-                  </>
-                )}
-              </p>
-            </div>
+                className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1"
+                aria-label="Deslizá para ver patrimonio o presupuesto"
+              >
+                {heroCards.map((card, i) => (
+                  <div key={i} className="snap-center shrink-0 w-full min-w-0">{card}</div>
+                ))}
+              </div>
+            )}
 
             {/* Única puerta de entrada para registrar: no hay un "Nuevo
                 movimiento" aparte, que llevaría al mismo panel y volvería
@@ -168,6 +213,35 @@ export function HomeScreen() {
               <QuickAction label="Mover entre cuentas" Icon={IconArrowsLeftRight} onClick={() => openQuickAdd('transferencia')} />
             </div>
           </div>
+
+          {/* Los presupuestos por categoría, en carrusel — mismo tratamiento
+              que Cuentas más abajo: con varios se scrollea en vez de
+              esconderse. Solo aparece si hay alguno cargado. */}
+          {budgetLines.length > 0 && (
+            <Panel>
+              <SectionTitle
+                action={
+                  <FzLink href="/finanzas/presupuesto" className="text-[13px] font-semibold text-[var(--fz-accent)] inline-flex items-center gap-0.5">
+                    Ver todos <IconChevronRight size={14} stroke={2} />
+                  </FzLink>
+                }
+              >
+                Presupuestos
+              </SectionTitle>
+
+              <div className="fz-scroll-x flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1">
+                {budgetLines.map(line => (
+                  <BudgetTile
+                    key={line.line_id}
+                    line={line}
+                    hidden={hidden}
+                    icon={categories.find(c => c.id === line.category_id)?.icon ?? null}
+                    onClick={() => navigate('/finanzas/presupuesto')}
+                  />
+                ))}
+              </div>
+            </Panel>
+          )}
 
           {/* Fila de resumen: Ingresos y Gastos siempre; Fijos y Deudas se
               suman cuando aplican. En mobile son 2 columnas (Fijos/Deudas
@@ -375,6 +449,106 @@ export function HomeScreen() {
             </Panel>
           </div>
       </div>
+
+      {heroSettings && (
+        <HeroSettingsSheet
+          mode={heroMode}
+          onChange={setHeroMode}
+          onClose={() => setHeroSettings(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Un presupuesto en la tira horizontal de la Home. Mismo tamaño y forma que
+ * las cards de Cuentas de más abajo, con la barra de progreso en vez del
+ * equivalente en USD. Todo en la moneda de la línea, igual que en la
+ * pantalla de Presupuesto.
+ */
+function BudgetTile({ line, hidden, icon, onClick }: {
+  line: BudgetLineProgress
+  hidden: boolean
+  icon: string | null
+  onClick: () => void
+}) {
+  const cur = line.input_currency
+  const capacityUsd = (line.amount_usd ?? 0) + line.extended_usd + line.carried_usd
+  const pct = capacityUsd > 0 ? Math.round((line.spent_usd / capacityUsd) * 100) : 0
+  const over = capacityUsd > 0 && line.spent_usd > capacityUsd
+  const capacity = (line.amount ?? 0) + line.extended + line.carried
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="snap-start shrink-0 w-[148px] rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5 flex flex-col gap-2.5 text-left"
+    >
+      <CategoryIcon slug={icon} name={line.name ?? line.category_name} size={30} />
+      <div className="min-w-0 w-full">
+        <p className="text-[13px] font-semibold text-[var(--fz-ink-2)] truncate">
+          {line.name ?? line.category_name}
+        </p>
+        <p className={`text-[16px] font-bold tracking-[-0.01em] fz-num truncate ${over ? 'text-[var(--fz-out-text)]' : ''}`}>
+          {hidden ? HIDDEN : formatAmount(line.spent, cur)}
+        </p>
+        <p className="text-[11px] text-[var(--fz-ink-3)] fz-num truncate">
+          {hidden ? '' : `de ${formatAmount(capacity, cur)}`}
+        </p>
+
+        <div className="relative h-1.5 mt-2 rounded-full bg-[var(--fz-surface)] overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              background: over || pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
+            }}
+          />
+        </div>
+      </div>
+    </button>
+  )
+}
+
+/**
+ * El card oscuro de arriba. El diseño es fijo — rótulo chico, número grande,
+ * una nota con signo y el pie — y lo único que cambia es qué se le pasa:
+ * patrimonio o presupuesto. Así los dos se ven idénticos al deslizar.
+ *
+ * `value: null` = todavía cargando; se pinta el esqueleto en su lugar.
+ */
+function HeroCard({ label, value, note, foot }: {
+  label: string
+  value: string | null
+  note?: { text: string; color: string }
+  foot: ReactNode
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white h-full">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
+      />
+
+      <p className="relative text-[13px] font-medium text-white/60">{label}</p>
+
+      {value === null ? (
+        <Skeleton w="min(220px, 70%)" h={38} onDark className="relative mt-2" />
+      ) : (
+        <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
+          {value}
+        </p>
+      )}
+
+      {note && (
+        <p className="relative mt-2 text-[13px] font-semibold fz-num" style={{ color: note.color }}>
+          {note.text}
+        </p>
+      )}
+
+      <p className="relative mt-2 text-[13px] text-white/50">{foot}</p>
     </div>
   )
 }

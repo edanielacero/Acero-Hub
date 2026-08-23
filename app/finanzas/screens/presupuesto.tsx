@@ -81,7 +81,7 @@ export function PresupuestoScreen() {
             <EmptyState
               icon={IconChartPie}
               title="Todavía no armaste tu presupuesto"
-              description="Poné un tope por categoría —Comida, Transporte, lo que sea— y la app te avisa antes de pasarte. El general se arma solo, sumando tus categorías."
+              description="Poné un tope por categoría —Comida, Transporte, lo que sea— y la app te avisa antes de pasarte. El total se arma solo, sumando tus categorías."
               action={<Btn onClick={() => setAdding(true)}>Crear el primero</Btn>}
             />
           </Panel>
@@ -179,7 +179,7 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
 
   return (
     <Panel className="flex flex-col gap-3">
-      <SectionTitle>Presupuesto general</SectionTitle>
+      <SectionTitle>Presupuesto total</SectionTitle>
 
       <div>
         <div className="flex items-baseline gap-2">
