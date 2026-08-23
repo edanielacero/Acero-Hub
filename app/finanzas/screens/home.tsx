@@ -239,70 +239,11 @@ export function HomeScreen() {
             </Panel>
           )}
 
-          {/* Fila de resumen: Ingresos y Gastos siempre; Fijos y Deudas se
-              suman cuando aplican. En mobile son 2 columnas (Fijos/Deudas
-              siguen abajo como barra ancha, sin cambios); desde 900px los
-              cuatro entran en una sola fila de 4 (§22). */}
-          <div className="grid grid-cols-2 gap-3 min-[900px]:grid-cols-4">
-            <StatTile
-              tone="in"
-              icon={<IconIngreso size={18} stroke={2} />}
-              label={`Ingresos de ${monthName(now.getMonth())}`}
-              value={ingresoMes}
-              loading={mes.loading}
-            />
-            <StatTile
-              tone="out"
-              icon={<IconGasto size={18} stroke={2} />}
-              label={`Gastos de ${monthName(now.getMonth())}`}
-              value={gastoMes}
-              loading={mes.loading}
-              // Lo que salió del bolsillo es el bruto; abajo, lo que realmente
-              // te costó una vez descontado lo que le toca a otros. Si cobraste
-              // por encima del costo, el neto da negativo: eso no es un gasto
-              // "real de −$1.51", es plata a favor, y así se dice.
-              foot={
-                hayReparto
-                  ? gastoRealMes < 0
-                    ? <>a favor <AmountUSD value={Math.abs(gastoRealMes)} /></>
-                    : <>real <AmountUSD value={gastoRealMes} /></>
-                  : undefined
-              }
-            />
-
-            {/* Mismo destino y mismo dato que la barra ancha de abajo, en
-                formato tile para la fila de 4 — solo visible desde 900px, así
-                que en mobile no hay contenido duplicado en el DOM visible. */}
-            {hayFijos && (
-              <div className="hidden min-[900px]:block">
-                <SummaryLinkTile
-                  href="/finanzas/fijos"
-                  tone={recurring.pending > 0 ? 'out' : 'in'}
-                  icon={<IconRepeat size={18} stroke={1.9} />}
-                  label={`Fijos de ${monthName(now.getMonth())}`}
-                  value={<>{recurring.done}<span className="text-[14px] font-semibold text-[var(--fz-ink-3)]">/{recurring.total}</span></>}
-                  meta={recurring.pending > 0
-                    ? `${recurring.pending} ${recurring.pending === 1 ? 'pendiente' : 'pendientes'}`
-                    : 'al día'}
-                />
-              </div>
-            )}
-            {teDeben && (
-              <div className="hidden min-[900px]:block">
-                <SummaryLinkTile
-                  href="/finanzas/deudas"
-                  tone="out"
-                  icon={<IconUsersGroup size={18} stroke={1.9} />}
-                  label="Te deben"
-                  value={<AmountUSD value={shared.por_cobrar_usd} />}
-                  meta={`${shared.por_persona.length} ${shared.por_persona.length === 1 ? 'persona' : 'personas'}`}
-                />
-              </div>
-            )}
-          </div>
-
           {/* Mismas barras anchas de siempre, pero solo hasta 900px: desde ahí
-              las reemplaza el tile de la fila de arriba. */}
+              las reemplaza el tile de la fila de abajo. Van ANTES de
+              Ingresos/Gastos a propósito: esa fila tiene que quedar pegada a
+              Movimientos, sin nada en el medio en mobile (feedback del
+              usuario). */}
           {hayFijos && (
             <FzLink
               href="/finanzas/fijos"
@@ -361,6 +302,68 @@ export function HomeScreen() {
               <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0" />
             </FzLink>
           )}
+
+          {/* Ingresos y Gastos siempre; Fijos y Deudas se suman como tile
+              cuando aplican, pero solo desde 900px (en mobile ya están arriba
+              como barra ancha) — así esta fila queda pegada a Movimientos en
+              cualquier tamaño de pantalla. */}
+          <div className="grid grid-cols-2 gap-3 min-[900px]:grid-cols-4">
+            <StatTile
+              tone="in"
+              icon={<IconIngreso size={18} stroke={2} />}
+              label={`Ingresos de ${monthName(now.getMonth())}`}
+              value={ingresoMes}
+              loading={mes.loading}
+            />
+            <StatTile
+              tone="out"
+              icon={<IconGasto size={18} stroke={2} />}
+              label={`Gastos de ${monthName(now.getMonth())}`}
+              value={gastoMes}
+              loading={mes.loading}
+              // Lo que salió del bolsillo es el bruto; abajo, lo que realmente
+              // te costó una vez descontado lo que le toca a otros. Si cobraste
+              // por encima del costo, el neto da negativo: eso no es un gasto
+              // "real de −$1.51", es plata a favor, y así se dice.
+              foot={
+                hayReparto
+                  ? gastoRealMes < 0
+                    ? <>a favor <AmountUSD value={Math.abs(gastoRealMes)} /></>
+                    : <>real <AmountUSD value={gastoRealMes} /></>
+                  : undefined
+              }
+            />
+
+            {/* Mismo destino y mismo dato que la barra ancha de arriba, en
+                formato tile para la fila de 4 — solo visible desde 900px, así
+                que en mobile no hay contenido duplicado en el DOM visible. */}
+            {hayFijos && (
+              <div className="hidden min-[900px]:block">
+                <SummaryLinkTile
+                  href="/finanzas/fijos"
+                  tone={recurring.pending > 0 ? 'out' : 'in'}
+                  icon={<IconRepeat size={18} stroke={1.9} />}
+                  label={`Fijos de ${monthName(now.getMonth())}`}
+                  value={<>{recurring.done}<span className="text-[14px] font-semibold text-[var(--fz-ink-3)]">/{recurring.total}</span></>}
+                  meta={recurring.pending > 0
+                    ? `${recurring.pending} ${recurring.pending === 1 ? 'pendiente' : 'pendientes'}`
+                    : 'al día'}
+                />
+              </div>
+            )}
+            {teDeben && (
+              <div className="hidden min-[900px]:block">
+                <SummaryLinkTile
+                  href="/finanzas/deudas"
+                  tone="out"
+                  icon={<IconUsersGroup size={18} stroke={1.9} />}
+                  label="Te deben"
+                  value={<AmountUSD value={shared.por_cobrar_usd} />}
+                  meta={`${shared.por_persona.length} ${shared.por_persona.length === 1 ? 'persona' : 'personas'}`}
+                />
+              </div>
+            )}
+          </div>
 
           {/* Movimientos y Cuentas: en mobile apilados (grid de 1 columna,
               Movimientos primero — §21); desde 900px lado a lado, Movimientos
@@ -514,23 +517,34 @@ function BudgetTile({ line, hidden, icon, onClick }: {
  * sigue al dedo aunque el swipe quede a mitad de camino, en vez de saltar
  * solo cuando termina. Tocar una barrita lleva a su card.
  */
+// Cuánto se achica cada card para que asome el siguiente, y cuánto separa
+// una card de la otra — tienen que ser los mismos números en el cálculo del
+// paso de scroll y en las clases de Tailwind de acá abajo.
+const HERO_PEEK = 32
+const HERO_GAP = 12
+
 function HeroCarousel({ cards }: { cards: ReactNode[] }) {
   const ref = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState(0)
 
+  // El paso entre cards ya no es el ancho del viewport: cada card mide un
+  // poco menos (`HERO_PEEK`) para que asome el borde de la siguiente, así
+  // que el paso real es ese ancho más la separación entre cards.
+  function step(el: HTMLDivElement) {
+    return Math.max(1, el.clientWidth - HERO_PEEK + HERO_GAP)
+  }
+
   function onScroll() {
     const el = ref.current
     if (!el) return
-    // El ancho de una "página" es el del viewport del carrusel, no el del
-    // contenido: cada card ocupa exactamente eso.
-    const i = Math.round(el.scrollLeft / Math.max(1, el.clientWidth))
+    const i = Math.round(el.scrollLeft / step(el))
     setActive(Math.min(cards.length - 1, Math.max(0, i)))
   }
 
   function goTo(i: number) {
     const el = ref.current
     if (!el) return
-    el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' })
+    el.scrollTo({ left: i * step(el), behavior: 'smooth' })
   }
 
   return (
@@ -540,13 +554,16 @@ function HeroCarousel({ cards }: { cards: ReactNode[] }) {
         onScroll={onScroll}
         // `flex-1`: desde 900px la fila estira el hero, y sin esto el
         // carrusel se quedaba a la altura del contenido dejando un hueco.
-        // Sin padding lateral a propósito: `scrollLeft / clientWidth` tiene
-        // que dar el índice exacto, y un px-1 lo corre unos pixeles.
+        // Sin padding lateral a propósito: el cálculo del paso asume que el
+        // scroller arranca en 0, y un px-1 lo corre unos pixeles.
         className="fz-scroll-x flex flex-1 gap-3 overflow-x-auto snap-x snap-mandatory"
         aria-label="Deslizá para ver patrimonio o presupuesto"
       >
         {cards.map((card, i) => (
-          <div key={i} className="snap-center shrink-0 w-full min-w-0">{card}</div>
+          // `snap-start`, no center: con un ancho menor al 100% alcanza para
+          // que se note el borde de la próxima card sin dejar un hueco vacío
+          // adelante de la primera.
+          <div key={i} className="snap-start shrink-0 w-[calc(100%-32px)] min-w-0">{card}</div>
         ))}
       </div>
 
