@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { IconAlertTriangle, IconChartPie, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
+import { IconAlertTriangle, IconChartPie, IconListSearch, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
 import type { BudgetGeneralProgress, BudgetLineProgress, Currency, RateMap } from '@/lib/finanzas/types'
 import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
+import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
 import { CategoryIcon } from '../components/category-icon'
@@ -11,11 +12,13 @@ import { BudgetClosureSheet } from '../components/budget-closure-sheet'
 import { BudgetLineSheet } from '../components/budget-line-sheet'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
+import { useFzRouter } from '../components/router'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, Panel, RowMenu, SectionTitle } from '../components/ui'
 
 export function PresupuestoScreen() {
   const { budgets, categories, rates, hidden, loading, reload } = useFinanzas()
+  const { navigate } = useFzRouter()
   const [adding, setAdding] = useState(false)
   const [viewing, setViewing] = useState<BudgetLineProgress | null>(null)
   const [editingLine, setEditingLine] = useState<BudgetLineProgress | null>(null)
@@ -35,6 +38,21 @@ export function PresupuestoScreen() {
     await reload()
     setConfirmingDelete(false)
     setDeleting(null)
+  }
+
+  /**
+   * Los gastos que hay detrás del número de la card. Va a Movimientos con los
+   * filtros puestos por URL — mismo mes del presupuesto, esa categoría, y solo
+   * gastos — así que la pantalla se puede recargar o compartir y sigue
+   * mostrando lo mismo.
+   */
+  function verMovimientos(line: BudgetLineProgress) {
+    const params = new URLSearchParams({
+      category: line.category_id,
+      type: 'gasto',
+      month: todayISO().slice(0, 7),
+    })
+    navigate(`/finanzas/movimientos?${params}`)
   }
 
   return (
@@ -89,6 +107,7 @@ export function PresupuestoScreen() {
                   onView={() => setViewing(line)}
                   onEdit={() => setEditingLine(line)}
                   onDelete={() => setDeleting(line)}
+                  onSeeMovements={() => verMovimientos(line)}
                 />
               ))}
             </div>
@@ -211,13 +230,14 @@ function GeneralBudgetCard({ general, hidden, rates }: { general: BudgetGeneralP
  * va posicionado absoluto en la esquina, afuera del botón grande: un
  * <button> no puede anidar otro, así que son hermanos, no padre-hijo.
  */
-function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete }: {
+function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete, onSeeMovements }: {
   line: BudgetLineProgress
   hidden: boolean
   icon: string | null
   onView: () => void
   onEdit: () => void
   onDelete: () => void
+  onSeeMovements: () => void
 }) {
   const cur = line.input_currency
   // El % y los "¿ya te pasaste?" se deciden en USD (es donde vive el gasto
@@ -281,6 +301,16 @@ function BudgetLineCard({ line, hidden, icon, onView, onEdit, onDelete }: {
           </p>
         )}
       </button>
+
+      {/* Afuera del <button> de arriba: un botón no puede anidar otro. */}
+      <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)]">
+        <button
+          type="button" onClick={onSeeMovements}
+          className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--fz-accent)]"
+        >
+          <IconListSearch size={15} stroke={1.8} /> Ver movimientos
+        </button>
+      </div>
     </Panel>
   )
 }

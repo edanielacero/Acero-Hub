@@ -7,6 +7,7 @@ import { groupByDay, monthLabel, monthRange, todayISO } from '@/lib/finanzas/tra
 import { formatUSD, HIDDEN } from '@/lib/finanzas/money'
 import { HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
+import { useFzQuery, useFzRouter } from '../components/router'
 import { IconGasto, IconIngreso } from '../components/flow-icon'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { PageHeader, TxRow } from '../components/tx-row'
@@ -33,6 +34,11 @@ export function MovimientosScreen() {
   const { accounts, categories, hidden, months: monthsWithData } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
+  // Filtros que pueden venir en la URL — es como Presupuesto manda a "ver los
+  // movimientos de esta categoría". Se leen una sola vez, como valor inicial:
+  // a partir de ahí los dropdowns mandan, sin que la URL los vuelva a pisar.
+  const query = useFzQuery()
+  const { navigate } = useFzRouter()
 
   // Solo meses con al menos un movimiento — no tiene sentido ofrecer uno vacío
   // para elegir. `monthsWithData` llega del bootstrap, así que arranca vacío
@@ -46,12 +52,14 @@ export function MovimientosScreen() {
   // `null` = "seguí el mes más reciente con datos". Derivado y no sincronizado
   // con un efecto: así el primer pintado ya muestra el mes correcto en vez de
   // arrancar vacío y corregirse un frame después.
-  const [monthOverride, setMonthOverride] = useState<string | null>(null)
+  const [monthOverride, setMonthOverride] = useState<string | null>(() => query.get('month'))
   const month = monthOverride ?? defaultMonth
 
-  const [type, setType] = useState<TypeFilter>('todos')
-  const [accountId, setAccountId] = useState('')
-  const [categoryId, setCategoryId] = useState('')
+  const [type, setType] = useState<TypeFilter>(
+    () => (TYPE_FILTER_OPTIONS.some(o => o.value === query.get('type')) ? query.get('type') as TypeFilter : 'todos'),
+  )
+  const [accountId, setAccountId] = useState(() => query.get('account') ?? '')
+  const [categoryId, setCategoryId] = useState(() => query.get('category') ?? '')
 
   const range = useMemo(() => {
     if (!month) return monthRange()
@@ -65,6 +73,9 @@ export function MovimientosScreen() {
     setType('todos')
     setAccountId('')
     setCategoryId('')
+    // Y también de la URL: si vino filtrado desde Presupuesto, dejarla con el
+    // query puesto haría volver los filtros al recargar.
+    navigate('/finanzas/movimientos')
   }
 
   const esFijo = type === 'fijo' || type === 'fijo_compartido'

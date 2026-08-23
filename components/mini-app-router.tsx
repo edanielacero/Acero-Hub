@@ -30,8 +30,10 @@ import { usePathname } from 'next/navigation'
  */
 
 export interface MiniAppRouter {
-  /** Path actual, siempre empezando por el base de la mini-app. */
+  /** Path actual, siempre empezando por el base de la mini-app. Sin query. */
   path: string
+  /** El query string ya parseado — para pantallas que aceptan filtros por URL. */
+  query: URLSearchParams
   /** Segmentos después del base. `/mi-app/a/b` → `['a','b']`. */
   segments: string[]
   navigate: (href: string) => void
@@ -59,6 +61,18 @@ export function createMiniAppRouter(base: string) {
     const initial = usePathname()
     const [path, setPath] = useState(initial)
 
+    /*
+      `usePathname()` no trae el query string, así que entrar directo (o
+      recargar) una URL con filtros —/finanzas/movimientos?category=…— lo
+      perdía. Se agrega al montar y no en el estado inicial: en el prerender
+      del servidor `location` no existe, y arrancar distinto del HTML estático
+      sería un hydration mismatch. Como es efecto de layout, corre antes del
+      pintado: no se ve ningún parpadeo.
+    */
+    useEffect(() => {
+      if (window.location.search) setPath(window.location.pathname + window.location.search)
+    }, [])
+
     const navigate = useCallback((href: string) => {
       // Fuera de la mini-app se navega de verdad: ahí hay otro layout, otro
       // bundle y otro árbol que montar.
@@ -66,7 +80,7 @@ export function createMiniAppRouter(base: string) {
         window.location.href = href
         return
       }
-      if (href === window.location.pathname) return
+      if (href === window.location.pathname + window.location.search) return
       window.history.pushState(null, '', href)
       setPath(href)
       // Cada pantalla es una vista nueva: heredar el scroll de la anterior deja
@@ -76,16 +90,20 @@ export function createMiniAppRouter(base: string) {
 
     // Atrás y adelante del navegador. Sin esto la URL cambia pero la pantalla no.
     useEffect(() => {
-      const onPop = () => setPath(window.location.pathname)
+      const onPop = () => setPath(window.location.pathname + window.location.search)
       window.addEventListener('popstate', onPop)
       return () => window.removeEventListener('popstate', onPop)
     }, [])
 
-    const value = useMemo<MiniAppRouter>(() => ({
-      path,
-      segments: path.slice(base.length).split('/').filter(Boolean),
-      navigate,
-    }), [path, navigate])
+    const value = useMemo<MiniAppRouter>(() => {
+      const [clean, search = ''] = path.split('?')
+      return {
+        path: clean,
+        query: new URLSearchParams(search),
+        segments: clean.slice(base.length).split('/').filter(Boolean),
+        navigate,
+      }
+    }, [path, navigate])
 
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>
   }

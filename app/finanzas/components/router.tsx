@@ -13,3 +13,9 @@ export const FzRouterProvider = router.Provider
 export const FzLink = router.Link
 export const useFzPath = router.usePath
 export const useFzRouter = router.useNav
+
+/** Los filtros que viajan por la URL — hoy los usa Movimientos, para poder
+    llegar desde Presupuesto ya filtrado por categoría y mes. */
+export function useFzQuery() {
+  return router.useNav().query
+}
