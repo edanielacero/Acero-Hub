@@ -80,6 +80,7 @@ export function HomeScreen() {
   const general = budgets.general
   const budgetCapacity = general ? general.amount_usd + general.extended_usd + general.carried_usd : 0
   const budgetLeft = general ? general.available_usd : 0
+  const budgetOver = !!general && budgetCapacity > 0 && general.spent_usd > budgetCapacity
 
   const patrimonioCard = (
     <HeroCard
@@ -112,6 +113,11 @@ export function HomeScreen() {
           ? `Te quedan ${formatUSD(budgetLeft)}`
           : `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`,
         color: budgetLeft >= 0 ? 'var(--fz-in)' : 'var(--fz-out)',
+      } : undefined}
+      bar={general && !loading ? {
+        pct: budgetCapacity > 0 ? Math.round((general.spent_usd / budgetCapacity) * 100) : 0,
+        tickPct: general.days_in_period > 0 ? (general.day_of_period / general.days_in_period) * 100 : 0,
+        over: budgetOver,
       } : undefined}
     />
   )
@@ -518,11 +524,15 @@ function BudgetTile({ line, hidden, icon, onClick }: {
  *
  * `value: null` = todavía cargando; se pinta el esqueleto en su lugar.
  */
-function HeroCard({ label, value, note, foot }: {
+function HeroCard({ label, value, note, foot, bar }: {
   label: string
   value: string | null
   note?: { text: string; color: string }
   foot: ReactNode
+  /** Misma barra que la pantalla de Presupuesto — relleno + tick del día —
+      pero sobre el fondo oscuro: el carril y el tick van en blancos
+      translúcidos en vez de los tokens de superficie. */
+  bar?: { pct: number; tickPct: number; over: boolean }
 }) {
   return (
     <div className="relative overflow-hidden rounded-[var(--fz-r-card)] bg-[var(--fz-hero)] p-6 text-white h-full">
@@ -540,6 +550,24 @@ function HeroCard({ label, value, note, foot }: {
         <p className="relative mt-1 text-[34px] min-[400px]:text-[40px] font-bold tracking-[-0.02em] leading-none fz-num truncate">
           {value}
         </p>
+      )}
+
+      {bar && (
+        <div className="relative mt-3 h-3 rounded-full bg-white/12 overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{
+              width: `${Math.min(100, bar.pct)}%`,
+              background: bar.over || bar.pct >= 85 ? 'var(--fz-out)' : 'var(--fz-accent)',
+            }}
+          />
+          {/* "Acá deberías estar hoy", según el día del mes. */}
+          <div
+            className="absolute inset-y-0 w-[2px] bg-white/45"
+            style={{ left: `${Math.min(100, bar.tickPct)}%` }}
+            aria-hidden
+          />
+        </div>
       )}
 
       {note && (
