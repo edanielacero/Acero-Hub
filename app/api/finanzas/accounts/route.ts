@@ -7,7 +7,7 @@ import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 export async function GET() {
   const { supabase, userId } = await requireUser()
@@ -40,6 +40,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Moneda inválida' }, { status: 400 })
   }
 
+  const isInvestment = Boolean(body?.is_investment)
+  const isSavings = Boolean(body?.is_savings)
+  if (isInvestment && isSavings) {
+    return NextResponse.json({ error: 'Una cuenta no puede ser de inversión y de ahorro a la vez' }, { status: 400 })
+  }
+
   const { data, error } = await supabase
     .from('fin_accounts')
     .insert({
@@ -49,7 +55,8 @@ export async function POST(request: Request) {
       initial_balance: num(body?.initial_balance),
       initial_balance_date: body?.initial_balance_date ?? new Date().toISOString().slice(0, 10),
       sort_order: num(body?.sort_order),
-      is_investment: Boolean(body?.is_investment),
+      is_investment: isInvestment,
+      is_savings: isSavings,
     })
     .select(ACCOUNT_COLS)
     .single()

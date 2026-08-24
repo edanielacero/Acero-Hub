@@ -14,7 +14,7 @@ import type { Currency, Recurring, RecurringSplit } from '@/lib/finanzas/types'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 /**
  * Instanciar un fijo: crea el gasto real y su reparto.

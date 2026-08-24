@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeBalances, mapAccount, mapBalanceMovement, totalUsd, withBalances } from './accounts'
-import { crossCurrencySuggestion, decimalsFor, formatAmount, num, round2, roundFor, toUsd } from './money'
+import { crossCurrencySuggestion, decimalsFor, formatAmount, fromUsd, num, round2, roundFor, toUsd } from './money'
 import { PERSON_COLS } from './people'
 import { ensureRates, type RateDetail } from './rates'
 import type { QuoteMap } from './quotes'
@@ -9,17 +9,19 @@ import { groupByPerson, isOpen, porCobrarUsd } from './splits'
 import { periodOf, progress, sortRecurring, statusOf } from './recurring'
 import { planCerrado, planRollup } from './plans'
 import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku'
-import { availableFrom, consumesBalance, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
+import { availableFrom, consumesBalance, freezeConversion, gastoUsd, ingresoUsd, isInvestmentAdjustment, monthRange, todayISO } from './transactions'
 import {
   carriedInto, comprometido, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
   montoEfectivo, needsClosure, periodRange, periodStart, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
+import { computeGoalBalancesUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings'
 import type {
-  Account, AccountWithBalance, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
+  Account, AccountWithBalance, AllocationType, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState, Transaction, TxType,
+  DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState,
+  SavingsClosureProposal, SavingsGoal, SavingsGoalWithBalance, Transaction, TxType,
 } from './types'
 
 /**
@@ -34,8 +36,9 @@ import type {
  * los tests (ver tests/finanzas/run.mjs) y un import de framework lo rompería.
  */
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
+const SAVINGS_GOAL_COLS = 'id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, sort_order, archived, created_at'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id'
 
@@ -164,6 +167,23 @@ export async function assertCategory(
   const { data } = await supabase
     .from('fin_categories').select('id').eq('user_id', userId).eq('id', categoryId).maybeSingle()
   return data ? null : 'La categoría no existe'
+}
+
+/**
+ * Que el ahorro exista, sea de este usuario y no esté archivado. Mismo
+ * patrón que `assertCategory` — un aporte o un retiro necesitan un ahorro
+ * vivo al que corresponder.
+ */
+export async function assertSavingsGoal(
+  supabase: SupabaseClient,
+  userId: string,
+  goalId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('fin_savings_goals').select('id, archived').eq('user_id', userId).eq('id', goalId).maybeSingle()
+  if (!data) return 'Ese ahorro no existe'
+  if (data.archived) return 'Ese ahorro está archivado'
+  return null
 }
 
 export async function loadCategories(supabase: SupabaseClient, userId: string): Promise<Category[]> {
@@ -1065,4 +1085,232 @@ export async function applyBudgetExtension(
       amount: round2(amountUsd / (rate || 1)), amount_usd: round2(amountUsd), exchange_rate: rate,
     })
   return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+/* ─── Ahorro (Sprint 7) ───────────────────────────────────────────────────── */
+
+export interface SavingsGoalsPayload {
+  goals: SavingsGoalWithBalance[]
+  /** El período vencido más viejo sin repartir, o `null` si no hay ninguno. */
+  pending_period: string | null
+}
+
+/**
+ * Los ahorros con su saldo ya derivado (§4.2 de sprint_7_ahorro.md) y el
+ * período pendiente de repartir, si hay alguno. El quick-add necesita la
+ * lista en cualquier pantalla para el picker de "a qué ahorro corresponde",
+ * así que va en `/bootstrap` desde el día uno — mismo criterio que Presupuesto.
+ */
+export async function loadSavingsGoals(
+  supabase: SupabaseClient,
+  userId: string,
+  today: string,
+  precomputed?: { rates: RateMap },
+): Promise<SavingsGoalsPayload> {
+  const [{ data: goalRows }, { data: closureRows }, ratesResult] = await Promise.all([
+    supabase.from('fin_savings_goals').select(SAVINGS_GOAL_COLS).eq('user_id', userId).order('sort_order').order('created_at'),
+    supabase.from('fin_savings_closures').select('period').eq('user_id', userId),
+    precomputed ? Promise.resolve(null) : ensureRates(supabase, userId),
+  ])
+  const rates = precomputed?.rates ?? ratesResult!.rates
+
+  const goals = (goalRows ?? []).map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    input_currency: r.input_currency as Currency,
+    allocation_type: r.allocation_type as AllocationType,
+    allocation_value: num(r.allocation_value),
+    target_amount: r.target_amount == null ? null : num(r.target_amount),
+    target_date: r.target_date as string | null,
+    sort_order: num(r.sort_order),
+    archived: Boolean(r.archived),
+    created_at: r.created_at as string,
+  }))
+
+  const closures = (closureRows ?? []).map(c => ({ period: c.period as string }))
+  const earliestActive = goals
+    .filter(g => !g.archived)
+    .map(g => g.created_at.slice(0, 10))
+    .sort()[0] ?? null
+  const pending_period = pendingSavingsPeriod(earliestActive, closures, today)
+
+  if (goals.length === 0) return { goals: [], pending_period }
+
+  const goalIds = goals.map(g => g.id)
+  const [{ data: txRows }, { data: accountRows }] = await Promise.all([
+    supabase
+      .from('fin_transactions')
+      .select('savings_goal_id, type, account_id, to_account_id, amount_usd, to_amount_usd')
+      .eq('user_id', userId).in('savings_goal_id', goalIds),
+    supabase.from('fin_accounts').select('id, is_savings').eq('user_id', userId),
+  ])
+
+  const savingsAccountIds = new Set((accountRows ?? []).filter(a => a.is_savings).map(a => a.id as string))
+  const taggedTxs: GoalTaggedTx[] = (txRows ?? []).map(t => ({
+    savings_goal_id: t.savings_goal_id as string | null,
+    type: t.type as TxType,
+    account_id: t.account_id as string,
+    to_account_id: t.to_account_id as string | null,
+    amount_usd: num(t.amount_usd),
+    to_amount_usd: t.to_amount_usd == null ? null : num(t.to_amount_usd),
+  }))
+  const balances = computeGoalBalancesUsd(taggedTxs, id => savingsAccountIds.has(id))
+
+  const withBalance: SavingsGoalWithBalance[] = goals.map((g): SavingsGoalWithBalance => {
+    const balance_usd = round2(balances.get(g.id) ?? 0)
+    const targetAmountUsd = g.target_amount == null ? null : toUsd(g.target_amount, g.input_currency, rates)
+    const goal: SavingsGoal = {
+      id: g.id, name: g.name, input_currency: g.input_currency,
+      allocation_type: g.allocation_type, allocation_value: g.allocation_value,
+      target_amount: g.target_amount, target_date: g.target_date,
+      sort_order: g.sort_order, archived: g.archived,
+    }
+    return {
+      ...goal,
+      balance: fromUsd(balance_usd, g.input_currency, rates),
+      balance_usd,
+      goal_reached: goalReached(goal, balance_usd, targetAmountUsd),
+    }
+  })
+
+  return { goals: withBalance, pending_period }
+}
+
+/** Los txs de un mes reducidos a lo que `surplusUsd`-style de `savings.ts`
+    necesita — ingreso real menos gasto real (§4.1 de sprint_7_ahorro.md). */
+async function monthSurplusUsd(supabase: SupabaseClient, userId: string, period: string): Promise<number> {
+  const { from, to } = periodRange(period)
+  const { data: txRows } = await supabase
+    .from('fin_transactions')
+    .select('type, amount_usd, flow_type')
+    .eq('user_id', userId).gte('date', from).lte('date', to)
+
+  const txs = (txRows ?? []).map(t => ({
+    type: t.type as TxType, amount_usd: num(t.amount_usd), flow_type: t.flow_type as Transaction['flow_type'],
+  }))
+  return round2(ingresoUsd(txs) - gastoUsd(txs))
+}
+
+/** La propuesta de reparto del período pendiente más viejo, para la pantalla
+    de cierre mensual de Ahorro (§4.3). */
+export async function loadSavingsClosureProposal(
+  supabase: SupabaseClient,
+  userId: string,
+  today: string,
+): Promise<SavingsClosureProposal> {
+  const { rates } = await ensureRates(supabase, userId)
+  const { goals, pending_period } = await loadSavingsGoals(supabase, userId, today, { rates })
+
+  if (!pending_period) {
+    return { pending_period: null, surplus_usd: 0, proposal: [], unassigned_usd: 0, insufficient_for_fixed: false }
+  }
+
+  const surplus_usd = await monthSurplusUsd(supabase, userId, pending_period)
+  const { proposal, unassignedUsd, insufficientForFixed } = proposeAllocation(goals, surplus_usd, rates)
+
+  return {
+    pending_period,
+    surplus_usd,
+    proposal,
+    unassigned_usd: unassignedUsd,
+    insufficient_for_fixed: insufficientForFixed,
+  }
+}
+
+/**
+ * Confirma el cierre de un período: arma una `transferencia` real por cada
+ * asignación (tageada con `savings_goal_id`) y recién después congela la
+ * fila de `fin_savings_closures` — mismo criterio de atomicidad que Sprint 2
+ * §4.7 y Sprint 4 §4.8: si algo falla a mitad de camino, se deshacen las
+ * transferencias ya creadas en vez de dejar un reparto a medias.
+ *
+ * `skip: true` (o una lista sin montos positivos) no crea ninguna
+ * transferencia — solo dice "ya se decidió, no repartir nada este mes".
+ *
+ * El `surplus_usd` que se congela es el que el SERVER calcula en este
+ * momento, no el que mandó el cliente — mismo criterio que
+ * `POST /budgets/[id]/close`.
+ */
+export async function applySavingsClosure(
+  supabase: SupabaseClient,
+  userId: string,
+  input: {
+    period: string
+    allocations: { goal_id: string; amount: number; from_account_id: string; to_account_id: string }[]
+    skip?: boolean
+  },
+): Promise<{ ok: boolean; error?: string; status?: number }> {
+  const { data: existing } = await supabase
+    .from('fin_savings_closures').select('id').eq('user_id', userId).eq('period', input.period).maybeSingle()
+  if (existing) return { ok: false, error: 'Ese mes ya se repartió', status: 409 }
+
+  const surplus_usd = await monthSurplusUsd(supabase, userId, input.period)
+  const createdIds: string[] = []
+  const today = todayISO()
+
+  const positive = input.skip ? [] : input.allocations.filter(a => a.amount > 0)
+
+  if (positive.length > 0) {
+    const goalIds = [...new Set(positive.map(a => a.goal_id))]
+    const [{ data: accountRows }, { data: goalRows }, { rates }] = await Promise.all([
+      supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
+      supabase.from('fin_savings_goals').select('id, input_currency, archived').eq('user_id', userId).in('id', goalIds),
+      ensureRates(supabase, userId),
+    ])
+    const accountsById = new Map((accountRows ?? []).map(r => [r.id as string, mapAccount(r)]))
+    const goalsById = new Map((goalRows ?? []).map(r => [r.id as string, r as { id: string; input_currency: Currency; archived: boolean }]))
+
+    for (const a of positive) {
+      const from = accountsById.get(a.from_account_id)
+      const to = accountsById.get(a.to_account_id)
+      const goal = goalsById.get(a.goal_id)
+
+      const fail = async (error: string, status = 400) => {
+        if (createdIds.length > 0) await supabase.from('fin_transactions').delete().eq('user_id', userId).in('id', createdIds)
+        return { ok: false as const, error, status }
+      }
+
+      if (!from || !to || !goal) return fail('Datos inválidos en el reparto')
+      if (goal.archived) return fail('Ese ahorro está archivado')
+      if (!to.is_savings) return fail(`${to.name} no es una cuenta de ahorro`)
+
+      const amountFrom = goal.input_currency === from.currency
+        ? a.amount
+        : fromUsd(toUsd(a.amount, goal.input_currency, rates), from.currency, rates)
+
+      const balanceError = await assertBalance(supabase, userId, from, 'transferencia', amountFrom)
+      if (balanceError) return fail(balanceError)
+
+      const frozen = freezeConversion(amountFrom, from.currency, rates)
+      const toAmount = from.currency === to.currency ? null : crossCurrencySuggestion(amountFrom, from.currency, to.currency, rates)
+      const frozenTo = toAmount != null ? freezeConversion(toAmount, to.currency, rates) : null
+
+      const { data: created, error } = await supabase
+        .from('fin_transactions')
+        .insert({
+          user_id: userId, type: 'transferencia', flow_type: 'movimiento',
+          date: today, account_id: from.id, to_account_id: to.id, category_id: null,
+          amount: amountFrom, currency: from.currency, to_amount: toAmount,
+          exchange_rate: frozen.exchange_rate, amount_usd: frozen.amount_usd,
+          to_amount_usd: frozenTo?.amount_usd ?? null, to_exchange_rate: frozenTo?.exchange_rate ?? null,
+          description: null, savings_goal_id: a.goal_id, savings_reason: null,
+        })
+        .select('id')
+        .single()
+
+      if (error || !created) return fail(error?.message ?? 'No se pudo registrar el aporte')
+      createdIds.push(created.id as string)
+    }
+  }
+
+  const { error: closureError } = await supabase
+    .from('fin_savings_closures')
+    .insert({ user_id: userId, period: input.period, surplus_usd })
+
+  if (closureError) {
+    if (createdIds.length > 0) await supabase.from('fin_transactions').delete().eq('user_id', userId).in('id', createdIds)
+    return { ok: false, error: closureError.message, status: 400 }
+  }
+
+  return { ok: true }
 }

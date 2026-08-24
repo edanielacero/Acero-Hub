@@ -1,6 +1,6 @@
 import {
   IconCoin, IconCoinFilled, IconDots, IconDotsFilled, IconHome2, IconHome2Filled,
-  IconReceipt, IconReceiptFilled, IconReportMoney, IconRotateClockwise2, IconSettings, IconSettingsFilled,
+  IconPigMoney, IconReceipt, IconReceiptFilled, IconReportMoney, IconRotateClockwise2, IconSettings, IconSettingsFilled,
   IconUsersGroup, IconRepeat,
 } from '@tabler/icons-react'
 
@@ -43,6 +43,11 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/finanzas/presupuesto', label: 'Presupuesto', tab: true,
     description: 'Cuánto te queda por categoría, y en general',
     Icon: IconReportMoney, IconActive: IconReportMoney,
+  },
+  {
+    href: '/finanzas/ahorro', label: 'Ahorros',
+    description: 'El sobrante de cada mes, repartido en tus ahorros',
+    Icon: IconPigMoney, IconActive: IconPigMoney,
   },
   {
     href: '/finanzas/cuentas', label: 'Cuentas',

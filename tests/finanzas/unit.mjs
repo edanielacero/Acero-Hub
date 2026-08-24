@@ -13,6 +13,11 @@ import {
 } from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
+import {
+  surplusUsd, pendingSavingsPeriod, goalReached, computeGoalBalancesUsd, proposeAllocation,
+  validateGoalName, validateAllocation, validateTargetAmount,
+} from './.fin/savings.mjs'
+import { isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason } from './.fin/transactions.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
 /** Tasas de referencia usadas por todas las pruebas. */
@@ -1658,6 +1663,153 @@ section('SPRINT 6 · validación')
   ok('período válido', isValidPeriod('2026-08-01'))
   ok('rechaza un día que no es el 1', !isValidPeriod('2026-08-15'))
   ok('rechaza formato libre', !isValidPeriod('agosto 2026'))
+}
+
+section('SPRINT 7 · flowTypeFor / isSavingsContribution / isSavingsWithdrawal')
+{
+  const savings = { is_investment: false, is_savings: true }
+  const investment = { is_investment: true, is_savings: false }
+  const normal = { is_investment: false, is_savings: false }
+
+  eq('un ingreso en cuenta de ahorro es movimiento (aporte)', flowTypeFor('ingreso', savings), 'movimiento')
+  eq('un gasto en cuenta de ahorro sigue consumo (retiro real)', flowTypeFor('gasto', savings), 'consumo')
+  eq('una transferencia siempre es movimiento, sea de ahorro o no', flowTypeFor('transferencia', normal), 'movimiento')
+  eq('inversión sigue ganando sobre ahorro (no debería pasar junto, pero por las dudas)',
+     flowTypeFor('gasto', investment), 'movimiento')
+
+  ok('ingreso en cuenta de ahorro es aporte', isSavingsContribution('ingreso', savings))
+  ok('transferencia HACIA una cuenta de ahorro es aporte', isSavingsContribution('transferencia', normal, savings))
+  ok('transferencia entre dos cuentas de ahorro NO es aporte (§0.1.2)', !isSavingsContribution('transferencia', savings, savings))
+  ok('un gasto nunca es aporte', !isSavingsContribution('gasto', savings))
+
+  ok('gasto en cuenta de ahorro es retiro', isSavingsWithdrawal('gasto', savings))
+  ok('transferencia DESDE una cuenta de ahorro hacia una normal es retiro', isSavingsWithdrawal('transferencia', savings, normal))
+  ok('transferencia entre dos cuentas de ahorro NO es retiro (§0.1.2)', !isSavingsWithdrawal('transferencia', savings, savings))
+  ok('un ingreso nunca es retiro', !isSavingsWithdrawal('ingreso', savings))
+
+  ok('emergencia es un motivo válido', isValidSavingsReason('emergencia'))
+  ok('otro es válido', isValidSavingsReason('otro'))
+  ok('cualquier cosa no lo es', !isValidSavingsReason('porque sí'))
+  ok('undefined no es válido', !isValidSavingsReason(undefined))
+}
+
+section('SPRINT 7 · surplusUsd — ingreso real menos gasto real')
+{
+  const txs = [
+    { type: 'ingreso', amount_usd: 900, flow_type: 'consumo' },
+    { type: 'ingreso', amount_usd: 50, flow_type: 'movimiento' }, // reembolso, no cuenta
+    { type: 'gasto', amount_usd: 300, flow_type: 'consumo' },
+    { type: 'gasto', amount_usd: 20, flow_type: 'movimiento' }, // ajuste de inversión, no cuenta
+  ]
+  eq('900 de ingreso real menos 300 de gasto real', surplusUsd(txs), 600)
+  eq('sin movimientos, sobrante cero', surplusUsd([]), 0)
+}
+
+section('SPRINT 7 · pendingSavingsPeriod — la ausencia de fila es la pregunta pendiente')
+{
+  eq('sin ahorros todavía, nada pendiente', pendingSavingsPeriod(null, [], '2026-08-24'), null)
+  eq('un ahorro creado en junio, sin cierres: junio es lo más viejo pendiente',
+     pendingSavingsPeriod('2026-06-10', [], '2026-08-24'), '2026-06-01')
+  eq('con junio ya cerrado, julio es lo pendiente',
+     pendingSavingsPeriod('2026-06-10', [{ period: '2026-06-01' }], '2026-08-24'), '2026-07-01')
+  eq('todo cerrado hasta el mes vigente: nada pendiente',
+     pendingSavingsPeriod('2026-06-10', [{ period: '2026-06-01' }, { period: '2026-07-01' }], '2026-08-24'), null)
+  eq('un ahorro creado este mismo mes no tiene nada que repartir todavía',
+     pendingSavingsPeriod('2026-08-24', [], '2026-08-24'), null)
+}
+
+section('SPRINT 7 · goalReached')
+{
+  eq('sin meta, nunca se alcanza', goalReached({ target_amount: null }, 500, null), false)
+  eq('saldo por debajo de la meta, no se alcanzó', goalReached({ target_amount: 1000 }, 400, 500), false)
+  eq('saldo justo igual al target en USD, sí se alcanzó', goalReached({ target_amount: 1000 }, 500, 500), true)
+  eq('saldo por encima de la meta, se alcanzó', goalReached({ target_amount: 1000 }, 600, 500), true)
+}
+
+section('SPRINT 7 · computeGoalBalancesUsd — saldo derivado de movimientos tageados')
+{
+  const isSavingsAccount = id => id === 'ahorro-acc'
+  const txs = [
+    // ingreso directo a la cuenta de ahorro: +100
+    { savings_goal_id: 'g1', type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 100, to_amount_usd: null },
+    // transferencia normal -> ahorro: lo que LLEGÓ (to_amount_usd) es lo que suma
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'normal-acc', to_account_id: 'ahorro-acc', amount_usd: 50, to_amount_usd: 48 },
+    // retiro tipo gasto desde el ahorro: -20
+    { savings_goal_id: 'g1', type: 'gasto', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 20, to_amount_usd: null },
+    // retiro por transferencia hacia una cuenta normal: lo que SALIÓ (amount_usd) es lo que resta
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'ahorro-acc', to_account_id: 'normal-acc', amount_usd: 10, to_amount_usd: 9 },
+    // sin savings_goal_id: se ignora
+    { savings_goal_id: null, type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 1000, to_amount_usd: null },
+    // de otro ahorro: no se mezcla
+    { savings_goal_id: 'g2', type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 5, to_amount_usd: null },
+  ]
+  const balances = computeGoalBalancesUsd(txs, isSavingsAccount)
+  eq('g1: 100 + 48 − 20 − 10 = 118', balances.get('g1'), 118)
+  eq('g2 no se mezcla con g1', balances.get('g2'), 5)
+
+  const soloEntreAhorros = [
+    { savings_goal_id: 'g3', type: 'transferencia', account_id: 'ahorro-acc', to_account_id: 'ahorro-acc', amount_usd: 30, to_amount_usd: null },
+  ]
+  // Caso teórico: si igual llegara tageada una transferencia entre dos cuentas
+  // de ahorro (no debería pasar según §0.1.2, pero la función no debe romper),
+  // ninguna rama de isSavingsAccount(origen)/destino aplica un delta neto —
+  // el origen sí resta, así que el resultado es el retiro.
+  eq('transferencia entre dos cuentas de ahorro: se trata como salida si está tageada',
+     computeGoalBalancesUsd(soloEntreAhorros, isSavingsAccount).get('g3'), -30)
+}
+
+section('SPRINT 7 · proposeAllocation — la propuesta de reparto mensual')
+{
+  const rates = { BOB: 6.96, USDT: 1, USDC: 1, BTC: 68000 }
+  const fijo = { id: 'f1', name: 'Emergencia', input_currency: 'USD', allocation_type: 'fixed', allocation_value: 50, target_amount: null, target_date: null, sort_order: 0, archived: false, balance: 0, balance_usd: 0, goal_reached: false }
+  const pct30 = { id: 'p1', name: 'Viaje', input_currency: 'USD', allocation_type: 'percent', allocation_value: 30, target_amount: null, target_date: null, sort_order: 1, archived: false, balance: 0, balance_usd: 0, goal_reached: false }
+  const pct20 = { id: 'p2', name: 'Crecimiento', input_currency: 'USD', allocation_type: 'percent', allocation_value: 20, target_amount: null, target_date: null, sort_order: 2, archived: false, balance: 0, balance_usd: 0, goal_reached: false }
+
+  eq('sobrante cero: nada que proponer', proposeAllocation([fijo], 0, rates).proposal.length, 0)
+  eq('sobrante negativo: nada que proponer', proposeAllocation([fijo], -50, rates).proposal.length, 0)
+
+  // 245.60 de sobrante: $50 fijo + 30%/20% del resto (195.60) = 58.68 / 39.12, quedan 97.80 sin asignar
+  const r = proposeAllocation([fijo, pct30, pct20], 245.60, rates)
+  ok('no falta fondos para el fijo', !r.insufficientForFixed)
+  eq('el fijo recibe exactamente su monto', r.proposal.find(l => l.goal_id === 'f1').amount_usd, 50)
+  eq('30% del resto (195.60) es 58.68', r.proposal.find(l => l.goal_id === 'p1').amount_usd, 58.68)
+  eq('20% del resto (195.60) es 39.12', r.proposal.find(l => l.goal_id === 'p2').amount_usd, 39.12)
+  eq('el 50% sin repartir queda sin asignar', r.unassignedUsd, 97.80)
+
+  // El sobrante no alcanza ni para el fijo de $50.
+  const insuf = proposeAllocation([fijo, pct30], 30, rates)
+  ok('no alcanza para los fijos', insuf.insufficientForFixed)
+  ok('el fijo viaja marcado como pedido (capped), con su monto original', insuf.proposal.find(l => l.goal_id === 'f1').capped)
+  eq('el fijo pide su monto completo, no prorrateado', insuf.proposal.find(l => l.goal_id === 'f1').amount_usd, 50)
+  eq('el porcentual propone 0 hasta que se libere margen', insuf.proposal.find(l => l.goal_id === 'p1').amount_usd, 0)
+
+  // Una meta ya alcanzada se excluye de la propuesta automática (§4.7).
+  const cumplida = { ...fijo, id: 'f2', goal_reached: true }
+  const conCumplida = proposeAllocation([fijo, cumplida], 200, rates)
+  eq('solo el fijo activo entra en la propuesta', conCumplida.proposal.length, 1)
+  eq('el fijo con meta cumplida no aparece', conCumplida.proposal.some(l => l.goal_id === 'f2'), false)
+
+  // Un ahorro archivado tampoco entra.
+  const archivado = { ...pct30, id: 'p3', archived: true }
+  const conArchivado = proposeAllocation([fijo, archivado], 200, rates)
+  eq('el archivado no entra en la propuesta', conArchivado.proposal.some(l => l.goal_id === 'p3'), false)
+}
+
+section('SPRINT 7 · validación')
+{
+  eq('nombre válido', validateGoalName('Emergencia'), null)
+  eq('nombre vacío', validateGoalName(''), 'El ahorro necesita un nombre')
+  eq('nombre de solo espacios', validateGoalName('   '), 'El ahorro necesita un nombre')
+
+  eq('reparto fijo válido', validateAllocation('fixed', 50), null)
+  eq('reparto porcentual válido', validateAllocation('percent', 30), null)
+  eq('reparto en cero', validateAllocation('fixed', 0), 'El reparto debe ser mayor a cero')
+  eq('porcentaje mayor a 100', validateAllocation('percent', 150), 'Un porcentaje no puede superar 100')
+  eq('tipo inválido', validateAllocation('mitad', 10), 'Tipo de reparto inválido')
+
+  eq('sin meta es válido', validateTargetAmount(null), null)
+  eq('meta positiva es válida', validateTargetAmount(500), null)
+  eq('meta en cero es inválida', validateTargetAmount(0), 'La meta debe ser mayor a cero')
 }
 
 process.exit(summary() === 0 ? 0 : 1)

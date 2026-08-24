@@ -3,16 +3,16 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { flowTypeOnEdit, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
+import { flowTypeOnEdit, freezeConversion, isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
-import { applyBudgetExtension, assertBalance, assertCategory } from '@/lib/finanzas/load'
+import { applyBudgetExtension, assertBalance, assertCategory, assertSavingsGoal } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_reason'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 interface DebtRow {
   id: string
@@ -187,6 +187,34 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     to_exchange_rate = frozenTo.exchange_rate
   }
 
+  // Ahorro (Sprint 7): se recalcula si el movimiento editado sigue siendo un
+  // aporte/retiro, mismo criterio que `flowTypeOnEdit` — el `type`/cuenta
+  // nuevos son los que deciden, no lo que ya tenía guardado. Si dejó de serlo
+  // (por ejemplo, la cuenta destino dejó de ser de ahorro), los dos campos se
+  // limpian: arrastrarlos mentiría sobre a qué corresponde el movimiento.
+  const contribution = isSavingsContribution(merged.type!, account, toAccount)
+  const withdrawal = isSavingsWithdrawal(merged.type!, account, toAccount)
+  let savingsGoalId: string | null = null
+  let savingsReason: string | null = null
+
+  if (contribution || withdrawal) {
+    const goalId = body.savings_goal_id === undefined
+      ? (current.savings_goal_id as string | null)
+      : (typeof body.savings_goal_id === 'string' ? body.savings_goal_id : null)
+    if (!goalId) return NextResponse.json({ error: 'Elige a qué ahorro corresponde' }, { status: 400 })
+    const goalError = await assertSavingsGoal(supabase, userId, goalId)
+    if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
+    savingsGoalId = goalId
+
+    if (withdrawal) {
+      const reason = body.savings_reason === undefined ? current.savings_reason : body.savings_reason
+      if (!isValidSavingsReason(reason)) {
+        return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
+      }
+      savingsReason = reason
+    }
+  }
+
   const { data, error } = await supabase
     .from('fin_transactions')
     .update({
@@ -204,6 +232,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       to_amount_usd,
       to_exchange_rate,
       description: merged.description,
+      savings_goal_id: savingsGoalId,
+      savings_reason: savingsReason,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

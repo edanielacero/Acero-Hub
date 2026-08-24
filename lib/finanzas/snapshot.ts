@@ -1,6 +1,6 @@
 import type { AccountWithBalance, BudgetsPayload, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from './types'
 import type { RateDetail } from './rates'
-import type { TxResult } from './load'
+import type { SavingsGoalsPayload, TxResult } from './load'
 
 /**
  * La última respuesta de /bootstrap, guardada en el dispositivo.
@@ -27,6 +27,10 @@ export interface Snapshot {
       que quedaron sin responder (Sprint 6). El quick-add lo necesita en
       cualquier pantalla para poder bloquear un gasto. */
   budgets: BudgetsPayload
+  /** Los ahorros con su saldo derivado, más el período pendiente de repartir
+      si hay alguno (Sprint 7). El quick-add lo necesita en cualquier
+      pantalla para el picker de "a qué ahorro corresponde". */
+  savings: SavingsGoalsPayload
   /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
       viejo — puebla el filtro de mes de Movimientos. */
   months: string[]
@@ -38,7 +42,7 @@ export interface Snapshot {
 
 const PREFIX = 'fz:snap:'
 /** Sube cuando cambia la forma del snapshot: descarta los viejos sin migrarlos. */
-const VERSION = 7
+const VERSION = 8
 /** Un patrimonio de hace más de una semana ya no informa nada: mejor el esqueleto. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** Tope de tamaño. Serializar de más bloquea el hilo principal en cada guardado. */

@@ -2,7 +2,7 @@ import { requireUser, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse, after } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { readQuotes, refreshQuotes, quotesAreStale, QUOTE_PAIRS } from '@/lib/finanzas/quotes'
-import { loadAccounts, loadAvailableMonths, loadBudgets, loadCategories, loadDebtPlans, loadPasanaku, loadPeople, loadRecurring, loadShared, loadTransactions } from '@/lib/finanzas/load'
+import { loadAccounts, loadAvailableMonths, loadBudgets, loadCategories, loadDebtPlans, loadPasanaku, loadPeople, loadRecurring, loadSavingsGoals, loadShared, loadTransactions } from '@/lib/finanzas/load'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 
 /**
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     loadRecurring(supabase, userId, today),
   ])
 
-  const [categories, people, shared, plans, pasanaku, budgets, months, month, recent] = await Promise.all([
+  const [categories, people, shared, plans, pasanaku, budgets, savings, months, month, recent] = await Promise.all([
     loadCategories(supabase, userId),
     loadPeople(supabase, userId),
     loadShared(supabase, userId, range),
@@ -74,6 +74,9 @@ export async function GET(request: Request) {
     // presupuesto en CUALQUIER pantalla, no solo en /presupuesto — por eso va
     // acá desde el día uno y no se difiere (Decisiones Técnicas §2.1).
     loadBudgets(supabase, userId, today, { rates: accounts.rates, recurring }),
+    // Mismo motivo que budgets: el quick-add necesita la lista de ahorros
+    // para el picker de "a qué ahorro corresponde" en cualquier pantalla.
+    loadSavingsGoals(supabase, userId, today, { rates: accounts.rates }),
     loadAvailableMonths(supabase, userId),
     loadTransactions(supabase, userId, { from: range.from, to: range.to, limit: monthLimit }),
     loadTransactions(supabase, userId, { limit: recentLimit }),
@@ -90,6 +93,7 @@ export async function GET(request: Request) {
     plans,
     pasanaku,
     budgets,
+    savings,
     months,
     // Las dos consultas que la Home ya iba a hacer igual. El cliente las guarda
     // en su caché bajo la misma clave con la que después las busca.

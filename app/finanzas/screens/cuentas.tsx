@@ -10,7 +10,7 @@ import {
   useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconArchive, IconChartLine, IconGripVertical, IconPencil, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { IconArchive, IconChartLine, IconGripVertical, IconPencil, IconPigMoney, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
 import type { AccountWithBalance, Currency } from '@/lib/finanzas/types'
 import { CURRENCIES, CURRENCY_META } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
@@ -35,6 +35,8 @@ interface Draft {
       se ofrece como control, solo se muestra fijo (§7.2). Siempre falso en
       una cuenta nueva: no hay historia todavía. */
   investmentLocked: boolean
+  /** Dedicada 100% a ahorro (Sprint 7), excluyente con `is_investment`. */
+  is_savings: boolean
 }
 
 const emptyDraft = (): Draft => ({
@@ -44,6 +46,7 @@ const emptyDraft = (): Draft => ({
   initial_balance_date: new Date().toISOString().slice(0, 10),
   is_investment: false,
   investmentLocked: false,
+  is_savings: false,
 })
 
 export function CuentasScreen() {
@@ -112,6 +115,7 @@ export function CuentasScreen() {
       initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true, decimals: decimalsFor(draft.currency) }),
       initial_balance_date: draft.initial_balance_date,
       is_investment: draft.is_investment,
+      is_savings: draft.is_savings,
     }
 
     setBusy(true)
@@ -205,6 +209,7 @@ export function CuentasScreen() {
       initial_balance_date: a.initial_balance_date,
       is_investment: a.is_investment,
       investmentLocked: a.is_investment && a.has_value_updates,
+      is_savings: a.is_savings,
     })
   }
 
@@ -324,9 +329,10 @@ export function CuentasScreen() {
                 ) : (
                   <button
                     type="button"
+                    disabled={draft.is_savings}
                     onClick={() => setDraft({ ...draft, is_investment: !draft.is_investment })}
                     aria-pressed={draft.is_investment}
-                    className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
+                    className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors disabled:opacity-40 disabled:pointer-events-none ${
                       draft.is_investment
                         ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
                         : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
@@ -347,6 +353,30 @@ export function CuentasScreen() {
                   {draft.investmentLocked
                     ? 'Ya tiene actualizaciones de valor registradas — no se puede desmarcar.'
                     : 'Se ajusta con "Actualizar valor" — no cuenta como ingreso ni gasto real del mes.'}
+                </p>
+              </div>
+              <div className="min-[900px]:col-span-2">
+                {/* Excluyente con "Cuenta de inversión" — una cuenta no puede
+                    ser las dos cosas (§0.1.4 de sprint_7_ahorro.md). */}
+                <button
+                  type="button"
+                  disabled={draft.is_investment}
+                  onClick={() => setDraft({ ...draft, is_savings: !draft.is_savings })}
+                  aria-pressed={draft.is_savings}
+                  className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+                    draft.is_savings
+                      ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+                      : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-[14px] font-semibold">
+                    <IconPigMoney size={18} stroke={1.8} />
+                    Cuenta de ahorro
+                  </span>
+                  <span className="text-[12px] font-bold">{draft.is_savings ? 'Sí' : 'No'}</span>
+                </button>
+                <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
+                  Dedicada 100% a ahorro: solo entran y salen aportes y retiros de un ahorro.
                 </p>
               </div>
             </div>
@@ -533,6 +563,10 @@ export function CuentasScreen() {
                 label="Cuenta de inversión"
                 value={viewing.is_investment ? 'Sí — se ajusta con "Actualizar valor"' : 'No'}
               />
+              <DetailField
+                label="Cuenta de ahorro"
+                value={viewing.is_savings ? 'Sí — dedicada a un ahorro' : 'No'}
+              />
             </div>
           </>
         )}
@@ -633,6 +667,11 @@ function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDe
           {account.is_investment && (
             <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
               <IconChartLine size={13} stroke={2.2} /> Inversión
+            </span>
+          )}
+          {account.is_savings && (
+            <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+              <IconPigMoney size={13} stroke={2.2} /> Ahorro
             </span>
           )}
           <RowMenu

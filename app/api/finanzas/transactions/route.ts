@@ -3,14 +3,14 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { applyBudgetExtension, assertBalance, assertCategory, loadTransactions } from '@/lib/finanzas/load'
-import { flowTypeFor, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
+import { applyBudgetExtension, assertBalance, assertCategory, assertSavingsGoal, loadTransactions } from '@/lib/finanzas/load'
+import { flowTypeFor, freezeConversion, isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason, validateInput } from '@/lib/finanzas/transactions'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_reason'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 export async function GET(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -91,6 +91,29 @@ export async function POST(request: Request) {
     ? freezeConversion(input.to_amount, toAccount.currency, rates)
     : null
 
+  // Ahorro (Sprint 7, §4.5/§4.6): un aporte (entrada a una cuenta de ahorro)
+  // exige `savings_goal_id`; un retiro (salida) exige además `savings_reason`.
+  // El resto de los movimientos ignora los dos campos, aunque el cliente los
+  // mande — solo tienen sentido en estas dos formas.
+  const contribution = isSavingsContribution(input.type!, account, toAccount)
+  const withdrawal = isSavingsWithdrawal(input.type!, account, toAccount)
+  let savingsGoalId: string | null = null
+  let savingsReason: string | null = null
+
+  if (contribution || withdrawal) {
+    const goalId = typeof body.savings_goal_id === 'string' ? body.savings_goal_id : null
+    if (!goalId) return NextResponse.json({ error: 'Elige a qué ahorro corresponde' }, { status: 400 })
+    const goalError = await assertSavingsGoal(supabase, userId, goalId)
+    if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
+    savingsGoalId = goalId
+
+    if (withdrawal) {
+      if (!isValidSavingsReason(body.savings_reason)) {
+        return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
+      }
+      savingsReason = body.savings_reason
+    }
+  }
 
   const { data, error } = await supabase
     .from('fin_transactions')
@@ -112,6 +135,8 @@ export async function POST(request: Request) {
       to_amount_usd: frozenTo?.amount_usd ?? null,
       to_exchange_rate: frozenTo?.exchange_rate ?? null,
       description: input.description,
+      savings_goal_id: savingsGoalId,
+      savings_reason: savingsReason,
     })
     .select(TX_COLS)
     .single()

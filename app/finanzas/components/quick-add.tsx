@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { IconArrowsExchange, IconTrash, IconX } from '@tabler/icons-react'
-import type { AccountWithBalance, TxType } from '@/lib/finanzas/types'
-import { availableFrom, consumesBalance, todayISO } from '@/lib/finanzas/transactions'
+import type { AccountWithBalance, SavingsReason, TxType } from '@/lib/finanzas/types'
+import { availableFrom, consumesBalance, isSavingsContribution, isSavingsWithdrawal, todayISO } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, round2, roundFor, toUsd } from '@/lib/finanzas/money'
 import { periodStart } from '@/lib/finanzas/budgets'
 import { budgetLineFor, useFinanzas } from './data-context'
@@ -30,9 +30,19 @@ const NEW_TITLES: Record<TxType, string> = {
   gasto: 'Nuevo gasto', ingreso: 'Nuevo ingreso', transferencia: 'Nueva transferencia',
 }
 
+/** Por qué se retira de un ahorro (Sprint 7, §7 de sprint_7_ahorro.md) — el
+    "texto opcional" de la Ronda 3 es el campo Descripción de más abajo, no
+    hace falta un segundo campo de texto libre para lo mismo. */
+const REASON_OPTIONS: { value: SavingsReason; label: string }[] = [
+  { value: 'emergencia', label: 'Emergencia real' },
+  { value: 'meta_cumplida', label: 'Se cumplió la meta' },
+  { value: 'cambio_planes', label: 'Cambio de planes' },
+  { value: 'otro', label: 'Otro' },
+]
+
 export function QuickAdd() {
   const { open, editing, initialType, lockType, close } = useQuickAddApi()
-  const { accounts, categories, rates, budgets, reload } = useFinanzas()
+  const { accounts, categories, rates, budgets, savings, reload } = useFinanzas()
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
   // Gasto e Ingreso dejan de ofrecer cuentas de inversión: un ajuste de valor
@@ -61,6 +71,11 @@ export function QuickAdd() {
   // tipo, para no arrastrar una ampliación pensada para OTRA categoría.
   const [extendBudget, setExtendBudget] = useState(false)
   const [extensionAmount, setExtensionAmount] = useState('')
+  // Ahorro (Sprint 7): a qué ahorro corresponde un aporte o un retiro, y por
+  // qué se retira. Se resetea al cambiar de cuenta o de tipo (ver el efecto
+  // más abajo) — la elección era para OTRA combinación de cuenta/tipo.
+  const [savingsGoalId, setSavingsGoalId] = useState('')
+  const [savingsReason, setSavingsReason] = useState<SavingsReason | ''>('')
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -86,6 +101,8 @@ export function QuickAdd() {
       setCategoryId(editing.category_id ?? '')
       setDate(editing.date)
       setDescription(editing.description ?? '')
+      setSavingsGoalId(editing.savings_goal_id ?? '')
+      setSavingsReason(editing.savings_reason ?? '')
 
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
@@ -99,6 +116,8 @@ export function QuickAdd() {
       setCategoryId('')
       setDate(todayISO())
       setDescription('')
+      setSavingsGoalId('')
+      setSavingsReason('')
     }
     setAccountSearch('')
     setToAccountSearch('')
@@ -186,6 +205,18 @@ export function QuickAdd() {
   const montoActual = amountFromInput(amount, { decimals: fromDecimals })
   const excede = limita && Number.isFinite(montoActual) && montoActual > disponible
   const sinFondos = limita && disponible <= 0
+
+  /**
+   * Ahorro (Sprint 7, §4.5/§4.6): un aporte es plata ENTRANDO a un ahorro
+   * (un `ingreso` en una cuenta de ahorro, o una `transferencia` cuyo
+   * destino lo es); un retiro es plata SALIENDO (un `gasto`, o una
+   * `transferencia` cuyo origen es de ahorro y el destino no). Entre dos
+   * cuentas de ahorro no es ni lo uno ni lo otro — es reacomodar billeteras,
+   * no afecta a ningún ahorro (§0.1.2 de sprint_7_ahorro.md).
+   */
+  const isContribution = !!from && isSavingsContribution(type, from, to)
+  const isWithdrawal = !!from && isSavingsWithdrawal(type, from, to)
+  const activeGoals = useMemo(() => savings.goals.filter(g => !g.archived), [savings.goals])
 
   /**
    * Bloqueo de presupuesto (Sprint 6, §4.6): aplica a cualquier GASTO con una
@@ -346,6 +377,8 @@ export function QuickAdd() {
         return setError(`La ampliación tiene que cubrir el faltante: ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`)
       }
     }
+    if ((isContribution || isWithdrawal) && !savingsGoalId) return setError('Elige a qué ahorro corresponde')
+    if (isWithdrawal && !savingsReason) return setError('Elige por qué retiras del ahorro')
 
     const payload: Record<string, unknown> = {
       type,
@@ -353,6 +386,10 @@ export function QuickAdd() {
       account_id: accountId,
       amount: value,
       description: description.trim() || null,
+    }
+    if (isContribution || isWithdrawal) {
+      payload.savings_goal_id = savingsGoalId
+      if (isWithdrawal) payload.savings_reason = savingsReason
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
@@ -674,6 +711,43 @@ export function QuickAdd() {
             </div>
           )}
 
+          {(isContribution || isWithdrawal) && (
+            <div>
+              <Label>{isWithdrawal ? '¿De qué ahorro retiras?' : '¿A qué ahorro corresponde?'}</Label>
+              <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                {activeGoals.map(g => (
+                  <ChipButton
+                    key={g.id}
+                    selected={g.id === savingsGoalId}
+                    onClick={() => setSavingsGoalId(g.id)}
+                    label={g.name}
+                  />
+                ))}
+                {activeGoals.length === 0 && (
+                  <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
+                    Todavía no hay ahorros. Creá uno desde Ahorros.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {isWithdrawal && (
+            <div>
+              <Label>¿Por qué retiras?</Label>
+              <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                {REASON_OPTIONS.map(r => (
+                  <ChipButton
+                    key={r.value}
+                    selected={r.value === savingsReason}
+                    onClick={() => setSavingsReason(r.value)}
+                    label={r.label}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <Label>Fecha</Label>
             <DateField value={date} onChange={setDate} today={hoy} />
@@ -684,7 +758,7 @@ export function QuickAdd() {
             <TextArea
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="Opcional — en qué fue, con quién, para qué"
+              placeholder={isWithdrawal ? 'Opcional — el detalle del retiro' : 'Opcional — en qué fue, con quién, para qué'}
               rows={3}
             />
           </div>

@@ -971,6 +971,164 @@ async function run() {
        (await rows('fin_budget_closures', `&line_id=eq.${budgetLine.id}`)).length, 0)
   }
 
+  section('SPRINT 7 · fin_accounts.is_savings, excluyente con is_investment')
+  let cuentaAhorro
+  {
+    eq('sin mandar is_savings, nace en false', broker.is_savings, false)
+
+    cuentaAhorro = (await post('fin_accounts', {
+      user_id: USER_ID, name: 'Ahorro Emergencia', currency: 'USD', initial_balance: 0, is_savings: true,
+    }).then(r => r.json()))[0]
+    eq('se puede crear ya marcada como ahorro', cuentaAhorro?.is_savings, true)
+
+    const ambas = await as(`/fin_accounts?id=eq.${cuentaAhorro.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_investment: true }),
+    })
+    ok('el constraint rechaza is_investment + is_savings juntos', ambas.status >= 400, `HTTP ${ambas.status}`)
+
+    const nacenJuntas = await post('fin_accounts', {
+      user_id: USER_ID, name: 'Imposible', currency: 'USD', is_investment: true, is_savings: true,
+    })
+    ok('tampoco se puede crear ya con las dos marcadas', nacenJuntas.status >= 400, `HTTP ${nacenJuntas.status}`)
+  }
+
+  section('SPRINT 7 · fin_savings_goals')
+  let ahorroFijo, ahorroPct
+  {
+    const anonGoals = await fetch(`${URL_}/rest/v1/fin_savings_goals?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve ningún ahorro', anonGoals, [])
+
+    ahorroFijo = (await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'Emergencia', input_currency: 'USD',
+      allocation_type: 'fixed', allocation_value: 50,
+    }).then(r => r.json()))[0]
+    ok('crea un ahorro de monto fijo', !!ahorroFijo?.id)
+
+    ahorroPct = (await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'Viaje', input_currency: 'BOB',
+      allocation_type: 'percent', allocation_value: 30, target_amount: 5000,
+    }).then(r => r.json()))[0]
+    ok('crea un ahorro porcentual con meta', !!ahorroPct?.id)
+
+    const monedaInvalida = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'Euros', input_currency: 'EUR', allocation_type: 'fixed', allocation_value: 10,
+    })
+    ok('rechaza una moneda fuera del enum', monedaInvalida.status >= 400, `HTTP ${monedaInvalida.status}`)
+
+    const tipoInvalido = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'X', input_currency: 'USD', allocation_type: 'mitad', allocation_value: 10,
+    })
+    ok('rechaza un allocation_type fuera del enum', tipoInvalido.status >= 400, `HTTP ${tipoInvalido.status}`)
+
+    const valorCero = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'X', input_currency: 'USD', allocation_type: 'fixed', allocation_value: 0,
+    })
+    ok('rechaza un reparto en cero', valorCero.status >= 400, `HTTP ${valorCero.status}`)
+
+    const pctSobre100 = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'X', input_currency: 'USD', allocation_type: 'percent', allocation_value: 150,
+    })
+    ok('un porcentaje no puede superar 100', pctSobre100.status >= 400, `HTTP ${pctSobre100.status}`)
+
+    const fijoSobre100 = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'X', input_currency: 'USD', allocation_type: 'fixed', allocation_value: 500,
+    })
+    ok('un monto fijo SÍ puede superar 100 (no es un porcentaje)', fijoSobre100.status < 400, `HTTP ${fijoSobre100.status}`)
+    if (fijoSobre100.status < 400) {
+      const [row] = await fijoSobre100.json()
+      await as(`/fin_savings_goals?id=eq.${row.id}`, { method: 'DELETE' })
+    }
+
+    const metaCero = await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'X', input_currency: 'USD', allocation_type: 'fixed', allocation_value: 10, target_amount: 0,
+    })
+    ok('rechaza una meta en cero', metaCero.status >= 400, `HTTP ${metaCero.status}`)
+
+    const ajeno = await post('fin_savings_goals', {
+      user_id: '00000000-0000-0000-0000-000000000001', name: 'Ajeno', input_currency: 'USD',
+      allocation_type: 'fixed', allocation_value: 10,
+    })
+    ok('RLS impide crear un ahorro a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+
+    // 8 decimales para un ahorro en BTC — mismo criterio de precisión que
+    // cuentas y transacciones (Sprint 1 §3.4).
+    const ahorroBtc = (await post('fin_savings_goals', {
+      user_id: USER_ID, name: 'Cripto', input_currency: 'BTC', allocation_type: 'fixed', allocation_value: 0.00042195,
+    }).then(r => r.json()))[0]
+    eq('el reparto en BTC conserva los 8 decimales', Number(ahorroBtc.allocation_value), 0.00042195)
+    await as(`/fin_savings_goals?id=eq.${ahorroBtc.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 7 · fin_transactions.savings_goal_id / savings_reason')
+  let cuentaOrigen, aporteTx
+  {
+    cuentaOrigen = (await post('fin_accounts', {
+      user_id: USER_ID, name: 'Cuenta normal ahorro', currency: 'USD', initial_balance: 500,
+    }).then(r => r.json()))[0]
+
+    aporteTx = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'transferencia', date: '2026-08-24',
+      account_id: cuentaOrigen.id, to_account_id: cuentaAhorro.id,
+      amount: 50, currency: 'USD', exchange_rate: 1, amount_usd: 50,
+      flow_type: 'movimiento', savings_goal_id: ahorroFijo.id,
+    }).then(r => r.json()))[0]
+    ok('crea una transferencia tageada con un ahorro', !!aporteTx?.id)
+    eq('savings_reason queda null en un aporte', aporteTx.savings_reason, null)
+
+    const razonInvalida = await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-24',
+      account_id: cuentaAhorro.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_reason: 'porque sí',
+    })
+    ok('rechaza un savings_reason fuera del enum', razonInvalida.status >= 400, `HTTP ${razonInvalida.status}`)
+
+    const retiro = (await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-24',
+      account_id: cuentaAhorro.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_reason: 'emergencia',
+    }).then(r => r.json()))[0]
+    ok('acepta un retiro con motivo válido', !!retiro?.id)
+
+    const fantasma = await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-24',
+      account_id: cuentaAhorro.id, amount: 5, currency: 'USD', exchange_rate: 1, amount_usd: 5,
+      flow_type: 'consumo', savings_goal_id: '00000000-0000-0000-0000-000000000099', savings_reason: 'otro',
+    })
+    ok('la FK rechaza un savings_goal_id que no existe', fantasma.status >= 400, `HTTP ${fantasma.status}`)
+
+    // Borrar el ahorro no borra sus movimientos: savings_goal_id cae a null
+    // (on delete set null), mismo criterio que recurring_id/pasanaku_id.
+    await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, { method: 'DELETE' })
+    const [aporteTrasborrado] = await rows('fin_transactions', `&id=eq.${aporteTx.id}`)
+    eq('savings_goal_id cae a null cuando se borra el ahorro', aporteTrasborrado.savings_goal_id, null)
+  }
+
+  section('SPRINT 7 · fin_savings_closures')
+  {
+    const anonClosures = await fetch(`${URL_}/rest/v1/fin_savings_closures?select=*`, { headers: { apikey: ANON } }).then(r => r.json())
+    eq('sin sesión no ve ningún cierre', anonClosures, [])
+
+    const julio = (await post('fin_savings_closures', {
+      user_id: USER_ID, period: '2026-07-01', surplus_usd: 245.60,
+    }).then(r => r.json()))[0]
+    ok('crea el cierre de julio', !!julio?.id)
+
+    const negativo = await post('fin_savings_closures', {
+      user_id: USER_ID, period: '2026-06-01', surplus_usd: -32.40,
+    })
+    ok('un mes en rojo también se puede cerrar (surplus_usd negativo)', negativo.status < 400, `HTTP ${negativo.status}`)
+
+    const dupe = await post('fin_savings_closures', {
+      user_id: USER_ID, period: '2026-07-01', surplus_usd: 100,
+    })
+    ok('el mismo período no se cierra dos veces', dupe.status >= 400, `HTTP ${dupe.status}`)
+
+    const ajeno = await post('fin_savings_closures', {
+      user_id: '00000000-0000-0000-0000-000000000001', period: '2026-05-01', surplus_usd: 10,
+    })
+    ok('RLS impide crear un cierre a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+  }
+
   section('borrado y edición recalculan')
   {
     await as(`/fin_transactions?id=eq.${gasto.id}`, { method: 'DELETE' })

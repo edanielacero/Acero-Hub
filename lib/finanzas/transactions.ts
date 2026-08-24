@@ -1,4 +1,4 @@
-import type { Account, Currency, FlowType, RateMap, Transaction, TransactionInput, TxType } from './types'
+import type { Account, Currency, FlowType, RateMap, SavingsReason, Transaction, TransactionInput, TxType } from './types'
 import { freezeRate, round2, roundFor, toUsd } from './money'
 
 export interface ValidationResult {
@@ -133,11 +133,18 @@ export function freezeConversion(
  *
  * Una transferencia siempre es `'movimiento'`. Un gasto o ingreso en una
  * cuenta de inversión también: el mercado mueve el número, no es plata real
- * que entró o salió (Feature 11, §7.1 de `contexto_finanzas.md`). Cualquier
+ * que entró o salió (Feature 11, §7.1 de `contexto_finanzas.md`). Un
+ * `ingreso` en una cuenta de ahorro (Sprint 7, §4.5) es un aporte directo —
+ * tampoco cuenta como ingreso nuevo, ya sea porque vino de otra cuenta propia
+ * (que ya lo contó en su momento) o porque es plata apartada, no ganada este
+ * mes. Un `gasto` en una cuenta de ahorro SÍ queda `'consumo'`: es un retiro
+ * real, la distinción que separa "lo usé" de "lo moví" (Ronda 2). Cualquier
  * otro caso es consumo real.
  */
-export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment'>): FlowType {
-  return type === 'transferencia' || account.is_investment ? 'movimiento' : 'consumo'
+export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment' | 'is_savings'>): FlowType {
+  if (type === 'transferencia' || account.is_investment) return 'movimiento'
+  if (account.is_savings && type === 'ingreso') return 'movimiento'
+  return 'consumo'
 }
 
 /**
@@ -154,10 +161,54 @@ export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment'
  */
 export function flowTypeOnEdit(
   type: TxType,
-  account: Pick<Account, 'is_investment'>,
+  account: Pick<Account, 'is_investment' | 'is_savings'>,
   current: FlowType,
 ): FlowType {
   return flowTypeFor(type, account) === 'movimiento' ? 'movimiento' : current
+}
+
+/**
+ * Si un movimiento es plata SALIENDO de un ahorro — un `gasto`, o una
+ * `transferencia` cuya cuenta de origen es `is_savings` y cuyo destino NO lo
+ * es (Sprint 7 §4.6). Es lo que exige `savings_goal_id` + `savings_reason`:
+ * la app pide justificativo en cualquier retiro, sea que cuente como gasto
+ * real (`gasto`) o como movimiento financiero (`transferencia` a otra cuenta
+ * propia) — la Ronda 2 decidió que eso depende del tipo, no de si se
+ * justifica o no.
+ *
+ * Una transferencia ENTRE dos cuentas de ahorro no es un retiro — es
+ * reacomodar en qué billetera vive la plata del ahorro en general, sin
+ * afectar a ningún ahorro (§0.1.2). No pide justificativo ni `savings_goal_id`.
+ */
+export function isSavingsWithdrawal(
+  type: TxType,
+  account: Pick<Account, 'is_savings'>,
+  toAccount?: Pick<Account, 'is_savings'> | null,
+): boolean {
+  if (type === 'gasto') return account.is_savings
+  if (type === 'transferencia') return account.is_savings && !toAccount?.is_savings
+  return false
+}
+
+/**
+ * Si un movimiento es plata ENTRANDO a un ahorro — un `ingreso` en la cuenta
+ * de origen, o una `transferencia` cuyo destino es `is_savings`. No pide
+ * justificativo, pero sí `savings_goal_id`: a qué ahorro corresponde.
+ */
+export function isSavingsContribution(
+  type: TxType,
+  account: Pick<Account, 'is_savings'>,
+  toAccount?: Pick<Account, 'is_savings'> | null,
+): boolean {
+  if (type === 'ingreso') return account.is_savings
+  if (type === 'transferencia') return !!toAccount?.is_savings && !account.is_savings
+  return false
+}
+
+const SAVINGS_REASONS_SET = new Set<SavingsReason>(['emergencia', 'meta_cumplida', 'cambio_planes', 'otro'])
+
+export function isValidSavingsReason(value: unknown): value is SavingsReason {
+  return typeof value === 'string' && SAVINGS_REASONS_SET.has(value as SavingsReason)
 }
 
 /**
@@ -218,8 +269,10 @@ export function isConsumo(tx: Pick<Transaction, 'flow_type'>): boolean {
   return tx.flow_type !== 'movimiento'
 }
 
-/** Aporte de un movimiento al total de gasto del período, en USD. */
-export function gastoUsd(txs: Transaction[]): number {
+/** Aporte de un movimiento al total de gasto del período, en USD. Acepta
+    cualquier objeto con estos tres campos — no hace falta un `Transaction`
+    completo (lo usa también el cierre de Ahorro, que solo trae esto). */
+export function gastoUsd(txs: Pick<Transaction, 'type' | 'amount_usd' | 'flow_type'>[]): number {
   return round2(
     txs.filter(t => t.type === 'gasto' && isConsumo(t)).reduce((s, t) => s + t.amount_usd, 0),
   )
@@ -232,7 +285,7 @@ export function gastoUsd(txs: Transaction[]): number {
  * devuelva su parte de Spotify sube el saldo, pero no es plata que ganaste.
  * Sin este filtro, el reporte anual mostraría una fuente de ingresos inventada.
  */
-export function ingresoUsd(txs: Transaction[]): number {
+export function ingresoUsd(txs: Pick<Transaction, 'type' | 'amount_usd' | 'flow_type'>[]): number {
   return round2(
     txs.filter(t => t.type === 'ingreso' && isConsumo(t)).reduce((s, t) => s + t.amount_usd, 0),
   )

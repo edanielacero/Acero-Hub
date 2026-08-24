@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   if (input.account_id) {
     const { data: account } = await supabase
-      .from('fin_accounts').select('id, is_investment').eq('user_id', userId).eq('id', input.account_id).maybeSingle()
+      .from('fin_accounts').select('id, is_investment, is_savings').eq('user_id', userId).eq('id', input.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
     // Un aporte/recepción de pasanaku es 'gasto/ingreso · movimiento', igual
     // que un ajuste de valor de inversión — isInvestmentAdjustment() no podría
@@ -48,6 +48,11 @@ export async function POST(request: Request) {
     // cuentas; esto es la defensa del lado del server.
     if (account.is_investment) {
       return NextResponse.json({ error: 'No puedes usar una cuenta de inversión para un pasanaku' }, { status: 400 })
+    }
+    // Una cuenta de ahorro no recibe ni entrega nada que no sea un ahorro
+    // (Sprint 7): un aporte de pasanaku ahí no correspondería a ningún ahorro.
+    if (account.is_savings) {
+      return NextResponse.json({ error: 'No puedes usar una cuenta de ahorro para un pasanaku' }, { status: 400 })
     }
   }
 

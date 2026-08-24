@@ -36,12 +36,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (merged.account_id && merged.account_id !== current.account_id) {
     const { data: account } = await supabase
-      .from('fin_accounts').select('id, is_investment').eq('user_id', userId).eq('id', merged.account_id).maybeSingle()
+      .from('fin_accounts').select('id, is_investment, is_savings').eq('user_id', userId).eq('id', merged.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
     // Mismo motivo que en POST /pasanaku: un aporte ahí quedaría indistinguible
     // de un ajuste de valor y desaparecería de Movimientos.
     if (account.is_investment) {
       return NextResponse.json({ error: 'No puedes usar una cuenta de inversión para un pasanaku' }, { status: 400 })
+    }
+    if (account.is_savings) {
+      return NextResponse.json({ error: 'No puedes usar una cuenta de ahorro para un pasanaku' }, { status: 400 })
     }
   }
 

@@ -82,6 +82,7 @@ export function mapAccount(row: Record<string, unknown>): Account {
     sort_order: num(row.sort_order),
     archived: Boolean(row.archived),
     is_investment: Boolean(row.is_investment),
+    is_savings: Boolean(row.is_savings),
   }
 }
 

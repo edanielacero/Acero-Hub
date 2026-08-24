@@ -2447,6 +2447,209 @@ async function run() {
        boot.budgets && Array.isArray(boot.budgets.categories) && Array.isArray(boot.budgets.pending_closures),
        JSON.stringify(boot.budgets))
   }
+
+  section('SPRINT 7 · CRUD de fin_savings_goals')
+  let ahorroEmergencia, ahorroViaje
+  {
+    const before = await json(await api('/savings-goals'))
+    eq('arranca sin ahorros', before.goals, [])
+    eq('sin ahorros, tampoco hay período pendiente', before.pending_period, null)
+
+    eq('sin nombre → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ currency: 'USD', allocation_type: 'fixed', allocation_value: 50 }) })).status, 400)
+    eq('moneda inválida → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ name: 'X', currency: 'EUR', allocation_type: 'fixed', allocation_value: 50 }) })).status, 400)
+    eq('allocation_type inválido → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ name: 'X', currency: 'USD', allocation_type: 'mitad', allocation_value: 50 }) })).status, 400)
+    eq('allocation_value en cero → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ name: 'X', currency: 'USD', allocation_type: 'fixed', allocation_value: 0 }) })).status, 400)
+    eq('porcentaje mayor a 100 → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ name: 'X', currency: 'USD', allocation_type: 'percent', allocation_value: 150 }) })).status, 400)
+    eq('meta en cero → 400',
+       (await api('/savings-goals', { method: 'POST', body: JSON.stringify({ name: 'X', currency: 'USD', allocation_type: 'fixed', allocation_value: 50, target_amount: 0 }) })).status, 400)
+
+    ahorroEmergencia = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Emergencia', currency: 'USD', allocation_type: 'fixed', allocation_value: 50 }),
+    }))).goal
+    ok('crea el ahorro de emergencia', !!ahorroEmergencia?.id)
+
+    ahorroViaje = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Viaje', currency: 'USD', allocation_type: 'percent', allocation_value: 30, target_amount: 1000 }),
+    }))).goal
+    ok('crea el ahorro de viaje, con meta', !!ahorroViaje?.id)
+
+    const listed = await json(await api('/savings-goals'))
+    eq('los dos ahorros aparecen con saldo cero', listed.goals.map(g => g.balance_usd).sort(), [0, 0])
+    eq('el de viaje no alcanzó su meta con saldo cero', listed.goals.find(g => g.id === ahorroViaje.id).goal_reached, false)
+
+    const renamed = (await json(await api(`/savings-goals/${ahorroEmergencia.id}`, {
+      method: 'PATCH', body: JSON.stringify({ name: 'Fondo de emergencia' }),
+    }))).goal
+    eq('renombra el ahorro', renamed.name, 'Fondo de emergencia')
+
+    const reparto = (await json(await api(`/savings-goals/${ahorroEmergencia.id}`, {
+      method: 'PATCH', body: JSON.stringify({ allocation_type: 'fixed', allocation_value: 75 }),
+    }))).goal
+    eq('el reparto es editable siempre (§0 Ronda 3)', reparto.allocation_value, 75)
+
+    eq('reparto sin type ni value juntos no rompe nada — PATCH parcial de otro campo',
+       (await api(`/savings-goals/${ahorroEmergencia.id}`, { method: 'PATCH', body: JSON.stringify({ target_date: '2026-12-31' }) })).status, 200)
+  }
+
+  section('SPRINT 7 · quick-add — aporte y retiro de un ahorro')
+  let cuentaRegular, cuentaAhorro
+  {
+    cuentaRegular = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Regular Ahorro Test', currency: 'USD', initial_balance: 500 }),
+    }))).account
+    cuentaAhorro = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Dedicada Ahorro Test', currency: 'USD', initial_balance: 0, is_savings: true }),
+    }))).account
+    eq('la cuenta nace marcada como ahorro', cuentaAhorro.is_savings, true)
+
+    const hoy = new Date().toISOString().slice(0, 10)
+
+    eq('aportar sin savings_goal_id → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({ type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50 }),
+       })).status, 400)
+
+    eq('aportar a un ahorro que no existe → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({
+           type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50,
+           savings_goal_id: '00000000-0000-0000-0000-000000000000',
+         }),
+       })).status, 400)
+
+    const aporte = await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50,
+        savings_goal_id: ahorroEmergencia.id,
+      }),
+    }))
+    ok('el aporte se guarda', !!aporte.transaction?.id)
+    eq('flow_type de una transferencia es siempre movimiento', aporte.transaction.flow_type, 'movimiento')
+    eq('queda tageado con el ahorro', aporte.transaction.savings_goal_id, ahorroEmergencia.id)
+
+    eq('retirar sin savings_reason → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({ type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 10, savings_goal_id: ahorroEmergencia.id }),
+       })).status, 400)
+
+    eq('retirar con un motivo fuera del enum → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({
+           type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 10,
+           savings_goal_id: ahorroEmergencia.id, savings_reason: 'porque sí',
+         }),
+       })).status, 400)
+
+    const retiro = await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 10,
+        savings_goal_id: ahorroEmergencia.id, savings_reason: 'emergencia',
+      }),
+    }))
+    ok('el retiro se guarda', !!retiro.transaction?.id)
+    eq('un retiro tipo gasto SÍ cuenta como consumo real (Ronda 2)', retiro.transaction.flow_type, 'consumo')
+
+    const goals = await json(await api('/savings-goals'))
+    eq('el saldo del ahorro es 50 − 10 = 40', goals.goals.find(g => g.id === ahorroEmergencia.id).balance_usd, 40)
+
+    // Cuentas de ahorro/inversión quedan afuera de Pasanaku (§7.1 y Sprint 7).
+    const pasanakuConAhorro = await api('/pasanaku', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'X', account_id: cuentaAhorro.id, currency: 'USD', contribution_amount: 10, total_slots: 5, my_slot: 1, start_date: hoy }),
+    })
+    eq('una cuenta de ahorro no puede usarse para un pasanaku', pasanakuConAhorro.status, 400)
+  }
+
+  section('SPRINT 7 · cierre mensual del sobrante')
+  {
+    // Archiva todo lo que quedó activo de secciones anteriores para que la
+    // propuesta de reparto de acá abajo sea determinística.
+    const existentes = await json(await api('/savings-goals'))
+    for (const g of existentes.goals) {
+      await api(`/savings-goals/${g.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const thisMonth = `${todayStr.slice(0, 7)}-01`
+    const addMonths = (period, n) => {
+      const [y, m] = period.split('-').map(Number)
+      const total = y * 12 + (m - 1) + n
+      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}-01`
+    }
+    const prevMonth = addMonths(thisMonth, -1)
+    const prevMonthDate = `${prevMonth.slice(0, 7)}-15`
+
+    const fijoCierre = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Cierre Fijo', currency: 'USD', allocation_type: 'fixed', allocation_value: 20 }),
+    }))).goal
+
+    // Nace "hoy" — se retrocede a mano para simular que ya existía el mes
+    // pasado, mismo truco que necesita cualquier prueba de cierre mensual.
+    await adminFetch(`/rest/v1/fin_savings_goals?id=eq.${fijoCierre.id}`, {
+      method: 'PATCH', body: JSON.stringify({ created_at: `${prevMonth}T00:00:00Z` }),
+    })
+
+    const cuenta = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Cierre Origen', currency: 'USD', initial_balance: 1000 }),
+    }))).account
+    const ahorroDestino = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Cierre Destino', currency: 'USD', is_savings: true }),
+    }))).account
+
+    // Ingreso 500, gasto 200: sobrante de 300 el mes pasado.
+    await api('/transactions', { method: 'POST', body: JSON.stringify({ type: 'ingreso', date: prevMonthDate, account_id: cuenta.id, amount: 500 }) })
+    await api('/transactions', { method: 'POST', body: JSON.stringify({ type: 'gasto', date: prevMonthDate, account_id: cuenta.id, amount: 200 }) })
+
+    const proposal = await json(await api('/savings-goals/close'))
+    eq('detecta el mes pasado como pendiente', proposal.pending_period, prevMonth)
+    eq('el sobrante es 500 − 200 = 300', proposal.surplus_usd, 300)
+    eq('una sola línea: el fijo de $20', proposal.proposal.length, 1)
+    eq('el fijo pide exactamente $20 (alcanza de sobra)', proposal.proposal[0].amount_usd, 20)
+    ok('no falta fondos para el fijo', !proposal.insufficient_for_fixed)
+
+    eq('cerrar sin cuentas en el reparto → 400',
+       (await api('/savings-goals/close', {
+         method: 'POST',
+         body: JSON.stringify({ period: prevMonth, allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: '', to_account_id: '' }] }),
+       })).status, 400)
+
+    const confirm = await api('/savings-goals/close', {
+      method: 'POST',
+      body: JSON.stringify({
+        period: prevMonth,
+        allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: cuenta.id, to_account_id: ahorroDestino.id }],
+      }),
+    })
+    eq('confirma el reparto', confirm.status, 200)
+
+    const goalsAfter = await json(await api('/savings-goals'))
+    eq('el fijo recibió su aporte: saldo 20', goalsAfter.goals.find(g => g.id === fijoCierre.id).balance_usd, 20)
+
+    eq('el mismo período no se puede repartir dos veces → 409',
+       (await api('/savings-goals/close', { method: 'POST', body: JSON.stringify({ period: prevMonth, allocations: [], skip: true }) })).status, 409)
+
+    const afterClose = await json(await api('/savings-goals/close'))
+    eq('sin más meses pendientes', afterClose.pending_period, null)
+  }
+
+  section('SPRINT 7 · /bootstrap incluye ahorros')
+  {
+    const boot = await json(await api('/bootstrap'))
+    ok('el payload trae savings con su forma esperada',
+       boot.savings && Array.isArray(boot.savings.goals) && 'pending_period' in boot.savings,
+       JSON.stringify(boot.savings))
+  }
 }
 
 await setup()

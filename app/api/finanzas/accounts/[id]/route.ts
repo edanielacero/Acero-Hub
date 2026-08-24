@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 /** Cuántos movimientos tocan esta cuenta, como origen o como destino. */
 async function txCount(
@@ -58,7 +58,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.is_investment !== undefined) {
     const wantsInvestment = Boolean(body.is_investment)
     const { data: currentAccount } = await supabase
-      .from('fin_accounts').select('is_investment').eq('id', id).eq('user_id', userId).maybeSingle()
+      .from('fin_accounts').select('is_investment, is_savings').eq('id', id).eq('user_id', userId).maybeSingle()
+
+    if (wantsInvestment && currentAccount?.is_savings) {
+      return NextResponse.json({ error: 'Una cuenta no puede ser de inversión y de ahorro a la vez' }, { status: 400 })
+    }
 
     // Cambiar el flag en CUALQUIER dirección con `gasto`/`ingreso ·
     // movimiento` ya cargados los deja ambiguos: isInvestmentAdjustment()
@@ -90,6 +94,36 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       }
     }
     patch.is_investment = wantsInvestment
+  }
+
+  if (body.is_savings !== undefined) {
+    const wantsSavings = Boolean(body.is_savings)
+    const { data: currentAccount } = await supabase
+      .from('fin_accounts').select('is_investment, is_savings').eq('id', id).eq('user_id', userId).maybeSingle()
+
+    if (wantsSavings && currentAccount?.is_investment) {
+      return NextResponse.json({ error: 'Una cuenta no puede ser de ahorro y de inversión a la vez' }, { status: 400 })
+    }
+
+    // Mismo motivo que is_investment arriba: desmarcarla con aportes/retiros
+    // de un ahorro ya tageados los dejaría en una cuenta que ya no se supone
+    // que reciba ese tipo de movimiento, sin nada que lo impida hacia atrás.
+    if (currentAccount && wantsSavings !== currentAccount.is_savings) {
+      const { count } = await supabase
+        .from('fin_transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .or(`account_id.eq.${id},to_account_id.eq.${id}`)
+        .not('savings_goal_id', 'is', null)
+
+      if ((count ?? 0) > 0) {
+        return NextResponse.json(
+          { error: 'No se puede cambiar: ya tiene aportes o retiros de un ahorro registrados' },
+          { status: 409 },
+        )
+      }
+    }
+    patch.is_savings = wantsSavings
   }
 
   const { data, error } = await supabase

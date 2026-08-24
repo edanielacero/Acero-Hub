@@ -79,6 +79,9 @@ export interface Account {
       movimientos nacen `flow_type: 'movimiento'` en vez de `'consumo'`, para
       no ensuciar el gasto/ingreso del mes (§7.1 de contexto_finanzas.md). */
   is_investment: boolean
+  /** Dedicada 100% a ahorro (Sprint 7): ahí no entra ni sale nada que no sea
+      un aporte o un retiro de un ahorro. Excluyente con `is_investment`. */
+  is_savings: boolean
 }
 
 /** Cuenta con su saldo derivado (§4.2). El saldo nunca se guarda en la base. */
@@ -142,6 +145,11 @@ export interface Transaction extends BalanceMovement {
   recurring_id?: string | null
   /** El pasanaku al que pertenece, si es un aporte o una recepción (Sprint 5). */
   pasanaku_id?: string | null
+  /** El ahorro al que pertenece, si es un aporte o un retiro (Sprint 7). */
+  savings_goal_id?: string | null
+  /** Por qué se retiró de un ahorro. Solo en una salida desde una cuenta
+      `is_savings`; `null` en cualquier otro movimiento. */
+  savings_reason?: SavingsReason | null
   /** Reparto del gasto entre personas. Vacío en un gasto normal. */
   debts?: Debt[]
 }
@@ -613,6 +621,92 @@ export interface BudgetLineInput {
   amount: number
   currency?: Currency
   retroactive?: boolean
+}
+
+/* ─── Ahorro (Sprint 7) ───────────────────────────────────────────────────────
+
+   Un ahorro (antes "motivo") es independiente de las cuentas: vive en
+   `fin_savings_goals`, y su saldo es SIEMPRE derivado de sus propios
+   movimientos tageados con `savings_goal_id`, sin importar en qué cuenta
+   `is_savings` haya caído la plata físicamente — mismo principio que el
+   saldo de una cuenta (Sprint 1 §4.2). Cada mes se calcula el sobrante
+   (ingreso real − gasto real) y se propone un reparto entre los ahorros
+   activos, que el usuario confirma o ajusta antes de que se convierta en
+   transferencias reales. */
+
+export type AllocationType = 'fixed' | 'percent'
+export const ALLOCATION_TYPES: AllocationType[] = ['fixed', 'percent']
+
+export type SavingsReason = 'emergencia' | 'meta_cumplida' | 'cambio_planes' | 'otro'
+export const SAVINGS_REASONS: SavingsReason[] = ['emergencia', 'meta_cumplida', 'cambio_planes', 'otro']
+
+export interface SavingsGoal {
+  id: string
+  name: string
+  input_currency: Currency
+  allocation_type: AllocationType
+  /** Monto en `input_currency` si es `'fixed'`, o 0–100 si es `'percent'`. */
+  allocation_value: number
+  /** En `input_currency`. `null` = sin meta, el ahorro solo acumula. */
+  target_amount: number | null
+  target_date: string | null
+  sort_order: number
+  archived: boolean
+}
+
+export interface SavingsGoalInput {
+  name: string
+  currency: Currency
+  allocation_type: AllocationType
+  allocation_value: number
+  target_amount?: number | null
+  target_date?: string | null
+}
+
+/** Un ahorro con su saldo ya resuelto — derivado de sus movimientos, nunca
+    guardado (§4.2 de sprint_7_ahorro.md). */
+export interface SavingsGoalWithBalance extends SavingsGoal {
+  /** En `input_currency`, con la tasa de HOY. */
+  balance: number
+  balance_usd: number
+  /** `true` cuando `target_amount` existe y `balance_usd` ya lo alcanza —
+      se excluye de la propuesta automática de reparto (§4.7). */
+  goal_reached: boolean
+}
+
+/** Una línea de la propuesta de reparto al cerrar un mes (§4.3). */
+export interface SavingsAllocationProposal {
+  goal_id: string
+  name: string
+  currency: Currency
+  /** En `currency` del ahorro. */
+  amount: number
+  amount_usd: number
+  /** `true` cuando este ahorro es de monto fijo y el sobrante no alcanzó
+      para cubrirlo entero — la UI lo muestra editable, no como sugerencia. */
+  capped: boolean
+}
+
+export interface SavingsClosureProposal {
+  /** `null` cuando no hay ningún período vencido sin decidir. */
+  pending_period: string | null
+  surplus_usd: number
+  proposal: SavingsAllocationProposal[]
+  /** Lo que sobró del reparto por % sin asignar a ningún ahorro (§0.1.5). */
+  unassigned_usd: number
+  /** `true` cuando la suma de los ahorros de monto fijo supera el sobrante:
+      la UI muestra ajuste manual en vez de la propuesta automática. */
+  insufficient_for_fixed: boolean
+}
+
+/** Lo que el usuario confirma al cerrar un período — puede diferir de la
+    propuesta si ajustó algún monto a mano. */
+export interface SavingsClosureInput {
+  period: string
+  allocations: { goal_id: string; amount: number; from_account_id: string; to_account_id: string }[]
+  /** `true` cuando decide no repartir nada ese mes — crea solo el cierre,
+      cero transferencias. */
+  skip?: boolean
 }
 
 /** Las 14 categorías que siembra POST /api/finanzas/seed. */

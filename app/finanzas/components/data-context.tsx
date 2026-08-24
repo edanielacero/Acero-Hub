@@ -6,7 +6,7 @@ import {
 } from 'react'
 import type { AccountWithBalance, BudgetsPayload, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
 import type { RateDetail } from '@/lib/finanzas/rates'
-import type { TxResult } from '@/lib/finanzas/load'
+import type { SavingsGoalsPayload, TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { clearSnapshots, readSnapshot, writeSnapshot, type Snapshot } from '@/lib/finanzas/snapshot'
@@ -39,6 +39,9 @@ interface FinanzasData {
   pasanaku: PasanakuWithState[]
   /** Presupuesto del período vigente + cierres de mes sin responder (Sprint 6). */
   budgets: BudgetsPayload
+  /** Ahorros con su saldo derivado + el período pendiente de repartir, si
+      hay alguno (Sprint 7). */
+  savings: SavingsGoalsPayload
   /** Meses (`'2026-08'`) con al menos un movimiento, del más reciente al más
       viejo — puebla el filtro de mes de Movimientos. */
   months: string[]
@@ -92,6 +95,8 @@ const EMPTY_BUDGETS: BudgetsPayload = {
   general: null, categories: [], pending_closures: [], categories_without_line: [],
 }
 
+const EMPTY_SAVINGS: SavingsGoalsPayload = { goals: [], pending_period: null }
+
 const EMPTY: TxResult = {
   transactions: [], total_gasto_usd: 0, total_ingreso_usd: 0,
   total_repartido_usd: 0, total_gasto_real_usd: 0,
@@ -139,6 +144,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const [plans, setPlans] = useState<DebtPlanWithCuotas[]>([])
   const [pasanaku, setPasanaku] = useState<PasanakuWithState[]>([])
   const [budgets, setBudgets] = useState<BudgetsPayload>(EMPTY_BUDGETS)
+  const [savings, setSavings] = useState<SavingsGoalsPayload>(EMPTY_SAVINGS)
   const [months, setMonths] = useState<string[]>([])
   const [totalUsd, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -162,6 +168,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     setPlans(snap.plans ?? [])
     setPasanaku(snap.pasanaku ?? [])
     setBudgets(snap.budgets ?? EMPTY_BUDGETS)
+    setSavings(snap.savings ?? EMPTY_SAVINGS)
     setMonths(snap.months ?? [])
     setTotal(snap.total_usd)
     for (const [key, data] of Object.entries(snap.tx)) {
@@ -270,6 +277,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       plans: data.plans ?? [],
       pasanaku: data.pasanaku ?? [],
       budgets: data.budgets ?? EMPTY_BUDGETS,
+      savings: data.savings ?? EMPTY_SAVINGS,
       months: data.months ?? [],
       tx,
     }
@@ -302,11 +310,11 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<FinanzasData>(
     () => ({
-      accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, months, totalUsd,
+      accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, savings, months, totalUsd,
       loading, stale: pending && !loading, pending, error,
       reload, version, seed, hidden, toggleHidden, userName,
     }),
-    [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, months, totalUsd,
+    [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, savings, months, totalUsd,
      loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
   )
 

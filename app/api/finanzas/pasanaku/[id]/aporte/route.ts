@@ -11,7 +11,7 @@ import type { Currency } from '@/lib/finanzas/types'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, pasanaku_id'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
 
 /**
  * Registrar un aporte. `flow_type: 'movimiento'`, no `'consumo'` — la plata
@@ -50,6 +50,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // isInvestmentAdjustment() en lib/finanzas/transactions.ts.
   if (account.is_investment) {
     return NextResponse.json({ error: 'No puedes aportar desde una cuenta de inversión' }, { status: 400 })
+  }
+  if (account.is_savings) {
+    return NextResponse.json({ error: 'No puedes aportar desde una cuenta de ahorro' }, { status: 400 })
   }
 
   const currency = account.currency as Currency
