@@ -181,7 +181,7 @@ las tocan:
    → *Sprint 5, `sprint_5_pasanaku.md`.*
 4. **Reparto de los extraordinarios:** ¿se fija el 40/30/20/10 o se decide cuota
    por cuota?
-   → *Bloquea el sprint de "Objetivos".*
+   → *Bloquea el sprint de "Ahorro" (#7, antes "Objetivos"), ver §7.3.*
 5. **Confirmar saldos actuales** de las 6 cuentas antes de cargarlas.
    → *Bloquea la carga inicial del Sprint 1 (no el desarrollo).*
 
@@ -233,9 +233,9 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 3 | **Fijos** (era la 8; incluye Recurrentes) | Spotify, TradingView, alquiler | ✅ Construido |
 | 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | ✅ Construido |
 | 5 | Pasanaku | Los 300 Bs mensuales — recortado a tracker personal | ✅ Construido |
-| 6 | Presupuesto mensual | Requiere historial del 1 | — |
-| 7 | Reportes | Requiere 2–6 | — |
-| 8 | Objetivos y bolsillos | Requiere 6, 7 | — |
+| 6 | Presupuesto mensual | Requiere historial del 1 | ✅ Construido · ver `sprint_6_presupuesto.md` |
+| 7 | **Ahorro** — cuentas dedicadas, varios motivos con reparto propio (era la 8, "Objetivos y bolsillos"; adelantada el 2026-08-24) | Apartar el sobrante (ingreso − gasto) del mes en cuentas que no reciben ni gastan otra cosa. No requiere Reportes — mismo criterio que adelantó a Fijos (#3): "primero lo que ya está pasando" | ⏳ Especificado, no construido · ver `sprint_7_ahorro.md` |
+| 8 | Reportes (era la 7) | Requiere 2–6 | — |
 | 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
 | 10 | Alertas | Requiere 6, 3 | — |
 | 11 | **Cuentas de inversión** (Broker, y las que se sumen después) | Ajustar su valor sin que cuente como gasto/ingreso real del mes | ✅ Construido |
@@ -243,6 +243,31 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son
 cosas que **ya le están pasando cada mes**. Por eso van antes que presupuesto y
 reportes, que necesitan meses de datos acumulados para valer algo.
+
+### 7.3 Feature #7 — Ahorro, reemplaza a "Objetivos y bolsillos" (2026-08-24, especificado)
+
+El usuario pidió, en conversación, cuentas **dedicadas 100% a ahorro** —
+nada entra que no sea ahorro, las salidas piden justificativo — con
+**varios motivos de ahorro**, cada uno con su propia distribución del
+sobrante mensual. Especificado por completo en `sprint_7_ahorro.md` tras
+tres rondas de preguntas (2026-08-24). Resumen de lo que quedó cerrado:
+
+- **Revisa §3.2.** "Bolsillos" ahí está descrito como *"separación
+  conceptual, no cuentas físicas separadas"*. Esta feature es lo opuesto:
+  bolsillos físicos. Es una revisión deliberada, no un error.
+- **Responde la pregunta abierta #4** (§5): el reparto es mixto (fijo o %
+  por motivo) pero se confirma cada mes, nunca se aplica ciego.
+- **Motivos independientes de las cuentas**: una cuenta dedicada puede
+  alojar varios motivos, y un motivo puede tener plata en más de una
+  cuenta — el saldo de cada motivo es derivado de sus propios movimientos
+  tageados, no de en qué cuenta esté guardado.
+- **Patrón reutilizable:** mismo mecanismo que Cuentas de inversión (#11,
+  §7.1) — un flag en la cuenta (`is_savings`, excluyente con
+  `is_investment`) que cambia el `flow_type` de sus transacciones. Un
+  retiro tipo `gasto` sí cuenta como gasto real; uno vía `transferencia`,
+  no.
+- **Bloqueo blando**, como el resto de la app; justificativo por categoría
+  + texto libre en cada salida; meta opcional por motivo.
 
 ### 7.1 Feature 11 — Cuentas de inversión (construido el 2026-08-19)
 

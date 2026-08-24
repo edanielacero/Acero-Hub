@@ -655,8 +655,8 @@ una sesión de navegador.
 | Qué | Cómo |
 |---|---|
 | **v1.1 — sugerencia por historial + buffer %** | El wizard ya es el componente que la va a mostrar; `gasto_real` por categoría y por mes ya está calculado por este sprint. Agregar la sugerencia es leer un promedio y multiplicarlo, no una pantalla nueva |
-| **Feature #8 — Objetivos y bolsillos** | Necesita presupuesto construido primero |
-| **Feature #7 — Reportes** | "Cuánto te sobró/faltó cada mes" ya está calculado acá, incluidas las decisiones de cierre |
+| **Feature #7 — Ahorro** (antes "Objetivos y bolsillos", renumerada el 24/8 — ver `contexto_finanzas.md` §7.3) | Necesita presupuesto construido primero — ya lo está |
+| **Feature #8 — Reportes** | "Cuánto te sobró/faltó cada mes" ya está calculado acá, incluidas las decisiones de cierre |
 | **Feature #10 — Alertas** | El estado de cada línea y los cierres pendientes ya están calculados; falta solo el envío pasivo |
 
 ⚠️ **Recordatorio de infraestructura:** Vercel Hobby permite **1 cron al día**
