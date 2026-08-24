@@ -1,4 +1,5 @@
 import { CURRENCIES } from './types'
+import { isValidDate } from './transactions'
 import type { Pasanaku, PasanakuInput } from './types'
 
 /** Último día del mes, para no proponer un 31 de febrero. Mismo criterio que `lib/finanzas/recurring.ts`. */
@@ -79,6 +80,6 @@ export function validatePasanaku(input: Partial<PasanakuInput>): string | null {
   if ((input.my_slot as number) > (input.total_slots as number)) {
     return 'Tu puesto no puede ser mayor que el total de puestos'
   }
-  if (!input.start_date || !/^\d{4}-\d{2}-\d{2}$/.test(input.start_date)) return 'Elige una fecha de inicio'
+  if (!isValidDate(input.start_date)) return 'Elige una fecha de inicio'
   return null
 }

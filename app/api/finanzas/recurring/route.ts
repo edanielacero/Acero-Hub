@@ -1,7 +1,7 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
-import { todayISO } from '@/lib/finanzas/transactions'
+import { todayISO, isValidDate } from '@/lib/finanzas/transactions'
 import { assertCategory, loadRecurring } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import { resolvePeople } from '@/lib/finanzas/people'
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     note: typeof body.note === 'string' ? body.note.trim() || null : null,
     // Desde cuándo corre. Anterior a hoy = hay meses para recuperar; posterior
     // = todavía no arrancó. El default es hoy, que es "empieza ya".
-    starts_on: typeof body.starts_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.starts_on)
+    starts_on: typeof body.starts_on === 'string' && isValidDate(body.starts_on)
       ? body.starts_on
       : todayISO(),
   }

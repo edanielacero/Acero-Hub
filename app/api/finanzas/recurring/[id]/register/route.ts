@@ -3,14 +3,13 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
+import { freezeConversion, todayISO, isValidDate } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { periodOf, resolveSplits } from '@/lib/finanzas/recurring'
 import { assertBalance } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency, Recurring, RecurringSplit } from '@/lib/finanzas/types'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
@@ -61,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // La fecha por defecto es la que le toca en el período vigente, no hoy: si
   // Spotify cobra el 5 y lo registrás el 18, el cargo fue el 5. Anotarlo hoy
   // correría el gasto de mes en los bordes y ensuciaría cualquier reporte.
-  const date = typeof body.date === 'string' && ISO_DATE.test(body.date)
+  const date = typeof body.date === 'string' && isValidDate(body.date)
     ? body.date
     : periodOf(base, hoy).due
 

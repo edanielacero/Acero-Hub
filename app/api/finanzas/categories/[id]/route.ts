@@ -53,12 +53,28 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * Si esta categoría era la única de una línea de presupuesto, un trigger en
  * la base (`fin_budget_line_categories_cleanup`) se lleva la línea entera al
  * quedar sin ninguna categoría — no hace falta replicarlo acá.
+ *
+ * Los fijos son la excepción: su categoría es obligatoria, así que la FK está
+ * en RESTRICT y hay que reasignarlos antes. Se chequea acá para poder decir
+ * CUÁLES son, en vez de dejar salir el error crudo de Postgres.
  */
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
+
+  const { data: fijos } = await supabase
+    .from('fin_recurring').select('name').eq('user_id', userId).eq('category_id', id)
+  if ((fijos ?? []).length > 0) {
+    const nombres = (fijos ?? []).map(f => f.name as string)
+    const lista = nombres.slice(0, 3).join(', ') + (nombres.length > 3 ? ` y ${nombres.length - 3} más` : '')
+    return NextResponse.json(
+      { error: `${nombres.length === 1 ? 'El fijo' : 'Los fijos'} ${lista} ${nombres.length === 1 ? 'usa' : 'usan'} esta categoría. Cambia su categoría antes de borrarla.` },
+      { status: 409 },
+    )
+  }
+
   const { error } = await supabase
     .from('fin_categories')
     .delete()

@@ -10,6 +10,23 @@ const TYPES: TxType[] = ['gasto', 'ingreso', 'transferencia']
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
+ * Fecha ISO que además EXISTE en el calendario.
+ *
+ * El regex solo mira la forma, así que `2026-02-30` y `2026-13-45` pasaban y
+ * llegaban hasta Postgres, que las rechazaba con su mensaje crudo. Peor en un
+ * plan de pagos: un `starts_on` imposible alimentaba la aritmética de cuotas
+ * y salían fechas válidas contando desde un día que nunca existió.
+ *
+ * La ida y vuelta por `Date` cubre mes y día de una sola vez: el 30 de febrero
+ * se normaliza al 2 de marzo, y ahí deja de coincidir con lo que entró.
+ */
+export function isValidDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_DATE.test(value)) return false
+  const dt = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === value
+}
+
+/**
  * Valida la forma del movimiento. Es la misma regla que el check constraint
  * `fin_tx_transfer_shape` de la migración: la base es la última línea de
  * defensa, pero acá el mensaje de error es legible.
@@ -21,7 +38,7 @@ export function validateInput(
   if (!input.type || !TYPES.includes(input.type)) {
     return { ok: false, error: 'Tipo de movimiento inválido' }
   }
-  if (!input.date || !ISO_DATE.test(input.date)) {
+  if (!isValidDate(input.date)) {
     return { ok: false, error: 'Fecha inválida' }
   }
   if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || input.amount <= 0) {

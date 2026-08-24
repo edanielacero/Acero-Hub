@@ -2,12 +2,11 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2, roundFor } from '@/lib/finanzas/money'
-import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
+import { freezeConversion, todayISO, isValidDate } from '@/lib/finanzas/transactions'
 import { isOpen, debtState } from '@/lib/finanzas/splits'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency, FlowType } from '@/lib/finanzas/types'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const TX_SELECT = 'id, type, flow_type, date, account_id, amount, currency, exchange_rate, amount_usd, description'
 
@@ -46,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
 
-  const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : todayISO()
+  const date = typeof body.date === 'string' && isValidDate(body.date) ? body.date : todayISO()
 
   const [{ data: splits }, { data: account }] = await Promise.all([
     supabase

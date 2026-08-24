@@ -2241,6 +2241,35 @@ async function run() {
          !trasUltima.categories.some(c => c.line_id === parLine.id))
     }
 
+    section('Categorías · no se borra una que un fijo esté usando')
+    {
+      const cats = (await json(await api('/categories'))).categories
+      const servicios = cats.find(c => c.name === 'Servicios')
+
+      const fijo = (await json(await api('/recurring', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Luz', category_id: servicios.id, amount: 80, currency: 'BOB', day_of_month: 10 }),
+      }))).recurring
+      ok('crea un fijo en esa categoría', !!fijo?.id)
+
+      // La FK está en RESTRICT: sin este chequeo el fijo quedaba con
+      // category_id null y ya no se podía ni pausar (el toggle revalida todo).
+      const res = await api(`/categories/${servicios.id}`, { method: 'DELETE' })
+      eq('borrar la categoría de un fijo → 409', res.status, 409)
+      ok('y el error dice cuál es el fijo', (await res.json()).error.includes('Luz'))
+
+      const sigueTeniendo = (await json(await api('/recurring'))).recurring.find(r => r.id === fijo.id)
+      eq('el fijo conserva su categoría', sigueTeniendo.category_id, servicios.id)
+
+      // Pausarlo tiene que seguir funcionando — era justo lo que se rompía.
+      eq('el fijo se puede pausar',
+         (await api(`/recurring/${fijo.id}`, { method: 'PATCH', body: JSON.stringify({ active: false }) })).status, 200)
+
+      await api(`/recurring/${fijo.id}`, { method: 'DELETE' })
+      eq('sin el fijo, la categoría ya se borra',
+         (await api(`/categories/${servicios.id}`, { method: 'DELETE' })).status, 200)
+    }
+
     section('Presupuesto · una categoría archivada no se puede presupuestar')
     {
       const ocio = (await json(await api('/categories'))).categories.find(c => c.name === 'Ocio')

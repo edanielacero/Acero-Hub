@@ -6,7 +6,7 @@ import { resolvePeople } from '@/lib/finanzas/people'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 import { loadShared } from '@/lib/finanzas/load'
-import { monthRange } from '@/lib/finanzas/transactions'
+import { monthRange, isValidDate } from '@/lib/finanzas/transactions'
 
 /** Todo el panel de Compartidos en un solo viaje. */
 export async function GET(request: Request) {
@@ -26,7 +26,6 @@ export async function GET(request: Request) {
 }
 
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Crear una deuda suelta: alguien te debe plata, sin ningún gasto detrás.
@@ -88,7 +87,7 @@ export async function POST(request: Request) {
       // deuda suelta es 100% recuperar lo que prestaste.
       principal_usd: amount_usd,
       concept,
-      incurred_on: typeof body.incurred_on === 'string' && ISO_DATE.test(body.incurred_on)
+      incurred_on: typeof body.incurred_on === 'string' && isValidDate(body.incurred_on)
         ? body.incurred_on
         : undefined,
       note: typeof body.note === 'string' ? body.note.trim() || null : null,

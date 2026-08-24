@@ -6,6 +6,7 @@ import { toUsd } from '@/lib/finanzas/money'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import { isOpen } from '@/lib/finanzas/splits'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
+import { isValidDate } from '@/lib/finanzas/transactions'
 
 /**
  * Editar una deuda.
@@ -99,7 +100,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     patch.concept = concept || null
   }
 
-  if (body.incurred_on !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(body.incurred_on)) {
+  if (body.incurred_on !== undefined && isValidDate(body.incurred_on)) {
     patch.incurred_on = body.incurred_on
   }
   if (body.note !== undefined) patch.note = typeof body.note === 'string' ? body.note.trim() || null : null

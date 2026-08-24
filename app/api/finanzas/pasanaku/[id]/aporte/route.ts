@@ -3,11 +3,10 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { freezeConversion, todayISO } from '@/lib/finanzas/transactions'
+import { freezeConversion, todayISO, isValidDate } from '@/lib/finanzas/transactions'
 import { assertBalance } from '@/lib/finanzas/load'
 import type { Currency } from '@/lib/finanzas/types'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, pasanaku_id'
@@ -67,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
 
-  const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : todayISO()
+  const date = typeof body.date === 'string' && isValidDate(body.date) ? body.date : todayISO()
 
   const balanceError = await assertBalance(supabase, userId, account, 'gasto', amount)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })

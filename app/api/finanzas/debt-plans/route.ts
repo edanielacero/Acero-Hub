@@ -6,8 +6,8 @@ import { isOpen } from '@/lib/finanzas/splits'
 import { equalInstallments, installmentDate, planTotal } from '@/lib/finanzas/plans'
 import { loadDebtPlans } from '@/lib/finanzas/load'
 import { PLAN_FREQUENCIES, type Currency, type PlanFrequency } from '@/lib/finanzas/types'
+import { isValidDate } from '@/lib/finanzas/transactions'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const DEBT_PLAN_COLS =
   'id, person_id, concept, principal, currency, interest_rate, installments, frequency, starts_on, note'
 const DEBT_COLS =
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Frecuencia inválida' }, { status: 400 })
   }
 
-  const startsOn = typeof body.starts_on === 'string' && ISO_DATE.test(body.starts_on) ? body.starts_on : ''
+  const startsOn = typeof body.starts_on === 'string' && isValidDate(body.starts_on) ? body.starts_on : ''
   if (!startsOn) return NextResponse.json({ error: 'Elige desde cuándo arranca' }, { status: 400 })
 
   const mode = body.mode === 'manual' ? 'manual' : 'iguales'
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
       const row = c as { amount?: unknown; incurred_on?: unknown }
       return { amount: num(row.amount, NaN), incurred_on: typeof row.incurred_on === 'string' ? row.incurred_on : '' }
     })
-    const mala = cuotas.find(c => !Number.isFinite(c.amount) || c.amount <= 0 || !ISO_DATE.test(c.incurred_on))
+    const mala = cuotas.find(c => !Number.isFinite(c.amount) || c.amount <= 0 || !isValidDate(c.incurred_on))
     if (mala) return NextResponse.json({ error: 'Cada cuota necesita un monto mayor a cero y una fecha' }, { status: 400 })
   } else {
     cuotas = equalInstallments(planTotal(principal, interestRate, currency), installments, currency)

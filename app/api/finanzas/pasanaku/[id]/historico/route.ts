@@ -1,8 +1,8 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
+import { isValidDate } from '@/lib/finanzas/transactions'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 const HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
 
@@ -29,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
 
-  const date = typeof body.date === 'string' && ISO_DATE.test(body.date) ? body.date : null
+  const date = typeof body.date === 'string' && isValidDate(body.date) ? body.date : null
   if (!date) return NextResponse.json({ error: 'Elige una fecha' }, { status: 400 })
 
   const note = typeof body.note === 'string' ? body.note.trim() || null : null

@@ -1,6 +1,6 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor, crossCurrencySuggestion } from './.fin/money.mjs'
-import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta } from './.fin/transactions.mjs'
+import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta, isValidDate } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
@@ -1606,6 +1606,24 @@ section('SPRINT 6 · needsClosure — la ausencia de fila es la pregunta pendien
      needsClosure(line, [{ line_id: 'l1', period: '2026-06-01' }, { line_id: 'l1', period: '2026-07-01' }], '2026-08-22'), [])
   eq('una línea creada este mismo mes no tiene nada que cerrar todavía',
      needsClosure({ id: 'l2', created_on: '2026-08-22' }, [], '2026-08-22'), [])
+}
+
+section('FIX · una fecha con forma válida pero imposible se rechaza')
+{
+  // El regex solo miraba la forma, así que 2026-02-30 llegaba hasta Postgres
+  // y salía su mensaje crudo. En un plan de pagos era peor: alimentaba la
+  // aritmética de cuotas desde un día que nunca existió.
+  ok('una fecha real pasa', isValidDate('2026-08-24'))
+  ok('29 de febrero bisiesto pasa', isValidDate('2028-02-29'))
+  ok('30 de febrero NO', !isValidDate('2026-02-30'))
+  ok('29 de febrero en año no bisiesto NO', !isValidDate('2027-02-29'))
+  ok('mes 13 NO', !isValidDate('2026-13-01'))
+  ok('día 45 NO', !isValidDate('2026-01-45'))
+  ok('día 00 NO', !isValidDate('2026-01-00'))
+  ok('31 de abril NO', !isValidDate('2026-04-31'))
+  ok('formato libre NO', !isValidDate('24/08/2026'))
+  ok('vacío NO', !isValidDate(''))
+  ok('no-string NO', !isValidDate(20260824))
 }
 
 section('SPRINT 6 · validación')

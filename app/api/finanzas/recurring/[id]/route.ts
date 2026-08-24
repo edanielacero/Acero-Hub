@@ -6,6 +6,7 @@ import { RECURRING_COLS, readTemplateSplits, validateRecurring } from '../route'
 import { assertCategory } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import type { RecurringInput } from '@/lib/finanzas/types'
+import { isValidDate } from '@/lib/finanzas/transactions'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, userId } = await requireUser()
@@ -38,7 +39,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         : (body.month_of_year == null ? null : num(body.month_of_year)),
     active: body.active === undefined ? current.active : Boolean(body.active),
     note: body.note === undefined ? current.note : (typeof body.note === 'string' ? body.note.trim() || null : null),
-    starts_on: typeof body.starts_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.starts_on)
+    starts_on: typeof body.starts_on === 'string' && isValidDate(body.starts_on)
       ? body.starts_on
       : current.starts_on,
   }
