@@ -10,7 +10,7 @@ import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
@@ -160,6 +160,33 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  // El lado que llega se recongela cuando cambió el monto recibido o la cuenta
+  // destino; si no, se conserva el que ya tenía. Editar solo la descripción no
+  // puede mover la comisión de una transferencia vieja.
+  const toAccount = merged.type === 'transferencia' && merged.to_account_id
+    ? accountsById.get(merged.to_account_id)
+    : undefined
+  // Ya no importa si las monedas coinciden: una transferencia de misma moneda
+  // también puede llevar comisión, y su destino se congela igual.
+  const conDestino = !!toAccount && merged.to_amount != null
+  const toAmountChanged = body.to_amount !== undefined
+  const toAccountChanged = body.to_account_id !== undefined && body.to_account_id !== current.to_account_id
+
+  let to_amount_usd = current.to_amount_usd === null ? null : num(current.to_amount_usd)
+  let to_exchange_rate = current.to_exchange_rate === null ? null : num(current.to_exchange_rate)
+
+  if (!conDestino) {
+    // Dejó de ser una transferencia entre monedas distintas: no hay destino
+    // que congelar, y arrastrar el viejo mentiría sobre el movimiento nuevo.
+    to_amount_usd = null
+    to_exchange_rate = null
+  } else if (toAmountChanged || toAccountChanged || amountChanged || accountChanged || to_amount_usd === null) {
+    const { rates } = await ensureRates(supabase, userId)
+    const frozenTo = freezeConversion(merged.to_amount!, toAccount!.currency, rates)
+    to_amount_usd = frozenTo.amount_usd
+    to_exchange_rate = frozenTo.exchange_rate
+  }
+
   const { data, error } = await supabase
     .from('fin_transactions')
     .update({
@@ -174,6 +201,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       to_amount: merged.to_amount,
       exchange_rate,
       amount_usd,
+      to_amount_usd,
+      to_exchange_rate,
       description: merged.description,
       updated_at: new Date().toISOString(),
     })

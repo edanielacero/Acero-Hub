@@ -171,6 +171,11 @@ export function QuickAdd() {
   const from = active.find(a => a.id === accountId)
   const to = active.find(a => a.id === toAccountId)
   const crossCurrency = type === 'transferencia' && !!from && !!to && from.currency !== to.currency
+  // Toda transferencia con origen y destino elegidos pregunta cuánto llegó:
+  // entre monedas distintas es obligatorio (nadie puede adivinar la tasa real
+  // que te dieron), y en la misma moneda es opcional — sirve para registrar la
+  // comisión que se comió el banco.
+  const conDestino = type === 'transferencia' && !!from && !!to
   // 8 decimales si la cuenta es BTC, 2 en cualquier otra.
   const fromDecimals = decimalsFor(from?.currency)
   const toDecimals = decimalsFor(to?.currency)
@@ -239,11 +244,14 @@ export function QuickAdd() {
    * llegó, que casi nunca coincide por las comisiones de conversión.
    */
   const sugerido = useMemo(() => {
-    if (!crossCurrency || !from || !to) return null
+    if (!conDestino || !from || !to) return null
     const value = amountFromInput(amount, { decimals: fromDecimals })
     if (!Number.isFinite(value) || value <= 0) return null
+    // Misma moneda: lo esperable es que llegue lo mismo que salió, y el usuario
+    // baja el número solo si hubo comisión.
+    if (from.currency === to.currency) return value
     return fromUsd(toUsd(value, from.currency, rates), to.currency, rates)
-  }, [crossCurrency, from, to, amount, fromDecimals, rates])
+  }, [conDestino, from, to, amount, fromDecimals, rates])
 
   // Diferencia en USD entre lo que salió y lo que llegó: es la comisión real.
   const recibido = amountFromInput(toAmount, { decimals: toDecimals })
@@ -258,9 +266,20 @@ export function QuickAdd() {
   // Mientras el usuario no escriba el monto recibido, se mantiene sincronizado
   // con la sugerencia a medida que cambia el monto que sale.
   useEffect(() => {
-    if (!crossCurrency || toAmountTouched || sugerido == null) return
+    if (!conDestino || toAmountTouched || sugerido == null) return
     setToAmount(String(sugerido))
-  }, [sugerido, crossCurrency, toAmountTouched])
+  }, [sugerido, conDestino, toAmountTouched])
+
+  /** La comisión en la MONEDA de origen, para una transferencia de misma
+      moneda: ahí no hay conversión de por medio, así que expresarla en USD
+      sería dar una vuelta innecesaria. */
+  const comisionMismaMoneda = useMemo(() => {
+    if (!conDestino || crossCurrency || !from) return null
+    const salida = amountFromInput(amount, { decimals: fromDecimals })
+    if (!Number.isFinite(salida) || salida <= 0) return null
+    if (!Number.isFinite(recibido) || recibido <= 0) return null
+    return roundFor(salida - recibido, from.currency)
+  }, [conDestino, crossCurrency, from, amount, recibido, fromDecimals])
 
   const visibleCategories = useMemo(
     () => categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto')),
@@ -337,9 +356,21 @@ export function QuickAdd() {
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
-      payload.to_amount = crossCurrency ? recibido : null
-      if (crossCurrency && (!Number.isFinite(recibido) || recibido <= 0)) {
-        return setError(`Indica cuánto llegó realmente a ${to?.name}`)
+      if (crossCurrency) {
+        if (!Number.isFinite(recibido) || recibido <= 0) {
+          return setError(`Indica cuánto llegó realmente a ${to?.name}`)
+        }
+        payload.to_amount = recibido
+      } else {
+        // Misma moneda: solo se guarda si de verdad llegó MENOS, o sea si hubo
+        // comisión. Igual al monto enviado es el caso normal y no hace falta
+        // ensuciar la fila con un dato que no dice nada.
+        if (Number.isFinite(recibido) && recibido > value) {
+          return setError('En la misma moneda no puede llegar más de lo que salió')
+        }
+        payload.to_amount = Number.isFinite(recibido) && recibido > 0 && recibido !== value
+          ? recibido
+          : null
       }
     } else {
       payload.category_id = categoryId || null
@@ -535,11 +566,16 @@ export function QuickAdd() {
                 </div>
               </div>
 
-              {/* Solo entre monedas distintas: se guarda lo que REALMENTE llegó,
-                  en vez de derivarlo de la tasa y mentir sobre la operación. */}
-              {crossCurrency && (
+              {/* Se guarda lo que REALMENTE llegó, en vez de derivarlo de la
+                  tasa y mentir sobre la operación. Entre monedas distintas es
+                  obligatorio; en la misma moneda es opcional y sirve para
+                  anotar la comisión del banco. */}
+              {conDestino && (
                 <div>
-                  <Label>Cuánto llegó a {to?.name} ({to?.currency})</Label>
+                  <Label>
+                    Cuánto llegó a {to?.name} ({to?.currency})
+                    {!crossCurrency && <span className="font-normal text-[var(--fz-ink-3)]"> · opcional</span>}
+                  </Label>
                   <TextField
                     value={toAmount}
                     onChange={e => {
@@ -554,14 +590,20 @@ export function QuickAdd() {
                   <div className="flex items-center justify-between gap-2 mt-1.5">
                     {/* La diferencia contra la tasa de referencia es, en la
                         práctica, lo que te cobró la plataforma. */}
-                    {diferenciaUsd != null && Math.abs(diferenciaUsd) >= 0.01 ? (
+                    {comisionMismaMoneda != null && comisionMismaMoneda > 0 ? (
+                      <span className="text-[12px] font-medium fz-num text-[var(--fz-out-text)]">
+                        Comisión {formatAmount(comisionMismaMoneda, from!.currency)}
+                      </span>
+                    ) : diferenciaUsd != null && Math.abs(diferenciaUsd) >= 0.01 ? (
                       <span className={`text-[12px] font-medium fz-num ${diferenciaUsd < 0 ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-in-text)]'}`}>
                         {diferenciaUsd < 0 ? 'Comisión ≈ ' : 'A favor ≈ '}
                         {formatUSD(Math.abs(diferenciaUsd))}
                       </span>
                     ) : (
                       <span className="text-[12px] text-[var(--fz-ink-3)]">
-                        {sugerido != null ? 'Según la tasa de hoy' : 'Pon el monto que sale'}
+                        {!crossCurrency
+                          ? 'Bájalo solo si te cobraron comisión'
+                          : sugerido != null ? 'Según la tasa de hoy' : 'Pon el monto que sale'}
                       </span>
                     )}
 

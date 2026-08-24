@@ -2365,6 +2365,81 @@ async function run() {
     eq('y el disponible cierra clavado: 696 − 10', viviendaConGasto.available, 686)
   }
 
+  section('Transferencias · el lado que llega también se congela')
+  {
+    const cuentaUsd = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Origen USD', currency: 'USD', initial_balance: 500 }),
+    }))).account
+    const cuentaBs = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Destino Bs', currency: 'BOB', initial_balance: 0 }),
+    }))).account
+
+    await api('/rates', { method: 'PATCH', body: JSON.stringify({ currency: 'BOB', rate: 6.96 }) })
+
+    // Salen 100 USD y llegan 680 Bs: a 6.96 eso son 97,70 USD, así que el
+    // camino se comió 2,30.
+    const t = (await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transferencia', date: '2026-08-20',
+        account_id: cuentaUsd.id, to_account_id: cuentaBs.id,
+        amount: 100, to_amount: 680, description: 'P2P',
+      }),
+    }))).transaction
+
+    eq('congela lo que salió', Number(t.amount_usd), 100)
+    eq('y también lo que llegó', Number(t.to_amount_usd), 97.70)
+    eq('con la tasa del destino congelada aparte',
+       Math.abs(Number(t.to_exchange_rate) - 1 / 6.96) < 1e-7, true)
+
+    // El corazón del arreglo: la tasa se mueve y la comisión NO.
+    await api('/rates', { method: 'PATCH', body: JSON.stringify({ currency: 'BOB', rate: 12.4 }) })
+    const tras = (await json(await api('/transactions?from=2026-08-01&to=2026-08-31')))
+      .transactions.find(x => x.id === t.id)
+    eq('con otra tasa, lo que llegó sigue valiendo lo mismo', Number(tras.to_amount_usd), 97.70)
+    eq('y lo que salió tampoco se recalcula', Number(tras.amount_usd), 100)
+    await api('/rates', { method: 'PATCH', body: JSON.stringify({ currency: 'BOB', rate: 6.96 }) })
+
+    // Una transferencia de misma moneda no tiene destino que congelar.
+    const cuentaUsd2 = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Otra USD', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const misma = (await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transferencia', date: '2026-08-20',
+        account_id: cuentaUsd.id, to_account_id: cuentaUsd2.id, amount: 50,
+      }),
+    }))).transaction
+    eq('misma moneda: sin to_amount_usd', misma.to_amount_usd, null)
+
+    // Misma moneda CON comisión: mandás 50 y llegan 48, el banco se comió 2.
+    const conComision = (await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transferencia', date: '2026-08-21',
+        account_id: cuentaUsd.id, to_account_id: cuentaUsd2.id,
+        amount: 50, to_amount: 48, description: 'Con comisión',
+      }),
+    }))).transaction
+    eq('guarda lo que realmente llegó', Number(conComision.to_amount), 48)
+    eq('y su USD congelado', Number(conComision.to_amount_usd), 48)
+
+    eq('en la misma moneda no puede llegar MÁS de lo que salió → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({
+           type: 'transferencia', date: '2026-08-21',
+           account_id: cuentaUsd.id, to_account_id: cuentaUsd2.id, amount: 50, to_amount: 60,
+         }),
+       })).status, 400)
+
+    // El saldo del destino tiene que reflejar lo que llegó, no lo que salió.
+    const cuentas = (await json(await api('/accounts'))).accounts
+    const destino = cuentas.find(a => a.id === cuentaUsd2.id)
+    eq('el destino recibe 50 + 48, no 50 + 50', destino.balance, 98)
+  }
+
   section('SPRINT 6 · /bootstrap incluye presupuesto')
   {
     const boot = await json(await api('/bootstrap'))

@@ -8,7 +8,7 @@ import { flowTypeFor, freezeConversion, validateInput } from '@/lib/finanzas/tra
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
@@ -80,6 +80,17 @@ export async function POST(request: Request) {
 
   const frozen = freezeConversion(input.amount!, currency, rates)
 
+  // El lado que LLEGA se congela igual que el que sale: sin esto, la comisión
+  // (lo que salió menos lo que entró) había que calcularla con la tasa de hoy
+  // y se movía sola con el paralelo — la misma transferencia mostraría otra
+  // comisión cada mes. Solo aplica entre monedas distintas.
+  const toAccount = input.type === 'transferencia' && input.to_account_id
+    ? accountsById.get(input.to_account_id)
+    : undefined
+  const frozenTo = toAccount && input.to_amount != null
+    ? freezeConversion(input.to_amount, toAccount.currency, rates)
+    : null
+
 
   const { data, error } = await supabase
     .from('fin_transactions')
@@ -98,6 +109,8 @@ export async function POST(request: Request) {
       to_amount: input.type === 'transferencia' ? input.to_amount : null,
       exchange_rate: frozen.exchange_rate,
       amount_usd: frozen.amount_usd,
+      to_amount_usd: frozenTo?.amount_usd ?? null,
+      to_exchange_rate: frozenTo?.exchange_rate ?? null,
       description: input.description,
     })
     .select(TX_COLS)

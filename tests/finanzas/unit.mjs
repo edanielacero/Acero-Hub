@@ -1,6 +1,6 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor, crossCurrencySuggestion } from './.fin/money.mjs'
-import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta, isValidDate } from './.fin/transactions.mjs'
+import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta, isValidDate, transferFeeUsd } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
@@ -191,7 +191,13 @@ eq('transferencia sin destino falla', validateInput({ ...base, type: 'transferen
 eq('transferencia a sí misma falla', validateInput({ ...base, type: 'transferencia', to_account_id: 'airtm', amount: 5 }, byId).ok, false)
 eq('transferencia con categoría falla', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', category_id: 'c1', amount: 5 }, byId).ok, false)
 eq('transferencia misma moneda sin to_amount pasa', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', amount: 5 }, byId).ok, true)
-eq('transferencia misma moneda CON to_amount falla', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', to_amount: 5, amount: 5 }, byId).ok, false)
+// Misma moneda CON to_amount ya es válido: sirve para anotar la comisión que
+// se comió el banco. Antes se rechazaba, y no había dónde registrar que
+// mandaste 100 y llegaron 98.
+eq('transferencia misma moneda con to_amount igual pasa', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', to_amount: 5, amount: 5 }, byId).ok, true)
+eq('misma moneda con comisión pasa', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', to_amount: 4.8, amount: 5 }, byId).ok, true)
+eq('misma moneda no puede recibir MÁS de lo que salió', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', to_amount: 6, amount: 5 }, byId).ok, false)
+eq('misma moneda con recibido en cero falla', validateInput({ ...base, type: 'transferencia', to_account_id: 'broker', to_amount: 0, amount: 5 }, byId).ok, false)
 eq('cross-currency sin to_amount falla', validateInput({ ...base, type: 'transferencia', to_account_id: 'efectivo', amount: 50 }, byId).ok, false)
 eq('cross-currency con to_amount pasa', validateInput({ ...base, type: 'transferencia', to_account_id: 'efectivo', to_amount: 348, amount: 50 }, byId).ok, true)
 ok('el mensaje de cross-currency nombra la cuenta destino',
@@ -1606,6 +1612,23 @@ section('SPRINT 6 · needsClosure — la ausencia de fila es la pregunta pendien
      needsClosure(line, [{ line_id: 'l1', period: '2026-06-01' }, { line_id: 'l1', period: '2026-07-01' }], '2026-08-22'), [])
   eq('una línea creada este mismo mes no tiene nada que cerrar todavía',
      needsClosure({ id: 'l2', created_on: '2026-08-22' }, [], '2026-08-22'), [])
+}
+
+section('Transferencias · la comisión sale de los dos lados congelados')
+{
+  // 1624,10 USD salieron de Paypal y llegaron 1293,11 USDC: la diferencia es
+  // lo que se comió Paypal, y tiene que seguir diciendo lo mismo dentro de un
+  // año aunque el paralelo se haya movido.
+  eq('comisión de una salida grande',
+     transferFeeUsd({ type: 'transferencia', amount_usd: 1624.10, to_amount_usd: 1293.11 }), 330.99)
+  eq('un P2P a buen precio da negativo: te fue a favor',
+     transferFeeUsd({ type: 'transferencia', amount_usd: 25.74, to_amount_usd: 25.97 }), -0.23)
+  eq('sin comisión, exactamente cero',
+     transferFeeUsd({ type: 'transferencia', amount_usd: 100, to_amount_usd: 100 }), 0)
+  eq('misma moneda: no aplica',
+     transferFeeUsd({ type: 'transferencia', amount_usd: 100, to_amount_usd: null }), null)
+  eq('un gasto no tiene comisión',
+     transferFeeUsd({ type: 'gasto', amount_usd: 100, to_amount_usd: 50 }), null)
 }
 
 section('FIX · una fecha con forma válida pero imposible se rechaza')

@@ -72,7 +72,16 @@ export function validateInput(
         }
       }
     } else if (input.to_amount != null) {
-      return { ok: false, error: 'El monto recibido solo aplica entre monedas distintas' }
+      // Misma moneda: el monto recibido es opcional, y sirve para registrar la
+      // comisión que se comió el banco o la plataforma. Mandar 100 y que
+      // lleguen 98 es normal; que lleguen 102 no significa nada — de la misma
+      // moneda no aparece plata en el camino.
+      if (!Number.isFinite(input.to_amount) || input.to_amount <= 0) {
+        return { ok: false, error: 'El monto recibido debe ser mayor a cero' }
+      }
+      if (input.to_amount > input.amount!) {
+        return { ok: false, error: 'En la misma moneda no puede llegar más de lo que salió' }
+      }
     }
   } else {
     if (input.to_account_id) {
@@ -84,6 +93,25 @@ export function validateInput(
   }
 
   return { ok: true }
+}
+
+/**
+ * Lo que se perdió (o se ganó) en el camino de una transferencia entre monedas
+ * distintas, en USD.
+ *
+ * Sale de los DOS valores congelados —lo que salió y lo que llegó, cada uno a
+ * la tasa de su día— así que no se mueve nunca más. Calcularlo con la tasa de
+ * hoy haría que la misma transferencia mostrara otra comisión cada mes.
+ *
+ * Positivo = comisión (llegó menos de lo que salió). Negativo = te fue a favor,
+ * que pasa de verdad en un P2P a buen precio. `null` cuando no aplica: misma
+ * moneda, o una fila vieja anterior a que se congelara el destino.
+ */
+export function transferFeeUsd(
+  tx: Pick<Transaction, 'type' | 'amount_usd' | 'to_amount_usd'>,
+): number | null {
+  if (tx.type !== 'transferencia' || tx.to_amount_usd == null) return null
+  return round2(tx.amount_usd - tx.to_amount_usd)
 }
 
 /**

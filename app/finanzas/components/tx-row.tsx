@@ -4,8 +4,8 @@ import { ReactNode, useState } from 'react'
 import { IconArrowsExchange, IconChartLine, IconPencil, IconReceiptRefund, IconRotateClockwise2, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import { CURRENCY_META, type AccountWithBalance, type Category, type Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
-import { displayRate, formatAmount } from '@/lib/finanzas/money'
-import { isInvestmentAdjustment, todayISO } from '@/lib/finanzas/transactions'
+import { displayRate, formatAmount, formatUSD } from '@/lib/finanzas/money'
+import { isInvestmentAdjustment, todayISO, transferFeeUsd } from '@/lib/finanzas/transactions'
 import { SignedAmount } from './amount'
 import { CategoryIcon } from './category-icon'
 import { useFinanzas } from './data-context'
@@ -104,6 +104,14 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
             : [category?.name, account?.name].filter(Boolean).join(' · ')
 
   const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
+  // Solo existe en una transferencia entre monedas distintas, y sale de los dos
+  // lados ya congelados — nunca de la tasa de hoy.
+  const fee = transferFeeUsd(tx)
+  // Entre monedas distintas la comisión solo tiene sentido en USD (es la única
+  // unidad donde restar Bs de USDT significa algo). En la misma moneda, en
+  // cambio, la resta es directa y mostrarla en dólares sería dar una vuelta.
+  const mismaMoneda = isTransfer && !!toAccount && toAccount.currency === tx.currency
+  const feeNativo = mismaMoneda && tx.to_amount != null ? tx.amount - tx.to_amount : null
   const parte = generoDeudas ? shareBreakdown(tx.amount, deudas, tx.currency) : null
 
   async function remove() {
@@ -215,6 +223,27 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           {!isTransfer && !esPasanaku && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
           <DetailField label={isTransfer ? 'De' : 'Cuenta'} value={account?.name} />
           {isTransfer && <DetailField label="A" value={toAccount?.name} />}
+          {/* Cuánto salió, cuánto llegó y qué se comió el camino. Los dos
+              montos van en SU moneda —es lo que de verdad se movió— y la
+              comisión en USD, que es la única unidad en la que restar dos
+              monedas distintas significa algo. */}
+          {isTransfer && tx.to_amount != null && toAccount && !hidden && (
+            <>
+              <DetailField label="Enviado" value={formatAmount(tx.amount, tx.currency)} />
+              <DetailField label="Recibido" value={formatAmount(tx.to_amount, toAccount.currency)} />
+              {feeNativo != null ? (
+                <DetailField
+                  label="Comisión"
+                  value={feeNativo === 0 ? 'Sin comisión' : formatAmount(feeNativo, tx.currency)}
+                />
+              ) : fee != null && (
+                <DetailField
+                  label={fee < 0 ? 'A favor' : 'Comisión'}
+                  value={fee === 0 ? 'Sin comisión' : formatUSD(Math.abs(fee))}
+                />
+              )}
+            </>
+          )}
           {isInversion && (
             <DetailField label="Cuenta de inversión" value="Sí — no cuenta como gasto/ingreso real" />
           )}

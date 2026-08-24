@@ -37,7 +37,7 @@ import type {
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id, pasanaku_id'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id'
 
 export interface AccountsPayload {
   accounts: AccountWithBalance[]
@@ -126,6 +126,25 @@ export async function accountBalance(
  * error. Una transferencia SÍ sigue necesitando saldo real para salir,
  * inversión o no: no se puede retirar más de lo que la cuenta vale.
  */
+export async function assertBalance(
+  supabase: SupabaseClient,
+  userId: string,
+  account: Account,
+  type: TxType,
+  amount: number,
+  editing?: { type: TxType; account_id: string; amount: number } | null,
+): Promise<string | null> {
+  if (!consumesBalance(type) || (type === 'gasto' && account.is_investment)) return null
+
+  const balance = await accountBalance(supabase, userId, account)
+  const disponible = availableFrom(balance, editing, account.id)
+
+  if (amount > disponible) {
+    return `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles`
+  }
+  return null
+}
+
 /**
  * Que la categoría exista y sea de este usuario. `null` es válido: un
  * movimiento sin categoría es legítimo.
@@ -145,25 +164,6 @@ export async function assertCategory(
   const { data } = await supabase
     .from('fin_categories').select('id').eq('user_id', userId).eq('id', categoryId).maybeSingle()
   return data ? null : 'La categoría no existe'
-}
-
-export async function assertBalance(
-  supabase: SupabaseClient,
-  userId: string,
-  account: Account,
-  type: TxType,
-  amount: number,
-  editing?: { type: TxType; account_id: string; amount: number } | null,
-): Promise<string | null> {
-  if (!consumesBalance(type) || (type === 'gasto' && account.is_investment)) return null
-
-  const balance = await accountBalance(supabase, userId, account)
-  const disponible = availableFrom(balance, editing, account.id)
-
-  if (amount > disponible) {
-    return `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles`
-  }
-  return null
 }
 
 export async function loadCategories(supabase: SupabaseClient, userId: string): Promise<Category[]> {

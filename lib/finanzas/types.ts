@@ -127,6 +127,14 @@ export interface Transaction extends BalanceMovement {
   exchange_rate: number
   /** Monto en USD congelado al momento de escribir. */
   amount_usd: number
+  /** Lo que LLEGÓ, en USD, congelado igual que `amount_usd`. Solo en una
+      transferencia entre monedas distintas; `null` en todo lo demás. Sin
+      esto la comisión había que calcularla con la tasa de hoy y se movía
+      sola con el paralelo. */
+  to_amount_usd: number | null
+  /** La tasa congelada de la moneda destino, misma convención que
+      `exchange_rate`: USD por 1 unidad. */
+  to_exchange_rate: number | null
   description: string | null
   /** Consumo real o movimiento financiero. Las filas viejas son 'consumo'. */
   flow_type: FlowType
