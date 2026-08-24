@@ -5405,8 +5405,12 @@ export function SessionDetail({ sessionId, onBack }: { sessionId: string; onBack
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center py-32">
+      <div className="flex flex-col items-center justify-center py-32 gap-4">
         <p className="text-slate-500 dark:text-zinc-400 text-[14px]">Error al cargar la sesión</p>
+        <button onClick={onBack}
+          className="h-11 px-5 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer">
+          Volver a mis sesiones
+        </button>
       </div>
     )
   }

@@ -8,8 +8,10 @@
 > Este documento especifica **únicamente el Sprint 6** — lo suficiente para
 > empezar a programar sin volver a decidir nada.
 >
-> Última actualización: 2026-08-22 (revisión 3) · Estado: **especificado, no
-> construido**.
+> Última actualización: 2026-08-24 · Estado: **construido**, 548/156/548
+> pruebas en verde (unit/db/api). El modelo se corrigió y se amplió después
+> de la construcción original — ver §0.3, que manda sobre el resto del
+> documento donde difieran.
 
 ---
 
@@ -62,6 +64,39 @@ simplemente no aporta nada al disponible del siguiente (se comporta como si
 hubiera dicho "no"), pero **la pregunta queda pendiente y respondible en
 cualquier momento después** — no desaparece ni fuerza una respuesta.
 
+### 0.3 Rediseño posterior a la construcción original — 2026-08-22 a 2026-08-24
+
+El sprint se construyó siguiendo este documento (commit `31157ed`, 22/8), pero
+dos días de uso real y revisión (~15 commits, "Presupuesto: …") corrigieron el
+modelo en varios puntos. **Esto manda sobre el resto del documento** donde
+haya diferencia:
+
+| Spec original | Lo que quedó construido | Por qué |
+|---|---|---|
+| El tope general es una línea propia de `fin_budget_lines` con `category_id = null` | **El general no existe como línea.** Es un agregado derivado: la suma de todas las categorías con presupuesto (`sumGeneral` en `lib/finanzas/load.ts`). Migración `20260823000000_finanzas_presupuesto_sin_general.sql` | Una línea general independiente podía desincronizarse de la suma real de categorías; derivarla la hace imposible de desincronizar |
+| Wizard inicial que recorre las 14 categorías una por una | **No hay wizard.** Un solo sheet ("Nuevo presupuesto") con selector de categorías por chips | El wizard forzaba a decidir las 14 de una sentada; el alta suelta se volvió el único camino, tanto para la primera línea como para las siguientes |
+| Una línea = una categoría (`category_id` nullable) | **Una línea puede cubrir varias categorías**, vía tabla puente `fin_budget_line_categories` (una categoría no puede estar en dos líneas activas a la vez) | Categorías chicas y relacionadas (p. ej. "Salidas" + "Delivery") se presupuestan juntas sin perder detalle en Movimientos |
+| Monto siempre en USD (`fin_budget_periods.amount_usd`) | **Cada línea tiene moneda propia** (`input_currency`), y el monto nativo se guarda tal cual se escribió (`fin_budget_periods.amount`) con `exchange_rate` congelado — mismo criterio que `fin_transactions`. El usuario piensa en Bs, no en USD | El monto reconvertido desde USD "flotaba" con la tasa (p. ej. 2.400 Bs mostraba 2.400,02); guardar el nativo lo fija |
+| Sin nombre editable de línea | **Alias opcional** (`fin_budget_lines.name`) — si no se pone, el default es la lista de categorías | Necesario en cuanto una línea cubre varias categorías: "Salidas, Delivery" es peor título que "Gustos" |
+| Barra de ritmo: tick + proyección a fin de mes | **Solo el tick.** La proyección se quitó (commit `9d35979`) | — |
+| Toggle "gastado" vs. "disponible" no estaba en el alcance | **Se agregó**, configurable en Ajustes (`useBudgetViewPref`, `localStorage`), aplica igual en Presupuesto y en la Home | El usuario quería ver a veces cuánto le queda, no siempre cuánto ya gastó |
+| Panel en la Home diferido a v1.1 (§2, "No entra") | **Se construyó igual**, en carrusel junto con el hero (commits "Home: …") | Los datos ya viajaban en `/bootstrap` desde el día uno para el bloqueo del quick-add; exponerlos en la Home fue barato |
+| "La tab bar se queda en 4. Presupuesto entra por la sidebar/Más" (§7) | **Al revés:** Presupuesto entró a la tab bar y Cuentas pasó a "Más" (commit `634b418`) | — |
+| `budget-block-sheet.tsx` separado para el bloqueo del quick-add | **No existe como archivo aparte** — el bloqueo y "Ampliar presupuesto" viven inline en `quick-add.tsx` | — |
+| `budget-wizard-sheet.tsx` | **No existe** — reemplazado por `budget-line-sheet.tsx`, que sirve tanto para alta como edición | Ver wizard, arriba |
+
+Además, una revisión de edge cases (23–24/8) encontró y corrigió cuatro bugs
+reales del módulo, ninguno agarrado por la suite hasta ese momento:
+
+1. **Un presupuesto en BTC reportaba $0.** Todo el módulo redondeaba montos
+   nativos con `round2` (2 decimales); BTC usa 8. Pasó a redondeo por moneda
+   (`roundFor`), el mismo patrón que ya usaban splits y pasanaku.
+2. **`category_id` no se validaba contra el usuario** al crear/editar un
+   fijo o un movimiento — la FK aceptaba la categoría de cualquiera.
+3. **`decimalsFor` reventaba con una moneda desconocida** en vez de caer en 2.
+4. **Borrar una categoría dejaba fijos rotos** (FK en `SET NULL` cuando la
+   categoría ya era obligatoria). Pasó a `RESTRICT`, igual que `account_id`.
+
 ---
 
 ## 1. Objetivo del sprint
@@ -111,7 +146,7 @@ cualquier momento después** — no desaparece ni fuerza una respuesta.
 | **Sugerencia de monto por historial + buffer %** | Necesita 2-3 meses de `gasto_real` acumulado por categoría, que hoy no existen (Movimientos tiene 4 días). El wizard ya queda listo para recibirla: el día que haya datos, prellena en vez de arrancar vacío — no hace falta ninguna pantalla nueva |
 | Presupuesto de **ingresos** | Decisión cerrada: es solo sobre gasto |
 | Notificación push cuando te pasás | Sprint de Alertas (#10) |
-| Panel en la Home | Se difiere como pantalla, pero los datos sí viajan desde el día uno porque el quick-add los necesita (§5) |
+| Panel en la Home | Se difiere como pantalla, pero los datos sí viajan desde el día uno porque el quick-add los necesita (§5). **Construido igual, ver §0.3** |
 | Presupuesto agrupado por bolsillo | Confirmado: por categoría plana, no por los 5 bolsillos del contexto |
 | Bloqueo en el tope general | Nunca bloquea, solo informa |
 
@@ -499,8 +534,11 @@ Acepta `budget_extension_usd?` opcional (§4.6).
 
 ## 7. UI
 
-**La tab bar se queda en 4.** Presupuesto entra por la sidebar (desktop) y
-"Más" (mobile).
+**Superseded por §0.3:** Presupuesto terminó entrando a la tab bar (no por
+sidebar/Más), y el wizard descrito abajo no se construyó — el alta es un
+solo sheet con selector de categorías por chips (`budget-line-sheet.tsx`).
+Se deja el diseño original como referencia de las decisiones de fondo
+(bloqueo, ampliación, cierre) que sí se mantuvieron.
 
 ### Wizard inicial
 
@@ -587,12 +625,28 @@ en el período.
 
 ## 8. Verificación
 
-Pendiente — el sprint todavía no se construye. Al implementar: `unit.mjs`
-para `montoEfectivo` / `carriedInto` (un salto, no cadena) / `comprometido` /
-proyección de ritmo / detección de cierres pendientes; `db.mjs` para RLS,
-los índices únicos parciales y el `unique(line_id, period)` de cierres;
-`api.mjs` para las 7 rutas con sesión real, incluido el flujo completo
-wizard → bloqueo → ampliar → guardar → cierre de mes.
+**548/156/548 pruebas en verde** (2026-08-24, corridas contra el dev server
+real). Eran 425/123/410 al cerrar el Sprint 5 — este sprint suma **123
+pruebas nuevas en `unit`, 33 en `db` y 138 en `api`**, ya con el modelo
+corregido de §0.3 (multi-categoría, moneda nativa, general derivado, sin
+wizard).
+
+```bash
+node tests/finanzas/run.mjs          # las tres suites
+node tests/finanzas/run.mjs unit     # solo una
+```
+
+| Suite | Sprint 5 | Ahora | Qué cubre de este sprint |
+|---|---|---|---|
+| `unit.mjs` | 425 | **548** | `disponible`, `carriedInto` (un salto, no cadena), `needsClosure`, `budgetBarView` en los dos modos, redondeo nativo por moneda (BTC incluido), validación de monto y de período |
+| `db.mjs` | 123 | **156** | RLS de las 5 tablas (incluida `fin_budget_line_categories`), el índice único por categoría, `unique(line_id, period)` de cierres, cascadas al borrar una línea o un período, un cierre con disponible negativo, dos cierres del mismo mes rechazados |
+| `api.mjs` | 410 | **548** | Las rutas con sesión real: alta multi-categoría, categoría duplicada → `409`, edición de categorías de una línea existente, bloqueo + ampliación desde el quick-add, cierre de mes, `/bootstrap` trae `budgets` con su forma esperada |
+
+**Pendiente:** verificación visual dedicada en navegador (mismo bloqueo que
+Pasanaku, §7 de `sprint_5_pasanaku.md` — el trigger `prevent_self_role_escalation`
+impide promover un usuario de prueba a admin sin desactivarlo). Los cuatro
+bugs de §0.3 salieron de una revisión de código dirigida a edge cases, no de
+una sesión de navegador.
 
 ---
 

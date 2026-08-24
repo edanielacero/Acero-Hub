@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { use } from 'react'
+import { useTjRouter } from '../router'
 
 type SessionType = 'backtesting' | 'journal'
 type Mode = 'simple' | 'compuesto' | 'hwm' | 'dalembert_inverso'
@@ -668,6 +669,7 @@ function Results({ result, capitalInitial, mode }: { result: MCResult; capitalIn
 
 export function MontecarloScreen({ sessionId }: { sessionId: string }) {
 
+  const { navigate }                = useTjRouter()
   const [pageData, setPageData]     = useState<PageData | null>(null)
   const [loading, setLoading]       = useState(true)
   const [running, setRunning]       = useState(false)
@@ -751,8 +753,12 @@ export function MontecarloScreen({ sessionId }: { sessionId: string }) {
   }
   if (!pageData) {
     return (
-      <div className="flex items-center justify-center py-32">
+      <div className="flex flex-col items-center justify-center py-32 gap-4">
         <p className="text-slate-500 dark:text-zinc-400 text-[14px]">Error al cargar la sesión</p>
+        <button onClick={() => navigate('/trading-journal')}
+          className="h-11 px-5 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer">
+          Volver a mis sesiones
+        </button>
       </div>
     )
   }

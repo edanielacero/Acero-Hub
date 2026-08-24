@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { use } from 'react'
+import { useTjRouter } from '../router'
 import {
   calcExpectancy, calcProfitFactor, calcZScore, calcPValue,
   calcStdDevRR, calcMonthlyConsistency, normalCDF,
@@ -513,6 +514,7 @@ function ExpPerMonthCard({ trades, sessionType }: { trades: Trade[]; sessionType
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export function StatsScreen({ sessionId }: { sessionId: string }) {
+  const { navigate }          = useTjRouter()
   const [data, setData]       = useState<PageData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -532,8 +534,12 @@ export function StatsScreen({ sessionId }: { sessionId: string }) {
   }
   if (!data) {
     return (
-      <div className="flex items-center justify-center py-32">
+      <div className="flex flex-col items-center justify-center py-32 gap-4">
         <p className="text-slate-500 dark:text-zinc-400 text-[14px]">Error al cargar la sesión</p>
+        <button onClick={() => navigate('/trading-journal')}
+          className="h-11 px-5 rounded-xl accent-btn font-semibold text-[14px] cursor-pointer">
+          Volver a mis sesiones
+        </button>
       </div>
     )
   }
