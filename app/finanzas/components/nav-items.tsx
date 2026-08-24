@@ -40,11 +40,15 @@ export const NAV_ITEMS: NavItem[] = [
     Icon: IconRotateClockwise2, IconActive: IconRotateClockwise2,
   },
   {
-    href: '/finanzas/presupuesto', label: 'Presupuesto',
+    href: '/finanzas/presupuesto', label: 'Presupuesto', tab: true,
     description: 'Cuánto te queda por categoría, y en general',
     Icon: IconReportMoney, IconActive: IconReportMoney,
   },
-  { href: '/finanzas/cuentas',      label: 'Cuentas',                   tab: true, Icon: IconCoin,    IconActive: IconCoinFilled },
+  {
+    href: '/finanzas/cuentas', label: 'Cuentas',
+    description: 'Dónde está tu plata',
+    Icon: IconCoin, IconActive: IconCoinFilled,
+  },
   {
     href: '/finanzas/ajustes', label: 'Ajustes',
     description: 'Tasas de cambio, categorías y personas',
