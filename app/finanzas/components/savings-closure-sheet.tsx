@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { SavingsClosureProposal } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatUSD, parseDecimalInput } from '@/lib/finanzas/money'
-import { monthLabel } from '@/lib/finanzas/transactions'
+import { monthLabel, todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { Btn, ErrorNote, Label, SelectField, TextField } from './ui'
 
@@ -35,7 +35,9 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/finanzas/savings-goals/close')
+    // El día del usuario, no el del servidor (Vercel corre en UTC): de él
+    // depende qué mes ya terminó. Mismo criterio que /bootstrap.
+    fetch(`/api/finanzas/savings-goals/close?today=${todayISO()}`)
       .then(r => r.json())
       .then((d: SavingsClosureProposal) => {
         if (cancelled) return
@@ -53,8 +55,17 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts])
 
-  if (!data) return null
-  if (!data.pending_period) { onDone(); return null }
+  // Nada pendiente (se repartió desde otra pestaña, o el banner quedó viejo):
+  // se avisa por efecto, NUNCA durante el render — llamar a `onDone` acá
+  // adentro es un setState del padre en pleno render del hijo, que React
+  // castiga con un warning y un re-render extra. Mismo patrón que
+  // <BudgetClosureSheet>.
+  const nothingPending = !!data && !data.pending_period
+  useEffect(() => {
+    if (nothingPending) onDone()
+  }, [nothingPending, onDone])
+
+  if (!data || !data.pending_period) return null
 
   const period = data.pending_period
   const sobra = data.surplus_usd >= 0
@@ -65,7 +76,7 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
     const res = await fetch('/api/finanzas/savings-goals/close', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, today: todayISO() }),
     })
     setSaving(false)
     if (!res.ok) {
@@ -149,6 +160,17 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
 
               {data.proposal.length === 0 ? (
                 <p className="text-[13px] text-[var(--fz-ink-3)]">No hay ahorros activos para repartir.</p>
+              ) : savingsAccounts.length === 0 || regularAccounts.length === 0 ? (
+                /* Sin una cuenta de cada lado no hay transferencia posible.
+                   Antes el selector quedaba vacío y "Confirmar" fallaba con un
+                   "Elige de qué cuenta sale" imposible de satisfacer — el
+                   usuario no tenía forma de saber que le faltaba crear la
+                   cuenta. */
+                <p className="text-[13px] font-medium text-[var(--fz-out-text)] bg-[var(--fz-out-tint)] rounded-[var(--fz-r-field)] px-3.5 py-2.5">
+                  {savingsAccounts.length === 0
+                    ? 'Todavía no tenés ninguna cuenta marcada como "de ahorro". Creala o marcá una en Cuentas y volvé acá.'
+                    : 'No tenés ninguna cuenta regular de la que pueda salir el aporte.'}
+                </p>
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-3 min-[500px]:grid-cols-2">
@@ -196,7 +218,11 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
               <ErrorNote>{error}</ErrorNote>
 
               <div className="flex flex-col gap-2">
-                <Btn onClick={confirm} disabled={saving || data.proposal.length === 0} full>
+                <Btn
+                  onClick={confirm}
+                  disabled={saving || data.proposal.length === 0 || savingsAccounts.length === 0 || regularAccounts.length === 0}
+                  full
+                >
                   {saving ? 'Guardando…' : 'Confirmar reparto'}
                 </Btn>
                 <Btn variant="ghost" onClick={skip} disabled={saving} full>

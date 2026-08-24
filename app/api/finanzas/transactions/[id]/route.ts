@@ -202,7 +202,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ? (current.savings_goal_id as string | null)
       : (typeof body.savings_goal_id === 'string' ? body.savings_goal_id : null)
     if (!goalId) return NextResponse.json({ error: 'Elige a qué ahorro corresponde' }, { status: 400 })
-    const goalError = await assertSavingsGoal(supabase, userId, goalId)
+    // Si el movimiento sigue apuntando al MISMO ahorro que ya tenía, se acepta
+    // aunque esté archivado: si no, archivar un ahorro dejaría sus aportes y
+    // retiros sin poder editarse nunca más (§ assertSavingsGoal).
+    const goalError = await assertSavingsGoal(supabase, userId, goalId, {
+      allowArchived: goalId === current.savings_goal_id,
+    })
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
     savingsGoalId = goalId
 

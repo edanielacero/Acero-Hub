@@ -1716,6 +1716,32 @@ section('SPRINT 7 · pendingSavingsPeriod — la ausencia de fila es la pregunta
      pendingSavingsPeriod('2026-06-10', [{ period: '2026-06-01' }, { period: '2026-07-01' }], '2026-08-24'), null)
   eq('un ahorro creado este mismo mes no tiene nada que repartir todavía',
      pendingSavingsPeriod('2026-08-24', [], '2026-08-24'), null)
+
+  // FIX: el tope de 24 acota la ventana HACIA ATRÁS, no cuántos meses se
+  // recorren. Antes contaba iteraciones, así que con más de 24 meses de
+  // historia ya cerrada el barrido se agotaba ANTES de llegar al mes
+  // pendiente y devolvía null — escondiendo justo la pregunta reciente.
+  {
+    const viejo = '2023-01-10'
+    // Todo cerrado desde enero 2023 hasta junio 2026; julio 2026 quedó sin cerrar.
+    const cerrados = []
+    for (let y = 2023; y <= 2026; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const p = `${y}-${String(m).padStart(2, '0')}-01`
+        if (p >= '2026-07-01') continue
+        cerrados.push({ period: p })
+      }
+    }
+    eq('con 3 años de historia cerrada, el mes pendiente reciente NO se pierde',
+       pendingSavingsPeriod(viejo, cerrados, '2026-08-24'), '2026-07-01')
+    eq('y si TODO está cerrado, sigue sin haber pendientes',
+       pendingSavingsPeriod(viejo, [...cerrados, { period: '2026-07-01' }], '2026-08-24'), null)
+  }
+
+  // Un ahorro muy viejo con nada cerrado: la ventana arranca 24 meses atrás,
+  // no en su fecha de creación — no tiene sentido reclamar 2023 en 2026.
+  eq('con nada cerrado nunca, arranca 24 meses atrás del mes vigente',
+     pendingSavingsPeriod('2020-01-10', [], '2026-08-24'), '2024-08-01')
 }
 
 section('SPRINT 7 · goalReached')

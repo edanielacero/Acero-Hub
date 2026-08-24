@@ -40,7 +40,7 @@ const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date,
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const SAVINGS_GOAL_COLS = 'id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, sort_order, archived, created_at'
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id, savings_goal_id, savings_reason'
 
 export interface AccountsPayload {
   accounts: AccountWithBalance[]
@@ -173,16 +173,25 @@ export async function assertCategory(
  * Que el ahorro exista, sea de este usuario y no esté archivado. Mismo
  * patrón que `assertCategory` — un aporte o un retiro necesitan un ahorro
  * vivo al que corresponder.
+ *
+ * `allowArchived` es para EDITAR un movimiento que ya apuntaba a ese ahorro:
+ * si el ahorro se archivó después, rechazar la edición dejaría al movimiento
+ * ineditable para siempre — ni siquiera se le podría corregir la descripción.
+ * Es exactamente el bug que ya apareció con los fijos y su categoría
+ * (`20260824000000_finanzas_fijo_categoria_restrict.sql`): archivar algo no
+ * puede congelar la historia que lo referencia. Elegirlo de nuevo desde cero
+ * sí se sigue rechazando — para eso el default es `false`.
  */
 export async function assertSavingsGoal(
   supabase: SupabaseClient,
   userId: string,
   goalId: string,
+  opts?: { allowArchived?: boolean },
 ): Promise<string | null> {
   const { data } = await supabase
     .from('fin_savings_goals').select('id, archived').eq('user_id', userId).eq('id', goalId).maybeSingle()
   if (!data) return 'Ese ahorro no existe'
-  if (data.archived) return 'Ese ahorro está archivado'
+  if (data.archived && !opts?.allowArchived) return 'Ese ahorro está archivado'
   return null
 }
 
@@ -1273,6 +1282,14 @@ export async function applySavingsClosure(
       if (!from || !to || !goal) return fail('Datos inválidos en el reparto')
       if (goal.archived) return fail('Ese ahorro está archivado')
       if (!to.is_savings) return fail(`${to.name} no es una cuenta de ahorro`)
+      // El origen NO puede ser de ahorro: `computeGoalBalancesUsd` mira de qué
+      // lado está la cuenta de ahorro para decidir el signo, así que una
+      // "transferencia entre dos cuentas de ahorro" tageada se leería como un
+      // RETIRO y el aporte bajaría el saldo del ahorro en vez de subirlo. La
+      // UI ya solo ofrece cuentas regulares como origen; esto es la defensa
+      // del lado del server.
+      if (from.is_savings) return fail(`${from.name} es una cuenta de ahorro: el aporte tiene que salir de una cuenta regular`)
+      if (from.id === to.id) return fail('El origen y el destino no pueden ser la misma cuenta')
 
       const amountFrom = goal.input_currency === from.currency
         ? a.amount

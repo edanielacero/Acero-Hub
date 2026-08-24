@@ -2563,6 +2563,56 @@ async function run() {
     const goals = await json(await api('/savings-goals'))
     eq('el saldo del ahorro es 50 − 10 = 40', goals.goals.find(g => g.id === ahorroEmergencia.id).balance_usd, 40)
 
+    // FIX (revisión post-construcción): la lista de movimientos tiene que
+    // traer savings_goal_id/savings_reason. Sin eso, abrir un aporte para
+    // editarlo mostraba el picker de ahorro vacío y el quick-add bloqueaba el
+    // guardado hasta re-elegirlo — un dato que ya estaba guardado.
+    const lista = await json(await api(`/transactions?limit=50`))
+    const aporteEnLista = lista.transactions.find(t => t.id === aporte.transaction.id)
+    eq('el aporte llega en la lista con su ahorro', aporteEnLista?.savings_goal_id, ahorroEmergencia.id)
+    const retiroEnLista = lista.transactions.find(t => t.id === retiro.transaction.id)
+    eq('y el retiro con su motivo', retiroEnLista?.savings_reason, 'emergencia')
+
+    // Editar solo la descripción no puede perder el tageo: el PATCH hereda
+    // savings_goal_id/savings_reason de la fila actual si no vienen en el body.
+    const editado = await json(await api(`/transactions/${retiro.transaction.id}`, {
+      method: 'PATCH', body: JSON.stringify({ description: 'Se rompió la moto' }),
+    }))
+    eq('editar la descripción conserva el ahorro', editado.transaction.savings_goal_id, ahorroEmergencia.id)
+    eq('y conserva el motivo', editado.transaction.savings_reason, 'emergencia')
+
+    // FIX (revisión post-construcción): archivar un ahorro no puede congelar
+    // la historia que lo referencia. Es el mismo bug que apareció con los
+    // fijos y su categoría (20260824000000_...fijo_categoria_restrict): el
+    // movimiento quedaba sin poder editarse NUNCA más, ni la descripción.
+    await api(`/savings-goals/${ahorroViaje.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    const retiroViaje = await json(await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 1,
+        savings_goal_id: ahorroEmergencia.id, savings_reason: 'otro',
+      }),
+    }))
+    // Se apunta al ahorro archivado por REST directo para simular un
+    // movimiento que ya existía cuando su ahorro todavía estaba activo.
+    await adminFetch(`/rest/v1/fin_transactions?id=eq.${retiroViaje.transaction.id}`, {
+      method: 'PATCH', body: JSON.stringify({ savings_goal_id: ahorroViaje.id }),
+    })
+    const editArchivado = await api(`/transactions/${retiroViaje.transaction.id}`, {
+      method: 'PATCH', body: JSON.stringify({ description: 'corrijo el detalle' }),
+    })
+    eq('un movimiento de un ahorro ARCHIVADO se sigue pudiendo editar', editArchivado.status, 200)
+
+    // Pero elegir un ahorro archivado desde cero sí se rechaza.
+    eq('no se puede apuntar un movimiento NUEVO a un ahorro archivado → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({
+           type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 1,
+           savings_goal_id: ahorroViaje.id, savings_reason: 'otro',
+         }),
+       })).status, 400)
+
     // Cuentas de ahorro/inversión quedan afuera de Pasanaku (§7.1 y Sprint 7).
     const pasanakuConAhorro = await api('/pasanaku', {
       method: 'POST',
@@ -2624,6 +2674,36 @@ async function run() {
          body: JSON.stringify({ period: prevMonth, allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: '', to_account_id: '' }] }),
        })).status, 400)
 
+    // FIX (revisión post-construcción): el ORIGEN no puede ser una cuenta de
+    // ahorro. `computeGoalBalancesUsd` decide el signo mirando de qué lado
+    // está la cuenta de ahorro, así que un aporte que sale de otra cuenta de
+    // ahorro se leería como RETIRO y bajaría el saldo en vez de subirlo —
+    // corrupción silenciosa, sin ningún error visible.
+    {
+      const otroAhorro = (await json(await api('/accounts', {
+        method: 'POST', body: JSON.stringify({ name: 'Otro Ahorro Origen', currency: 'USD', initial_balance: 100, is_savings: true }),
+      }))).account
+      const res = await api('/savings-goals/close', {
+        method: 'POST',
+        body: JSON.stringify({
+          period: prevMonth,
+          allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: otroAhorro.id, to_account_id: ahorroDestino.id }],
+        }),
+      })
+      eq('una cuenta de ahorro como ORIGEN del reparto → 400', res.status, 400)
+      const sinCerrar = await json(await api('/savings-goals/close'))
+      eq('y el mes sigue pendiente: el rechazo no lo cerró a medias', sinCerrar.pending_period, prevMonth)
+    }
+
+    eq('el destino tiene que ser una cuenta de ahorro → 400',
+       (await api('/savings-goals/close', {
+         method: 'POST',
+         body: JSON.stringify({
+           period: prevMonth,
+           allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: cuenta.id, to_account_id: cuenta.id }],
+         }),
+       })).status, 400)
+
     const confirm = await api('/savings-goals/close', {
       method: 'POST',
       body: JSON.stringify({
@@ -2641,6 +2721,18 @@ async function run() {
 
     const afterClose = await json(await api('/savings-goals/close'))
     eq('sin más meses pendientes', afterClose.pending_period, null)
+
+    // FIX (revisión post-construcción): solo se reparte un mes YA terminado.
+    // Cerrar el mes en curso repartía un sobrante a medias, y como los
+    // períodos cerrados se saltean, ese mes no volvía a preguntarse nunca.
+    eq('el mes EN CURSO no se puede repartir todavía → 400',
+       (await api('/savings-goals/close', {
+         method: 'POST', body: JSON.stringify({ period: thisMonth, allocations: [], skip: true }),
+       })).status, 400)
+    eq('un mes futuro tampoco → 400',
+       (await api('/savings-goals/close', {
+         method: 'POST', body: JSON.stringify({ period: addMonths(thisMonth, 2), allocations: [], skip: true }),
+       })).status, 400)
   }
 
   section('SPRINT 7 · /bootstrap incluye ahorros')

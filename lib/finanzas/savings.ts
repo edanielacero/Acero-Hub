@@ -1,7 +1,7 @@
 import type { AllocationType, RateMap, SavingsAllocationProposal, SavingsGoal, SavingsGoalWithBalance, Transaction, TxType } from './types'
 import { fromUsd, round2, toUsd } from './money'
 import { gastoUsd, ingresoUsd } from './transactions'
-import { nextPeriod, periodStart } from './budgets'
+import { nextPeriod, periodStart, previousPeriod } from './budgets'
 
 export { periodStart, nextPeriod }
 
@@ -27,9 +27,12 @@ export function surplusUsd(txs: Pick<Transaction, 'type' | 'amount_usd' | 'flow_
  * `needsClosure` en `budgets.ts`. `null` si no hay ahorros todavía, o si
  * todos los períodos vencidos ya se decidieron.
  *
- * Arranca en el mes de creación del ahorro más viejo: antes de eso no había
- * nada que repartir. Tope de 24 meses, mismo criterio que Presupuesto — si
- * hace dos años que no se cierra nada, el problema no es la lista.
+ * Arranca en el mes de creación del ahorro más viejo, pero nunca más atrás
+ * que `max` meses (24 por default). El tope acota la ventana HACIA ATRÁS, no
+ * cuántos meses se recorren: acotar el recorrido haría que, con más de 24
+ * meses de historia ya cerrada, el barrido se agotara antes de llegar al mes
+ * pendiente y devolviera `null` — escondiendo justo la pregunta reciente que
+ * hay que responder.
  */
 export function pendingSavingsPeriod(
   earliestGoalCreatedOn: string | null,
@@ -38,13 +41,18 @@ export function pendingSavingsPeriod(
   max = 24,
 ): string | null {
   if (!earliestGoalCreatedOn) return null
-  let p = periodStart(earliestGoalCreatedOn)
   const current = periodStart(todayISO)
-  let count = 0
-  while (p < current && count < max) {
+
+  // El piso de la ventana: `max` meses antes del período vigente.
+  let floor = current
+  for (let i = 0; i < max; i++) floor = previousPeriod(floor)
+
+  const created = periodStart(earliestGoalCreatedOn)
+  let p = created > floor ? created : floor
+
+  while (p < current) {
     if (!closures.some(c => c.period === p)) return p
     p = nextPeriod(p)
-    count++
   }
   return null
 }

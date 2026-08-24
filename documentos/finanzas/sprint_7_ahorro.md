@@ -11,9 +11,10 @@
 > Este documento especifica **únicamente el Sprint 7** — lo suficiente para
 > empezar a programar sin volver a decidir nada.
 >
-> Última actualización: 2026-08-24 · Estado: **construido**, 603/182/586
-> pruebas en verde (unit/db/api). Dos simplificaciones de implementación
-> respecto de este documento — ver §0.2.
+> Última actualización: 2026-08-24 · Estado: **construido y revisado**,
+> 606/182/597 pruebas en verde (unit/db/api). Dos simplificaciones de
+> implementación respecto de este documento (§0.2) y siete bugs corregidos
+> en una revisión posterior (§8).
 
 ---
 
@@ -546,9 +547,9 @@ Detalle (opcional)
 
 ## 8. Verificación
 
-**603/182/586 pruebas en verde** (2026-08-24, unit/db/api). Eran 548/156/548
-al cerrar el Sprint 6 — este sprint suma **55 pruebas en `unit`, 26 en `db`
-y 38 en `api`**.
+**606/182/597 pruebas en verde** (2026-08-24, unit/db/api, ya con los siete
+arreglos de la revisión posterior). Eran 548/156/548 al cerrar el Sprint 6 —
+este sprint suma **58 pruebas en `unit`, 26 en `db` y 49 en `api`**.
 
 ```bash
 node tests/finanzas/run.mjs          # las tres suites
@@ -557,15 +558,74 @@ node tests/finanzas/run.mjs unit     # solo una
 
 | Suite | Sprint 6 | Ahora | Qué cubre de este sprint |
 |---|---|---|---|
-| `unit.mjs` | 548 | **603** | `flowTypeFor`/`isSavingsContribution`/`isSavingsWithdrawal` con cuentas de ahorro, `surplusUsd`, `pendingSavingsPeriod`, `goalReached`, `computeGoalBalancesUsd` (aporte directo, aporte por transferencia con comisión, retiro directo, retiro por transferencia, dos ahorros que no se mezclan), el algoritmo completo de `proposeAllocation` (fijos cubiertos, fijos sin fondos, resto por %, % sin asignar, meta cumplida excluida, archivado excluido), validaciones |
+| `unit.mjs` | 548 | **606** | `flowTypeFor`/`isSavingsContribution`/`isSavingsWithdrawal` con cuentas de ahorro, `surplusUsd`, `pendingSavingsPeriod`, `goalReached`, `computeGoalBalancesUsd` (aporte directo, aporte por transferencia con comisión, retiro directo, retiro por transferencia, dos ahorros que no se mezclan), el algoritmo completo de `proposeAllocation` (fijos cubiertos, fijos sin fondos, resto por %, % sin asignar, meta cumplida excluida, archivado excluido), validaciones |
 | `db.mjs` | 156 | **182** | El `check` de exclusión mutua `is_investment`/`is_savings` (en alta y en `PATCH`), constraints de `fin_savings_goals` (moneda, tipo de reparto, valor > 0, % ≤ 100, meta > 0), la FK y el `check` de `savings_reason` en `fin_transactions`, `on delete set null` al borrar un ahorro, RLS y `unique(user_id, period)` de `fin_savings_closures`, precisión de 8 decimales en un reparto en BTC |
-| `api.mjs` | 548 | **586** | CRUD de ahorros con sus validaciones, el flujo completo del quick-add (bloqueo sin `savings_goal_id`, bloqueo de retiro sin `savings_reason`, `flow_type` correcto en cada caso, saldo derivado correcto), el rechazo de cuentas de ahorro en Pasanaku, y el cierre mensual **end-to-end**: un ahorro retrocedido a un mes real, ingreso/gasto reales ese mes, la propuesta calculada por el server, la confirmación armando la transferencia real, el saldo del ahorro actualizado, y el mismo período rechazado si se intenta cerrar dos veces |
+| `api.mjs` | 548 | **597** | CRUD de ahorros con sus validaciones, el flujo completo del quick-add (bloqueo sin `savings_goal_id`, bloqueo de retiro sin `savings_reason`, `flow_type` correcto en cada caso, saldo derivado correcto), el rechazo de cuentas de ahorro en Pasanaku, y el cierre mensual **end-to-end**: un ahorro retrocedido a un mes real, ingreso/gasto reales ese mes, la propuesta calculada por el server, la confirmación armando la transferencia real, el saldo del ahorro actualizado, y el mismo período rechazado si se intenta cerrar dos veces |
 
 No quedan pruebas manuales pendientes específicas de este sprint — a
 diferencia de Pasanaku (Sprint 5), la verificación de este sprint fue
 enteramente automatizada contra el dev server real, incluido el flujo de
 cierre con fechas retrocedidas a propósito para simular un mes ya
 terminado.
+
+### Siete bugs encontrados en la revisión posterior, no al escribirlo
+
+Una relectura completa del código (2026-08-24, después de dar el sprint por
+construido) encontró siete problemas reales. Ninguno lo agarró la primera
+tanda de pruebas: los tres primeros son de la clase que solo aparece cuando
+alguien usa la app de una forma que el camino feliz no recorre.
+
+1. **La cuenta de ORIGEN del reparto podía ser una cuenta de ahorro, y el
+   aporte restaba en vez de sumar.** `computeGoalBalancesUsd` decide el signo
+   mirando de qué lado está la cuenta de ahorro, así que una "transferencia
+   entre dos cuentas de ahorro" tageada se leía como un RETIRO: el saldo del
+   ahorro **bajaba** al aportarle. Sin error visible, sin nada en la
+   pantalla que lo delatara — el peor tipo de bug para una app de plata. La
+   UI ya solo ofrecía cuentas regulares como origen, pero la API lo
+   aceptaba. Ahora `applySavingsClosure` lo rechaza (y también el origen ==
+   destino, que antes moría con el mensaje crudo del constraint de Postgres).
+
+2. **Editar un aporte o un retiro perdía su ahorro y su motivo.** `TX_COLS`
+   en `lib/finanzas/load.ts` no incluía `savings_goal_id`/`savings_reason`,
+   así que la lista de movimientos los devolvía vacíos; al abrir uno para
+   editarlo, el quick-add mostraba el picker de ahorro sin nada marcado y
+   bloqueaba el guardado exigiendo re-elegir un dato que ya estaba guardado.
+
+3. **Archivar un ahorro dejaba sus movimientos ineditables para siempre.**
+   `assertSavingsGoal` rechazaba cualquier ahorro archivado, incluso cuando
+   el `PATCH` solo heredaba el mismo `savings_goal_id` que la fila ya tenía —
+   así que no se le podía ni corregir la descripción. Es **el mismo bug que
+   ya había aparecido con los fijos y su categoría** (`b08fdb4`): archivar
+   algo no puede congelar la historia que lo referencia. Ahora se acepta
+   cuando el ahorro no cambia (`allowArchived`), y el chip del ahorro
+   archivado se sigue mostrando en el picker mientras sea el elegido — mismo
+   criterio que `accountOptions` con una cuenta que pasó a inversión.
+
+4. **`pendingSavingsPeriod` escondía meses pendientes con más de 24 meses de
+   historia.** El tope de 24 acotaba cuántos meses se *recorrían*, no la
+   ventana hacia atrás — con tres años de cierres ya respondidos el barrido
+   se agotaba antes de llegar al mes pendiente y devolvía `null`. `needsClosure`
+   de Presupuesto no tiene el problema porque su tope cuenta lo que
+   *acumula*, no lo que recorre. Ahora la ventana arranca, como mucho, 24
+   meses antes del mes vigente.
+
+5. **Se podía repartir un mes que todavía no había terminado.** Nada
+   impedía cerrar el mes en curso —repartiendo un sobrante a medias— ni uno
+   futuro; y como los períodos ya cerrados se saltean, ese mes no volvía a
+   preguntarse nunca cuando de verdad terminaba.
+
+6. **`onDone()` se llamaba durante el render** del sheet de cierre cuando ya
+   no quedaba nada pendiente — un `setState` del padre en pleno render del
+   hijo. Pasó a un `useEffect`, mismo patrón que `<BudgetClosureSheet>`.
+
+7. **Sin ninguna cuenta de ahorro creada, el cierre era un callejón sin
+   salida:** el selector quedaba vacío y "Confirmar" fallaba con un "Elige a
+   qué cuenta de ahorro entra" imposible de satisfacer, sin decir en ningún
+   lado que faltaba crear la cuenta primero.
+
+Los siete se corrigieron y las suites se volvieron a correr en verde, con
+pruebas de regresión propias para los cinco que son verificables
+automáticamente (1–5).
 
 ---
 

@@ -72,8 +72,12 @@ export function QuickAdd() {
   const [extendBudget, setExtendBudget] = useState(false)
   const [extensionAmount, setExtensionAmount] = useState('')
   // Ahorro (Sprint 7): a qué ahorro corresponde un aporte o un retiro, y por
-  // qué se retira. Se resetea al cambiar de cuenta o de tipo (ver el efecto
-  // más abajo) — la elección era para OTRA combinación de cuenta/tipo.
+  // qué se retira. A diferencia de la ampliación de presupuesto, estos NO se
+  // resetean al cambiar de cuenta o de tipo: los dos bloques solo se muestran
+  // (y solo viajan en el payload) cuando el movimiento sigue siendo un aporte
+  // o un retiro, así que un valor que quedó de una combinación anterior no
+  // puede colarse — y conservarlo evita hacer re-elegir el mismo ahorro al
+  // pasar, por ejemplo, de gasto a transferencia sobre la misma cuenta.
   const [savingsGoalId, setSavingsGoalId] = useState('')
   const [savingsReason, setSavingsReason] = useState<SavingsReason | ''>('')
 
@@ -216,7 +220,17 @@ export function QuickAdd() {
    */
   const isContribution = !!from && isSavingsContribution(type, from, to)
   const isWithdrawal = !!from && isSavingsWithdrawal(type, from, to)
-  const activeGoals = useMemo(() => savings.goals.filter(g => !g.archived), [savings.goals])
+  // El ahorro ya elegido se mantiene visible aunque esté archivado — mismo
+  // criterio que `accountOptions` con una cuenta que pasó a inversión después
+  // de crearse el movimiento. Sin esto, editar un aporte viejo cuyo ahorro se
+  // archivó no mostraba ningún chip marcado, aunque el dato siguiera guardado
+  // y el server lo aceptara igual (§ assertSavingsGoal, allowArchived).
+  const activeGoals = useMemo(() => {
+    const vivos = savings.goals.filter(g => !g.archived)
+    if (!savingsGoalId || vivos.some(g => g.id === savingsGoalId)) return vivos
+    const elegido = savings.goals.find(g => g.id === savingsGoalId)
+    return elegido ? [...vivos, elegido] : vivos
+  }, [savings.goals, savingsGoalId])
 
   /**
    * Bloqueo de presupuesto (Sprint 6, §4.6): aplica a cualquier GASTO con una
