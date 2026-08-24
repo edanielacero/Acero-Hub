@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { num, round2 } from '@/lib/finanzas/money'
+import { num, roundFor } from '@/lib/finanzas/money'
 import {
   carriedInto, disponible, effectiveFromFor, gastoRealCategoria, isValidPeriod, montoEfectivo, periodRange,
 } from '@/lib/finanzas/budgets'
@@ -65,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Sin esto, cerrar un mes que tuvo una ampliación (§4.6) congelaba un
   // disponible que ignoraba esos dólares extra — el número que se lleva o se
   // pierde al mes siguiente quedaba mal para siempre.
-  const effective = montoEfectivo(periods, extensions, id, body.period)
+  const effective = montoEfectivo(periods, extensions, id, body.period, line.input_currency)
   if (effective == null) return NextResponse.json({ error: 'Ese período no tenía monto cargado' }, { status: 400 })
 
   // La tasa con la que ese mes quedó expresado — el disponible congelado se
@@ -113,7 +113,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     carriedUsd: carried.amountUsd,
   })!
   // El nativo se arma con los montos exactos, no convirtiendo el USD.
-  const amount = round2(effective.amount + carried.amount - spent.amount)
+  const amount = roundFor(effective.amount + carried.amount - spent.amount, line.input_currency)
 
   const { data, error } = await supabase
     .from('fin_budget_closures')

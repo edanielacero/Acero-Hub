@@ -126,6 +126,27 @@ export async function accountBalance(
  * error. Una transferencia SÍ sigue necesitando saldo real para salir,
  * inversión o no: no se puede retirar más de lo que la cuenta vale.
  */
+/**
+ * Que la categoría exista y sea de este usuario. `null` es válido: un
+ * movimiento sin categoría es legítimo.
+ *
+ * `account_id` ya se validaba así en todas las rutas, pero `category_id` se
+ * insertaba tal cual: la FK acepta la categoría de CUALQUIER usuario y la
+ * policy de RLS solo mira `user_id` de la fila que se escribe. Además ataja
+ * el caso cotidiano de borrar una categoría con el formulario abierto, que
+ * antes moría con el mensaje crudo de Postgres.
+ */
+export async function assertCategory(
+  supabase: SupabaseClient,
+  userId: string,
+  categoryId: string | null | undefined,
+): Promise<string | null> {
+  if (!categoryId) return null
+  const { data } = await supabase
+    .from('fin_categories').select('id').eq('user_id', userId).eq('id', categoryId).maybeSingle()
+  return data ? null : 'La categoría no existe'
+}
+
 export async function assertBalance(
   supabase: SupabaseClient,
   userId: string,
@@ -886,7 +907,7 @@ export async function loadBudgets(
     const lineExtensions = resolved.periodRowId
       ? extensions.filter(e => e.period_id === resolved.periodRowId)
       : []
-    const effective = montoEfectivo(periods, extensions, line.id, currentPeriod)
+    const effective = montoEfectivo(periods, extensions, line.id, currentPeriod, line.input_currency)
     const carried = carriedInto(closures, line.id, currentPeriod)
     const spent = gastoRealCategoria(txs, debts, line.category_ids, from, to, line.input_currency, rate)
     const committed = comprometido(committedRecurring, line.category_ids, line.input_currency, rate)
@@ -909,7 +930,7 @@ export async function loadBudgets(
       amount: resolved.amount,
       amount_usd: resolved.amountUsd,
       extensions: lineExtensions.map(e => ({ amount: e.amount, amount_usd: e.amount_usd, created_at: e.created_at })),
-      extended: round2(lineExtensions.reduce((s, e) => s + e.amount, 0)),
+      extended: roundFor(lineExtensions.reduce((s, e) => s + e.amount, 0), line.input_currency),
       extended_usd: round2(lineExtensions.reduce((s, e) => s + e.amount_usd, 0)),
       carried: carried.amount,
       carried_usd: carried.amountUsd,
@@ -924,7 +945,7 @@ export async function loadBudgets(
       // clavado en la moneda que el usuario ve.
       available: available == null || effective == null
         ? null
-        : round2(effective.amount + carried.amount - spent.amount - committed.amount),
+        : roundFor(effective.amount + carried.amount - spent.amount - committed.amount, line.input_currency),
       available_usd: available,
       day_of_period: day,
       days_in_period: days,
@@ -939,7 +960,7 @@ export async function loadBudgets(
       const { to: closeTo } = periodRange(period)
       const from = effectiveFromFor(line, period)
       const periodRate = rateFor(line.id, period)
-      const effective = montoEfectivo(periods, extensions, line.id, period)
+      const effective = montoEfectivo(periods, extensions, line.id, period, line.input_currency)
       const carried = carriedInto(closures, line.id, period)
       const spent = gastoRealCategoria(txs, debts, line.category_ids, from, closeTo, line.input_currency, periodRate)
       const available = disponible({
@@ -957,7 +978,7 @@ export async function loadBudgets(
         name: line.name,
         input_currency: line.input_currency,
         period,
-        amount: round2(effective.amount + carried.amount - spent.amount),
+        amount: roundFor(effective.amount + carried.amount - spent.amount, line.input_currency),
         amount_usd: available,
       })
     }

@@ -5,7 +5,7 @@ import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { flowTypeOnEdit, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
-import { applyBudgetExtension, assertBalance } from '@/lib/finanzas/load'
+import { applyBudgetExtension, assertBalance, assertCategory } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
@@ -109,6 +109,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const account = accountsById.get(merged.account_id!)!
   const currency = account.currency
+
+  const categoryError = await assertCategory(supabase, userId, merged.category_id)
+  if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   const balanceError = await assertBalance(
     supabase, userId, account, merged.type!, merged.amount!,

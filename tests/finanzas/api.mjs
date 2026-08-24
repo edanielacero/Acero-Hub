@@ -1043,6 +1043,13 @@ async function run() {
       // presupuesto, así que es obligatoria — igual que el nombre o el monto.
       eq('sin categoría → 400',
          (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id }) })).status, 400)
+      // `account_id` siempre se validó contra el usuario; `category_id` se
+      // insertaba tal cual, así que una categoría inexistente (o de otro
+      // usuario) entraba y el error salía crudo desde Postgres.
+      eq('categoría inexistente en un fijo → 400',
+         (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', amount: 5, account_id: airtm.id, category_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
+      eq('categoría inexistente en un movimiento → 400',
+         (await api('/transactions', { method: 'POST', body: JSON.stringify({ type: 'gasto', date: '2026-08-18', account_id: airtm.id, amount: 3, category_id: '00000000-0000-0000-0000-000000000009' }) })).status, 400)
       eq('sin cuenta → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5 }) })).status, 400)
       eq('monto cero → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 0, account_id: airtm.id }) })).status, 400)
       eq('día 45 → 400', (await api('/recurring', { method: 'POST', body: JSON.stringify({ name: 'X', category_id: catFijo, amount: 5, account_id: airtm.id, day_of_month: 45 }) })).status, 400)

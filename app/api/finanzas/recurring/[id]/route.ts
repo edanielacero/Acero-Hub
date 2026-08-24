@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { resolvePeople } from '@/lib/finanzas/people'
 import { RECURRING_COLS, readTemplateSplits, validateRecurring } from '../route'
+import { assertCategory } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import type { RecurringInput } from '@/lib/finanzas/types'
 
@@ -43,6 +44,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   // Pasar a mensual limpia el mes; sin esto el check constraint rechaza el update.
   if (merged.frequency === 'mensual') merged.month_of_year = null
+
+  const categoryError = await assertCategory(supabase, userId, merged.category_id)
+  if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   const invalid = validateRecurring(merged)
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })

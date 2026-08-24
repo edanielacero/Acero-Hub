@@ -10,7 +10,7 @@ export function round2(n: number): number {
  * Redondear un monto en BTC a 2 decimales lo destruiría.
  */
 export function roundFor(n: number, currency: Currency): number {
-  const factor = 10 ** CURRENCY_META[currency].decimals
+  const factor = 10 ** decimalsFor(currency)
   return Math.round((n + Number.EPSILON) * factor) / factor
 }
 
@@ -171,5 +171,8 @@ export function amountFromInput(
 
 /** Decimales que admite el campo de monto de una moneda. */
 export function decimalsFor(currency: Currency | undefined): number {
-  return currency ? CURRENCY_META[currency].decimals : 2
+  // `?.` y no un acceso directo: los módulos de dominio reciben la moneda de
+  // la línea como string suelto (viene de la base), y una desconocida tiraba
+  // "cannot read decimals of undefined" en vez de caer en el default.
+  return currency ? (CURRENCY_META[currency]?.decimals ?? 2) : 2
 }

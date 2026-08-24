@@ -1,4 +1,17 @@
-import { round2 } from './money'
+import { round2, roundFor } from './money'
+import type { Currency } from './types'
+
+/**
+ * Redondeo de un monto en la moneda de la LÍNEA, no en USD.
+ *
+ * `round2` alcanzaba mientras todo presupuesto fuera fiat, pero uno en BTC
+ * (8 decimales) quedaba en cero: 0,0025 BTC redondeado a 2 decimales es 0, y
+ * la card mostraba "0 gastado" con la plata ya gastada. Los `*_usd` sí siguen
+ * con `round2` — el dólar tiene 2 decimales y punto.
+ */
+function roundNative(n: number, currency: string): number {
+  return roundFor(n, currency as Currency)
+}
 
 /**
  * Presupuesto (Sprint 6): montoEfectivo, comprometido, disponible, carry entre
@@ -102,6 +115,7 @@ export function resolvePeriod(
  */
 export function montoEfectivo(
   periods: BudgetPeriodRow[], extensions: BudgetExtensionRow[], lineId: string, period: string,
+  lineCurrency = 'USD',
 ): { amount: number; amountUsd: number } | null {
   const resolved = resolvePeriod(periods, lineId, period)
   if (resolved.amountUsd == null || resolved.amount == null) return null
@@ -110,7 +124,7 @@ export function montoEfectivo(
     ? extensions.filter(e => e.period_id === resolved.periodRowId)
     : []
   return {
-    amount: round2(resolved.amount + own.reduce((s, e) => s + e.amount, 0)),
+    amount: roundNative(resolved.amount + own.reduce((s, e) => s + e.amount, 0), lineCurrency),
     amountUsd: round2(resolved.amountUsd + own.reduce((s, e) => s + e.amount_usd, 0)),
   }
 }
@@ -195,7 +209,7 @@ export function gastoRealCategoria(
   // Misma moneda → el número exacto que se escribió. Otra moneda → no queda
   // más que convertir su USD con la tasa de la línea.
   const nativo = (usd: number, amount: number, currency: string) =>
-    currency === lineCurrency ? amount : toNative(usd, lineRate)
+    currency === lineCurrency ? amount : toNative(usd, lineRate, lineCurrency)
 
   const bruto = inRange.reduce((s, t) => s + nativo(t.amount_usd, t.amount, t.currency), 0)
   const repartido = activos.reduce((s, d) => {
@@ -205,7 +219,7 @@ export function gastoRealCategoria(
     return s + nativo(d.principal_usd, d.amount * proporcion, d.currency)
   }, 0)
 
-  return { amount: round2(bruto - repartido), amountUsd: round2(brutoUsd - repartidoUsd) }
+  return { amount: roundNative(bruto - repartido, lineCurrency), amountUsd: round2(brutoUsd - repartidoUsd) }
 }
 
 /* ─── Comprometido: Fijos pendientes de esa categoría ──────────────────── */
@@ -232,8 +246,8 @@ export function comprometido(
       && r.category_id != null && ownIds.has(r.category_id),
   )
   return {
-    amount: round2(scoped.reduce(
-      (s, r) => s + (r.currency === lineCurrency ? r.amount : toNative(r.amountUsd, lineRate)), 0)),
+    amount: roundNative(scoped.reduce(
+      (s, r) => s + (r.currency === lineCurrency ? r.amount : toNative(r.amountUsd, lineRate, lineCurrency)), 0), lineCurrency),
     amountUsd: round2(scoped.reduce((s, r) => s + r.amountUsd, 0)),
   }
 }
@@ -289,9 +303,9 @@ export function disponible(params: {
  * (`freezeRate`): USD por 1 unidad nativa, de modo que
  * `amount_usd = amount × rate` — así que volver a nativo es dividir.
  */
-export function toNative(usd: number, rate: number): number {
-  if (!Number.isFinite(rate) || rate <= 0) return round2(usd)
-  return round2(usd / rate)
+export function toNative(usd: number, rate: number, currency = 'USD'): number {
+  if (!Number.isFinite(rate) || rate <= 0) return roundNative(usd, currency)
+  return roundNative(usd / rate, currency)
 }
 
 /* ─── Día del período: para el tick de la barra ────────────────────────── */

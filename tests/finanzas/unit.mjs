@@ -852,6 +852,42 @@ section('SPRINT 3 · períodos')
      { from: '2026-01-01', to: '2026-12-31', due: '2026-03-03' })
 }
 
+section('FIX · un anual que todavía no vence está PROGRAMADO, no "Listo"')
+{
+  // `pendingPeriods` saltea a propósito el año en curso hasta que llega su
+  // fecha — reclamar en agosto una renovación de noviembre no tiene sentido.
+  // Pero "no falta nada" caía en `registrado`, y la pantalla lo pintaba como
+  // pagado algo que nunca se pagó. Los mensuales nunca tuvieron el problema:
+  // su período en curso entra en la lista aunque falten días para vencer.
+  const dominio = {
+    frequency: 'anual', day_of_month: 15, month_of_year: 11,
+    active: true, starts_on: '2026-01-01',
+  }
+
+  eq('meses antes de vencer: programado, no registrado',
+     statusOf(dominio, [], '2026-08-23').status, 'programado')
+  eq('el día anterior sigue programado',
+     statusOf(dominio, [], '2026-11-14').status, 'programado')
+  eq('pasada la fecha sin registrar: vencido',
+     statusOf(dominio, [], '2026-11-16').status, 'vencido')
+  eq('registrado en su año: listo de verdad',
+     statusOf(dominio, ['2026-11-15'], '2026-11-20').status, 'registrado')
+  eq('enero del año siguiente vuelve a programado — el ciclo se reinicia',
+     statusOf(dominio, ['2026-11-15'], '2027-01-10').status, 'programado')
+
+  // El mensual no cambia: su mes en curso sí está pendiente antes de vencer.
+  const mensual = {
+    frequency: 'mensual', day_of_month: 5, month_of_year: null,
+    active: true, starts_on: '2026-08-01',
+  }
+  eq('mensual antes de vencer sigue pendiente',
+     statusOf(mensual, [], '2026-08-03').status, 'pendiente')
+  eq('mensual pasado el día, vencido',
+     statusOf(mensual, [], '2026-08-09').status, 'vencido')
+  eq('mensual ya registrado, listo',
+     statusOf(mensual, ['2026-08-05'], '2026-08-09').status, 'registrado')
+}
+
 section('FIX · un solo picker de fecha (Mes/Día ya no se piden aparte)')
 {
   // fieldsFromDate: el día se guarda TAL CUAL se eligió, sin transformarlo.
@@ -1439,6 +1475,29 @@ section('SPRINT 6 (revisión) · gastoRealCategoria — el nativo no pierde cent
   const mixto = [{ id: 't2', category_id: 'comida', amount: 5, currency: 'USD', amount_usd: 5, date: '2026-08-23' }]
   eq('un gasto en USD dentro de una línea en Bs se convierte con la tasa de la línea',
      gastoRealCategoria(mixto, [], ['comida'], '2026-08-01', '2026-08-31', 'BOB', rate).amount, 58.10)
+}
+
+section('Presupuesto en BTC · la precisión es la de la moneda, no siempre 2 decimales')
+{
+  // `round2` alcanzaba mientras todo presupuesto fuera fiat. En BTC (8
+  // decimales) dejaba TODO en cero: 0,0025 BTC redondeado a 2 decimales es 0,
+  // y la card decía "0 gastado" con la plata ya gastada.
+  const rate = 68000 // USD por 1 BTC
+
+  const txs = [{ id: 't1', category_id: 'cripto', amount: 0.0025, currency: 'BTC', amount_usd: 170, date: '2026-08-10' }]
+  eq('el gasto en BTC no se redondea a cero',
+     gastoRealCategoria(txs, [], ['cripto'], '2026-08-01', '2026-08-31', 'BTC', rate).amount, 0.0025)
+
+  const fijos = [{ category_id: 'cripto', active: true, amount: 0.001, currency: 'BTC', amountUsd: 68, status: 'pendiente' }]
+  eq('el comprometido en BTC tampoco', comprometido(fijos, ['cripto'], 'BTC', rate).amount, 0.001)
+
+  const periods = [{ id: 'p1', line_id: 'l1', period: '2026-08-01', amount: 0.05, amount_usd: 3400 }]
+  eq('el monto del mes conserva sus decimales',
+     montoEfectivo(periods, [], 'l1', '2026-08-01', 'BTC').amount, 0.05)
+
+  eq('toNative respeta los 8 decimales del BTC', toNative(170, rate, 'BTC'), 0.0025)
+  eq('y sigue en 2 para el fiat de siempre', toNative(10, 0.08605852, 'BOB'), 116.20)
+  eq('una moneda desconocida cae en 2 decimales en vez de romper', toNative(100, 2, 'XXX'), 50)
 }
 
 section('SPRINT 6 · comprometido — Fijos pendientes')

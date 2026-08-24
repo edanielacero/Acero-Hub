@@ -144,6 +144,16 @@ export function statusOf(
 
   const pending = pendingPeriods(r, registeredDates, todayISO)
   if (pending.length === 0) {
+    // Que no falte nada puede querer decir dos cosas distintas, y confundirlas
+    // era un bug: o ya se registró el período vigente, o todavía NO LE TOCA.
+    // Solo pasa con los anuales — `pendingPeriods` saltea a propósito el año en
+    // curso hasta que llega su fecha (no tiene sentido reclamar en agosto una
+    // renovación de noviembre), y sin este chequeo eso caía en "registrado":
+    // la pantalla mostraba "Listo ✓" sobre algo que nunca se pagó.
+    const registradoEnPeriodo = registeredDates.some(d => d >= actual.from && d <= actual.to)
+    if (!registradoEnPeriodo && actual.due > todayISO) {
+      return { status: 'programado', due: actual.due, days_late: 0, pending }
+    }
     return { status: 'registrado', due: actual.due, days_late: 0, pending }
   }
 

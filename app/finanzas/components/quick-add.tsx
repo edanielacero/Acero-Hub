@@ -229,7 +229,7 @@ export function QuickAdd() {
   // hoy: así el "te pasás por X" queda a la misma tasa que el tope contra el
   // que se está comparando.
   const budgetNeededDisplay = budgetLine
-    ? round2(budgetNeeded / (budgetLine.exchange_rate || 1))
+    ? roundFor(budgetNeeded / (budgetLine.exchange_rate || 1), budgetLine.input_currency)
     : 0
   const budgetBlocked = budgetExceeded && !extendBudget
 
@@ -323,7 +323,7 @@ export function QuickAdd() {
       if (!Number.isFinite(extra) || extra <= 0) return setError('Pon cuánto quieres ampliar')
       // Menos que el faltante no saca el gasto de "pasado" — la ampliación
       // tiene que cubrirlo entero, o el bloqueo no significaría nada.
-      if (round2(extra) < budgetNeededDisplay) {
+      if (roundFor(extra, budgetLine.input_currency) < budgetNeededDisplay) {
         return setError(`La ampliación tiene que cubrir el faltante: ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`)
       }
     }

@@ -2,7 +2,7 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
-import { loadRecurring } from '@/lib/finanzas/load'
+import { assertCategory, loadRecurring } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import { resolvePeople } from '@/lib/finanzas/people'
 import { CURRENCIES } from '@/lib/finanzas/types'
@@ -91,6 +91,9 @@ export async function POST(request: Request) {
   // instancia. Si de todos modos viene una, tiene que ser tuya; y si no vino
   // moneda explícita, se infiere de ahí — mismo comportamiento de siempre,
   // de cuando la cuenta era la única fuente de la moneda.
+  const categoryError = await assertCategory(supabase, userId, input.category_id)
+  if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
+
   if (input.account_id) {
     const { data: account } = await supabase
       .from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', input.account_id).maybeSingle()

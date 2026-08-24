@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { applyBudgetExtension, assertBalance, loadTransactions } from '@/lib/finanzas/load'
+import { applyBudgetExtension, assertBalance, assertCategory, loadTransactions } from '@/lib/finanzas/load'
 import { flowTypeFor, freezeConversion, validateInput } from '@/lib/finanzas/transactions'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
@@ -71,6 +71,9 @@ export async function POST(request: Request) {
   // La moneda sale de la cuenta, nunca del cliente.
   const account = accountsById.get(input.account_id!)!
   const currency = account.currency
+
+  const categoryError = await assertCategory(supabase, userId, input.category_id)
+  if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   const balanceError = await assertBalance(supabase, userId, account, input.type!, input.amount!)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
