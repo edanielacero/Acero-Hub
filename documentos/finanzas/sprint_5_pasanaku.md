@@ -415,6 +415,32 @@ desplegable de la card, "Pagos recibidos · 3 de 9"; el confirm de borrado,
 
 ---
 
+## 4.99 Actualizaciones posteriores
+
+### El piso de ahorro alcanza al aporte (Sprint 7, 2026-08-26)
+
+`POST /pasanaku/[id]/aporte` pasa por `assertBalance`, así que desde el Sprint 7
+**un aporte no puede comerse lo apartado en ahorros** de la cuenta elegida
+(§4.4.1 del documento maestro). Si el saldo libre no alcanza, se rechaza
+nombrando lo apartado.
+
+`<PasanakuAporteSheet>` muestra el mismo `disponible` que aplica el servidor
+—saldo menos apartado— con *"· X en ahorros"* al lado.
+
+**Recibir el turno no se ve afectado**: es plata que **entra**, y
+`consumesBalance` deja los ingresos fuera del control de saldo. Lo mismo vale
+para cobrar una cuota de deuda. Hay una regresión que lo prueba en
+`probe.mjs` §AQ, que verifica los dos casos en una cuenta cuyo saldo está 100%
+apartado.
+
+### Cualquier cuenta sirve para un pasanaku
+
+Entre el 24 y el 26 de agosto existió un flag `is_savings` en las cuentas y el
+pasanaku las excluía. El flag se eliminó: una cuenta que aloja ahorros es una
+cuenta normal y **sí puede usarse** para un pasanaku. La única exclusión que
+sigue viva es la de **cuentas de inversión** (§4), y por la razón de siempre: un
+aporte ahí sería indistinguible de un ajuste de valor.
+
 ## 5. Estructura de archivos
 
 ```

@@ -1087,3 +1087,103 @@ propio (§20 sigue mandando).
 - **Movimientos + Cuentas lado a lado** desde 900px (`[1fr_320px]`),
   Movimientos más ancho por ser la lista que más se lee. En mobile, grid de 1
   columna con el mismo orden que ya fijó §21 (Movimientos primero).
+
+---
+
+## 22. Revisión 2026-08-26 — Ahorros, y la cuarta excepción de color
+
+Lo que el Sprint 7 agregó al sistema visual, y por qué. Todo acotado: nada de
+esto cambia una regla general, son extensiones con su motivo.
+
+### 22.1 Un quinto token de color: el azul de ahorro
+
+`--fz-save: #1D4ED8` (+ `-press` y `-tint`). Es la **cuarta y última excepción**
+a *"el color es solo marca y dinero"* (§4).
+
+Guardar no es ni ingreso ni gasto: no es plata que entra ni que sale, es plata
+tuya que **cambia de estado**. Con el verde de la marca el botón "Ahorrar" se
+confundía con cualquier acción primaria; con el verde de ingreso habría dicho
+algo falso. Vive acotado a la pantalla de Ahorros — el banner de fin de mes y el
+botón de cada plan — y no se usa en ninguna otra parte de la app.
+
+Se sumó también una variante `save` a `<Btn>`, la única fuera del cuarteto
+`primary / soft / ghost / danger`.
+
+### 22.2 Una cuenta se dibuja con dos secciones
+
+Toda cuenta que aloje ahorros muestra, bajo su saldo, una línea con alcancía:
+
+```
+Banco Unión
+Bs 12.610
+🐷 Bs 990 en ahorros
+```
+
+Es la traducción visual de §3.2 del documento maestro: el saldo tiene una parte
+libre y una apartada. La misma idea aparece en tres lugares más, siempre con el
+mismo número:
+
+- el **quick-add**, donde *Disponible* pasó a ser `saldo − apartado`;
+- `<RegisterSheet>` y `<PasanakuAporteSheet>`, con *"· X en ahorros"* al lado
+  del disponible;
+- el detalle de un plan, en la lista **"Dónde está guardado"**.
+
+### 22.3 Una invitación no es una alerta
+
+El banner de fin de mes decía *"Tienes un mes por repartir"* en guindo y con un
+triángulo de advertencia. Parecía que algo había fallado, cuando es la mejor
+noticia del mes.
+
+Pasó a *"Es hora de organizar tus ahorros"*, en azul, con un ícono de destello
+y sin botón — la acción vive en la card de cada plan. **Regla general que deja:**
+el guindo y el triángulo son para lo que salió mal, no para lo que hay por
+hacer. Una pendiente es una invitación.
+
+### 22.4 Dos listas nuevas, y por qué no son texto corrido
+
+En el detalle de un plan hay dos bloques que empezaron siendo un
+`<DetailField>` de una línea y terminaron como listas con filas:
+
+- **"Dónde está guardado"** — una fila por cuenta, con ícono de moneda, nombre y
+  monto. Con dos cuentas ya se leía mal en una sola línea; con tres se cortaba.
+- **"Mes a mes"** — una fila por mes, con un check verde si ese mes recibió un
+  aporte y un guion plomo si no.
+
+Las dos usan la misma caja: borde de 1px, filas separadas por hairline, sin
+sombra. **Cuando un dato es una lista, se dibuja como una lista** — un
+`<DetailField>` es para un par etiqueta/valor, no para una enumeración con
+separadores.
+
+### 22.5 Un formulario que hace lo mismo se ve igual
+
+"Mover de cuenta" mueve plata entre cuentas: es una transferencia. Empezó con un
+layout propio y terminó **reusando el del quick-add** — monto grande arriba con
+su MAX, *Desde*, *Hacia*, y "cuánto llegó a X" cuando cambian de moneda, con la
+comisión calculada igual.
+
+Lo único que cambia es lo que muestran las tarjetas: **lo que ese plan tiene
+guardado en cada cuenta**, no el saldo entero, porque es lo que se mueve.
+
+### 22.6 Un callejón sin salida no es un mensaje de error
+
+Si un plan está en USDT y no hay plata libre en esa moneda, el sheet no dice
+"no se puede". Dice qué hay y qué hacer:
+
+> No tenés plata libre en ninguna cuenta en **USDT**.
+> Sí tenés **Bs 3.660**. Convertí BOB a USDT con una transferencia entre tus
+> cuentas, y después volvé acá a registrar el ahorro.
+
+Y el consejo tiene que ser **seguible**: la primera versión mandaba a convertir
+pero la conversión no desbloqueaba nada, porque el origen estaba atado a lo que
+ese mes había dejado en cada cuenta. Un consejo que no se puede seguir es peor
+que no dar ninguno.
+
+### 22.7 Lo que se retiró
+
+- El sheet del **reparto global** (`<SavingsClosureSheet>`) y su botón
+  *"Revisar"*. El reparto se hace plan por plan.
+- El **selector "¿aporta o retira?"** de una transferencia en el quick-add: con
+  la Ronda 8, por Movimientos un ahorro solo puede salir, y el tipo ya declara
+  la dirección.
+- El **toggle "Es cuenta de ahorro"** del formulario de cuentas: ese flag ya no
+  existe.

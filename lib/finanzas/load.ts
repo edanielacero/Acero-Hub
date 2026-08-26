@@ -176,10 +176,15 @@ export async function accountBalance(
  * cliente ya avisa antes (mismo cálculo, ver `consumesBalance`/`availableFrom`
  * en `transactions.ts` — quick-add, RegisterSheet, aporte de pasanaku), pero
  * esto es lo que de verdad lo impide. Vive acá y no en cada `route.ts` porque
- * cinco caminos distintos pueden sacar plata de una cuenta — crear un
- * movimiento, editarlo, registrar un fijo, aportar a un pasanaku y repartir el
- * cierre del mes — y los cinco tienen que aplicar exactamente el mismo
+ * cinco caminos distintos pueden sacar plata de una cuenta —crear un
+ * movimiento, editarlo, registrar un fijo, aportar a un pasanaku y mover un
+ * ahorro de cuenta— y los cinco tienen que aplicar exactamente el mismo
  * criterio.
+ *
+ * El sexto, `POST /savings-goals/[id]/save`, aplica la misma regla por otra
+ * vía: mide contra `available_funds`, que es `saldo − apartado` calculado en
+ * `loadSavingsGoals` porque el sheet necesita ese desglose por cuenta de todas
+ * formas. Mismo tope, un solo viaje a la base en vez de dos.
  *
  * `editing` es el movimiento que se está reemplazando (solo en un PATCH):
  * hay que revertir su efecto viejo antes de medir si el nuevo entra, o toda

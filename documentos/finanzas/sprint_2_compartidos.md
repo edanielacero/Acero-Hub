@@ -530,6 +530,29 @@ un modo de falla cuyo peor caso es "quedó un gasto sin repartir" no duele.
 
 ---
 
+## 4.99 Actualizaciones posteriores
+
+### Cobrar una cuota **no** toca los ahorros (Sprint 7, 2026-08-26)
+
+Al agregar el piso de ahorro —un movimiento común no puede gastar lo apartado
+(§4.4.1 del documento maestro)— quedó la duda de si alcanzaba a las deudas. No,
+y por una razón estructural, no por una excepción:
+
+**cobrar una cuota es un `ingreso`.** Es plata que **entra** a una cuenta, no
+un pago que sale, así que `consumesBalance` la deja fuera del control de saldo
+desde el Sprint 1 y el piso ni siquiera se evalúa. Se puede cobrar una deuda en
+una cuenta cuyo saldo esté 100% apartado en ahorros, y lo apartado no se mueve
+un peso.
+
+Está probado en `probe.mjs` §AQ: cobrar 80 en una cuenta con 100 apartados deja
+el saldo en 180 y lo apartado en 100.
+
+### El icono de check al marcar una cuota como cobrada (26/8)
+
+Pedido de uso real: en un plan de cuotas, las ya cobradas llevan un check
+visible en la lista. Y en el historial, el icono para **desmarcar** un cobro es
+uno de "deshacer" — el anterior se leía como otra cosa.
+
 ## 5. Estructura de archivos
 
 ### Nuevos

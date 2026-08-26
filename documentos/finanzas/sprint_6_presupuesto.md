@@ -432,6 +432,28 @@ segunda, se deshace la primera y se devuelve `500`.
 
 ---
 
+## 4.99 Actualizaciones posteriores
+
+### El ahorro y el presupuesto no se pisan (Sprint 7, 2026-08-26)
+
+Tres interacciones que valía la pena fijar por escrito, porque las tres son
+fáciles de asumir al revés:
+
+- **Un aporte a un ahorro no consume presupuesto.** Es una `transferencia`
+  (`flow_type: 'movimiento'`), así que no entra en `spent_usd` de ninguna línea
+  ni en el gasto real del mes. Guardar no es gastar.
+- **Un retiro de ahorro que se gastó, sí.** Es un `gasto` con `flow_type:
+  'consumo'`, y si lleva categoría **pesa en su línea de presupuesto como
+  cualquier otro gasto**. Que la plata viniera de un ahorro no lo vuelve
+  invisible: se gastó. Probado en `probe.mjs` §AQ.
+- **El sobrante del mes descuenta lo que los fijos de ahorro ya guardaron.**
+  `monthSurplusUsd` resta los aportes con `recurring_id` del período; sin eso,
+  el reparto de fin de mes proponía guardar plata que un fijo ya había
+  guardado. Ver `sprint_7_ahorro.md` §8.
+
+Nada de esto cambió el modelo de Presupuesto: son consecuencias de que
+`flow_type` ya distinguía consumo de movimiento desde el Sprint 2.
+
 ## 5. Estructura de archivos
 
 ### Nuevos

@@ -128,6 +128,20 @@ el usuario tiene en la cabeza:
 - 🎯 Objetivos (metas de ahorro concretas)
 - 🍽️ Vivir (gasto corriente)
 
+> **Cómo quedó implementado (Sprint 7, revisado el 2026-08-26).** La intuición
+> de arriba resultó ser la correcta, y el camino para llegar ahí fue largo.
+>
+> El sprint arrancó con lo opuesto —**cuentas dedicadas** al ahorro, un flag
+> `is_savings` que las marcaba— y al usarlo se rompió por todos lados: obligaba
+> a justificar cualquier gasto que saliera de esa cuenta, perdía ingresos del
+> reporte del mes, y ataba un plan de ahorro a una billetera física.
+>
+> El flag se **eliminó**. Hoy es exactamente lo que dice este párrafo: una
+> separación conceptual sobre las mismas cuentas de siempre. Cualquier cuenta
+> tiene una **sección de saldo usable** y una **sección de ahorro**, las dos
+> derivadas de los movimientos; y un plan de ahorro puede tener plata repartida
+> en varias cuentas. Ver §3.2 del documento maestro y `sprint_7_ahorro.md` §0.8.
+
 ### 3.3 Multi-moneda con tasa congelada
 
 Vive entre USD y BOB. La conversión de una transacción se **congela en el
@@ -179,9 +193,14 @@ las tocan:
    el mismo mecanismo de tasa congelada que cualquier otra — la del día en
    que se registra, editable en Ajustes. No hizo falta una decisión aparte.
    → *Sprint 5, `sprint_5_pasanaku.md`.*
-4. **Reparto de los extraordinarios:** ¿se fija el 40/30/20/10 o se decide cuota
-   por cuota?
-   → *Bloquea el sprint de "Ahorro" (#7, antes "Objetivos"), ver §7.3.*
+4. ~~**Reparto de los extraordinarios:** ¿se fija el 40/30/20/10 o se decide
+   cuota por cuota?~~ **Resuelto el 2026-08-26: las dos cosas, y en ese orden.**
+   Cada plan de ahorro guarda su regla —monto fijo o porcentaje del sobrante— y
+   un **cajón de sastre** se lleva lo que ninguna regla asignó, así que nunca
+   queda plata sin destino. Pero la regla **nunca se aplica sola**: al terminar
+   el mes, cada plan muestra lo que le tocaría y vos confirmás plan por plan,
+   pudiendo cambiar el monto. La regla propone; la decisión es tuya cada mes.
+   → *Especificado en `sprint_7_ahorro.md` §4.3 y §4.13.*
 5. **Confirmar saldos actuales** de las 6 cuentas antes de cargarlas.
    → *Bloquea la carga inicial del Sprint 1 (no el desarrollo).*
 
@@ -228,46 +247,62 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 
 | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|
-| 1 | **Movimientos** — registrar, ver saldo, 5 activos, tasas automáticas | Todo lo demás | ✅ Construido |
-| 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ Construido · modelo corregido el 19/8 |
-| 3 | **Fijos** (era la 8; incluye Recurrentes) | Spotify, TradingView, alquiler | ✅ Construido |
-| 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés — desbloquea los $957 sin esperar al deudor | ✅ Construido |
-| 5 | Pasanaku | Los 300 Bs mensuales — recortado a tracker personal | ✅ Construido |
-| 6 | Presupuesto mensual | Requiere historial del 1 | ✅ Construido · ver `sprint_6_presupuesto.md` |
-| 7 | **Ahorro** — cuentas dedicadas, varios ahorros con reparto propio (era la 8, "Objetivos y bolsillos"; adelantada el 2026-08-24) | Apartar el sobrante (ingreso − gasto) del mes en cuentas que no reciben ni gastan otra cosa. No requiere Reportes — mismo criterio que adelantó a Fijos (#3): "primero lo que ya está pasando" | ✅ Construido · ver `sprint_7_ahorro.md` |
-| 8 | Reportes (era la 7) | Requiere 2–6 | — |
-| 9 | Fondo de crecimiento y ROI | Requiere 1 | — |
-| 10 | Alertas | Requiere 6, 3 | — |
-| 11 | **Cuentas de inversión** (Broker, y las que se sumen después) | Ajustar su valor sin que cuente como gasto/ingreso real del mes | ✅ Construido |
+| 1 | **Movimientos y Cuentas** — registrar, saldo derivado, multi-moneda con tasa congelada | Todo lo demás | ✅ `documento_maestro_finanzas.md` |
+| 2 | **Deudas** (era "compartidos") | Lo que te deben, venga de donde venga | ✅ `sprint_2_compartidos.md` |
+| 3 | **Fijos** | Alquiler, Spotify, TradingView — y desde el Sprint 7, también los fijos de ahorro | ✅ `sprint_3_fijos.md` |
+| 4 | **Planes de pago** | Calendario de cuotas sobre cualquier deuda, con o sin interés | ✅ `sprint_4_planes_de_pago.md` |
+| 5 | **Pasanaku** | Los 300 Bs mensuales — recortado a tracker personal | ✅ `sprint_5_pasanaku.md` |
+| 6 | **Presupuesto mensual** | Cuánto queda por gastar, por categoría y en general | ✅ `sprint_6_presupuesto.md` |
+| 7 | **Ahorro** | Apartar el sobrante del mes en planes con reparto propio, sin cuentas dedicadas | ✅ `sprint_7_ahorro.md` |
+| 11 | **Cuentas de inversión** | Ajustar su valor sin que cuente como gasto/ingreso real | ✅ §7.1 de este documento |
+| 8 | **Reportes** | Ver la evolución: en qué se va la plata mes a mes, tendencias, comparar períodos. Es lo primero que gana valor ahora que hay 1–7 generando historia | ⬜ Siguiente |
+| 9 | **Fondo de crecimiento y ROI** | Distinguir el ahorro que *trabaja* del que solo espera. Se apoya en el #7: sería un tipo de plan con retorno esperado | ⬜ |
+| 10 | **Alertas** | Que la app avise sin que entres: fijo por vencer, presupuesto al límite, mes por organizar. Requiere #6 y #3 | ⬜ · ⚠️ Vercel Hobby: **un solo cron por día** |
+| 12 | **Reglas y automatismos** | "Cada vez que entre el sueldo, aparta X" — el paso siguiente natural de los fijos de ahorro | ⬜ Sin especificar |
 
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son
 cosas que **ya le están pasando cada mes**. Por eso van antes que presupuesto y
 reportes, que necesitan meses de datos acumulados para valer algo.
 
-### 7.3 Feature #7 — Ahorro, reemplaza a "Objetivos y bolsillos" (2026-08-24, construido)
+### 7.3 Feature #7 — Ahorro (construido el 2026-08-24, rediseñado hasta el 26/8)
 
-El usuario pidió, en conversación, cuentas **dedicadas 100% a ahorro** —
-nada entra que no sea ahorro, las salidas piden justificativo — con
-**varios ahorros**, cada uno con su propia distribución del sobrante
-mensual. Especificado y construido el mismo día (`sprint_7_ahorro.md`),
-603/182/586 pruebas en verde. Resumen de lo que quedó cerrado:
+El usuario pidió, en conversación, poder **apartar el sobrante del mes** en
+varios planes de ahorro, cada uno con su propia distribución. Se especificó y
+construyó el mismo día; después vinieron **nueve rondas de uso real** que lo
+dieron vuelta casi entero. Lo que quedó:
 
-- **Revisa §3.2.** "Bolsillos" ahí está descrito como *"separación
-  conceptual, no cuentas físicas separadas"*. Esta feature es lo opuesto:
-  bolsillos físicos. Es una revisión deliberada, no un error.
-- **Responde la pregunta abierta #4** (§5): el reparto es mixto (fijo o %
-  por ahorro) pero se confirma cada mes, nunca se aplica ciego.
-- **Ahorros independientes de las cuentas**: una cuenta dedicada puede
-  alojar varios ahorros, y un ahorro puede tener plata en más de una
-  cuenta — el saldo de cada uno es derivado de sus propios movimientos
-  tageados, no de en qué cuenta esté guardado.
-- **Patrón reutilizable:** mismo mecanismo que Cuentas de inversión (#11,
-  §7.1) — un flag en la cuenta (`is_savings`, excluyente con
-  `is_investment`) que cambia el `flow_type` de sus transacciones. Un
-  retiro tipo `gasto` sí cuenta como gasto real; uno vía `transferencia`,
-  no.
-- **Bloqueo blando**, como el resto de la app; justificativo por categoría
-  + texto libre en cada salida; meta opcional por motivo.
+**El modelo**
+
+- **Ninguna cuenta "es de ahorro".** Existió un flag `is_savings` entre el 24 y
+  el 26 de agosto y se eliminó. Toda cuenta tiene una sección de saldo usable y
+  una de ahorro, las dos derivadas.
+- **Un movimiento es de ahorro porque vos lo dijiste** (`savings_goal_id`
+  puesto a mano), y cruza en la dirección que declaraste (`savings_flow`:
+  `aporte`, `retiro` o `traslado`). Nunca se infiere de dónde cae la plata ni
+  de qué campo quedó vacío.
+- **El saldo de un plan es derivado**, igual que el de una cuenta, y es
+  exactamente la suma de lo apartado en cada cuenta.
+
+**Cómo se usa**
+
+| Acción | Dónde vive | Por qué |
+|---|---|---|
+| **Aportar** | un **fijo de ahorro**, o el botón **Ahorrar** de cada plan al terminar el mes | Es una decisión de plan, periódica |
+| **Retirar** | el **gasto** que rompe el ahorro, en Movimientos | Pasa en el momento y sin plan; pide justificativo |
+| **Trasladar** | *"Mover de cuenta"* en Ahorros | Ni gasto ni ingreso: la misma plata en otra billetera |
+
+- **El piso de ahorro**: un movimiento común nunca puede gastar lo apartado.
+  Aplica en los cinco caminos que sacan plata de una cuenta, no solo en el
+  quick-add.
+- **El reparto es plan por plan**, no un trámite mensual global. Cada card
+  tiene su botón, se apaga cuando ese mes ya se guardó, y el detalle muestra
+  una tabla mes a mes con check o guion.
+- **Responde la pregunta abierta #4** (§5): el reparto es mixto (monto fijo o %
+  por plan) pero se confirma cada mes, nunca se aplica ciego. Y el **cajón de
+  sastre** se lleva lo que sobre, así que nunca queda plata "sin asignar".
+
+El detalle completo, con las nueve rondas y los bugs que encontró cada una,
+está en `sprint_7_ahorro.md`.
 
 ### 7.1 Feature 11 — Cuentas de inversión (construido el 2026-08-19)
 

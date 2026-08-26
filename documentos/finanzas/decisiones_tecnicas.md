@@ -384,6 +384,100 @@ Lo que hay que respetar al tocar la mini-app. Cada una viene de un problema real
 | 7 | **Nada cacheado en el cliente sin llavearlo por usuario** | §1.4.1 |
 | 8 | **Las rutas `/finanzas/*` se sirven estáticas.** Ni el layout ni las páginas consultan la base | §1.9 |
 | 9 | **Medir percepción de velocidad solo contra `next build && next start`** | §1.8 |
+| 10 | **En un `CHECK` de Postgres, nunca comparar una columna nullable con `=`.** Va `is not distinct from` | §3 |
+| 11 | **Lo derivado no se guarda.** Saldo, apartado en ahorros, disponible del presupuesto: todos se calculan desde los movimientos | §4 |
+| 12 | **Una regla nueva no congela la historia que la precede** | §5 |
+
+## 3. La trampa de los tres valores en un `CHECK` (2026-08-26)
+
+Mordió **dos veces la misma tabla en el mismo día**, así que va como invariante
+y no como anécdota.
+
+SQL tiene tres valores: `true`, `false` y `NULL`. Y un `CHECK` **solo se viola
+cuando da `false`** — si da `NULL`, la fila pasa. Cualquier comparación con una
+columna nullable devuelve `NULL`, y ese `NULL` se propaga:
+
+```sql
+-- Se lee como "con etiqueta, la dirección es obligatoria". No lo es.
+check (
+  (savings_goal_id is null and savings_flow is null)
+  or (savings_goal_id is not null and savings_flow in ('aporte','retiro'))
+)
+```
+
+Con la etiqueta puesta y la dirección en `NULL`:
+
+```
+rama 1 →  false and true        = false
+rama 2 →  true  and NULL        = NULL
+total  →  false OR NULL         = NULL   →  no se viola: la fila entra
+```
+
+El resultado fue que el constraint **no atajaba nada** durante días, y solo se
+descubrió al insertarlo por REST a mano. La segunda vez fue idéntica, en el
+constraint de forma de las transferencias, y dejó pasar transferencias de una
+cuenta a sí misma.
+
+Las dos formas de cerrarlo:
+
+```sql
+-- explícita
+and savings_flow is not null and savings_flow in ('aporte','retiro','traslado')
+-- null-safe (preferida: dice la intención)
+and savings_flow is not distinct from 'aporte'
+```
+
+**Corolario operativo:** un constraint sin un test que lo vea rechazar algo no
+está probado. Los dos casos los cazó `db.mjs` insertando por REST directo, no
+la suite de API — el `CHECK` es lo último que queda cuando la validación de la
+ruta falla, así que hay que probarlo **por debajo** de la ruta.
+
+### 3.1 Una migración ya aplicada no se vuelve a correr
+
+Relacionado, y del mismo día. Se editó un archivo de migración **después** de
+que su fila quedara escrita en el ledger de Supabase: el `db push` posterior la
+salteó y el `add constraint` nunca llegó a la base, aunque el archivo lo tenía.
+
+Si hay que corregir una migración aplicada, va **una migración nueva**. Editar
+la vieja solo cambia lo que verá quien monte la base desde cero.
+
+## 4. Lo derivado no se guarda — hasta el último nivel
+
+El Sprint 1 fijó que el **saldo** de una cuenta se deriva de sus movimientos.
+El Sprint 6 hizo lo mismo con el disponible del presupuesto, y el Sprint 7 con
+dos números más:
+
+| Dato | Se deriva de | Nunca es |
+|---|---|---|
+| Saldo de una cuenta | todos sus movimientos | una columna `balance` |
+| **Apartado en ahorros de una cuenta** | los movimientos con etiqueta de ahorro | una columna ni una "caja aparte" |
+| **Saldo de un plan de ahorro** | sus propios movimientos etiquetados | una columna, ni la suma de cuentas marcadas |
+| Disponible de una línea de presupuesto | los gastos del período en sus categorías | un contador |
+
+La consecuencia práctica de que **lo apartado sea derivado y no una caja
+aparte**: si la plata se gastó por otro lado, no está. Un traslado de ahorro
+puede fallar por saldo aunque el plan diga que hay — y eso es correcto, no un
+bug.
+
+## 5. Una regla nueva no congela la historia que la precede
+
+Apareció **cuatro veces** con la misma forma, así que es una invariante y no una
+casualidad:
+
+| Regla nueva | Qué se rompió |
+|---|---|
+| Categoría obligatoria en un fijo (`b08fdb4`) | los fijos viejos sin categoría quedaban ineditables |
+| Un ahorro archivado no se puede elegir | sus movimientos no se podían ni renombrar |
+| Marcar una cuenta como de ahorro | un gasto anterior exigía un motivo que nunca tuvo |
+| El piso de ahorro | desetiquetar un retiro viejo podía quedar bloqueado |
+
+El patrón del arreglo es siempre el mismo: **exigir el dato nuevo solo cuando
+ya estaba, o cuando el cliente lo manda explícitamente.** Un `PATCH` que hereda
+el valor actual no está "eligiendo" nada y no debe validarse como si lo
+hiciera.
+
+El reverso también vale: **archivar frena lo nuevo, no lo viejo.** Un fijo cuyo
+ahorro se archivó se sigue pausando y editando, pero ya no se puede registrar.
 
 ### 2.1 Nota para el Sprint de "fijos"
 

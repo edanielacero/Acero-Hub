@@ -195,6 +195,60 @@ $1.51"** y no como un gasto de menos uno cincuenta y uno.
 
 Lo único que sigue siendo inválido: una parte en **cero o negativa**.
 
+### 4.3.1 Un fijo puede aportar a un ahorro (Sprint 7, 24/8)
+
+Agregado el 2026-08-24, ampliado el 26/8. Un fijo con `savings_goal_id` genera
+una **transferencia** tageada, no un gasto: es el pago mensual que alimenta un
+plan de ahorro. Mismo módulo, mismo pendiente/vencido, mismo botón de
+registrar; lo único que cambia es qué movimiento sale al final.
+
+| | Fijo normal | Fijo de ahorro |
+|---|---|---|
+| Tipo del movimiento | `gasto` | `transferencia` |
+| `flow_type` | `consumo` — es gasto real | `movimiento` — no ensucia el mes |
+| Categoría | obligatoria | se limpia sola: no hay nada que presupuestar |
+| Al registrar pide | la cuenta de origen | origen **y** a qué cuenta entra |
+| Escribe | — | `savings_flow: 'aporte'` y `savings_period` = el mes de su fecha |
+
+Dos columnas nuevas en `fin_recurring`: `savings_goal_id` y `to_account_id`.
+Las dos **opcionales en la plantilla** — la cuenta se elige al registrar cada
+instancia, igual que `account_id`, y si viene queda como default.
+
+Tres reglas que costaron un bug cada una:
+
+- **La cuenta destino no tiene que ser "de ahorro".** Ese flag existió dos días
+  y se eliminó: cualquier cuenta aloja ahorros (§3.2 del maestro).
+- **Con el ahorro archivado, el fijo no se registra** (`400`, diciendo que lo
+  pauses o lo desarchives). Antes devolvía `201` y metía plata en un plan que la
+  pantalla de Ahorros ni siquiera lista. Archivar no congela la historia —el
+  fijo se sigue pausando, renombrando y editando— pero tampoco produce historia
+  nueva.
+- **Origen y destino no pueden ser la misma cuenta** al registrar: sería una
+  transferencia que no mueve nada.
+
+### 4.3.2 El piso de ahorro alcanza a registrar un fijo (26/8)
+
+Registrar un fijo pasa por `assertBalance` como cualquier otro movimiento, así
+que **no puede comerse lo apartado en ahorros** (§4.4.1 del maestro). Si el
+saldo libre no alcanza, el registro se rechaza nombrando lo apartado:
+
+> *Banco Unión tiene Bs 400 disponibles (Bs 700 están apartados en ahorros)*
+
+Es incómodo a propósito: un fijo que no entra sin romper un ahorro no entra, y
+para pagarlo hay que retirar del ahorro primero, a mano y con su motivo.
+`<RegisterSheet>` muestra el mismo número que aplica el servidor, con
+*"· X en ahorros"* al lado, para que el tope no aparezca de la nada.
+
+### 4.3.3 El detalle de un compartido muestra a cada persona (26/8)
+
+Al tocar un fijo compartido, el detalle lista **cada persona con su monto**, más
+*"Tu parte"* (o *"Ganas"* en verde si el reparto supera al gasto). Los montos se
+**resuelven, no se leen**: una parte pareja se guarda como `null` en la
+plantilla y solo existe cuando se calcula con el monto del mes. Se reusan las
+mismas dos funciones que usa `<RegisterSheet>` (`resolveSplits` +
+`shareBreakdown`), así que lo que se ve en el detalle es exactamente lo que se
+va a generar al pagarlo — no un segundo cálculo que pueda desincronizarse.
+
 ### 4.4 Idempotencia al registrar
 
 Dos toques al botón no generan dos gastos. Se chequea contra el **período**, no

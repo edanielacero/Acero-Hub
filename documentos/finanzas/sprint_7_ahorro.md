@@ -330,12 +330,13 @@ acción primaria. Vive acotado a la pantalla de Ahorros.
 Dos decisiones de alcance que se tomaron durante la construcción, no antes —
 ninguna cambia el modelo de datos ni bloquea ampliarlas después:
 
-1. **Una sola cuenta de origen y una sola cuenta de ahorro de destino por
-   cierre**, en vez de un picker por línea del reparto. El modelo sí soporta
-   que cada ahorro tenga su propia cuenta de destino (§4.4) y la API ya lo
-   acepta línea por línea — la pantalla de confirmación mensual
-   (`<SavingsClosureSheet>`) todavía no expone esa granularidad, para no
-   pedir una cuenta por cada ahorro activo en la pantalla más usada del mes.
+1. ~~**Una sola cuenta de origen y una sola cuenta de ahorro de destino por
+   cierre**, en vez de un picker por línea del reparto.~~ **Resuelto en la
+   Ronda 9, por el camino largo.** Esta simplificación era, en realidad, el
+   síntoma: apretar todos los planes en una sola pantalla obligaba a elegir una
+   sola cuenta para todos. Al partir el reparto en un botón por plan, cada uno
+   elige su origen y su destino sin que nadie tenga que llenar un formulario de
+   seis campos una vez por mes.
 2. **Un mes en rojo no arma un flujo de retiro dentro del cierre.** La
    pantalla igual pregunta (Ronda 3 lo pedía explícitamente) pero la única
    acción es "Entendido, no repartir nada" — cerrar la pregunta pendiente
@@ -460,7 +461,18 @@ sentido en una salida desde una cuenta de ahorro — se valida en el server
 (§4.6), no con un `check` cruzado a otra tabla, que Postgres no permite sin
 un trigger.
 
-### 3.4 `fin_savings_closures` — la decisión de cada mes
+### 3.4 `fin_savings_closures` — retirada de uso (Ronda 9)
+
+⚠️ **Esta tabla ya no se lee ni se escribe.** Queda en la base con lo que se
+haya guardado entre el 24 y el 26 de agosto, pero desde la Ronda 9 el estado
+"¿este plan ya guardó este mes?" vive en **`fin_transactions.savings_period`**,
+por plan y no por mes global. Y el mes pendiente pasó a ser, simplemente, el
+mes pasado — no depende de ninguna tabla de estado.
+
+Dejar de leerla fue un arreglo, no una limpieza: mientras la lectura seguía
+viva y nadie la escribía, **el mes pendiente quedaba clavado para siempre**
+(§8). Lo que sigue describe cómo funcionaba, para entender los datos que
+quedaron.
 
 ```sql
 create table fin_savings_closures (
@@ -550,17 +562,17 @@ de algún ahorro para cubrirlo, o dejarlo así (Ronda 3) — un "dejarlo así"
 simplemente no genera ningún movimiento, solo la fila de
 `fin_savings_closures` que cierra la pregunta.
 
-### 4.4 Confirmar el cierre
+### 4.4 Confirmar el cierre — reemplazado por §4.13
 
-Al confirmar (con ajustes o sin ellos), por cada ahorro con monto > 0
-propuesto se crea una `transferencia` real: `account_id` = una cuenta
-regular elegida por el usuario en la confirmación (de dónde sale la
-plata), `to_account_id` = una cuenta `is_savings` (a elección, si el ahorro
-vive en más de una), `savings_goal_id` = el ahorro, fecha = hoy. Después se
-inserta la fila de `fin_savings_closures` con el `surplus_usd` congelado.
-Las dos escrituras son atómicas en el sentido de Sprint 2 §4.7/Sprint 4
-§4.8: si falla la segunda, se deshace la primera tanda de transferencias y
-se devuelve `500`.
+⚠️ **Obsoleto desde la Ronda 9.** Acá se describía el cierre global: una sola
+confirmación creaba de golpe una transferencia por cada ahorro con monto
+propuesto, todas desde la misma cuenta de origen y hacia la misma cuenta
+destino, y después congelaba la fila de `fin_savings_closures`.
+
+Hoy se guarda **plan por plan** con `POST /savings-goals/[id]/save` (§4.13):
+cada plan elige su origen, su destino y su monto, y lo que marca el mes es
+`savings_period` en el propio aporte. No hay nada que congelar en una tabla
+aparte.
 
 ### 4.5 `flow_type` — el ahorro ya no entra en la cuenta
 
@@ -874,10 +886,15 @@ app/finanzas/
 app/api/finanzas/
 ├── savings-goals/route.ts              — GET lista con saldo derivado · POST crear
 ├── savings-goals/[id]/route.ts         — PATCH (reparto, meta, archivar) · DELETE
-└── savings-goals/close/route.ts        — GET la propuesta del período pendiente · POST confirmar (con ajustes)
+├── savings-goals/[id]/save/route.ts    — POST "Ahorrar": guardar el mes en UN plan (Ronda 9)
+└── savings-goals/[id]/move/route.ts    — POST traslado entre cuentas (Ronda 8)
 
 lib/finanzas/
-└── savings.ts                          — sobrante, saldo por ahorro, algoritmo de propuesta, needsSavingsClosure
+└── savings.ts                          — saldo por ahorro y por cuenta, apartado por cuenta,
+                                          reparto propuesto, meses guardados, período pendiente
+
+⚠️ `savings-goals/close/route.ts` EXISTIÓ y se borró en la Ronda 9 (§8): el
+reparto global lo reemplazó el botón por plan.
 ```
 
 ### Modificados
@@ -925,32 +942,40 @@ Borra el ahorro. Sus movimientos ya registrados **no se tocan** —
 `savings_goal_id` cae a `null` por el `on delete set null`, mismo criterio
 que borrar un fijo o un pasanaku.
 
-### `GET /api/finanzas/savings-goals/close`
-Devuelve el período pendiente más antiguo (si hay), con la propuesta ya
-calculada:
-```jsonc
-{
-  "pending_period": "2026-07-01",
-  "surplus_usd": 245.60,
-  "proposal": [
-    { "goal_id": "uuid", "name": "Emergencia", "amount": 50.00, "currency": "USD", "amount_usd": 50.00, "capped": false },
-    { "goal_id": "uuid", "name": "Viaje", "amount": 1358.40, "currency": "BOB", "amount_usd": 195.60, "capped": false }
-  ],
-  "unassigned_usd": 0,
-  "insufficient_for_fixed": false
-}
-```
-`insufficient_for_fixed: true` cuando `suma_fijos_usd > sobrante_usd` — la
-UI muestra el modo de ajuste manual en vez de la propuesta automática.
+### `POST /api/finanzas/savings-goals/[id]/save`
 
-### `POST /api/finanzas/savings-goals/close`
-Body: `{ period, allocations: [{ goal_id, amount, from_account_id, to_account_id }], skip? }`.
-`skip: true` cuando el usuario decide no repartir nada ese mes (mes en rojo,
-o simplemente "no" a la propuesta) — crea solo la fila de
-`fin_savings_closures`, cero transferencias. `409` si el período ya tiene
-cierre.
+El botón **Ahorrar** de cada plan (Ronda 9). Guarda plata de un mes ya
+terminado en **un** plan.
 
----
+Body: `{ period?, from_account_id, to_account_id?, amount, date?, description? }`
+
+- `period` — el mes que se organiza; si falta, el pendiente. Nunca el mes en
+  curso (`400`): todavía no se sabe cuánto va a sobrar.
+- `to_account_id` — **por defecto la misma cuenta de origen**. Guardar sin mover
+  de banco es lo normal: se registra una transferencia de la cuenta a sí misma,
+  el saldo no cambia y lo apartado sube.
+- Rechaza: plan archivado, plan que ya guardó ese mes (`409`), plan que no
+  existía ese mes, cuenta en otra moneda que el plan, y monto mayor a lo libre
+  en esa cuenta.
+
+Crea una `transferencia` con `flow_type: 'movimiento'`,
+`savings_flow: 'aporte'` y `savings_period` = el mes organizado.
+
+### `POST /api/finanzas/savings-goals/[id]/move`
+
+*"Mover de cuenta"*: el **traslado** (Ronda 8, §4.12).
+
+Body: `{ from_account_id, to_account_id, amount, to_amount?, date?, description? }`
+
+Mueve lo apartado en las **dos** cuentas y deja el saldo del plan intacto. El
+tope es lo que **ese plan** tiene en la cuenta de origen, no lo apartado de la
+cuenta. Origen y destino tienen que ser distintos.
+
+### ~~`GET` / `POST /api/finanzas/savings-goals/close`~~ — eliminada
+
+El reparto global. Se borró en la Ronda 9, no se dejó apagada: escribía aportes
+**sin `savings_period`**, así que una llamada desde un cliente viejo habría
+metido plata en un plan sin marcar el mes. Ver §8.
 
 ## 7. UI
 
@@ -978,33 +1003,54 @@ Tocar una card abre el detalle (saldo, historial de aportes/retiros,
 editar reparto/meta, "Registrar retiro"). El botón "+ Nuevo ahorro" abre
 `<SavingsGoalSheet>`.
 
-### Confirmación mensual — `<SavingsClosureSheet>`
+### Fin de mes — el botón "Ahorrar" de cada plan (Ronda 9)
+
+Reemplazó a `<SavingsClosureSheet>`, que repartía el mes entero de una sola vez
+con una cuenta de origen y una de destino para todos los planes juntos.
+
+Arriba de la lista, una **invitación** (azul, sin botón — la acción está en cada
+card):
 
 ```
-Julio — tu sobrante fue $245,60
+✨  Es hora de organizar tus ahorros
+    julio de 2026 ya terminó. Guarda lo que dejó en cada plan.
+```
+
+Y en cada card, mientras ese plan no haya guardado ese mes:
+
+```
+🛡️ Ahorro para emergencias
+$ 200,00  de $ 600,00
+────────────────────────────────────
+Acordaste $ 60,00          [ Ahorrar ]     ← azul
+```
+
+Un plan por **porcentaje** dice las dos cosas: `25% = $ 61,34`. Decir solo el
+monto escondía de dónde salía y lo volvía incomparable con el mes siguiente.
+
+`<SavingsSaveSheet>` al tocarlo:
+
+```
+Ahorro para emergencias
+Organizando julio de 2026
 ──────────────────────────────
-🛡️ Emergencia (fijo)              $ [ 50,00 ]
-🌴 Viaje a Brasil (30%)            $ [ 58,68 ]
-🚀 Crecimiento (20%)               $ [ 39,12 ]
+Acordaste guardar        $ 60,00
 
-Sin asignar: $97,80
+¿De dónde sale?
+  🇧🇴 Banco Unión          Bs 11.620
+  🇧🇴 Efectivo              Bs 2.195
 
-[ Confirmar reparto ]     [ No repartir este mes ]
+¿En qué cuenta ahorrar?
+  [Banco Unión]  Binance
+  Se queda en la misma cuenta, apartada de lo que podés gastar.
+
+¿Cuánto?                        MÁX
+  [ 60,00 ]
+  Banco Unión tiene Bs 11.620 libres.
 ```
 
-Si `insufficient_for_fixed`, la primera línea de arriba se reemplaza por un
-aviso: *"Tus ahorros fijos piden $180 pero solo tenés $120 de sobrante —
-ajustá los montos abajo"*, y cada campo fijo arranca editable con el pedido
-original como referencia tachada al lado.
-
-Con `sobrante_usd <= 0`:
-```
-Julio cerró en rojo: −$32,40
-──────────────────────────────
-¿Retirás de algún ahorro para cubrirlo, o lo dejás así?
-
-[ Elegir de dónde retirar ]     [ Dejarlo así ]
-```
+Si no hay plata libre en la moneda del plan, no dice "no se puede": dice qué hay
+y qué hacer (§22.6 de `contexto_ui_finanzas.md`).
 
 ### Retiro — dentro del quick-add
 

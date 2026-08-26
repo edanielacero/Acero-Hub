@@ -190,6 +190,46 @@ create index on fin_accounts (user_id, archived, sort_order);
 `currency` es la moneda **nativa** de la cuenta. Todos los movimientos sobre esa
 cuenta van en esa moneda — no se mezcla dentro de una misma cuenta.
 
+#### Toda cuenta tiene dos secciones: saldo usable y ahorro (Sprint 7, 26/8)
+
+Actualizado el 2026-08-26. Una cuenta ya no es un solo número: es un saldo con
+una parte **apartada como ahorro** y otra **libre para gastar**.
+
+```
+saldo(A)            lo que hay en total
+savings_balance(A)  lo apartado en ahorros        ← derivado, §4.2.1
+libre(A)            saldo − apartado              ← el tope de un gasto común
+```
+
+Tres cosas que conviene tener claras, porque son fáciles de asumir mal:
+
+- **No hay ninguna columna nueva en `fin_accounts`.** Lo apartado se deriva de
+  los movimientos etiquetados, igual que el saldo se deriva de todos los
+  movimientos (§4.2). No hay un dato que se pueda desincronizar.
+- **No hay "cuentas de ahorro".** Existió un flag `is_savings` entre el 24 y el
+  26 de agosto y se **eliminó**: cualquier cuenta puede alojar ahorros, y lo que
+  vuelve la plata un ahorro es la etiqueta del movimiento, no dónde cae. Ver
+  §0.8 de `sprint_7_ahorro.md`.
+- **Una cuenta de inversión no tiene sección de ahorro.** Su saldo es un valor
+  de mercado, no plata apartable.
+
+La regla que sostiene todo esto: **un gasto común llega hasta `libre(A)`, nunca
+hasta `saldo(A)`** (§4.4.1).
+
+### 3.2.1 `fin_savings_goals` y las columnas de ahorro
+
+El Sprint 7 agregó una tabla propia para los planes de ahorro y **cuatro
+columnas** a `fin_transactions` (§3.4). El detalle completo vive en
+`sprint_7_ahorro.md` §3; acá solo lo que hay que saber para leer este
+documento:
+
+| Columna en `fin_transactions` | Qué dice |
+|---|---|
+| `savings_goal_id` | A qué plan pertenece. **Se pone a mano, nunca se infiere** |
+| `savings_flow` | En qué dirección cruza: `aporte`, `retiro` o `traslado` |
+| `savings_reason` | El justificativo de un retiro (enum) |
+| `savings_period` | A qué **mes** pertenece un aporte — no alcanza la fecha, porque el reparto de julio se registra en agosto |
+
 ### 3.3 `fin_categories`
 
 ```sql
@@ -229,8 +269,28 @@ create table fin_transactions (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
 
+  -- Agregadas después del Sprint 1 (ver el sprint de cada una):
+  --   flow_type                          Sprint 2 · consumo vs movimiento
+  --   to_amount_usd, to_exchange_rate    Sprint 2 · congela el lado que llega
+  --   recurring_id                       Sprint 3 · qué fijo la generó
+  --   pasanaku_id                        Sprint 5 · qué pasanaku la generó
+  --   savings_goal_id, savings_flow,
+  --   savings_reason, savings_period     Sprint 7 · § 3.2.1
+
   constraint fin_tx_transfer_shape check (
-    (type = 'transferencia' and to_account_id is not null and to_account_id <> account_id and category_id is null)
+    (type = 'transferencia'
+      and to_account_id is not null
+      and category_id is null
+      and (
+        to_account_id <> account_id
+        -- La ÚNICA excepción (Sprint 7): un aporte a la misma cuenta, que es
+        -- cómo se guarda plata sin moverla de banco — el saldo no cambia (sale
+        -- y entra el mismo monto) y lo apartado sube. `is not distinct from`
+        -- y no `=`: con `savings_flow` en NULL, `=` da NULL, y un CHECK que da
+        -- NULL **no se viola** — el agujero dejaba pasar cualquier
+        -- transferencia de una cuenta a sí misma (ver `decisiones_tecnicas.md`).
+        or (savings_flow is not distinct from 'aporte' and to_amount is null)
+      ))
     or
     (type in ('gasto','ingreso') and to_account_id is null and to_amount is null)
   )
@@ -346,6 +406,36 @@ Editar o borrar un movimiento recalcula el saldo solo, sin lógica de
 compensación ni riesgo de que el número guardado se desincronice de su
 historial. `lib/finanzas/accounts.ts` implementa esta fórmula desde cero.
 
+### 4.2.1 Lo apartado en ahorros — **derivado también** (Sprint 7, 26/8)
+
+Mismo principio, un nivel más adentro: cuánto del saldo de una cuenta está
+apartado sale de los movimientos **etiquetados con un plan de ahorro**, y
+tampoco existe como columna.
+
+```
+apartado(A) = + Σ amount              donde type='ingreso'  y savings_flow='aporte'   y account_id = A
+              − Σ amount              donde type='gasto'    y savings_flow='retiro'   y account_id = A
+              + Σ (to_amount ?? amount) donde type='transferencia' y savings_flow='aporte'   y to_account_id = A
+              − Σ amount              donde type='transferencia' y savings_flow='retiro'   y account_id = A
+              ± ambos lados           donde type='transferencia' y savings_flow='traslado'
+```
+
+clampeado en cero: una cuenta no puede tener ahorro negativo.
+
+Un aporte y un retiro mueven **un solo lado** de la transferencia — la otra
+cuenta no gana ni pierde plata *apartada* por el paso de la plata. El
+**traslado** es la excepción y para eso existe: mueve los dos lados a la vez,
+que es cómo se cambia un ahorro de cuenta sin que el plan suba ni baje.
+
+Se calcula **en la moneda de la cuenta, sin pasar por USD** (`amount` ya está
+en la moneda de `account_id` y `to_amount` en la de `to_account_id`). Convertir
+a USD y volver arrastraba centavos: aportar Bs 700 mostraba *"Bs 699,99
+apartados"*, un número que el usuario sabe que está mal, y encima corría el
+tope. Ver `computeSavingsByAccount` en `lib/finanzas/savings.ts`.
+
+**Invariante:** el saldo de un plan de ahorro es exactamente la suma de lo
+apartado en cada cuenta. Hay una regresión que lo prueba en `api.mjs`.
+
 ### 4.3 Patrimonio total
 
 ```
@@ -381,6 +471,45 @@ Solo aplica a `gasto` y `transferencia`; un `ingreso` nunca se topea. Ver
 ⚠️ **Consecuencia práctica:** la regla es tan buena como los saldos iniciales.
 Con una cuenta cargada en `0.63 Bs` no se va a poder registrar ningún gasto real
 hasta corregir ese saldo.
+
+#### El piso de ahorro (Sprint 7, 26/8)
+
+El tope ya no es el saldo: es el saldo **menos lo apartado**.
+
+```
+movimiento común              tope = saldo − apartado
+retiro o traslado declarado   tope = apartado         (acotado por el saldo real)
+```
+
+Vive en `assertBalance` (`lib/finanzas/load.ts`) y no en cada `route.ts`,
+porque **cinco caminos** distintos sacan plata de una cuenta y los cinco tienen
+que aplicar el mismo criterio:
+
+1. crear un movimiento (`POST /transactions`)
+2. editarlo (`PATCH /transactions/[id]`)
+3. registrar un fijo (`POST /recurring/[id]/register`)
+4. aportar a un pasanaku (`POST /pasanaku/[id]/aporte`)
+5. mover un ahorro de cuenta (`POST /savings-goals/[id]/move`)
+
+Antes lo aplicaba solo el quick-add, así que registrar un fijo o aportar a un
+pasanaku se comía los ahorros sin decir una palabra.
+
+El **sexto** camino, `POST /savings-goals/[id]/save` (el botón "Ahorrar"),
+aplica el mismo tope por otra vía: mide contra `available_funds`, que es
+`saldo − apartado` calculado en `loadSavingsGoals` porque el sheet necesita ese
+desglose por cuenta de todas formas. Mismo número, un viaje a la base en vez de
+dos.
+
+Consecuencias que valen la pena decir en voz alta:
+
+- **Un fijo que no entra sin romper un ahorro, no entra.** Para pagarlo hay que
+  retirar del ahorro primero, a mano y con su motivo. Es incómodo a propósito.
+- **No se puede retirar de una cuenta donde ese plan no tiene nada apartado.**
+  No se saca lo que no se puso.
+- **Una cuota de deuda cobrada no se ve afectada**: es un `ingreso`, plata que
+  entra, y `consumesBalance` ya la deja afuera.
+- `<RegisterSheet>` y `<PasanakuAporteSheet>` muestran el mismo `disponible`
+  que aplica el servidor, con *"· X en ahorros"* al lado.
 
 ### 4.5 Borrado de cuentas
 
@@ -491,8 +620,15 @@ usuario, y el cliente devuelto (que respeta RLS) para las queries. **Nunca**
     "id": "uuid", "name": "Airtm", "currency": "USD",
     "initial_balance": 1299.00, "initial_balance_date": "2026-08-01",
     "sort_order": 0, "archived": false,
-    "balance": 1299.00,       // derivado
-    "balance_usd": 1299.00    // convertido a tasa actual
+    "balance": 1299.00,        // derivado (§4.2)
+    "balance_usd": 1299.00,    // convertido a tasa actual
+    // Sprint 7 · lo apartado en ahorros dentro de esta cuenta (§4.2.1).
+    // Derivado también, y en la moneda de la cuenta — no pasa por USD.
+    "savings_balance": 200.00,
+    "savings_balance_usd": 200.00,
+    // Sprint 1 §7.2 · si ya tiene un "Actualizar valor" registrado
+    "has_value_updates": false,
+    "is_investment": false
   }],
   "total_usd": 3209.00,
   "usd_bob_rate": 6.96
@@ -518,12 +654,33 @@ Query params: `from`, `to` (fechas ISO), `type`, `account_id`, `category_id`, `l
     "account_id": "uuid", "to_account_id": null, "category_id": "uuid",
     "amount": 35.00, "currency": "BOB", "to_amount": null,
     "exchange_rate": 6.96, "amount_usd": 5.03,
-    "description": "Almuerzo"
+    "description": "Almuerzo",
+    // Sprint 2 · consumo real vs movimiento financiero
+    "flow_type": "consumo",
+    // Sprint 7 · la etiqueta de ahorro viaja completa, o los cuatro en null
+    "savings_goal_id": null, "savings_flow": null,
+    "savings_reason": null, "savings_period": null
   }],
   "total_gasto_usd": 142.30,   // del rango consultado
   "total_ingreso_usd": 900.00
 }
 ```
+
+#### Ahorro en `POST /transactions` (Sprint 7, Ronda 8)
+
+Por esta ruta un ahorro **solo puede salir**. `savings_goal_id` se acepta
+únicamente en un `gasto`, y entonces la dirección es siempre `retiro` y el
+`savings_reason` es obligatorio.
+
+- Un `ingreso` tageado → `400`: la plata entra a un ahorro con un **fijo de
+  ahorro** o en el **reparto de fin de mes**, que son decisiones de plan.
+- Una `transferencia` tageada → `400`: una transferencia común solo mueve saldo
+  disponible; para mover un ahorro de cuenta está *"Mover de cuenta"* en
+  Ahorros.
+- El `PATCH` tampoco es la puerta de atrás: convertir un retiro en ingreso
+  manteniendo la etiqueta se rechaza. Editar una transferencia tageada que **ya
+  era así** (la del fijo, la del reparto, un traslado) sigue permitido — una
+  regla nueva no congela la historia que la precede.
 
 ### `POST /api/finanzas/transactions`
 Body: `{ type, date, account_id, to_account_id?, category_id?, amount, to_amount?, description? }`
