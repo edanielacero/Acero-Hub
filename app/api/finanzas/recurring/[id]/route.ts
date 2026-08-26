@@ -2,7 +2,7 @@ import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { resolvePeople } from '@/lib/finanzas/people'
-import { RECURRING_COLS, readTemplateSplits, validateRecurring } from '../route'
+import { assertSavingsTarget, RECURRING_COLS, readTemplateSplits, validateRecurring } from '../route'
 import { assertCategory } from '@/lib/finanzas/load'
 import { validateTemplateSplits } from '@/lib/finanzas/recurring'
 import type { RecurringInput } from '@/lib/finanzas/types'
@@ -42,12 +42,31 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     starts_on: typeof body.starts_on === 'string' && isValidDate(body.starts_on)
       ? body.starts_on
       : current.starts_on,
+    savings_goal_id: body.savings_goal_id === undefined
+      ? current.savings_goal_id
+      : (typeof body.savings_goal_id === 'string' && body.savings_goal_id ? body.savings_goal_id : null),
+    to_account_id: body.to_account_id === undefined
+      ? current.to_account_id
+      : (typeof body.to_account_id === 'string' && body.to_account_id ? body.to_account_id : null),
   }
   // Pasar a mensual limpia el mes; sin esto el check constraint rechaza el update.
   if (merged.frequency === 'mensual') merged.month_of_year = null
+  // Convertirlo en fijo de ahorro limpia la categoría, y dejar de serlo limpia
+  // las dos columnas del ahorro — si no, el check `fin_recurring_savings_shape`
+  // rechaza el update con su mensaje crudo.
+  if (merged.savings_goal_id) merged.category_id = null
+  else { merged.savings_goal_id = null; merged.to_account_id = null }
 
   const categoryError = await assertCategory(supabase, userId, merged.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
+
+  // Igual que con la categoría archivada de un fijo normal: si el ahorro no
+  // cambió, se acepta aunque esté archivado — archivar algo no puede dejar sin
+  // poder editar ni pausar lo que lo referencia (§ b08fdb4).
+  if (merged.savings_goal_id !== current.savings_goal_id || merged.to_account_id !== current.to_account_id) {
+    const savingsError = await assertSavingsTarget(supabase, userId, merged.savings_goal_id, merged.to_account_id)
+    if (savingsError) return NextResponse.json({ error: savingsError }, { status: 400 })
+  }
 
   const invalid = validateRecurring(merged)
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })

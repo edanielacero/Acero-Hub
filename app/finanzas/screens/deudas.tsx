@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconChevronDown, IconCoinOff, IconListNumbers, IconPencil, IconPlus, IconReceiptRefund, IconRefresh, IconRotateClockwise, IconTrash, IconUsersGroup } from '@tabler/icons-react'
+import { IconArrowBackUp, IconChevronDown, IconCircleCheckFilled, IconCoinOff, IconListNumbers, IconPencil, IconPlus, IconReceiptRefund, IconRefresh, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { DebtPlanWithCuotas, DebtWithContext, PersonDebt } from '@/lib/finanzas/types'
 import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
@@ -454,11 +454,26 @@ function PlanRow({
                       posición en la lista ya ordenada siempre es verdad. */}
                   Cuota {i + 1}/{plan.cuotas.length} · {formatDayLabel(c.incurred_on, todayISO())}
                 </span>
-                <span className="block text-[12px] text-[var(--fz-ink-3)]">
+                <span
+                  className={`block text-[12px] ${
+                    c.state === 'cobrado' ? 'text-[var(--fz-in-text)] font-semibold' : 'text-[var(--fz-ink-3)]'
+                  }`}
+                >
                   {c.state === 'cobrado' ? 'Cobrada' : c.state === 'perdonado' ? 'Perdonada' : 'Pendiente'}
                 </span>
               </span>
               <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                {/* Una cuota cobrada no tiene botón ni menú, así que su fila
+                    quedaba visualmente idéntica a una pendiente salvo por una
+                    palabra chica. El check la hace reconocible de un vistazo,
+                    que es lo que se busca al recorrer un plan de 10 cuotas. */}
+                {c.state === 'cobrado' && (
+                  <IconCircleCheckFilled
+                    size={18}
+                    className="text-[var(--fz-in-text)]"
+                    aria-label="Cobrada"
+                  />
+                )}
                 <span className="fz-num text-[13px] font-semibold">
                   {hidden ? HIDDEN : formatAmount(c.amount, c.currency)}
                 </span>
@@ -519,7 +534,11 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
         aria-label="Deshacer"
         className="shrink-0 grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface-sunk)] hover:text-[var(--fz-ink)] disabled:opacity-40"
       >
-        <IconRotateClockwise size={16} stroke={1.8} />
+        {/* Flecha de deshacer, no una circular: `IconRotateClockwise` se leía
+            como "refrescar" — y en esta misma pantalla `IconRefresh` ya
+            significa "Regenerar" un plan, así que dos flechas circulares casi
+            idénticas querían decir cosas distintas. */}
+        <IconArrowBackUp size={17} stroke={1.8} />
       </button>
     </div>
   )

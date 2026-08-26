@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { IconArrowsExchange, IconTrash, IconX } from '@tabler/icons-react'
-import type { AccountWithBalance, SavingsReason, TxType } from '@/lib/finanzas/types'
-import { availableFrom, consumesBalance, isSavingsContribution, isSavingsWithdrawal, todayISO } from '@/lib/finanzas/transactions'
+import { IconArrowsExchange, IconPigMoney, IconTrash, IconX } from '@tabler/icons-react'
+import type { AccountWithBalance, SavingsFlow, SavingsReason, TxType } from '@/lib/finanzas/types'
+import { availableFrom, consumesBalance, savingsFlowForType, todayISO } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, round2, roundFor, toUsd } from '@/lib/finanzas/money'
 import { periodStart } from '@/lib/finanzas/budgets'
 import { budgetLineFor, useFinanzas } from './data-context'
@@ -80,6 +80,11 @@ export function QuickAdd() {
   // pasar, por ejemplo, de gasto a transferencia sobre la misma cuenta.
   const [savingsGoalId, setSavingsGoalId] = useState('')
   const [savingsReason, setSavingsReason] = useState<SavingsReason | ''>('')
+  /** "Este movimiento involucra un ahorro": lo pedís vos, no se deduce. */
+  const [gastarDeAhorros, setGastarDeAhorros] = useState(false)
+  /** Solo para transferencias, donde el tipo no alcanza para saber la
+      dirección. En gasto/ingreso lo fija `savingsFlowForType`. */
+  const [savingsFlowElegido, setSavingsFlowElegido] = useState<SavingsFlow>('retiro')
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -107,6 +112,8 @@ export function QuickAdd() {
       setDescription(editing.description ?? '')
       setSavingsGoalId(editing.savings_goal_id ?? '')
       setSavingsReason(editing.savings_reason ?? '')
+      setGastarDeAhorros(!!editing.savings_goal_id)
+      setSavingsFlowElegido(editing.savings_flow ?? 'retiro')
 
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
@@ -122,6 +129,8 @@ export function QuickAdd() {
       setDescription('')
       setSavingsGoalId('')
       setSavingsReason('')
+      setGastarDeAhorros(false)
+      setSavingsFlowElegido('retiro')
     }
     setAccountSearch('')
     setToAccountSearch('')
@@ -204,8 +213,34 @@ export function QuickAdd() {
   const toDecimals = decimalsFor(to?.currency)
 
   // Gastos y transferencias no pueden dejar la cuenta en negativo.
+  /**
+   * Gastar de los ahorros es un MODO explícito, no algo que se deduzca.
+   *
+   * Una cuenta puede tener plata libre y plata apartada mezcladas. Por
+   * defecto un gasto sale de la libre y **no puede tocar los ahorros**: el
+   * tope y el botón MAX se calculan sobre la porción libre. Si de verdad
+   * querés romper un ahorro, lo pedís con el botón — y recién ahí se elige
+   * cuál y por qué, y el tope pasa a ser lo apartado.
+   */
+  const ahorradoEnCuenta = from?.savings_balance ?? 0
+  const tieneAhorros = ahorradoEnCuenta > 0
+
+  // La dirección se DECLARA. En gasto e ingreso el tipo ya la declara; en una
+  // transferencia se pregunta — deducirla de un campo vacío confundía "es un
+  // aporte" con "no puse motivo".
+  const flowImplicito = savingsFlowForType(type)
+  const savingsFlow: SavingsFlow | null = flowImplicito ?? savingsFlowElegido
+  const isWithdrawal = savingsFlow === 'retiro'
+
   const limita = consumesBalance(type) && !!from
-  const disponible = from ? availableFrom(from.balance, editing, from.id) : 0
+  const saldoUsable = from ? availableFrom(from.balance, editing, from.id) : 0
+  // En modo ahorro el techo es lo apartado; si no, lo libre — nunca el saldo
+  // entero, o un gasto común se comería los ahorros sin avisar.
+  const disponible = !from
+    ? 0
+    : gastarDeAhorros && isWithdrawal
+      ? Math.min(ahorradoEnCuenta, saldoUsable)
+      : Math.max(0, roundFor(saldoUsable - ahorradoEnCuenta, from.currency))
   const montoActual = amountFromInput(amount, { decimals: fromDecimals })
   const excede = limita && Number.isFinite(montoActual) && montoActual > disponible
   const sinFondos = limita && disponible <= 0
@@ -218,19 +253,32 @@ export function QuickAdd() {
    * cuentas de ahorro no es ni lo uno ni lo otro — es reacomodar billeteras,
    * no afecta a ningún ahorro (§0.1.2 de sprint_7_ahorro.md).
    */
-  const isContribution = !!from && isSavingsContribution(type, from, to)
-  const isWithdrawal = !!from && isSavingsWithdrawal(type, from, to)
   // El ahorro ya elegido se mantiene visible aunque esté archivado — mismo
   // criterio que `accountOptions` con una cuenta que pasó a inversión después
   // de crearse el movimiento. Sin esto, editar un aporte viejo cuyo ahorro se
   // archivó no mostraba ningún chip marcado, aunque el dato siguiera guardado
   // y el server lo aceptara igual (§ assertSavingsGoal, allowArchived).
+  /**
+   * Los ahorros ofrecibles: los vivos **en la moneda del movimiento**.
+   *
+   * Sin el filtro, gastando en USDT aparecían también los ahorros en Bs — que
+   * no podés estar tocando (feedback del 2026-08-26). Se filtra por la moneda
+   * declarada del ahorro y no por "dónde hubo movimientos": un ahorro recién
+   * creado no tiene ninguno y nunca aparecería.
+   *
+   * El ya elegido se mantiene visible aunque no pase el filtro (moneda
+   * distinta, o archivado): editar un movimiento viejo no puede dejar sin
+   * marcar lo que sí está guardado.
+   */
+  const monedaMovimiento = from?.currency
   const activeGoals = useMemo(() => {
-    const vivos = savings.goals.filter(g => !g.archived)
-    if (!savingsGoalId || vivos.some(g => g.id === savingsGoalId)) return vivos
+    const elegibles = savings.goals.filter(
+      g => !g.archived && (!monedaMovimiento || g.input_currency === monedaMovimiento),
+    )
+    if (!savingsGoalId || elegibles.some(g => g.id === savingsGoalId)) return elegibles
     const elegido = savings.goals.find(g => g.id === savingsGoalId)
-    return elegido ? [...vivos, elegido] : vivos
-  }, [savings.goals, savingsGoalId])
+    return elegido ? [...elegibles, elegido] : elegibles
+  }, [savings.goals, savingsGoalId, monedaMovimiento])
 
   /**
    * Bloqueo de presupuesto (Sprint 6, §4.6): aplica a cualquier GASTO con una
@@ -391,8 +439,11 @@ export function QuickAdd() {
         return setError(`La ampliación tiene que cubrir el faltante: ${formatAmount(budgetNeededDisplay, budgetLine.input_currency)}`)
       }
     }
-    if ((isContribution || isWithdrawal) && !savingsGoalId) return setError('Elige a qué ahorro corresponde')
-    if (isWithdrawal && !savingsReason) return setError('Elige por qué retiras del ahorro')
+    // Solo en modo "gastar de ahorros" hay algo que exigir.
+    if (gastarDeAhorros) {
+      if (!savingsGoalId) return setError(isWithdrawal ? 'Elige de qué ahorro sale' : 'Elige a qué ahorro aporta')
+      if (isWithdrawal && !savingsReason) return setError('Elige por qué retiras del ahorro')
+    }
 
     const payload: Record<string, unknown> = {
       type,
@@ -401,9 +452,12 @@ export function QuickAdd() {
       amount: value,
       description: description.trim() || null,
     }
-    if (isContribution || isWithdrawal) {
-      payload.savings_goal_id = savingsGoalId
-      if (isWithdrawal) payload.savings_reason = savingsReason
+    // Siempre viaja en edición (para poder DESetiquetar mandando null); en un
+    // alta solo si hay algo que decir.
+    if (savingsGoalId || editing) {
+      payload.savings_goal_id = gastarDeAhorros ? savingsGoalId : null
+      payload.savings_flow = gastarDeAhorros ? savingsFlow : null
+      payload.savings_reason = gastarDeAhorros && isWithdrawal ? savingsReason : null
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
@@ -725,28 +779,80 @@ export function QuickAdd() {
             </div>
           )}
 
-          {(isContribution || isWithdrawal) && (
+          {/* Romper un ahorro se PIDE, no se deduce. Sin tocar esto, el gasto
+              sale de la plata libre y los ahorros quedan intactos. Solo
+              aparece si esta cuenta de verdad tiene plata apartada. */}
+          {tieneAhorros && consumesBalance(type) && (
             <div>
-              <Label>{isWithdrawal ? '¿De qué ahorro retiras?' : '¿A qué ahorro corresponde?'}</Label>
-              <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                {activeGoals.map(g => (
-                  <ChipButton
-                    key={g.id}
-                    selected={g.id === savingsGoalId}
-                    onClick={() => setSavingsGoalId(g.id)}
-                    label={g.name}
-                  />
-                ))}
-                {activeGoals.length === 0 && (
-                  <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                    Todavía no hay ahorros. Creá uno desde Ahorros.
-                  </p>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !gastarDeAhorros
+                  setGastarDeAhorros(next)
+                  if (!next) { setSavingsGoalId(''); setSavingsReason('') }
+                }}
+                aria-pressed={gastarDeAhorros}
+                className={`w-full flex items-center justify-between gap-3 min-h-12 py-2 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
+                  gastarDeAhorros
+                    ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+                    : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
+                }`}
+              >
+                <span className="flex items-center gap-2 text-[14px] font-semibold text-left">
+                  <IconPigMoney size={18} stroke={1.8} />
+                  {type === 'transferencia' ? 'Involucra un ahorro' : 'Gastar de mis ahorros'}
+                </span>
+                <span className="text-[12px] font-bold shrink-0">{gastarDeAhorros ? 'Sí' : 'No'}</span>
+              </button>
+              <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5 fz-num">
+                {!gastarDeAhorros
+                  ? `Tenés ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados en ahorros — este movimiento no los toca.`
+                  : isWithdrawal
+                    ? `Sale de los ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados.`
+                    : 'Se suma a lo apartado en el ahorro que elijas.'}
+              </p>
             </div>
           )}
 
-          {isWithdrawal && (
+          {/* Una transferencia puede aportar o retirar: se pregunta, no se
+              adivina. En gasto e ingreso el tipo ya lo dice. */}
+          {gastarDeAhorros && type === 'transferencia' && (
+            <div>
+              <Label>¿Aporta o retira?</Label>
+              <Segmented
+                options={[
+                  { value: 'aporte', label: 'Aporta al ahorro' },
+                  { value: 'retiro', label: 'Retira del ahorro' },
+                ]}
+                value={savingsFlowElegido}
+                onChange={v => { setSavingsFlowElegido(v); if (v === 'aporte') setSavingsReason('') }}
+              />
+            </div>
+          )}
+
+          {gastarDeAhorros && tieneAhorros && (
+            <div>
+              <Label>¿De qué ahorro?</Label>
+              {activeGoals.length === 0 ? (
+                <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
+                  No tenés ahorros en {from?.currency}.
+                </p>
+              ) : (
+                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                  {activeGoals.map(g => (
+                    <ChipButton
+                      key={g.id}
+                      selected={g.id === savingsGoalId}
+                      onClick={() => setSavingsGoalId(g.id)}
+                      label={g.name}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {gastarDeAhorros && savingsGoalId && isWithdrawal && (
             <div>
               <Label>¿Por qué retiras?</Label>
               <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">

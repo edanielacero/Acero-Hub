@@ -48,15 +48,16 @@ export function computeBalances(
  * no la congelada de cada transacción: el patrimonio es una foto del presente,
  * no un dato histórico (§4.3).
  *
- * `has_value_updates` queda afuera a propósito: necesita mirar `flow_type` de
- * cada movimiento, que `BalanceMovement` no trae (es "lo mínimo que necesita
- * el cálculo de saldos"). Quien llama lo completa — hoy solo `loadAccounts`.
+ * `has_value_updates` y la porción ahorrada quedan afuera a propósito:
+ * necesitan mirar `flow_type` y `savings_goal_id` de cada movimiento, que
+ * `BalanceMovement` no trae (es "lo mínimo que necesita el cálculo de
+ * saldos"). Quien llama los completa — hoy solo `loadAccounts`.
  */
 export function withBalances(
   accounts: Account[],
   transactions: BalanceMovement[],
   rates: RateMap,
-): Omit<AccountWithBalance, 'has_value_updates'>[] {
+): Omit<AccountWithBalance, 'has_value_updates' | 'savings_balance' | 'savings_balance_usd'>[] {
   const balances = computeBalances(accounts, transactions)
   return accounts.map(a => {
     const balance = balances.get(a.id) ?? a.initial_balance
@@ -82,7 +83,6 @@ export function mapAccount(row: Record<string, unknown>): Account {
     sort_order: num(row.sort_order),
     archived: Boolean(row.archived),
     is_investment: Boolean(row.is_investment),
-    is_savings: Boolean(row.is_savings),
   }
 }
 

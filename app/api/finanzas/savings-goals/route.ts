@@ -32,14 +32,27 @@ export async function POST(request: Request) {
   const currency = body.currency as Currency
   if (!CURRENCIES.includes(currency)) return NextResponse.json({ error: 'Moneda inválida' }, { status: 400 })
 
-  const allocationType = body.allocation_type as AllocationType
-  const allocationValue = num(body.allocation_value, NaN)
-  const allocationError = validateAllocation(allocationType, allocationValue)
+  // El cajón de sastre no reparte según una regla propia: recibe lo que sobra.
+  // Sus dos campos de reparto quedan nulos a propósito (§0.6 del spec).
+  const isCatchall = Boolean(body.is_catchall)
+  const allocationType = isCatchall ? null : (body.allocation_type as AllocationType)
+  const allocationValue = isCatchall ? null : num(body.allocation_value, NaN)
+  const allocationError = validateAllocation(allocationType, allocationValue, isCatchall)
   if (allocationError) return NextResponse.json({ error: allocationError }, { status: 400 })
 
   const targetAmount = body.target_amount == null ? null : num(body.target_amount, NaN)
   const targetError = validateTargetAmount(targetAmount)
   if (targetError) return NextResponse.json({ error: targetError }, { status: 400 })
+
+  // Como mucho un cajón de sastre activo (índice único parcial): marcar este
+  // desmarca el anterior en vez de rebotar con el error crudo de Postgres —
+  // "que este reciba el resto" implica que el otro deja de hacerlo.
+  if (isCatchall) {
+    await supabase
+      .from('fin_savings_goals')
+      .update({ is_catchall: false })
+      .eq('user_id', userId).eq('is_catchall', true)
+  }
 
   const { data, error } = await supabase
     .from('fin_savings_goals')
@@ -51,8 +64,9 @@ export async function POST(request: Request) {
       allocation_value: allocationValue,
       target_amount: targetAmount,
       target_date: body.target_date ?? null,
+      is_catchall: isCatchall,
     })
-    .select('id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, sort_order, archived')
+    .select('id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, is_catchall, sort_order, archived')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })

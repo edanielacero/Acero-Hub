@@ -79,9 +79,6 @@ export interface Account {
       movimientos nacen `flow_type: 'movimiento'` en vez de `'consumo'`, para
       no ensuciar el gasto/ingreso del mes (§7.1 de contexto_finanzas.md). */
   is_investment: boolean
-  /** Dedicada 100% a ahorro (Sprint 7): ahí no entra ni sale nada que no sea
-      un aporte o un retiro de un ahorro. Excluyente con `is_investment`. */
-  is_savings: boolean
 }
 
 /** Cuenta con su saldo derivado (§4.2). El saldo nunca se guarda en la base. */
@@ -95,6 +92,11 @@ export interface AccountWithBalance extends Account {
       directamente no ofrece el toggle en ese caso, en vez de dejar guardar y
       rechazarlo. Solo importa cuando `is_investment` ya es `true`. */
   has_value_updates: boolean
+  /** Cuánto del saldo está apartado como ahorro, en la moneda de la cuenta.
+      Una cuenta puede tener plata libre y plata etiquetada mezcladas: esto
+      dice cuánta de la que hay es de un ahorro (idea del usuario, 26/8). */
+  savings_balance: number
+  savings_balance_usd: number
 }
 
 export interface Category {
@@ -147,8 +149,10 @@ export interface Transaction extends BalanceMovement {
   pasanaku_id?: string | null
   /** El ahorro al que pertenece, si es un aporte o un retiro (Sprint 7). */
   savings_goal_id?: string | null
-  /** Por qué se retiró de un ahorro. Solo en una salida desde una cuenta
-      `is_savings`; `null` en cualquier otro movimiento. */
+  /** Aporta o retira. Siempre presente junto con `savings_goal_id`. */
+  savings_flow?: SavingsFlow | null
+  /** Por qué se retiró de un ahorro. Su PRESENCIA es lo que distingue un
+      retiro de un aporte en un movimiento etiquetado (revisión 26/8). */
   savings_reason?: SavingsReason | null
   /** Reparto del gasto entre personas. Vacío en un gasto normal. */
   debts?: Debt[]
@@ -282,6 +286,31 @@ export interface Recurring {
   note: string | null
   /** Primer período que cuenta. Anterior a hoy = hay meses para recuperar. */
   starts_on: string
+  /**
+   * Si el fijo es un aporte a un ahorro (Sprint 7): al registrarlo genera una
+   * **transferencia** tageada con este ahorro en vez del gasto de siempre —
+   * "pagarme a mí primero", con su día del mes y su pendiente/vencido, sin
+   * esperar al cierre ni depender del sobrante.
+   *
+   * Va junto con `to_account_id` y excluye `category_id`: no es un gasto que
+   * presupuestar. Lo garantiza `fin_recurring_savings_shape`.
+   */
+  savings_goal_id: string | null
+  /**
+   * La cuenta de ahorro a la que entra. **Opcional en la plantilla**: se elige
+   * al REGISTRAR cada instancia, igual que `account_id` — la plantilla solo
+   * necesita saber a qué ahorro aporta y en qué moneda. Queda guardada como
+   * default para la próxima vez.
+   */
+  to_account_id: string | null
+}
+
+/** Un fijo que aporta a un ahorro en vez de gastar. Estrecha el tipo para que
+    quien lo consume no tenga que chequear los dos campos por separado. */
+export type SavingsRecurring = Recurring & { savings_goal_id: string; to_account_id: string }
+
+export function isSavingsRecurring(r: Pick<Recurring, 'savings_goal_id' | 'to_account_id'>): boolean {
+  return !!r.savings_goal_id && !!r.to_account_id
 }
 
 /** Una parte del reparto por defecto. `amount` null = parte pareja. */
@@ -307,6 +336,8 @@ export interface RecurringInput {
   note?: string | null
   starts_on?: string
   splits?: { person_id?: string; person_name?: string; amount?: number | null }[]
+  savings_goal_id?: string | null
+  to_account_id?: string | null
 }
 
 /** Una plantilla con su estado en el período vigente. */
@@ -628,7 +659,7 @@ export interface BudgetLineInput {
    Un ahorro (antes "motivo") es independiente de las cuentas: vive en
    `fin_savings_goals`, y su saldo es SIEMPRE derivado de sus propios
    movimientos tageados con `savings_goal_id`, sin importar en qué cuenta
-   `is_savings` haya caído la plata físicamente — mismo principio que el
+   haya caído la plata físicamente — mismo principio que el
    saldo de una cuenta (Sprint 1 §4.2). Cada mes se calcula el sobrante
    (ingreso real − gasto real) y se propone un reparto entre los ahorros
    activos, que el usuario confirma o ajusta antes de que se convierta en
@@ -637,6 +668,17 @@ export interface BudgetLineInput {
 export type AllocationType = 'fixed' | 'percent'
 export const ALLOCATION_TYPES: AllocationType[] = ['fixed', 'percent']
 
+/**
+ * Si el movimiento etiquetado APORTA a un ahorro o RETIRA de él.
+ *
+ * Se declara siempre; nunca se deduce. Antes se leía de que `savings_reason`
+ * estuviera vacío, lo cual mezclaba "es un aporte" con "no puse motivo": un
+ * retiro sin motivo habría sumado al ahorro en vez de restarle, y mirando la
+ * fila no había forma de distinguir intención de olvido.
+ */
+export type SavingsFlow = 'aporte' | 'retiro'
+export const SAVINGS_FLOWS: SavingsFlow[] = ['aporte', 'retiro']
+
 export type SavingsReason = 'emergencia' | 'meta_cumplida' | 'cambio_planes' | 'otro'
 export const SAVINGS_REASONS: SavingsReason[] = ['emergencia', 'meta_cumplida', 'cambio_planes', 'otro']
 
@@ -644,12 +686,26 @@ export interface SavingsGoal {
   id: string
   name: string
   input_currency: Currency
-  allocation_type: AllocationType
-  /** Monto en `input_currency` si es `'fixed'`, o 0–100 si es `'percent'`. */
-  allocation_value: number
+  /** `null` solo en el cajón de sastre (`is_catchall`): no reparte según una
+      regla propia, se lleva lo que sobra. Pedirle un monto o un porcentaje
+      sería pedir un dato que nunca se lee. */
+  allocation_type: AllocationType | null
+  /** Monto en `input_currency` si es `'fixed'`, o 0–100 si es `'percent'`.
+      `null` en el cajón de sastre, por lo mismo. */
+  allocation_value: number | null
   /** En `input_currency`. `null` = sin meta, el ahorro solo acumula. */
   target_amount: number | null
   target_date: string | null
+  /**
+   * El "cajón de sastre": recibe todo lo que el reparto mensual no asignó a
+   * nadie más, para que no quede un sobrante suelto (decisión del usuario,
+   * 2026-08-24). Como mucho uno activo por usuario — lo garantiza el índice
+   * único parcial `fin_savings_goals_catchall_idx`.
+   *
+   * Es el único que ignora su propia meta al recibir: si la respetara,
+   * volvería a quedar plata sin asignar, que es justo lo que vino a evitar.
+   */
+  is_catchall: boolean
   sort_order: number
   archived: boolean
 }
@@ -657,10 +713,12 @@ export interface SavingsGoal {
 export interface SavingsGoalInput {
   name: string
   currency: Currency
-  allocation_type: AllocationType
-  allocation_value: number
+  /** Opcionales cuando `is_catchall` — ver `SavingsGoal.allocation_type`. */
+  allocation_type?: AllocationType | null
+  allocation_value?: number | null
   target_amount?: number | null
   target_date?: string | null
+  is_catchall?: boolean
 }
 
 /** Un ahorro con su saldo ya resuelto — derivado de sus movimientos, nunca
@@ -672,6 +730,9 @@ export interface SavingsGoalWithBalance extends SavingsGoal {
   /** `true` cuando `target_amount` existe y `balance_usd` ya lo alcanza —
       se excluye de la propuesta automática de reparto (§4.7). */
   goal_reached: boolean
+  /** Ya tiene aportes o retiros registrados. Bloquea cambiarle la moneda —
+      mismo criterio que la moneda de una cuenta con movimientos. */
+  has_movements: boolean
 }
 
 /** Una línea de la propuesta de reparto al cerrar un mes (§4.3). */

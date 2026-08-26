@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   DndContext, KeyboardSensor, PointerSensor, closestCenter,
   useSensor, useSensors, type DragEndEvent,
@@ -35,8 +35,6 @@ interface Draft {
       se ofrece como control, solo se muestra fijo (§7.2). Siempre falso en
       una cuenta nueva: no hay historia todavía. */
   investmentLocked: boolean
-  /** Dedicada 100% a ahorro (Sprint 7), excluyente con `is_investment`. */
-  is_savings: boolean
 }
 
 const emptyDraft = (): Draft => ({
@@ -46,7 +44,6 @@ const emptyDraft = (): Draft => ({
   initial_balance_date: new Date().toISOString().slice(0, 10),
   is_investment: false,
   investmentLocked: false,
-  is_savings: false,
 })
 
 export function CuentasScreen() {
@@ -59,6 +56,19 @@ export function CuentasScreen() {
   const [viewing, setViewing] = useState<AccountWithBalance | null>(null)
   const [deleting, setDeleting] = useState<AccountWithBalance | null>(null)
   const [confirming, setConfirming] = useState(false)
+
+  // Con el sheet abierto el fondo no scrollea ni recibe clicks, igual que en
+  // el resto de la mini-app. Escape lo cierra.
+  useEffect(() => {
+    if (!draft) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDraft(null) }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [draft])
 
   const [search, setSearch] = useState('')
   const [currencyFilter, setCurrencyFilter] = useState<Currency | 'todas'>('todas')
@@ -115,7 +125,6 @@ export function CuentasScreen() {
       initial_balance: draft.initial_balance === '' ? 0 : amountFromInput(draft.initial_balance, { allowNegative: true, decimals: decimalsFor(draft.currency) }),
       initial_balance_date: draft.initial_balance_date,
       is_investment: draft.is_investment,
-      is_savings: draft.is_savings,
     }
 
     setBusy(true)
@@ -209,7 +218,6 @@ export function CuentasScreen() {
       initial_balance_date: a.initial_balance_date,
       is_investment: a.is_investment,
       investmentLocked: a.is_investment && a.has_value_updates,
-      is_savings: a.is_savings,
     })
   }
 
@@ -238,18 +246,40 @@ export function CuentasScreen() {
 
         <ErrorNote>{error}</ErrorNote>
 
+        {/* El alta y la edición son un SHEET, no un panel más de la página.
+            Inline, la lista de atrás seguía scrolleando e interactuable: se
+            podía tocar otra cuenta con el formulario abierto, y nada indicaba
+            que había una decisión pendiente. Es el mismo patrón modal que ya
+            usan Fijos, Deudas, Ahorros, Presupuesto y Pasanaku. */}
         {draft && (
-          <Panel>
-            <SectionTitle
-              action={
-                <button type="button" onClick={() => setDraft(null)} aria-label="Cancelar"
-                  className="grid place-items-center w-8 h-8 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]">
-                  <IconX size={16} stroke={1.8} />
-                </button>
-              }
+          <div className="fixed inset-0 z-50 flex items-end min-[900px]:items-center min-[900px]:justify-center">
+            <div
+              className="fz-backdrop absolute inset-0 bg-[rgba(16,24,40,0.35)]"
+              onClick={() => setDraft(null)}
+              aria-hidden
+            />
+
+            <div
+              role="dialog" aria-modal="true" aria-label={draft.id ? 'Editar cuenta' : 'Nueva cuenta'}
+              className="fz-sheet relative w-full min-[900px]:w-[480px] max-h-[92dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
             >
-              {draft.id ? 'Editar cuenta' : 'Nueva cuenta'}
-            </SectionTitle>
+              <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
+                <span className="w-9 h-1 rounded-full bg-[var(--fz-hairline)]" />
+              </div>
+
+              <div className="flex items-center justify-between px-5 pt-3 pb-4">
+                <h2 className="text-[19px] font-bold tracking-[-0.01em]">
+                  {draft.id ? 'Editar cuenta' : 'Nueva cuenta'}
+                </h2>
+                <button
+                  type="button" onClick={() => setDraft(null)} aria-label="Cerrar"
+                  className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]"
+                >
+                  <IconX size={18} stroke={1.8} />
+                </button>
+              </div>
+
+              <div className="px-5 pb-5">
 
             {/* `grid-cols-1` no es redundante: sin él la grilla queda con una
                 columna implícita `auto`, cuyo ancho lo fija el hijo de mayor
@@ -329,7 +359,6 @@ export function CuentasScreen() {
                 ) : (
                   <button
                     type="button"
-                    disabled={draft.is_savings}
                     onClick={() => setDraft({ ...draft, is_investment: !draft.is_investment })}
                     aria-pressed={draft.is_investment}
                     className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors disabled:opacity-40 disabled:pointer-events-none ${
@@ -355,38 +384,18 @@ export function CuentasScreen() {
                     : 'Se ajusta con "Actualizar valor" — no cuenta como ingreso ni gasto real del mes.'}
                 </p>
               </div>
-              <div className="min-[900px]:col-span-2">
-                {/* Excluyente con "Cuenta de inversión" — una cuenta no puede
-                    ser las dos cosas (§0.1.4 de sprint_7_ahorro.md). */}
-                <button
-                  type="button"
-                  disabled={draft.is_investment}
-                  onClick={() => setDraft({ ...draft, is_savings: !draft.is_savings })}
-                  aria-pressed={draft.is_savings}
-                  className={`w-full flex items-center justify-between gap-3 h-12 px-3.5 rounded-[var(--fz-r-field)] border transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-                    draft.is_savings
-                      ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
-                      : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 text-[14px] font-semibold">
-                    <IconPigMoney size={18} stroke={1.8} />
-                    Cuenta de ahorro
-                  </span>
-                  <span className="text-[12px] font-bold">{draft.is_savings ? 'Sí' : 'No'}</span>
-                </button>
-                <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
-                  Dedicada 100% a ahorro: solo entran y salen aportes y retiros de un ahorro.
-                </p>
-              </div>
             </div>
+
+            <ErrorNote>{error}</ErrorNote>
 
             <div className="mt-4">
               <Btn onClick={save} disabled={busy} full>
                 {busy ? 'Guardando…' : draft.id ? 'Guardar cambios' : 'Crear cuenta'}
               </Btn>
             </div>
-          </Panel>
+              </div>
+            </div>
+          </div>
         )}
 
         <Panel>
@@ -564,8 +573,20 @@ export function CuentasScreen() {
                 value={viewing.is_investment ? 'Sí — se ajusta con "Actualizar valor"' : 'No'}
               />
               <DetailField
-                label="Cuenta de ahorro"
-                value={viewing.is_savings ? 'Sí — dedicada a un ahorro' : 'No'}
+                label="Apartado en ahorros"
+                value={
+                  hidden || viewing.savings_balance <= 0
+                    ? null
+                    : formatAmount(viewing.savings_balance, viewing.currency)
+                }
+              />
+              <DetailField
+                label="Libre"
+                value={
+                  hidden || viewing.savings_balance <= 0
+                    ? null
+                    : formatAmount(viewing.balance - viewing.savings_balance, viewing.currency)
+                }
               />
             </div>
           </>
@@ -669,11 +690,7 @@ function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDe
               <IconChartLine size={13} stroke={2.2} /> Inversión
             </span>
           )}
-          {account.is_savings && (
-            <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
-              <IconPigMoney size={13} stroke={2.2} /> Ahorro
-            </span>
-          )}
+
           <RowMenu
             items={[
               ...(account.is_investment
@@ -707,6 +724,18 @@ function AccountRow({ account, hidden, sortable, onView, onEdit, onArchive, onDe
             </span>
           )}
         </div>
+
+        {/* Una cuenta puede tener plata libre y plata apartada mezcladas: esto
+            dice cuánta de la que hay ya es de un ahorro, sin tener que ir a
+            buscarlo a otra pantalla (idea del usuario, 26/8). */}
+        {/* Solo aparece si de verdad hay plata apartada: una cuenta sin
+            ahorros no dice nada de ahorros. */}
+        {account.savings_balance > 0 && (
+          <p className="mt-1 flex items-center gap-1 text-[12px] text-[var(--fz-accent)] fz-num">
+            <IconPigMoney size={14} stroke={2} />
+            {hidden ? HIDDEN : formatAmount(account.savings_balance, account.currency)} en ahorros
+          </p>
+        )}
       </button>
     </div>
   )

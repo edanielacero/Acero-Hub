@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { IconTrash, IconX } from '@tabler/icons-react'
+import { IconPigMoney, IconTrash, IconX } from '@tabler/icons-react'
 import { CURRENCIES } from '@/lib/finanzas/types'
 import type { Currency, Frequency, RecurringWithState } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
@@ -25,7 +25,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const { categories, people, reload } = useFinanzas()
+  const { categories, people, savings, reload } = useFinanzas()
 
   const [name, setName] = useState(editing?.name ?? '')
   const [icon, setIcon] = useState<string | null>(editing?.icon ?? null)
@@ -33,6 +33,11 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '')
   const [currency, setCurrency] = useState<Currency>(editing?.currency ?? 'USD')
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
+  // Fijo de ahorro (Sprint 7): en vez de un gasto, genera una transferencia a
+  // una cuenta de ahorro tageada con el ahorro. Es un atributo del fijo, no un
+  // módulo aparte — mismo criterio que el reparto de los compartidos.
+  const [esAhorro, setEsAhorro] = useState(!!editing?.savings_goal_id)
+  const [savingsGoalId, setSavingsGoalId] = useState(editing?.savings_goal_id ?? '')
   const [frequency, setFrequency] = useState<Frequency>(editing?.frequency ?? 'mensual')
   // Un solo picker de fecha: empieza y vence son el mismo dato. Elegir el 31
   // de un mes largo ya alcanza para "último día de cada mes" — `periodOf` topa
@@ -71,6 +76,10 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   }, [onClose])
 
   const gastos = categories.filter(c => !c.archived && c.kind === 'gasto')
+  // El ahorro y la cuenta ya elegidos se mantienen visibles aunque se hayan
+  // archivado — mismo criterio que el picker del quick-add: editar un fijo
+  // viejo no puede dejar sin marcar lo que sí está guardado.
+  const ahorrosVivos = savings.goals.filter(g => !g.archived || g.id === savingsGoalId)
 
   // Anual compara por año (es lo único que `periodOf` usa de `starts_on` ahí);
   // mensual compara por mes — mismo criterio que antes tenía "Empezar desde".
@@ -90,21 +99,28 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
 
     const value = amountFromInput(amount, { decimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
-    // Sin categoría el fijo no entra en el "comprometido" de ningún
-    // presupuesto — quedaba afuera del cálculo sin que nada lo dijera.
-    if (!categoryId) return setError('Elige una categoría')
+    if (esAhorro) {
+      if (!savingsGoalId) return setError('Elige a qué ahorro aporta')
+    } else if (!categoryId) {
+      // Sin categoría el fijo no entra en el "comprometido" de ningún
+      // presupuesto — quedaba afuera del cálculo sin que nada lo dijera. Un
+      // fijo de ahorro no aplica: es una transferencia, no un gasto.
+      return setError('Elige una categoría')
+    }
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
       icon,
       amount: value,
       currency,
-      category_id: categoryId,
+      category_id: esAhorro ? null : categoryId,
+      savings_goal_id: esAhorro ? savingsGoalId : null,
       frequency,
       ...fieldsFromDate(fecha, frequency),
       // En modo parejo el monto va en null: se recalcula con el precio de cada
-      // mes, así una suba de Spotify se reparte sola.
-      splits: sharedOn
+      // mes, así una suba de Spotify se reparte sola. Un fijo de ahorro nunca
+      // lleva reparto: convertir uno compartido en ahorro limpia sus partes.
+      splits: sharedOn && !esAhorro
         ? drafts.map(d => ({
             person_id: d.person_id,
             amount: mode === 'igual' ? null : amountFromInput(d.amount, { decimals }),
@@ -236,26 +252,91 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
             </div>
           </div>
 
+          {/* Un fijo de ahorro genera una TRANSFERENCIA a la cuenta de ahorro
+              en vez de un gasto — "pagarme a mí primero", con el mismo día del
+              mes y el mismo pendiente/vencido. Por eso reemplaza a la
+              categoría: no hay nada que presupuestar. */}
           <div>
-            <Label>Categoría</Label>
-            <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-              {gastos.map(c => (
-                <button
-                  key={c.id} type="button"
-                  onClick={() => setCategoryId(c.id)}
-                  aria-pressed={c.id === categoryId}
-                  className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
-                    c.id === categoryId
-                      ? 'bg-[var(--fz-accent)] text-white'
-                      : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
-                  }`}
-                >
-                  <CategoryGlyph slug={c.icon} />
-                  {c.name}
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setEsAhorro(v => !v)}
+              aria-pressed={esAhorro}
+              className={`w-full flex items-center justify-between gap-3 min-h-12 py-2 px-3.5 rounded-[var(--fz-r-field)] border transition-colors ${
+                esAhorro
+                  ? 'border-[var(--fz-accent)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+                  : 'border-[var(--fz-hairline)] bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]'
+              }`}
+            >
+              <span className="flex items-center gap-2 text-[14px] font-semibold text-left">
+                <IconPigMoney size={18} stroke={1.8} />
+                Es un aporte a un ahorro
+              </span>
+              <span className="text-[12px] font-bold shrink-0">{esAhorro ? 'Sí' : 'No'}</span>
+            </button>
+            <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5">
+              {esAhorro
+                ? 'Se registra como transferencia a tu cuenta de ahorro — no cuenta como gasto del mes.'
+                : 'Actívalo para apartar plata todos los meses en vez de gastarla.'}
+            </p>
           </div>
+
+          {esAhorro ? (
+            <>
+              <div>
+                <Label>¿A qué ahorro aporta?</Label>
+                {ahorrosVivos.length === 0 ? (
+                  <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
+                    Todavía no tienes ahorros. Creá uno desde Ahorros y volvé acá.
+                  </p>
+                ) : (
+                  <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                    {ahorrosVivos.map(g => (
+                      <button
+                        key={g.id} type="button"
+                        onClick={() => setSavingsGoalId(g.id)}
+                        aria-pressed={g.id === savingsGoalId}
+                        className={`shrink-0 inline-flex items-center h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                          g.id === savingsGoalId
+                            ? 'bg-[var(--fz-accent)] text-white'
+                            : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                        }`}
+                      >
+                        {g.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* La cuenta de ahorro NO se pide acá: se elige al registrar
+                  cada aporte, igual que la cuenta de origen de un fijo
+                  normal. La plantilla solo necesita saber a qué ahorro va. */}
+              <p className="text-[12px] text-[var(--fz-ink-3)] px-0.5 -mt-1">
+                La cuenta de ahorro se elige al registrar cada aporte.
+              </p>
+            </>
+          ) : (
+            <div>
+              <Label>Categoría</Label>
+              <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                {gastos.map(c => (
+                  <button
+                    key={c.id} type="button"
+                    onClick={() => setCategoryId(c.id)}
+                    aria-pressed={c.id === categoryId}
+                    className={`shrink-0 inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                      c.id === categoryId
+                        ? 'bg-[var(--fz-accent)] text-white'
+                        : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                    }`}
+                  >
+                    <CategoryGlyph slug={c.icon} />
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Segmented options={FREQ_OPTIONS} value={frequency} onChange={setFrequency} />
 
@@ -278,22 +359,27 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
             )}
           </div>
 
-          <button
-            type="button" onClick={() => setSharedOn(v => !v)} aria-pressed={sharedOn}
-            className="flex items-center gap-3 h-11 px-3.5 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-left"
-          >
-            <span
-              aria-hidden
-              className={`grid place-items-center w-5 h-5 rounded-[6px] border-2 text-white transition-colors ${
-                sharedOn ? 'bg-[var(--fz-accent)] border-[var(--fz-accent)]' : 'border-[var(--fz-ink-3)]'
-              }`}
+          {/* El reparto no aplica a un aporte a un ahorro: no le estás
+              cobrando a nadie una parte de tu propio ahorro, y las deudas
+              cuelgan de un gasto, no de una transferencia. */}
+          {!esAhorro && (
+            <button
+              type="button" onClick={() => setSharedOn(v => !v)} aria-pressed={sharedOn}
+              className="flex items-center gap-3 h-11 px-3.5 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-left"
             >
-              {sharedOn && '✓'}
-            </span>
-            <span className="text-[15px] font-semibold flex-1">Lo comparto con alguien</span>
-          </button>
+              <span
+                aria-hidden
+                className={`grid place-items-center w-5 h-5 rounded-[6px] border-2 text-white transition-colors ${
+                  sharedOn ? 'bg-[var(--fz-accent)] border-[var(--fz-accent)]' : 'border-[var(--fz-ink-3)]'
+                }`}
+              >
+                {sharedOn && '✓'}
+              </span>
+              <span className="text-[15px] font-semibold flex-1">Lo comparto con alguien</span>
+            </button>
+          )}
 
-          {sharedOn && (
+          {!esAhorro && sharedOn && (
             <>
               <SplitEditor
                 drafts={drafts} setDrafts={setDrafts}

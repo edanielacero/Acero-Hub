@@ -31,7 +31,7 @@ el usuario en conversación. Todo lo demás se decidió en tres rondas
 | ¿Cómo se relacionan las cuentas dedicadas con los ahorros? | **Independientes.** Un ahorro es una entidad propia con su reparto; el usuario elige en qué cuenta(s) dedicada(s) vive la plata. Una cuenta puede alojar varios ahorros, y un ahorro puede tener plata repartida en más de una cuenta |
 | ¿Cómo se calcula y se aporta el sobrante del mes? | **Automático, con confirmación.** Al cerrar el mes la app calcula el sobrante y arma la transferencia repartida entre ahorros; el usuario confirma o ajusta antes de que se registre |
 | ¿El reparto entre ahorros es fijo o se decide cada vez? (pregunta abierta #4 del roadmap) | **Mixto**, y se confirma cada mes: cada ahorro puede tener un monto fijo o un %, pero la propuesta final siempre pasa por la pantalla de confirmación mensual antes de convertirse en movimientos reales |
-| ¿Qué tan estricta es la regla de "ahí no entra/sale nada que no sea ahorro"? | **Blanda.** Mismo criterio que toda la app (Sprint 1 §4.4.1): la UI no ofrece la cuenta de ahorro para operaciones que no correspondan, pero el servidor no lo bloquea duro — así siempre se puede corregir un error propio |
+| ¿Qué tan estricta es la regla de "ahí no entra/sale nada que no sea ahorro"? | **Blanda** en cuanto a *poder* mover plata: no hay confirmación, ni tope propio, ni la cuenta desaparece del picker. Pero el **justificativo sí es obligatorio** y el servidor lo exige (§4.10, corregido el 26/8) — es lo que se pidió al abrir el sprint |
 
 ### Ronda 2 — comportamiento fino
 
@@ -76,12 +76,172 @@ mismo espíritu que el §0.2 de `sprint_6_presupuesto.md`:
    tiene sentido (una es "no cuenta como gasto/ingreso porque el mercado se
    mueve solo", la otra es "no cuenta porque es plata que ya aparté").
 5. **El reparto por % no exige sumar 100 entre todos los ahorros.** Si suman
-   menos, el resto queda sin asignar y se muestra en la pantalla de
-   confirmación mensual — el usuario puede subir algún número antes de
-   confirmar, o dejarlo así (irá al patrimonio general sin pasar por
-   ningún ahorro). Si sumaran más de 100 tampoco se rechaza: la propuesta
-   automática simplemente no va a alcanzar y el usuario ajusta a mano en la
-   confirmación, mismo camino que "fijos sin fondos" (Ronda 2).
+   menos, el resto lo absorbe el cajón de sastre (§0.4); sin ninguno marcado
+   queda sin asignar y se muestra en la confirmación mensual. Si sumaran más
+   de 100 tampoco se rechaza: la propuesta automática simplemente no va a
+   alcanzar y el usuario ajusta a mano, mismo camino que "fijos sin fondos"
+   (Ronda 2).
+
+### 0.4 Ronda 4 — el sobrante no asignado (2026-08-24, post-construcción)
+
+Al revisar qué pasaba cuando el sobrante cubría todos los ahorros y aún
+sobraba, el usuario cerró dos decisiones que la spec original no tenía:
+
+| Pregunta | Decisión |
+|---|---|
+| ¿Qué pasa con lo que el reparto no asigna? | **Un ahorro designado lo absorbe.** Se marca uno como "acá va lo que sobre" (`is_catchall`) y recibe todo el remanente, así se reparte el 100% del sobrante y "sin asignar" deja de existir en la práctica |
+| Un fijo de $50 al que solo le faltan $20 para su meta, ¿cuánto recibe? | **Solo los $20.** El reparto automático nunca se pasa de la meta; pasarse sigue siendo posible a mano desde el quick-add (§4.7), donde el usuario lo decide explícitamente |
+
+Tres consecuencias de diseño:
+
+- **El cajón de sastre ignora su propia meta al recibir.** Es el único que lo
+  hace, y a propósito: si la respetara volvería a quedar un remanente suelto,
+  que es justo lo que vino a evitar. Su meta queda como referencia visual.
+- **Tampoco lo excluye `goal_reached`.** El resto de los ahorros sale del
+  reparto al cumplir su meta (§4.7); el cajón no, por la misma razón.
+- **Como mucho uno activo por usuario**, garantizado por un índice único
+  parcial. Marcar uno nuevo desmarca al anterior desde la API en vez de
+  rebotar con el error crudo de Postgres — "que este reciba el resto" implica
+  que el otro deja de hacerlo. Archivarlo libera el lugar, mismo criterio que
+  `fin_budget_lines` con sus categorías.
+- **Sin ningún cajón marcado, el comportamiento anterior sigue vigente**: el
+  remanente queda en `unassignedUsd` y la pantalla explica que se queda en la
+  cuenta sin etiquetar, con la sugerencia de marcar uno.
+
+⚠️ **Aclaración que hubo que hacer explícita:** asignar plata a un ahorro **no
+suma nada al patrimonio**. Un aporte es una transferencia entre dos cuentas
+propias, y esas no mueven el patrimonio total (Sprint 1 §4.3). El sobrante sin
+asignar ya estaba en el patrimonio; lo único que cambia al asignarlo es en qué
+cuenta física vive y si queda etiquetado a un ahorro.
+
+### 0.5 Ronda 5 — el fijo que aporta a un ahorro (2026-08-24)
+
+El reparto mensual (§4.3) es **retrospectivo**: se ejecuta al cerrar el mes y
+sale del sobrante. El usuario pidió lo contrario — *"pagarme a mí primero"*:
+apartar $X el día que le toca, sin depender de que haya sobrado nada.
+
+**Un fijo puede ser un aporte a un ahorro.** Con `savings_goal_id` +
+`to_account_id`, registrar el fijo genera una **transferencia** tageada en vez
+del gasto de siempre. Todo lo demás de Fijos se reusa tal cual: el día del mes,
+pendiente/vencido, los meses atrasados que se recuperan de a uno, el sheet de
+registrar, la idempotencia por período.
+
+Es **un atributo opcional del fijo, no un módulo paralelo** — exactamente el
+mismo criterio que ya rige para los compartidos (`contexto_finanzas.md` §4,
+"Fijos vs. compartidos: un solo módulo de fijos donde el reparto es opcional,
+no dos módulos").
+
+| | Ahorro con reparto "Monto fijo" (§4.3) | Fijo de ahorro (§0.5) |
+|---|---|---|
+| Cuándo | Al cerrar el mes, retrospectivo | El día X del mes, prospectivo |
+| De dónde sale | Del sobrante | De la cuenta, sin importar el sobrante |
+| Mes en rojo | No aporta nada | Aporta igual |
+| Cómo avisa | Pregunta al cerrar el mes | Pendiente/vencido durante el mes |
+
+Los dos pueden convivir: no se excluyen, son dos disparadores distintos para
+el mismo tipo de movimiento.
+
+**Cuatro reglas de forma**, sostenidas por `fin_recurring_savings_shape`:
+
+- `savings_goal_id` y `to_account_id` van **juntos o ninguno**: sin cuenta
+  destino no hay transferencia posible, y sin ahorro el aporte no sabría a qué
+  corresponde.
+- **No lleva categoría.** No es un gasto que presupuestar — y por eso tampoco
+  entra en el "comprometido" de ninguna línea (`comprometido` filtra por
+  `category_id`, que acá es `null`).
+- **Nunca genera deudas.** No le cobrás a nadie una parte de tu propio ahorro,
+  y una deuda cuelga de un gasto (`fin_debts.transaction_id`), no de una
+  transferencia. La UI oculta el reparto y el server lo ignora aunque la
+  plantilla traiga partes viejas de cuando era un fijo compartido.
+- **La cuenta destino tiene que ser `is_savings`.** Si no, el aporte iría a una
+  cuenta común y `computeGoalBalancesUsd` no lo contaría como entrada: el saldo
+  del ahorro no se movería y no habría ningún error que lo explicara.
+
+Las dos FK van con `on delete restrict`, mismo criterio que
+`fin_recurring.account_id` y que la corrección de categorías del
+`20260824000000`: borrar un ahorro o una cuenta que un fijo usa lo dejaría en
+un estado que la propia validación rechaza, y el fijo quedaría sin poder
+editarse ni pausarse.
+
+### 0.6 Ronda 6 — cuatro ajustes de uso real (2026-08-26)
+
+Probando la app en el celular, el usuario levantó cuatro cosas. **Las cuatro
+eran válidas, y dos señalaban inconsistencias introducidas contra patrones que
+la propia app ya tenía resueltos.**
+
+| Ajuste | Qué pasaba | Cómo quedó |
+|---|---|---|
+| **El cajón de sastre pedía un monto > 0** | Peor que un formulario molesto: ese número **nunca se lee**. `proposeAllocation` excluye al cajón del reparto normal, así que su `allocation_type`/`allocation_value` eran datos muertos — y encima imposibles de contestar ("¿cuánto va a sobrar?") | `allocation_type`/`allocation_value` pasan a **nullables**, obligatorios solo para los ahorros que sí reparten (`fin_savings_goal_allocation_shape`). Al marcar el cajón, los campos desaparecen del formulario y la card dice *"Recibe lo que sobre del reparto"* |
+| **No se podían marcar cuentas de ahorro desde Ahorros** | Callejón sin salida: entrabas a Ahorros, no podías hacer nada, y nada indicaba que primero había que ir a Cuentas | Sección **"Cuentas de ahorro"** dentro de Ahorros, con un toggle por cuenta. El flag sigue viviendo en la cuenta — es el mismo dato desde dos lugares, no una copia |
+| **La cuenta destino se pedía al CREAR el fijo** | Rompía la simetría con `fin_recurring.account_id`, que ya es nullable con este comentario: *"la cuenta se elige recién al registrar cada instancia; la plantilla solo necesita saber en qué moneda está el monto"* | `to_account_id` pasa a opcional en la plantilla y se pide en **RegisterSheet**, validando ahí que sea `is_savings`. La plantilla guarda la última usada como default |
+| **La moneda no era editable** | Se congelaba al crear, sin motivo | Editable **mientras el ahorro no tenga movimientos**, exactamente el criterio de `PATCH /accounts/[id]` con la moneda de una cuenta. `SavingsGoalWithBalance.has_movements` es lo que lo decide, y con movimientos la UI muestra la moneda fija explicando por qué |
+
+Y un quinto, cosmético pero real: **faltaba la bandera de la moneda** en los
+ahorros. `CurrencyIcon` ya estaba en Cuentas y en el quick-add; Ahorros usaba
+un ícono genérico. Ahora la card, el detalle y el selector de cuentas la
+muestran.
+
+#### Un bug que encontró la propia suite en esa corrida
+
+Crear un fijo de ahorro **con categoría** devolvía `201` en vez de `400`: la
+categoría se limpiaba *antes* de validar, dejando esa rama de
+`validateRecurring` como código muerto que mentía sobre lo que hacía.
+
+Se resolvió siguiendo el precedente del propio código —
+`PATCH /transactions/[id]` limpia la categoría en silencio al pasar un
+movimiento a transferencia — así que **se normaliza, no se rechaza**, y la rama
+muerta se borró. La prueba pasó a verificar la normalización (`category_id`
+queda en `null`) en vez de un error que ya no corresponde.
+
+### 0.7 El desglose del reparto en el detalle de un fijo (2026-08-26)
+
+Al tocar un fijo compartido, el detalle decía solo *"Compartido con: 2
+personas"*. Ahora lista **cada persona con su monto**, más *"Tu parte"* (o
+*"Ganas"* en verde si el reparto supera el gasto, mismo tratamiento que el
+sheet de registrar).
+
+Los montos se **resuelven, no se leen**: una parte pareja se guarda como `null`
+en la plantilla y solo existe cuando se calcula con el monto del mes
+(`resolveSplits`). Se reusan las dos mismas funciones que usa
+`<RegisterSheet>` (`resolveSplits` + `shareBreakdown`), así que **lo que se ve
+en el detalle es exactamente lo que se va a generar al pagarlo** — no un
+segundo cálculo que pueda desincronizarse.
+
+### 0.8 Ronda 7 — el rediseño de fondo: el ahorro es una etiqueta (2026-08-26)
+
+La feature nació con una **cuenta marcada como de ahorro** (`fin_accounts.is_savings`)
+y todo lo demás derivado de ahí: si el origen era una cuenta de ahorro, era un
+retiro; si el destino lo era, un aporte. Al usarla de verdad, esa deducción se
+rompió por todos lados a la vez, y el usuario lo dijo en tres pasos:
+
+| Lo que dijo | Lo que estaba mal |
+|---|---|
+| *"¿Por qué me pregunta 'de qué ahorro retirás' y me muestra todos los ahorros? ¿Y si solo tengo ahí guardados ingresos mezclados con ahorros?"* | La cuenta obligaba a justificar **todo** gasto que saliera de ella, ahorro o no |
+| *"Y no quiero hacer que un ahorro esté ligado a una cuenta necesariamente"* | El modelo ya era correcto (un ahorro nunca tuvo columna de cuenta) — la **capa de enforcement** era la que lo ataba |
+| *"Entonces todas las cuentas deberían poder ser para ahorro, ya no necesito un selector"* | La marca no aportaba nada: solo restringía |
+| *"No uses la presencia del motivo para definir si es ahorro o no. Pregunta explícitamente."* | `savings_reason is null` significaba a la vez *"es un aporte"* y *"no puse motivo"* |
+
+Tenía razón en las cuatro. El modelo quedó así:
+
+1. **`fin_accounts.is_savings` se eliminó** (`20260826010000`). Ninguna cuenta
+   "es de ahorro". Cualquiera puede alojar ahorros.
+2. **Un movimiento es de ahorro porque vos lo dijiste** — `savings_goal_id`
+   puesto a mano, nunca inferido de dónde cae la plata.
+3. **La dirección se declara, no se deduce** — `savings_flow` (`'aporte'` /
+   `'retiro'`, `20260826020000`). Para un `gasto` o un `ingreso` el tipo ya la
+   determina y el servidor la impone; solo una `transferencia` la pregunta,
+   porque ahí el tipo no alcanza.
+4. **Cada cuenta deriva cuánto de su saldo está apartado**
+   (`savings_balance`), y el quick-add usa ese número: un gasto común tiene
+   como máximo `saldo − apartado`, y para tocar lo apartado hay que encender
+   *"gastar de mis ahorros"* — que es cuando recién pregunta de qué ahorro y
+   por qué.
+
+Sacar la marca resolvió una familia entera de problemas de una vez: preguntas
+forzadas en gastos que no eran de ahorro, ingresos que se perdían del reporte
+del mes (`flowTypeFor` los pasaba a `'movimiento'` solo por caer en esa
+cuenta), aportes fantasma cuando la cuenta destino se desmarcaba, y filas que
+no se podían leer sin adivinar la intención de quien las cargó.
 
 ### 0.2 Simplificaciones que se tomaron al construir
 
@@ -320,40 +480,65 @@ Las dos escrituras son atómicas en el sentido de Sprint 2 §4.7/Sprint 4
 §4.8: si falla la segunda, se deshace la primera tanda de transferencias y
 se devuelve `500`.
 
-### 4.5 `flow_type` extendido para cuentas de ahorro
+### 4.5 `flow_type` — el ahorro ya no entra en la cuenta
 
-Extiende `flowTypeFor`/`flowTypeOnEdit` (`lib/finanzas/transactions.ts`),
-que ya resuelven esto para `is_investment`:
+⚠️ **Reescrito el 2026-08-26 (Ronda 7).** Esta sección describía una tabla
+donde `account.is_savings` cambiaba el `flow_type`. Esa columna ya no existe.
 
 ```
 flowTypeFor(type, account):
-  type = 'transferencia'                        → 'movimiento'  (ya existente)
-  account.is_investment                         → 'movimiento'  (ya existente)
-  account.is_savings Y type = 'ingreso'          → 'movimiento'  (aporte directo, no es ingreso nuevo que reportar)
-  account.is_savings Y type = 'gasto'            → 'consumo'     (retiro real, cuenta como gasto — Ronda 2)
-  cualquier otro caso                            → 'consumo'
+  type = 'transferencia'   → 'movimiento'
+  account.is_investment    → 'movimiento'
+  cualquier otro caso      → 'consumo'
 ```
 
-Una `transferencia` ya es siempre `'movimiento'` por la regla existente, así
-que un aporte o un retiro-a-otra-cuenta (ambos vía `transferencia`) nunca
-ensucian el gasto/ingreso real del mes — solo un retiro tipo `gasto`
-("lo usé") sí cuenta, que es exactamente la distinción de la Ronda 2.
+El ahorro **no participa** de esta decisión, y eso arregló un bug real: con la
+regla vieja, un `ingreso` que caía en una cuenta marcada pasaba a
+`'movimiento'` y **desaparecía del ingreso real del mes**, así que bajaba el
+sobrante sin que nada lo explicara. Hoy un ingreso es un ingreso caiga donde
+caiga; lo que decide si ensucia el mes es el tipo, no dónde está la plata.
 
-### 4.6 Justificativo obligatorio en toda salida
+La distinción de la Ronda 2 sobrevive intacta por otro camino: un aporte o un
+traslado entre cuentas propias se cargan como `transferencia` (siempre
+`'movimiento'`), y un retiro que se gastó de verdad se carga como `gasto`
+(`'consumo'`).
 
-Cualquier movimiento donde `account_id` (el origen) sea una cuenta
-`is_savings` y el tipo sea `gasto` o `transferencia` — es decir, plata
-**saliendo** de ahorro — exige `savings_reason` no nulo. Un `ingreso` o una
-`transferencia` donde la cuenta de ahorro es el **destino** (`to_account_id`)
-es una entrada y no lo pide, pero sí exige `savings_goal_id` (a qué ahorro
-corresponde).
+### 4.6 Etiqueta y dirección — qué exige el servidor
+
+⚠️ **Reescrito el 2026-08-26 (Ronda 7).**
+
+Un movimiento **no es de ahorro por dónde cae**. Es de ahorro si trae
+`savings_goal_id`, y entonces:
+
+| Tipo | Dirección | Quién la pone |
+|---|---|---|
+| `gasto` | `retiro` | la impone el servidor (`savingsFlowForType`) |
+| `ingreso` | `aporte` | la impone el servidor |
+| `transferencia` | la que declare el cliente | **se pregunta** — el tipo no alcanza |
+
+Reglas duras, todas con `400`:
+
+- Una `transferencia` tageada **sin** `savings_flow` se rechaza: *"¿Esta
+  transferencia aporta a un ahorro o retira de él?"*
+- Una dirección **declarada que contradice al tipo** se rechaza (un `gasto`
+  declarado como `aporte`), en vez de pisarla en silencio.
+- Un `retiro` **sin** `savings_reason` válido se rechaza — el justificativo en
+  cada salida es lo que se pidió al abrir el sprint.
+- Un movimiento **sin** `savings_goal_id` no lleva ni dirección ni motivo: son
+  un solo dato y viajan juntos. Lo sostiene también la base
+  (`fin_tx_savings_flow_shape`).
+
+Y una regla blanda, deliberada: un movimiento **sin etiquetar no pregunta
+nada**. Gastar de una cuenta que además guarda ahorros es un gasto común.
 
 ### 4.7 Meta cumplida
 
 `saldo(ahorro) >= target_amount_usd` (cuando el ahorro tiene meta): se
 excluye de la propuesta automática (§4.3) y la UI le pone un badge "🎉 Meta
 cumplida". No se bloquea nada — el usuario puede seguir aportando a mano
-desde el quick-add si quiere pasarse.
+desde el quick-add si quiere pasarse. El **cajón de sastre es la excepción**:
+absorbe el sobrante restante aunque ya haya llegado a su meta, porque su
+trabajo es que no quede plata sin destino (§0.4).
 
 ### 4.8 Edición del reparto — sin retroactividad
 
@@ -364,20 +549,84 @@ confirmados guardan su `surplus_usd` y los movimientos reales quedan tal
 cual se generaron, ambos inmutables por diseño (mismo criterio que
 `exchange_rate` congelado).
 
-### 4.9 Transferencias entre dos cuentas de ahorro
+La **moneda**, en cambio, se congela con el primer movimiento
+(`409` si ya hay aportes): cambiarla reinterpretaría lo que ya se aportó.
+`has_movements` es lo que la pantalla usa para habilitar el selector.
 
-No llevan `savings_goal_id` (§0.1.2) — mueven plata entre billeteras físicas
-sin afectar el saldo de ningún ahorro, porque el saldo de un ahorro nunca
-depende de en qué cuenta esté guardado.
+### 4.9 Cuánto de una cuenta está apartado
 
-### 4.10 Bloqueo — blando, en el cliente
+`savings_balance` por cuenta se deriva de los movimientos tageados
+(`computeSavingsByAccountUsd`), nunca se guarda:
 
-Mismo principio que el tope de saldo (Sprint 1 §4.4.1) y el bloqueo de
-Presupuesto (Sprint 6 §4.6): el quick-add no ofrece una cuenta `is_savings`
-para un `gasto`/`ingreso` sin `savings_goal_id`, ni dos cuentas de ahorro
-distintas en una transferencia sin decidir a qué ahorro corresponde — pero
-el servidor no lo rechaza si igual llega así. Es una app de un solo
-usuario: la UI es la puerta real.
+```
+ingreso        + monto  en account_id
+gasto          − monto  en account_id
+transferencia  aporte → + lo que ENTRÓ en to_account_id
+               retiro → − lo que SALIÓ de account_id
+```
+
+Solo se mueve **un lado** de una transferencia: la otra cuenta no gana ni
+pierde plata *apartada* por el traslado. El resultado se clampea en 0 — una
+cuenta no puede tener ahorro negativo.
+
+**Invariante que sostiene la pantalla de Cuentas:** el saldo de un ahorro es
+exactamente la suma de lo apartado en cada cuenta. Hay una regresión que lo
+prueba en `api.mjs` (§ "regresiones de los tres bugs de la revisión").
+
+**Límite conocido — no hay "traslado".** Mover plata *ya ahorrada* de una
+cuenta a otra no tiene forma de expresarse hoy: marcarla como `aporte` la
+contaría dos veces (queda apartada en el origen **y** en el destino), y como
+`retiro` la saca del ahorro. Sirve como taparrabos hacer retiro + aporte en
+dos movimientos. Una tercera dirección `'traslado'` que mueva los dos lados a
+la vez es el arreglo natural si aparece la necesidad.
+
+### 4.10 Qué bloquea de verdad, y qué no
+
+⚠️ **Reescrito el 2026-08-26 (Ronda 7).**
+
+**Duro, en el servidor:**
+
+- Etiqueta, dirección y motivo, con las reglas de §4.6.
+- La forma en la base: `fin_tx_savings_flow_shape` no deja existir una fila
+  tageada sin dirección, ni una dirección sin etiqueta.
+- Elegir un ahorro **archivado** para un movimiento nuevo, incluido registrar
+  un fijo de ahorro.
+- Una transferencia de una cuenta **a sí misma**, en el cierre mensual y al
+  registrar un fijo.
+- Cambiar la moneda de un ahorro que ya tiene movimientos.
+
+**Blando, y a propósito:**
+
+- **El tope "no toques los ahorros" lo aplica hoy solo el cliente.** El
+  quick-add calcula `disponible = saldo − apartado` y no deja pasar de ahí sin
+  encender *"gastar de mis ahorros"*, pero `assertBalance` en el servidor mide
+  contra el **saldo total**. Otros caminos que no pasan por el quick-add
+  —registrar un fijo, un aporte de pasanaku, una cuota de deuda— pueden comerse
+  lo apartado sin avisar. No se endureció porque hacerlo dejaría fijos
+  impagables sin escotilla de escape en su propio sheet: si se quiere duro,
+  hay que dar el toggle también en `<RegisterSheet>` y en el aporte de
+  pasanaku, y eso es trabajo de producto, no un parche de validación.
+- **Ninguna cuenta desaparece del picker.** No hay cuentas "de ahorro" que
+  esconder, a diferencia de las de inversión.
+- **La historia previa nunca queda congelada** (ver abajo).
+
+#### Un movimiento anterior a la regla no se vuelve ineditable
+
+Un `gasto` cargado antes de que existiera el ahorro quedaba imposible de
+editar: el `PATCH` lo reclasificaba como retiro y le exigía un ahorro y un
+motivo que nunca tuvo — ni la descripción se le podía corregir. Lo encontró
+`tests/finanzas/probe.mjs` §T.
+
+Es la **tercera aparición de la misma clase de bug** (la categoría de un fijo
+en `b08fdb4`, el ahorro archivado en §8, y esta): una regla nueva no puede
+congelar la historia que la precede. Ahora el ahorro y el motivo se exigen
+solo cuando el movimiento **ya era de ahorro**, o cuando el cliente manda uno
+explícitamente — que es cuando de verdad lo está convirtiendo. El picker se
+sigue mostrando, por si se lo quiere tagear.
+
+Misma regla, otro extremo: **archivar sí frena lo nuevo**. Un fijo cuyo ahorro
+se archivó se sigue pausando, renombrando y editando, pero ya no se puede
+registrar (§8, bug 3).
 
 ---
 
@@ -626,6 +875,110 @@ alguien usa la app de una forma que el camino feliz no recorre.
 Los siete se corrigieron y las suites se volvieron a correr en verde, con
 pruebas de regresión propias para los cinco que son verificables
 automáticamente (1–5).
+
+### Tres bugs más en la revisión de la Ronda 7 (2026-08-26)
+
+Encontrados después del rediseño, corriendo las tres suites contra la base
+real y ampliando el probe con seis secciones nuevas (§AB–§AK).
+
+1. **El `CHECK` de forma no atajaba nada — la trampa de la lógica de tres
+   valores.** El constraint decía:
+
+   ```sql
+   (savings_goal_id is null and savings_flow is null)
+   or (savings_goal_id is not null and savings_flow in ('aporte','retiro'))
+   ```
+
+   Con la etiqueta puesta y la dirección en `NULL`, la segunda rama evalúa
+   `true AND NULL` = `NULL`, la primera evalúa `false`, y `false OR NULL` es
+   `NULL`. **Un `CHECK` que da `NULL` no se viola**: la fila entraba igual.
+   Comprobado por REST: `insert` con `savings_goal_id` y sin `savings_flow`
+   devolvía `201` y guardaba la dirección en null — exactamente el dato
+   ilegible que la Ronda 7 vino a eliminar. Se cierra con un `savings_flow is
+   not null` explícito (`20260826030000`).
+
+   Se destapó, además, que el `add constraint` de `20260826020000` **nunca
+   había llegado a la base**: la fila del ledger ya estaba marcada como
+   aplicada cuando el archivo se completó, así que todo `db push` posterior la
+   salteaba. Por eso va en una migración nueva y no editando la vieja.
+
+2. **Borrar un ahorro con movimientos era imposible.** `savings_goal_id` es
+   `on delete set null`, pero `savings_flow` se quedaba con su valor: la fila
+   intermedia (etiqueta en null, dirección en `'retiro'`) sí viola las dos
+   ramas, y el `DELETE` moría con el mensaje crudo de Postgres. **Todo ahorro
+   que alguna vez recibió un aporte quedaba imborrable.** El primer intento de
+   arreglo —un trigger que limpiaba dirección y motivo antes— fallaba igual,
+   porque un `CHECK` **no es diferible** y la fila intermedia (etiqueta puesta,
+   dirección en null) violaba el constraint en el acto. Se sueltan los tres
+   campos **juntos, en un solo `UPDATE`** (`20260826040000`).
+
+3. **Un fijo aportaba a un ahorro archivado, con `201` y en silencio.**
+   `POST /transactions` ya rechaza elegir un ahorro archivado para un
+   movimiento nuevo, pero el registro de un fijo no pasaba por esa validación:
+   leía `base.savings_goal_id` y lo escribía. Archivar un ahorro y dejar su
+   fijo activo hacía que cada registro metiera plata en un ahorro que la
+   pantalla de Ahorros **ni siquiera lista**. Ahora devuelve `400` diciendo qué
+   hacer, sin romper la regla b08fdb4: el fijo se sigue pausando, renombrando
+   y editando.
+
+Los tres tienen regresión propia en `api.mjs`
+(§ "regresiones de los tres bugs de la revisión") y en `db.mjs`.
+
+**Dos hallazgos que resultaron ser tests mal escritos, no bugs** — vale
+anotarlos porque el impulso fue asumir lo contrario:
+
+- El saldo del ahorro daba 250 donde yo esperaba 150 al mover plata entre dos
+  cuentas propias. **250 era correcto**: los 100 transferidos eran plata
+  *libre* del origen pasando a estar ahorrada en el destino, un aporte nuevo,
+  no un doble conteo. El límite real que sí existe está en §4.9 (no hay
+  "traslado" de plata ya ahorrada).
+- El aporte cross-currency fallaba con *"Indica cuánto llegó realmente"*. Es
+  la regla del Sprint 1 funcionando: al probe le faltaba mandar `to_amount`.
+
+### Probe adversario de Fijos + Ahorros — `tests/finanzas/probe.mjs`
+
+Después de sumar el fijo de ahorro (§0.5) se escribió un probe **diseñado para
+romper**, no para confirmar: 39 casos que atacan los bordes de los dos módulos
+juntos (cross-currency, borrados con referencias vivas, archivados, conversión
+de un fijo compartido en ahorro, meses atrasados, regresiones de Fijos). Se
+corre solo, contra el dev server:
+
+```bash
+FZ_BASE_URL=http://localhost:3000 node tests/finanzas/probe.mjs
+```
+
+**Encontró cuatro problemas en la primera corrida**, tres de ellos reales:
+
+1. **"Aporte fantasma" — el más grave.** Desmarcar como "de ahorro" la cuenta
+   destino de un fijo estaba permitido mientras no hubiera movimientos
+   tageados todavía. A partir de ahí el fijo seguía funcionando, creaba su
+   transferencia tageada con el ahorro… y el saldo del ahorro **no se movía**,
+   porque `computeGoalBalancesUsd` exigía que el destino siguiera marcado.
+   Plata registrada que no contaba en ningún lado, sin un solo error. Se cerró
+   por los dos lados: el `PATCH` de cuentas ahora lo rechaza con `409`
+   nombrando el fijo, y `computeGoalBalancesUsd` dejó de exigir el flag del
+   destino — el signo lo decide el origen, así que una transferencia tageada
+   que no sale de una cuenta de ahorro solo puede ser un aporte. La segunda
+   capa importa porque la primera no puede arreglar historia ya guardada.
+2. **Borrar un ahorro que un fijo usa** devolvía el mensaje crudo del
+   constraint de Postgres (`violates foreign key constraint …`). Ahora es un
+   `409` que nombra los fijos que lo están usando.
+3. **Borrar una cuenta que un fijo usa** (como origen o como destino de
+   ahorro): mismo mensaje crudo, mismo arreglo.
+4. Un cuarto caso falló por un **test mal escrito**, no por el código: medía el
+   sobrante de un mes sin retroceder el `created_at` del ahorro, así que no
+   había período pendiente y la propuesta salía vacía por diseño. Se corrigió
+   la prueba.
+
+Lo que el probe **confirmó sano**: el cross-currency congela lo que llegó y el
+ahorro refleja eso (no lo que salió); un fijo de ahorro no entra en el
+`comprometido` de ningún presupuesto ni toca el sobrante del mes; borrar el
+movimiento devuelve el saldo y vuelve a dejar el fijo pendiente; editar la
+descripción no pierde el tageo; un retiro no puede exceder el saldo; un fijo
+compartido convertido en ahorro no arrastra sus deudas viejas; un fijo de
+ahorro atrasado recupera sus meses de a uno y los acumula; y los fijos
+normales (gasto + reparto + validación de anuales) siguen intactos tras el
+refactor de `validateRecurring`.
 
 ---
 

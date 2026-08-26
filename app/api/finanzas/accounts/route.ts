@@ -7,7 +7,7 @@ import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 export async function GET() {
   const { supabase, userId } = await requireUser()
@@ -41,10 +41,6 @@ export async function POST(request: Request) {
   }
 
   const isInvestment = Boolean(body?.is_investment)
-  const isSavings = Boolean(body?.is_savings)
-  if (isInvestment && isSavings) {
-    return NextResponse.json({ error: 'Una cuenta no puede ser de inversión y de ahorro a la vez' }, { status: 400 })
-  }
 
   const { data, error } = await supabase
     .from('fin_accounts')
@@ -56,7 +52,6 @@ export async function POST(request: Request) {
       initial_balance_date: body?.initial_balance_date ?? new Date().toISOString().slice(0, 10),
       sort_order: num(body?.sort_order),
       is_investment: isInvestment,
-      is_savings: isSavings,
     })
     .select(ACCOUNT_COLS)
     .single()

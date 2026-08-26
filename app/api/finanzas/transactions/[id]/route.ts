@@ -3,16 +3,16 @@ import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
-import { flowTypeOnEdit, freezeConversion, isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason, validateInput } from '@/lib/finanzas/transactions'
+import { flowTypeOnEdit, freezeConversion, isValidSavingsFlow, isValidSavingsReason, savingsFlowForType, validateInput } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { applyBudgetExtension, assertBalance, assertCategory, assertSavingsGoal } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_reason'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_flow, savings_reason'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 interface DebtRow {
   id: string
@@ -187,37 +187,49 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     to_exchange_rate = frozenTo.exchange_rate
   }
 
-  // Ahorro (Sprint 7): se recalcula si el movimiento editado sigue siendo un
-  // aporte/retiro, mismo criterio que `flowTypeOnEdit` — el `type`/cuenta
-  // nuevos son los que deciden, no lo que ya tenía guardado. Si dejó de serlo
-  // (por ejemplo, la cuenta destino dejó de ser de ahorro), los dos campos se
-  // limpian: arrastrarlos mentiría sobre a qué corresponde el movimiento.
-  const contribution = isSavingsContribution(merged.type!, account, toAccount)
-  const withdrawal = isSavingsWithdrawal(merged.type!, account, toAccount)
-  let savingsGoalId: string | null = null
-  let savingsReason: string | null = null
+  // Ahorro: la etiqueta es opcional y explícita, y editar solo la hereda —
+  // nunca la impone ni la borra sola. Mandar `savings_goal_id: null` sí la
+  // quita: es cómo se "desetiqueta" un movimiento marcado por error.
+  let savingsGoalId: string | null = (current.savings_goal_id as string | null) ?? null
+  let savingsFlow: string | null = (current.savings_flow as string | null) ?? null
+  let savingsReason: string | null = (current.savings_reason as string | null) ?? null
 
-  if (contribution || withdrawal) {
-    const goalId = body.savings_goal_id === undefined
-      ? (current.savings_goal_id as string | null)
-      : (typeof body.savings_goal_id === 'string' ? body.savings_goal_id : null)
-    if (!goalId) return NextResponse.json({ error: 'Elige a qué ahorro corresponde' }, { status: 400 })
-    // Si el movimiento sigue apuntando al MISMO ahorro que ya tenía, se acepta
-    // aunque esté archivado: si no, archivar un ahorro dejaría sus aportes y
-    // retiros sin poder editarse nunca más (§ assertSavingsGoal).
-    const goalError = await assertSavingsGoal(supabase, userId, goalId, {
-      allowArchived: goalId === current.savings_goal_id,
+  if (body.savings_goal_id !== undefined) {
+    savingsGoalId = typeof body.savings_goal_id === 'string' && body.savings_goal_id ? body.savings_goal_id : null
+    if (!savingsGoalId) { savingsFlow = null; savingsReason = null }
+  }
+
+  if (savingsGoalId) {
+    // Se acepta un ahorro archivado mientras sea el MISMO que ya tenía:
+    // archivarlo no puede dejar sus movimientos sin poder editarse nunca más
+    // (§ assertSavingsGoal).
+    const goalError = await assertSavingsGoal(supabase, userId, savingsGoalId, {
+      allowArchived: savingsGoalId === current.savings_goal_id,
     })
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
-    savingsGoalId = goalId
 
-    if (withdrawal) {
-      const reason = body.savings_reason === undefined ? current.savings_reason : body.savings_reason
-      if (!isValidSavingsReason(reason)) {
+    // La dirección se declara, nunca se deduce. El tipo la fija en gasto e
+    // ingreso; en una transferencia se hereda la que ya tenía o viene en el
+    // body, y si no hay ninguna se pide.
+    const implicita = savingsFlowForType(merged.type!)
+    const enBody = isValidSavingsFlow(body.savings_flow) ? body.savings_flow : null
+    savingsFlow = implicita ?? enBody ?? savingsFlow
+    if (!savingsFlow) {
+      return NextResponse.json({ error: '¿Esta transferencia aporta a un ahorro o retira de él?' }, { status: 400 })
+    }
+
+    if (savingsFlow === 'retiro') {
+      const crudo = body.savings_reason === undefined ? savingsReason : body.savings_reason
+      if (!isValidSavingsReason(crudo)) {
         return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
       }
-      savingsReason = reason
+      savingsReason = crudo
+    } else {
+      savingsReason = null
     }
+  } else {
+    savingsFlow = null
+    savingsReason = null
   }
 
   const { data, error } = await supabase
@@ -238,6 +250,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       to_exchange_rate,
       description: merged.description,
       savings_goal_id: savingsGoalId,
+      savings_flow: savingsFlow,
       savings_reason: savingsReason,
       updated_at: new Date().toISOString(),
     })

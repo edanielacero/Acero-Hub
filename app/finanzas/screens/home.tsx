@@ -531,7 +531,7 @@ function BudgetTile({ line, hidden, mode, icon, onClick }: {
           {hidden ? '' : `de ${formatAmount(capacity, cur)}`}
         </p>
 
-        <div className="relative h-1.5 mt-2 rounded-full bg-[var(--fz-surface)] overflow-hidden">
+        <div className="relative h-1.5 mt-2 rounded-full bg-[var(--fz-hairline)] overflow-hidden">
           <div
             className="absolute inset-y-0 left-0 rounded-full"
             style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}

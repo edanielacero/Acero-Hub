@@ -5,9 +5,11 @@ import { IconAlertTriangle, IconPigMoney, IconPencil, IconPlus, IconTrash } from
 import type { RateMap, SavingsGoalWithBalance } from '@/lib/finanzas/types'
 import { ALLOCATION_TYPE_LABEL } from '@/lib/finanzas/savings'
 import { formatAmount, fromUsd, HIDDEN } from '@/lib/finanzas/money'
+import { CURRENCY_META } from '@/lib/finanzas/types'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
+import { CurrencyIcon } from '../components/currency-icon'
 import { SavingsClosureSheet } from '../components/savings-closure-sheet'
 import { SavingsGoalSheet } from '../components/savings-goal-sheet'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
@@ -133,6 +135,20 @@ export function AhorroScreen() {
 }
 
 /**
+ * Cómo reparte este ahorro, en una línea. El cajón de sastre no tiene regla
+ * propia — se lleva lo que sobra — así que decirlo es más honesto que mostrar
+ * un porcentaje inventado.
+ */
+function repartoLabel(goal: SavingsGoalWithBalance): string {
+  if (goal.is_catchall || goal.allocation_type == null || goal.allocation_value == null) {
+    return 'Recibe lo que sobre del reparto'
+  }
+  return goal.allocation_type === 'fixed'
+    ? `${formatAmount(goal.allocation_value, goal.input_currency)} fijo por mes`
+    : `${goal.allocation_value}% del sobrante cada mes`
+}
+
+/**
  * Card de un ahorro: si tiene meta, barra de progreso contra ella; si no,
  * solo el saldo acumulado — no hay nada contra qué medir el relleno.
  */
@@ -161,13 +177,16 @@ function GoalCard({ goal, hidden, rates, onView, onEdit, onDelete }: {
 
       <button type="button" onClick={onView} className="w-full text-left flex flex-col gap-2.5 min-w-0 pr-9">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="grid place-items-center w-8 h-8 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] shrink-0">
-            <IconPigMoney size={17} stroke={1.8} />
-          </span>
+          <CurrencyIcon currency={cur} size={28} />
           <p className="text-[15px] font-semibold truncate min-w-0">{goal.name}</p>
           {goal.goal_reached && (
             <span className="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-[var(--fz-in-tint)] text-[var(--fz-in-text)]">
               🎉 Meta cumplida
+            </span>
+          )}
+          {goal.is_catchall && (
+            <span className="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]">
+              Recibe el resto
             </span>
           )}
         </div>
@@ -190,11 +209,7 @@ function GoalCard({ goal, hidden, rates, onView, onEdit, onDelete }: {
           </div>
         )}
 
-        <p className="text-[12px] text-[var(--fz-ink-3)]">
-          {goal.allocation_type === 'fixed'
-            ? `${formatAmount(goal.allocation_value, cur)} fijo por mes`
-            : `${goal.allocation_value}% del sobrante cada mes`}
-        </p>
+        <p className="text-[12px] text-[var(--fz-ink-3)]">{repartoLabel(goal)}</p>
       </button>
     </Panel>
   )
@@ -212,8 +227,9 @@ function GoalDetail({ goal, hidden, rates }: {
   return (
     <>
       <DeletePreview
-        icon={<span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]"><IconPigMoney size={20} stroke={1.8} /></span>}
+        icon={<CurrencyIcon currency={cur} size={40} />}
         title={goal.name}
+        subtitle={CURRENCY_META[cur].name}
         amount={hidden ? HIDDEN : formatAmount(goal.balance, cur)}
       />
       <div>
@@ -224,7 +240,8 @@ function GoalDetail({ goal, hidden, rates }: {
         />
         <DetailField label="Meta" value={hidden || goal.target_amount == null ? null : formatAmount(goal.target_amount, cur)} />
         <DetailField label="Fecha meta" value={goal.target_date ? formatDayLabel(goal.target_date, todayISO()) : null} />
-        <DetailField label="Reparto" value={`${ALLOCATION_TYPE_LABEL[goal.allocation_type]} · ${goal.allocation_type === 'fixed' ? formatAmount(goal.allocation_value, cur) : `${goal.allocation_value}%`}`} />
+        <DetailField label="Reparto" value={repartoLabel(goal)} />
+        <DetailField label="Acá va lo que sobre" value={goal.is_catchall ? 'Sí — recibe lo que el reparto no asigne' : null} />
         <DetailField label="Estado" value={goal.goal_reached ? '🎉 Meta cumplida' : null} />
       </div>
     </>

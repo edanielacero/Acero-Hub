@@ -9,7 +9,7 @@ import { CURRENCIES } from '@/lib/finanzas/types'
 import type { Frequency, RecurringInput } from '@/lib/finanzas/types'
 
 export const RECURRING_COLS =
-  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id'
 
 const FREQUENCIES: Frequency[] = ['mensual', 'anual']
 
@@ -33,10 +33,50 @@ export function validateRecurring(body: Partial<RecurringInput>): string | null 
   if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) {
     return 'El monto debe ser mayor a cero'
   }
+
+  // Un fijo de AHORRO (Sprint 7) genera una transferencia, no un gasto: no
+  // lleva categoría, porque no hay nada que presupuestar.
+  //
+  // La cuenta destino NO se pide acá: se elige al registrar cada instancia,
+  // igual que `account_id` ("la plantilla solo necesita saber en qué moneda
+  // está el monto"). Si viene, queda como default para la próxima vez.
+  if (body.savings_goal_id) return validarCalendario(body)
+  if (body.to_account_id) return 'Una cuenta de ahorro sin ahorro al que aportar no significa nada'
+
   // Sin categoría, un fijo no puede contarse como "comprometido" en ningún
   // presupuesto (§ `comprometido` en lib/finanzas/budgets.ts) — quedaba
   // fuera del cálculo sin que nada lo dijera.
   if (!body.category_id) return 'Elige una categoría'
+  return validarCalendario(body)
+}
+
+/**
+ * Que el ahorro y la cuenta destino de un fijo de ahorro existan y sean del
+ * usuario. Ya no se exige que la cuenta sea "de ahorro": cualquiera puede
+ * alojar ahorros, porque lo que vuelve la plata un ahorro es la etiqueta del
+ * aporte y no dónde cae (revisión 26/8).
+ */
+export async function assertSavingsTarget(
+  supabase: Awaited<ReturnType<typeof requireUser>>['supabase'],
+  userId: string,
+  goalId: string | null | undefined,
+  toAccountId: string | null | undefined,
+): Promise<string | null> {
+  if (!goalId || !toAccountId) return null
+
+  const [{ data: goal }, { data: account }] = await Promise.all([
+    supabase.from('fin_savings_goals').select('id, archived').eq('user_id', userId).eq('id', goalId).maybeSingle(),
+    supabase.from('fin_accounts').select('id, name, archived').eq('user_id', userId).eq('id', toAccountId).maybeSingle(),
+  ])
+
+  if (!goal) return 'Ese ahorro no existe'
+  if (goal.archived) return 'Ese ahorro está archivado'
+  if (!account) return 'La cuenta destino no existe'
+  return null
+}
+
+/** Frecuencia, día y mes — lo que comparten los dos tipos de fijo. */
+function validarCalendario(body: Partial<RecurringInput>): string | null {
   const freq = body.frequency ?? 'mensual'
   if (!FREQUENCIES.includes(freq)) return 'Frecuencia inválida'
 
@@ -84,8 +124,18 @@ export async function POST(request: Request) {
     starts_on: typeof body.starts_on === 'string' && isValidDate(body.starts_on)
       ? body.starts_on
       : todayISO(),
+    savings_goal_id: typeof body.savings_goal_id === 'string' && body.savings_goal_id ? body.savings_goal_id : null,
+    to_account_id: typeof body.to_account_id === 'string' && body.to_account_id ? body.to_account_id : null,
   }
   if (input.frequency === 'mensual') input.month_of_year = null
+
+  // Un fijo de ahorro es una transferencia: la categoría se limpia sola, no se
+  // rechaza. Mismo criterio que `PATCH /transactions/[id]` al pasar un
+  // movimiento a transferencia — normalizar la forma, no pelear con el cliente.
+  if (input.savings_goal_id) input.category_id = null
+
+  const savingsError = await assertSavingsTarget(supabase, userId, input.savings_goal_id, input.to_account_id)
+  if (savingsError) return NextResponse.json({ error: savingsError }, { status: 400 })
 
   // La cuenta es opcional en la plantilla — se elige recién al registrar cada
   // instancia. Si de todos modos viene una, tiene que ser tuya; y si no vino

@@ -10,7 +10,7 @@ import type { Currency } from '@/lib/finanzas/types'
 const TX_COLS =
   'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, pasanaku_id'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 /**
  * Registrar UN cobro de tu turno — la parte de UN jugador, no el pozo entero
@@ -50,9 +50,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // de inversión y desaparecería de Movimientos.
   if (account.is_investment) {
     return NextResponse.json({ error: 'No puedes recibir en una cuenta de inversión' }, { status: 400 })
-  }
-  if (account.is_savings) {
-    return NextResponse.json({ error: 'No puedes recibir en una cuenta de ahorro' }, { status: 400 })
   }
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)

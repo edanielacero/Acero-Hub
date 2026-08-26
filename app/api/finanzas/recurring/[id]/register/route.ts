@@ -1,20 +1,20 @@
 import { requireUser } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { num, round2 } from '@/lib/finanzas/money'
+import { crossCurrencySuggestion, num, round2 } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, todayISO, isValidDate } from '@/lib/finanzas/transactions'
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { periodOf, resolveSplits } from '@/lib/finanzas/recurring'
-import { assertBalance } from '@/lib/finanzas/load'
+import { assertBalance, assertSavingsGoal } from '@/lib/finanzas/load'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
-import type { Currency, Recurring, RecurringSplit } from '@/lib/finanzas/types'
+import type { Currency, Recurring, RecurringSplit, TxType } from '@/lib/finanzas/types'
 
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, description, recurring_id'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, savings_goal_id, savings_flow'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 /**
  * Instanciar un fijo: crea el gasto real y su reparto.
@@ -38,7 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [{ data: plantilla }, { data: templateSplits }] = await Promise.all([
     supabase
       .from('fin_recurring')
-      .select('id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on')
+      .select('id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id')
       .eq('id', id).eq('user_id', userId).maybeSingle(),
     supabase
       .from('fin_recurring_splits')
@@ -101,34 +101,100 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'El monto debe ser mayor a cero' }, { status: 400 })
   }
 
-  // Registrar un fijo es un gasto como cualquier otro — misma regla dura de
-  // saldo que /transactions, no una excepción para esta pantalla.
-  const balanceError = await assertBalance(supabase, userId, account, 'gasto', amount)
+  /**
+   * Un fijo de AHORRO (Sprint 7) genera una **transferencia** a su cuenta de
+   * ahorro, tageada con el ahorro — no un gasto. Es el mismo módulo de Fijos
+   * con un atributo opcional, igual que el reparto de los compartidos: mismo
+   * día del mes, mismo pendiente/vencido, mismo botón de registrar; lo único
+   * que cambia es qué movimiento sale al final.
+   */
+  const esAhorro = !!base.savings_goal_id
+  const tipo: TxType = esAhorro ? 'transferencia' : 'gasto'
+
+  // La cuenta de ahorro se elige al REGISTRAR, igual que la de origen: la
+  // plantilla solo guarda la última usada como default. Sin ninguna de las
+  // dos, se pide — no se adivina.
+  const toAccountId = esAhorro
+    ? (typeof body.to_account_id === 'string' && body.to_account_id ? body.to_account_id : base.to_account_id)
+    : null
+  if (esAhorro && !toAccountId) {
+    return NextResponse.json({ error: 'Elige a qué cuenta de ahorro entra' }, { status: 400 })
+  }
+
+  // Registrar un fijo crea un movimiento NUEVO, así que aplica la misma regla
+  // que `POST /transactions`: un ahorro archivado no se puede elegir de cero
+  // (`assertSavingsGoal` sin `allowArchived`). Sin esto, archivar un ahorro y
+  // dejar su fijo activo hacía que cada registro metiera plata en un ahorro
+  // que la pantalla de Ahorros ni siquiera lista — un aporte invisible, con
+  // 201 y sin una sola advertencia. Archivar no congela la historia (clase
+  // b08fdb4: el fijo se sigue pausando, renombrando y editando), pero tampoco
+  // sigue produciendo historia nueva.
+  if (esAhorro) {
+    const goalError = await assertSavingsGoal(supabase, userId, base.savings_goal_id as string)
+    if (goalError) {
+      return NextResponse.json(
+        { error: `${goalError}. Pausa este fijo o desarchívalo para seguir aportando.` },
+        { status: 400 },
+      )
+    }
+  }
+
+  // Misma regla dura de saldo que /transactions, no una excepción para esta
+  // pantalla — y una transferencia consume saldo igual que un gasto.
+  const balanceError = await assertBalance(supabase, userId, account, tipo, amount)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const currency = account.currency as Currency
   const { rates } = await ensureRates(supabase, userId)
   const frozen = freezeConversion(amount, currency, rates)
 
+  // El lado que llega se congela aparte, igual que en cualquier transferencia
+  // cross-currency: aportar desde una cuenta en Bs a un ahorro en USD tiene que
+  // guardar lo que REALMENTE entró, no una reconversión con la tasa de hoy.
+  let destino: { id: string; currency: Currency } | null = null
+  if (esAhorro) {
+    const { data: destinoRow } = await supabase
+      .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', toAccountId!).maybeSingle()
+    if (!destinoRow) return NextResponse.json({ error: 'La cuenta de ahorro no existe' }, { status: 400 })
+    const cuentaDestino = mapAccount(destinoRow)
+    if (cuentaDestino.id === accountId) {
+      return NextResponse.json({ error: 'El origen y el destino no pueden ser la misma cuenta' }, { status: 400 })
+    }
+    destino = { id: cuentaDestino.id, currency: cuentaDestino.currency as Currency }
+  }
+
+  const toAmount = destino && destino.currency !== currency
+    ? crossCurrencySuggestion(amount, currency, destino.currency, rates)
+    : null
+  const frozenTo = toAmount != null && destino ? freezeConversion(toAmount, destino.currency, rates) : null
+
   const { data: tx, error: txError } = await supabase
     .from('fin_transactions')
     .insert({
       user_id: userId,
-      type: 'gasto',
-      flow_type: 'consumo',
+      type: tipo,
+      // Una transferencia siempre es 'movimiento': el aporte al ahorro no
+      // ensucia el gasto real del mes, que es justo el punto de que sea un
+      // fijo de ahorro y no un gasto fijo.
+      flow_type: esAhorro ? 'movimiento' : 'consumo',
       date,
       account_id: accountId,
-      to_account_id: null,
-      category_id: body.category_id === undefined ? base.category_id : (body.category_id || null),
+      to_account_id: destino?.id ?? null,
+      category_id: esAhorro ? null : (body.category_id === undefined ? base.category_id : (body.category_id || null)),
       amount,
       currency,
-      to_amount: null,
+      to_amount: toAmount,
       exchange_rate: frozen.exchange_rate,
       amount_usd: frozen.amount_usd,
+      to_amount_usd: frozenTo?.amount_usd ?? null,
+      to_exchange_rate: frozenTo?.exchange_rate ?? null,
       description: typeof body.description === 'string' && body.description.trim()
         ? body.description.trim()
         : base.name,
       recurring_id: id,
+      // Un fijo de ahorro siempre APORTA — para eso existe.
+      savings_goal_id: esAhorro ? base.savings_goal_id : null,
+      savings_flow: esAhorro ? 'aporte' : null,
     })
     .select(TX_COLS)
     .single()
@@ -139,7 +205,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Las partes parejas se calculan con el monto de ESTE mes, no con el que
   // tenía la plantilla cuando la creaste.
-  const partes = resolveSplits(
+  //
+  // Un fijo de AHORRO nunca genera deudas: no le estás cobrando a nadie una
+  // parte de tu propio ahorro, y una deuda cuelga de un gasto (`fin_debts.
+  // transaction_id`), no de una transferencia. La UI ya no ofrece el reparto
+  // en ese caso; esto ataja una plantilla que venía compartida de antes y se
+  // convirtió en ahorro con sus partes viejas todavía en la base.
+  const partes = esAhorro ? [] : resolveSplits(
     (templateSplits ?? []).map(s => ({
       person_id: s.person_id,
       amount: s.amount === null ? null : num(s.amount),
@@ -192,6 +264,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (body.update_template === true && amount !== base.amount) {
     await supabase.from('fin_recurring')
       .update({ amount, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('user_id', userId)
+  }
+
+  // La cuenta de ahorro elegida queda como default para la próxima vez —
+  // mismo espíritu que `account_id` en la plantilla: no obliga a nada, solo
+  // evita volver a elegir lo mismo todos los meses.
+  if (esAhorro && toAccountId && toAccountId !== base.to_account_id) {
+    await supabase.from('fin_recurring')
+      .update({ to_account_id: toAccountId, updated_at: new Date().toISOString() })
       .eq('id', id).eq('user_id', userId)
   }
 

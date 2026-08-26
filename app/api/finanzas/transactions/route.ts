@@ -4,13 +4,13 @@ import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { applyBudgetExtension, assertBalance, assertCategory, assertSavingsGoal, loadTransactions } from '@/lib/finanzas/load'
-import { flowTypeFor, freezeConversion, isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason, validateInput } from '@/lib/finanzas/transactions'
+import { flowTypeFor, freezeConversion, isValidSavingsFlow, isValidSavingsReason, savingsFlowForType, validateInput } from '@/lib/finanzas/transactions'
 import type { Account, Currency, TransactionInput } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_reason'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_flow, savings_reason'
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 export async function GET(request: Request) {
   const { supabase, userId } = await requireUser()
@@ -91,23 +91,43 @@ export async function POST(request: Request) {
     ? freezeConversion(input.to_amount, toAccount.currency, rates)
     : null
 
-  // Ahorro (Sprint 7, §4.5/§4.6): un aporte (entrada a una cuenta de ahorro)
-  // exige `savings_goal_id`; un retiro (salida) exige además `savings_reason`.
-  // El resto de los movimientos ignora los dos campos, aunque el cliente los
-  // mande — solo tienen sentido en estas dos formas.
-  const contribution = isSavingsContribution(input.type!, account, toAccount)
-  const withdrawal = isSavingsWithdrawal(input.type!, account, toAccount)
+  // Ahorro (Sprint 7, revisado el 2026-08-26): la etiqueta es OPCIONAL y
+  // explícita. Un movimiento es "de ahorro" porque lo dijiste, no porque pasó
+  // por cierta cuenta — una cuenta puede tener plata libre y plata apartada
+  // mezcladas, y antes cualquier gasto desde ahí quedaba obligado a elegir un
+  // ahorro y un motivo que muchas veces no correspondían.
+  //
+  // El motivo solo se pide si de verdad estás sacando plata de un ahorro que
+  // etiquetaste: sin etiqueta no hay retiro del que justificarse.
   let savingsGoalId: string | null = null
+  let savingsFlow: string | null = null
   let savingsReason: string | null = null
 
-  if (contribution || withdrawal) {
-    const goalId = typeof body.savings_goal_id === 'string' ? body.savings_goal_id : null
-    if (!goalId) return NextResponse.json({ error: 'Elige a qué ahorro corresponde' }, { status: 400 })
+  const goalId = typeof body.savings_goal_id === 'string' && body.savings_goal_id ? body.savings_goal_id : null
+  if (goalId) {
     const goalError = await assertSavingsGoal(supabase, userId, goalId)
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
     savingsGoalId = goalId
 
-    if (withdrawal) {
+    // La dirección se DECLARA. En gasto e ingreso el tipo ya la declara sin
+    // ambigüedad; en una transferencia hay que decirla, y si no viene se
+    // rechaza en vez de asumir un default.
+    const implicita = savingsFlowForType(input.type!)
+    const declarada = isValidSavingsFlow(body.savings_flow) ? body.savings_flow : null
+    if (implicita && declarada && declarada !== implicita) {
+      return NextResponse.json(
+        { error: `Un ${input.type} no puede ser un ${declarada} de un ahorro` },
+        { status: 400 },
+      )
+    }
+    savingsFlow = implicita ?? declarada
+    if (!savingsFlow) {
+      return NextResponse.json({ error: '¿Esta transferencia aporta a un ahorro o retira de él?' }, { status: 400 })
+    }
+
+    // El motivo solo tiene sentido al retirar: es el justificativo de romper
+    // un ahorro. Un aporte no necesita justificarse.
+    if (savingsFlow === 'retiro') {
       if (!isValidSavingsReason(body.savings_reason)) {
         return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
       }
@@ -136,6 +156,7 @@ export async function POST(request: Request) {
       to_exchange_rate: frozenTo?.exchange_rate ?? null,
       description: input.description,
       savings_goal_id: savingsGoalId,
+      savings_flow: savingsFlow,
       savings_reason: savingsReason,
     })
     .select(TX_COLS)

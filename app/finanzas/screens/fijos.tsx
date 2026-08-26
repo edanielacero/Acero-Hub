@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react'
 import { IconAlertTriangle, IconCheck, IconPencil, IconPlayerPause, IconPlayerPlay, IconPlus, IconRepeat, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import type { RecurringWithState } from '@/lib/finanzas/types'
 import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
-import { monthlyTotalUsd } from '@/lib/finanzas/recurring'
+import { monthlyTotalUsd, resolveSplits } from '@/lib/finanzas/recurring'
+import { shareBreakdown } from '@/lib/finanzas/splits'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
@@ -188,16 +189,12 @@ export function FijosScreen() {
               {viendo.pending.length > 1 && (
                 <DetailField label="Meses sin registrar" value={viendo.pending.length} />
               )}
-              {viendo.splits.length > 0 && (
-                <DetailField
-                  label="Compartido con"
-                  value={`${viendo.splits.length} ${viendo.splits.length === 1 ? 'persona' : 'personas'}`}
-                />
-              )}
               {viendo.open_usd > 0 && (
                 <DetailField label="Te deben" value={hidden ? HIDDEN : formatUSD(viendo.open_usd)} />
               )}
             </div>
+
+            {viendo.splits.length > 0 && <RepartoDetalle recurring={viendo} hidden={hidden} />}
           </>
         )}
       </DetailSheet>
@@ -218,6 +215,68 @@ export function FijosScreen() {
           />
         )}
       </DeleteConfirmSheet>
+    </div>
+  )
+}
+
+/**
+ * Quién comparte el fijo y cuánto le toca a cada uno.
+ *
+ * Los montos se **resuelven**, no se leen tal cual: una parte pareja se guarda
+ * como `null` en la plantilla y se calcula recién con el monto de cada mes
+ * (§ `resolveSplits`). Mostrar el `null` sería no mostrar nada, y mostrar el
+ * monto de la plantilla sin repartir sería mentir sobre cuánto le toca a cada
+ * uno. Es exactamente el mismo cálculo que hace el sheet de registrar, así que
+ * lo que se ve acá es lo que se va a generar al pagarlo.
+ */
+function RepartoDetalle({ recurring, hidden }: { recurring: RecurringWithState; hidden: boolean }) {
+  const { people } = useFinanzas()
+  const cur = recurring.currency
+
+  const partes = useMemo(
+    () => resolveSplits(recurring.splits, recurring.amount, cur),
+    [recurring.splits, recurring.amount, cur],
+  )
+  const { mine, kind } = shareBreakdown(recurring.amount, partes, cur)
+  const nombreDe = (id: string) => people.find(p => p.id === id)?.name ?? 'Persona'
+
+  return (
+    <div className="rounded-[var(--fz-r-tile)] bg-[var(--fz-surface-sunk)] p-3.5">
+      <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--fz-ink-2)] mb-1.5">
+        <IconUsersGroup size={15} stroke={1.8} />
+        Compartido con {partes.length} {partes.length === 1 ? 'persona' : 'personas'}
+      </span>
+
+      <div className="flex flex-col">
+        {partes.map(pt => (
+          <div key={pt.person_id} className="flex items-center gap-3 h-9">
+            <span className="flex-1 text-[14px] font-medium truncate">{nombreDe(pt.person_id)}</span>
+            <span className="fz-num text-[14px] font-semibold shrink-0">
+              {hidden ? HIDDEN : formatAmount(pt.amount, cur)}
+            </span>
+          </div>
+        ))}
+
+        <div className="flex items-center gap-3 h-9 border-t border-[var(--fz-hairline)] mt-1 pt-1">
+          <span className="flex-1 text-[14px] font-semibold">
+            {kind === 'ganas' ? 'Ganas' : 'Tu parte'}
+          </span>
+          <span
+            className="fz-num text-[14px] font-bold shrink-0"
+            style={kind === 'ganas' ? { color: 'var(--fz-in-text)' } : undefined}
+          >
+            {hidden ? HIDDEN : formatAmount(Math.abs(mine), cur)}
+          </span>
+        </div>
+      </div>
+
+      {/* Una parte pareja se recalcula sola si el precio cambia; decirlo evita
+          que el número de arriba se lea como un compromiso fijo. */}
+      {recurring.splits.some(s => s.amount == null) && (
+        <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
+          Las partes parejas se recalculan con el monto de cada mes.
+        </p>
+      )}
     </div>
   )
 }
@@ -280,6 +339,9 @@ function Row({ r, hidden, hoy, categoryName, busy, onView, onRegister, onEdit, o
               registran de a uno, del más viejo al más nuevo. */}
           {r.pending.length > 1 && ` · ${r.pending.length} meses sin registrar`}
           {r.open_usd > 0 && !hidden && ` · te deben ${formatUSD(r.open_usd)}`}
+          {/* Un fijo de ahorro no es un gasto: se distingue en la lista para
+              que no se lea como plata que se va. */}
+          {r.savings_goal_id && ' · a un ahorro'}
         </span>
       </button>
 

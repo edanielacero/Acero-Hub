@@ -971,25 +971,14 @@ async function run() {
        (await rows('fin_budget_closures', `&line_id=eq.${budgetLine.id}`)).length, 0)
   }
 
-  section('SPRINT 7 · fin_accounts.is_savings, excluyente con is_investment')
-  let cuentaAhorro
+  section('SPRINT 7 (rev. 26/8) · ninguna cuenta es "de ahorro"')
   {
-    eq('sin mandar is_savings, nace en false', broker.is_savings, false)
-
-    cuentaAhorro = (await post('fin_accounts', {
-      user_id: USER_ID, name: 'Ahorro Emergencia', currency: 'USD', initial_balance: 0, is_savings: true,
-    }).then(r => r.json()))[0]
-    eq('se puede crear ya marcada como ahorro', cuentaAhorro?.is_savings, true)
-
-    const ambas = await as(`/fin_accounts?id=eq.${cuentaAhorro.id}`, {
-      method: 'PATCH', body: JSON.stringify({ is_investment: true }),
+    // La columna se eliminó: cualquier cuenta puede alojar ahorros, y lo que
+    // vuelve la plata un ahorro es la etiqueta del movimiento.
+    const conFlag = await post('fin_accounts', {
+      user_id: USER_ID, name: 'Con flag viejo', currency: 'USD', is_savings: true,
     })
-    ok('el constraint rechaza is_investment + is_savings juntos', ambas.status >= 400, `HTTP ${ambas.status}`)
-
-    const nacenJuntas = await post('fin_accounts', {
-      user_id: USER_ID, name: 'Imposible', currency: 'USD', is_investment: true, is_savings: true,
-    })
-    ok('tampoco se puede crear ya con las dos marcadas', nacenJuntas.status >= 400, `HTTP ${nacenJuntas.status}`)
+    ok('mandar is_savings ya no existe como columna', conFlag.status >= 400, `HTTP ${conFlag.status}`)
   }
 
   section('SPRINT 7 · fin_savings_goals')
@@ -1050,6 +1039,29 @@ async function run() {
     })
     ok('RLS impide crear un ahorro a nombre de otro', ajeno.status >= 400, `HTTP ${ajeno.status}`)
 
+    // Cajón de sastre: como mucho uno activo por usuario (índice único parcial).
+    eq('nace sin ser el cajón de sastre', ahorroFijo.is_catchall, false)
+    const primerCajon = await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_catchall: true }),
+    })
+    ok('se puede marcar uno como cajón de sastre', primerCajon.status < 400, `HTTP ${primerCajon.status}`)
+
+    const segundoCajon = await as(`/fin_savings_goals?id=eq.${ahorroPct.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_catchall: true }),
+    })
+    ok('pero no dos a la vez: el índice único lo rechaza', segundoCajon.status >= 400, `HTTP ${segundoCajon.status}`)
+
+    // Archivar el cajón libera el lugar — mismo criterio que fin_budget_lines.
+    await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    const trasArchivar = await as(`/fin_savings_goals?id=eq.${ahorroPct.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_catchall: true }),
+    })
+    ok('con el anterior archivado, otro puede tomar el lugar', trasArchivar.status < 400, `HTTP ${trasArchivar.status}`)
+    await as(`/fin_savings_goals?id=eq.${ahorroPct.id}`, { method: 'PATCH', body: JSON.stringify({ is_catchall: false }) })
+    await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, {
+      method: 'PATCH', body: JSON.stringify({ archived: false, is_catchall: false }),
+    })
+
     // 8 decimales para un ahorro en BTC — mismo criterio de precisión que
     // cuentas y transacciones (Sprint 1 §3.4).
     const ahorroBtc = (await post('fin_savings_goals', {
@@ -1059,48 +1071,87 @@ async function run() {
     await as(`/fin_savings_goals?id=eq.${ahorroBtc.id}`, { method: 'DELETE' })
   }
 
-  section('SPRINT 7 · fin_transactions.savings_goal_id / savings_reason')
-  let cuentaOrigen, aporteTx
+  section('SPRINT 7 · fin_transactions.savings_goal_id / savings_flow / savings_reason')
+  let cuentaOrigen, cuentaDestino, aporteTx
   {
     cuentaOrigen = (await post('fin_accounts', {
-      user_id: USER_ID, name: 'Cuenta normal ahorro', currency: 'USD', initial_balance: 500,
+      user_id: USER_ID, name: 'Cuenta origen ahorro', currency: 'USD', initial_balance: 500,
+    }).then(r => r.json()))[0]
+    cuentaDestino = (await post('fin_accounts', {
+      user_id: USER_ID, name: 'Cuenta destino ahorro', currency: 'USD', initial_balance: 0,
     }).then(r => r.json()))[0]
 
     aporteTx = (await post('fin_transactions', {
       user_id: USER_ID, type: 'transferencia', date: '2026-08-24',
-      account_id: cuentaOrigen.id, to_account_id: cuentaAhorro.id,
+      account_id: cuentaOrigen.id, to_account_id: cuentaDestino.id,
       amount: 50, currency: 'USD', exchange_rate: 1, amount_usd: 50,
-      flow_type: 'movimiento', savings_goal_id: ahorroFijo.id,
+      flow_type: 'movimiento', savings_goal_id: ahorroFijo.id, savings_flow: 'aporte',
     }).then(r => r.json()))[0]
     ok('crea una transferencia tageada con un ahorro', !!aporteTx?.id)
     eq('savings_reason queda null en un aporte', aporteTx.savings_reason, null)
 
+    // La dirección se declara, no se deduce (revisión 26/8): una fila tageada
+    // sin `savings_flow` no se puede leer sin adivinar, así que no existe.
+    const sinDireccion = await post('fin_transactions', {
+      user_id: USER_ID, type: 'transferencia', date: '2026-08-24',
+      account_id: cuentaOrigen.id, to_account_id: cuentaDestino.id,
+      amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'movimiento', savings_goal_id: ahorroFijo.id,
+    })
+    ok('un movimiento tageado sin savings_flow no entra', sinDireccion.status >= 400, `HTTP ${sinDireccion.status}`)
+
+    const direccionInvalida = await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-24',
+      account_id: cuentaOrigen.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_flow: 'ahorrito',
+    })
+    ok('rechaza un savings_flow fuera del enum', direccionInvalida.status >= 400, `HTTP ${direccionInvalida.status}`)
+
+    // Y al revés: dirección sin etiqueta tampoco significa nada.
+    const direccionHuerfana = await post('fin_transactions', {
+      user_id: USER_ID, type: 'gasto', date: '2026-08-24',
+      account_id: cuentaOrigen.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_flow: 'retiro',
+    })
+    ok('savings_flow sin savings_goal_id no entra', direccionHuerfana.status >= 400, `HTTP ${direccionHuerfana.status}`)
+
     const razonInvalida = await post('fin_transactions', {
       user_id: USER_ID, type: 'gasto', date: '2026-08-24',
-      account_id: cuentaAhorro.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
-      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_reason: 'porque sí',
+      account_id: cuentaOrigen.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_flow: 'retiro', savings_reason: 'porque sí',
     })
     ok('rechaza un savings_reason fuera del enum', razonInvalida.status >= 400, `HTTP ${razonInvalida.status}`)
 
     const retiro = (await post('fin_transactions', {
       user_id: USER_ID, type: 'gasto', date: '2026-08-24',
-      account_id: cuentaAhorro.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
-      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_reason: 'emergencia',
+      account_id: cuentaOrigen.id, amount: 10, currency: 'USD', exchange_rate: 1, amount_usd: 10,
+      flow_type: 'consumo', savings_goal_id: ahorroFijo.id, savings_flow: 'retiro', savings_reason: 'emergencia',
     }).then(r => r.json()))[0]
     ok('acepta un retiro con motivo válido', !!retiro?.id)
 
     const fantasma = await post('fin_transactions', {
       user_id: USER_ID, type: 'gasto', date: '2026-08-24',
-      account_id: cuentaAhorro.id, amount: 5, currency: 'USD', exchange_rate: 1, amount_usd: 5,
-      flow_type: 'consumo', savings_goal_id: '00000000-0000-0000-0000-000000000099', savings_reason: 'otro',
+      account_id: cuentaOrigen.id, amount: 5, currency: 'USD', exchange_rate: 1, amount_usd: 5,
+      flow_type: 'consumo', savings_goal_id: '00000000-0000-0000-0000-000000000099',
+      savings_flow: 'retiro', savings_reason: 'otro',
     })
     ok('la FK rechaza un savings_goal_id que no existe', fantasma.status >= 400, `HTTP ${fantasma.status}`)
 
     // Borrar el ahorro no borra sus movimientos: savings_goal_id cae a null
     // (on delete set null), mismo criterio que recurring_id/pasanaku_id.
-    await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, { method: 'DELETE' })
+    //
+    // BUG (26/8): con el constraint de forma puesto, la fila resultante
+    // (goal null, flow 'retiro') violaba el CHECK y el DELETE moría con el
+    // mensaje crudo de Postgres — cualquier ahorro que hubiera recibido un
+    // aporte quedaba imborrable. Un trigger limpia dirección y motivo antes
+    // de que la FK suelte la etiqueta (20260826030000).
+    const borrado = await as(`/fin_savings_goals?id=eq.${ahorroFijo.id}`, { method: 'DELETE' })
+    ok('se puede borrar un ahorro que YA tiene movimientos', borrado.status < 400, `HTTP ${borrado.status}`)
     const [aporteTrasborrado] = await rows('fin_transactions', `&id=eq.${aporteTx.id}`)
     eq('savings_goal_id cae a null cuando se borra el ahorro', aporteTrasborrado.savings_goal_id, null)
+    eq('y la dirección se limpia con él', aporteTrasborrado.savings_flow, null)
+    const [retiroTrasborrado] = await rows('fin_transactions', `&id=eq.${retiro.id}`)
+    eq('y el motivo del retiro también', retiroTrasborrado.savings_reason, null)
   }
 
   section('SPRINT 7 · fin_savings_closures')

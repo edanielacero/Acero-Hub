@@ -1,4 +1,4 @@
-import type { Account, Currency, FlowType, RateMap, SavingsReason, Transaction, TransactionInput, TxType } from './types'
+import type { Account, Currency, FlowType, RateMap, SavingsFlow, SavingsReason, Transaction, TransactionInput, TxType } from './types'
 import { freezeRate, round2, roundFor, toUsd } from './money'
 
 export interface ValidationResult {
@@ -133,17 +133,19 @@ export function freezeConversion(
  *
  * Una transferencia siempre es `'movimiento'`. Un gasto o ingreso en una
  * cuenta de inversión también: el mercado mueve el número, no es plata real
- * que entró o salió (Feature 11, §7.1 de `contexto_finanzas.md`). Un
- * `ingreso` en una cuenta de ahorro (Sprint 7, §4.5) es un aporte directo —
- * tampoco cuenta como ingreso nuevo, ya sea porque vino de otra cuenta propia
- * (que ya lo contó en su momento) o porque es plata apartada, no ganada este
- * mes. Un `gasto` en una cuenta de ahorro SÍ queda `'consumo'`: es un retiro
- * real, la distinción que separa "lo usé" de "lo moví" (Ronda 2). Cualquier
+ * que entró o salió (Feature 11, §7.1 de `contexto_finanzas.md`). Cualquier
  * otro caso es consumo real.
+ *
+ * ⚠️ **El ahorro no participa acá** (revisión del 2026-08-26). Antes, un
+ * `ingreso` a una cuenta marcada como de ahorro se degradaba a
+ * `'movimiento'` — o sea, **el sueldo que cayera ahí dejaba de contar como
+ * ingreso del mes** y el sobrante salía mal, en silencio. Lo que convierte
+ * plata en ahorro es la ETIQUETA explícita del movimiento
+ * (`savings_goal_id`), no la cuenta por la que pasa: una cuenta cualquiera
+ * puede tener plata libre y plata apartada mezcladas.
  */
-export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment' | 'is_savings'>): FlowType {
+export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment'>): FlowType {
   if (type === 'transferencia' || account.is_investment) return 'movimiento'
-  if (account.is_savings && type === 'ingreso') return 'movimiento'
   return 'consumo'
 }
 
@@ -161,48 +163,32 @@ export function flowTypeFor(type: TxType, account: Pick<Account, 'is_investment'
  */
 export function flowTypeOnEdit(
   type: TxType,
-  account: Pick<Account, 'is_investment' | 'is_savings'>,
+  account: Pick<Account, 'is_investment'>,
   current: FlowType,
 ): FlowType {
   return flowTypeFor(type, account) === 'movimiento' ? 'movimiento' : current
 }
 
 /**
- * Si un movimiento es plata SALIENDO de un ahorro — un `gasto`, o una
- * `transferencia` cuya cuenta de origen es `is_savings` y cuyo destino NO lo
- * es (Sprint 7 §4.6). Es lo que exige `savings_goal_id` + `savings_reason`:
- * la app pide justificativo en cualquier retiro, sea que cuente como gasto
- * real (`gasto`) o como movimiento financiero (`transferencia` a otra cuenta
- * propia) — la Ronda 2 decidió que eso depende del tipo, no de si se
- * justifica o no.
+ * Qué dirección le corresponde a un movimiento etiquetado, según su tipo.
  *
- * Una transferencia ENTRE dos cuentas de ahorro no es un retiro — es
- * reacomodar en qué billetera vive la plata del ahorro en general, sin
- * afectar a ningún ahorro (§0.1.2). No pide justificativo ni `savings_goal_id`.
+ * Solo la `transferencia` es ambigua —puede aportar o retirar— y ahí se le
+ * pregunta al usuario. Un `gasto` etiquetado siempre retira (la plata se fue)
+ * y un `ingreso` siempre aporta: en esos dos el tipo YA es la declaración
+ * explícita, no hace falta una pregunta más.
+ *
+ * `null` significa "no se puede saber sin preguntar".
  */
-export function isSavingsWithdrawal(
-  type: TxType,
-  account: Pick<Account, 'is_savings'>,
-  toAccount?: Pick<Account, 'is_savings'> | null,
-): boolean {
-  if (type === 'gasto') return account.is_savings
-  if (type === 'transferencia') return account.is_savings && !toAccount?.is_savings
-  return false
+export function savingsFlowForType(type: TxType): SavingsFlow | null {
+  if (type === 'gasto') return 'retiro'
+  if (type === 'ingreso') return 'aporte'
+  return null
 }
 
-/**
- * Si un movimiento es plata ENTRANDO a un ahorro — un `ingreso` en la cuenta
- * de origen, o una `transferencia` cuyo destino es `is_savings`. No pide
- * justificativo, pero sí `savings_goal_id`: a qué ahorro corresponde.
- */
-export function isSavingsContribution(
-  type: TxType,
-  account: Pick<Account, 'is_savings'>,
-  toAccount?: Pick<Account, 'is_savings'> | null,
-): boolean {
-  if (type === 'ingreso') return account.is_savings
-  if (type === 'transferencia') return !!toAccount?.is_savings && !account.is_savings
-  return false
+const SAVINGS_FLOWS_SET = new Set<SavingsFlow>(['aporte', 'retiro'])
+
+export function isValidSavingsFlow(value: unknown): value is SavingsFlow {
+  return typeof value === 'string' && SAVINGS_FLOWS_SET.has(value as SavingsFlow)
 }
 
 const SAVINGS_REASONS_SET = new Set<SavingsReason>(['emergencia', 'meta_cumplida', 'cambio_planes', 'otro'])

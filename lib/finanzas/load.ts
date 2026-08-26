@@ -15,7 +15,7 @@ import {
   montoEfectivo, needsClosure, periodRange, periodStart, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
-import { computeGoalBalancesUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings'
+import { computeGoalBalancesUsd, computeSavingsByAccountUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings'
 import type {
   Account, AccountWithBalance, AllocationType, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
@@ -36,11 +36,11 @@ import type {
  * los tests (ver tests/finanzas/run.mjs) y un import de framework lo rompería.
  */
 
-const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment, is_savings'
+const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
-const SAVINGS_GOAL_COLS = 'id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, sort_order, archived, created_at'
+const SAVINGS_GOAL_COLS = 'id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, is_catchall, sort_order, archived, created_at'
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id, savings_goal_id, savings_reason'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, pasanaku_id, savings_goal_id, savings_flow, savings_reason'
 
 export interface AccountsPayload {
   accounts: AccountWithBalance[]
@@ -69,7 +69,7 @@ export async function loadAccounts(
     // segundo viaje a la base solo para eso.
     supabase
       .from('fin_transactions')
-      .select('type, account_id, to_account_id, amount, to_amount, flow_type')
+      .select('type, account_id, to_account_id, amount, to_amount, flow_type, amount_usd, to_amount_usd, savings_goal_id, savings_flow')
       .eq('user_id', userId),
   ])
 
@@ -89,7 +89,30 @@ export async function loadAccounts(
       ))
       .map(r => r.account_id as string),
   )
-  const withFlags: AccountWithBalance[] = withBal.map(a => ({ ...a, has_value_updates: updatedIds.has(a.id) }))
+  // Cuánto de cada cuenta está apartado como ahorro. Sale de los mismos
+  // movimientos etiquetados que alimentan el saldo de cada ahorro — cero datos
+  // nuevos que mantener.
+  const ahorradoUsd = computeSavingsByAccountUsd(
+    (txRows ?? []).map(r => ({
+      savings_goal_id: r.savings_goal_id as string | null,
+      type: r.type as TxType,
+      account_id: r.account_id as string,
+      to_account_id: r.to_account_id as string | null,
+      amount_usd: num(r.amount_usd),
+      to_amount_usd: r.to_amount_usd == null ? null : num(r.to_amount_usd),
+      savings_flow: r.savings_flow as string | null,
+    })),
+  )
+
+  const withFlags: AccountWithBalance[] = withBal.map(a => {
+    const savings_balance_usd = round2(ahorradoUsd.get(a.id) ?? 0)
+    return {
+      ...a,
+      has_value_updates: updatedIds.has(a.id),
+      savings_balance_usd,
+      savings_balance: fromUsd(savings_balance_usd, a.currency, rates),
+    }
+  })
 
   return { accounts: withFlags, total_usd: totalUsd(withFlags), rates, rate_list: rateRows }
 }
@@ -501,7 +524,7 @@ export interface TxResult {
 
 
 const RECURRING_COLS =
-  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on'
+  'id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id'
 
 const RECURRING_SPLIT_COLS = 'id, recurring_id, person_id, amount'
 
@@ -1131,6 +1154,7 @@ export async function loadSavingsGoals(
     allocation_value: num(r.allocation_value),
     target_amount: r.target_amount == null ? null : num(r.target_amount),
     target_date: r.target_date as string | null,
+    is_catchall: Boolean(r.is_catchall),
     sort_order: num(r.sort_order),
     archived: Boolean(r.archived),
     created_at: r.created_at as string,
@@ -1146,15 +1170,13 @@ export async function loadSavingsGoals(
   if (goals.length === 0) return { goals: [], pending_period }
 
   const goalIds = goals.map(g => g.id)
-  const [{ data: txRows }, { data: accountRows }] = await Promise.all([
+  const [{ data: txRows }] = await Promise.all([
     supabase
       .from('fin_transactions')
-      .select('savings_goal_id, type, account_id, to_account_id, amount_usd, to_amount_usd')
+      .select('savings_goal_id, type, account_id, to_account_id, amount_usd, to_amount_usd, savings_flow')
       .eq('user_id', userId).in('savings_goal_id', goalIds),
-    supabase.from('fin_accounts').select('id, is_savings').eq('user_id', userId),
   ])
 
-  const savingsAccountIds = new Set((accountRows ?? []).filter(a => a.is_savings).map(a => a.id as string))
   const taggedTxs: GoalTaggedTx[] = (txRows ?? []).map(t => ({
     savings_goal_id: t.savings_goal_id as string | null,
     type: t.type as TxType,
@@ -1162,8 +1184,12 @@ export async function loadSavingsGoals(
     to_account_id: t.to_account_id as string | null,
     amount_usd: num(t.amount_usd),
     to_amount_usd: t.to_amount_usd == null ? null : num(t.to_amount_usd),
+    savings_flow: t.savings_flow as string | null,
   }))
-  const balances = computeGoalBalancesUsd(taggedTxs, id => savingsAccountIds.has(id))
+  const balances = computeGoalBalancesUsd(taggedTxs)
+  // Qué ahorros ya tienen movimientos: bloquea cambiarles la moneda, igual
+  // que en una cuenta con transacciones.
+  const conMovimientos = new Set(taggedTxs.map(t => t.savings_goal_id).filter((id): id is string => !!id))
 
   const withBalance: SavingsGoalWithBalance[] = goals.map((g): SavingsGoalWithBalance => {
     const balance_usd = round2(balances.get(g.id) ?? 0)
@@ -1172,6 +1198,7 @@ export async function loadSavingsGoals(
       id: g.id, name: g.name, input_currency: g.input_currency,
       allocation_type: g.allocation_type, allocation_value: g.allocation_value,
       target_amount: g.target_amount, target_date: g.target_date,
+      is_catchall: g.is_catchall,
       sort_order: g.sort_order, archived: g.archived,
     }
     return {
@@ -1179,6 +1206,7 @@ export async function loadSavingsGoals(
       balance: fromUsd(balance_usd, g.input_currency, rates),
       balance_usd,
       goal_reached: goalReached(goal, balance_usd, targetAmountUsd),
+      has_movements: conMovimientos.has(g.id),
     }
   })
 
@@ -1281,14 +1309,6 @@ export async function applySavingsClosure(
 
       if (!from || !to || !goal) return fail('Datos inválidos en el reparto')
       if (goal.archived) return fail('Ese ahorro está archivado')
-      if (!to.is_savings) return fail(`${to.name} no es una cuenta de ahorro`)
-      // El origen NO puede ser de ahorro: `computeGoalBalancesUsd` mira de qué
-      // lado está la cuenta de ahorro para decidir el signo, así que una
-      // "transferencia entre dos cuentas de ahorro" tageada se leería como un
-      // RETIRO y el aporte bajaría el saldo del ahorro en vez de subirlo. La
-      // UI ya solo ofrece cuentas regulares como origen; esto es la defensa
-      // del lado del server.
-      if (from.is_savings) return fail(`${from.name} es una cuenta de ahorro: el aporte tiene que salir de una cuenta regular`)
       if (from.id === to.id) return fail('El origen y el destino no pueden ser la misma cuenta')
 
       const amountFrom = goal.input_currency === from.currency
@@ -1310,7 +1330,9 @@ export async function applySavingsClosure(
           amount: amountFrom, currency: from.currency, to_amount: toAmount,
           exchange_rate: frozen.exchange_rate, amount_usd: frozen.amount_usd,
           to_amount_usd: frozenTo?.amount_usd ?? null, to_exchange_rate: frozenTo?.exchange_rate ?? null,
-          description: null, savings_goal_id: a.goal_id, savings_reason: null,
+          // Un cierre siempre APORTA: el camino lo sabe con certeza, no hace
+          // falta preguntarlo ni deducirlo de un campo vacío.
+          description: null, savings_goal_id: a.goal_id, savings_flow: 'aporte', savings_reason: null,
         })
         .select('id')
         .single()

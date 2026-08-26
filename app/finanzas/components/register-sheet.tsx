@@ -23,7 +23,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   onClose: () => void
   onDone: () => void
 }) {
-  const { accounts, people, rates, reload } = useFinanzas()
+  const { accounts, people, rates, savings, reload } = useFinanzas()
   // Cualquier cuenta sirve, no solo las de la moneda del fijo: a veces pagás
   // Spotify (en USD) desde una cuenta en Bs o en USDT. La plantilla no se
   // entera — sigue diciendo "$11.99" para el mes que viene — pero ESTE
@@ -37,10 +37,19 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
 
   const [amount, setAmount] = useState(String(recurring.amount))
   const [accountId, setAccountId] = useState(recurring.account_id ?? '')
+  // Fijo de ahorro: la cuenta de destino se elige ACÁ, no en la plantilla —
+  // igual que la de origen. La plantilla solo guarda la última usada.
+  const [toAccountId, setToAccountId] = useState(recurring.to_account_id ?? '')
   const [date, setDate] = useState(recurring.due)
   const [updateTemplate, setUpdateTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  const esAhorro = !!recurring.savings_goal_id
+  const ahorro = savings.goals.find(g => g.id === recurring.savings_goal_id) ?? null
+  // Cualquier cuenta puede recibir el aporte: lo que lo vuelve ahorro es la
+  // etiqueta, no la cuenta (revisión 26/8).
+  const cuentasAhorro = accounts.filter(a => !a.is_investment && (!a.archived || a.id === toAccountId))
 
   const account = candidatas.find(a => a.id === accountId)
   const decimals = decimalsFor(account?.currency ?? recurring.currency)
@@ -102,6 +111,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   async function submit() {
     setError('')
     if (!accountId) return setError('Elige de qué cuenta sale')
+    if (esAhorro && !toAccountId) return setError('Elige a qué cuenta de ahorro entra')
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
     if (excede) {
       return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
@@ -114,6 +124,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
       body: JSON.stringify({
         amount: value,
         account_id: accountId,
+        ...(esAhorro ? { to_account_id: toAccountId } : {}),
         date,
         update_template: updateTemplate,
       }),
@@ -248,6 +259,37 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
               </>
             )}
           </div>
+
+          {/* Fijo de ahorro: la cuenta destino se elige acá, no en la
+              plantilla — el aporte es una transferencia y este es el momento
+              en que se sabe de dónde a dónde va. */}
+          {esAhorro && (
+            <div>
+              <Label>Entra a{ahorro ? ` "${ahorro.name}"` : ''}, en la cuenta</Label>
+              {cuentasAhorro.length === 0 ? (
+                <p className="text-[13px] text-[var(--fz-out-text)]">
+                  Todavía no tienes cuentas. Crea una en Cuentas.
+                </p>
+              ) : (
+                <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                  {cuentasAhorro.map(a => (
+                    <button
+                      key={a.id} type="button" onClick={() => setToAccountId(a.id)}
+                      aria-pressed={a.id === toAccountId}
+                      className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
+                        a.id === toAccountId
+                          ? 'bg-[var(--fz-accent)] text-white'
+                          : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] border border-[var(--fz-hairline)]'
+                      }`}
+                    >
+                      <CurrencyIcon currency={a.currency} size={18} />
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <Label>Fecha</Label>

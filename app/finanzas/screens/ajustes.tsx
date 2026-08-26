@@ -15,7 +15,7 @@ import type { Category, CategoryKind, Currency, PersonWithDebt } from '@/lib/fin
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
 import type { BudgetViewMode } from '@/lib/finanzas/budgets'
 import { PAIRS_FOR_CURRENCY, QUOTE_META } from '@/lib/finanzas/quotes'
-import { amountFromInput, formatUSD, parseDecimalInput } from '@/lib/finanzas/money'
+import { amountFromInput, formatUSD, HIDDEN, parseDecimalInput } from '@/lib/finanzas/money'
 import { CurrencyIcon } from '../components/currency-icon'
 import { CategoryIcon, IconPickerGrid } from '../components/category-icon'
 import { useBudgetViewPref } from '../components/budget-view-pref'
@@ -48,7 +48,7 @@ const BUDGET_VIEW_OPTIONS: { value: BudgetViewMode; label: string; hint: string 
 ]
 
 export function AjustesScreen() {
-  const { categories, people, rates, rateList, budgets, recurring, reload } = useFinanzas()
+  const { categories, people, rates, rateList, budgets, recurring, hidden, reload } = useFinanzas()
 
   // Antes de borrar una categoría hay que saber si tiene un presupuesto
   // activo colgando. Si es la ÚNICA categoría de esa línea, borrarla se
@@ -504,7 +504,11 @@ export function AjustesScreen() {
           <DeletePreview
             icon={<PersonAvatar name={deletingPerson.name} size={40} />}
             title={deletingPerson.name}
-            subtitle={deletingPerson.open_usd > 0 ? `Debe ${formatUSD(deletingPerson.open_usd)}` : undefined}
+            subtitle={
+              deletingPerson.open_usd > 0
+                ? `Debe ${hidden ? HIDDEN : formatUSD(deletingPerson.open_usd)}`
+                : undefined
+            }
           />
         )}
       </DeleteConfirmSheet>
@@ -755,6 +759,9 @@ function PersonRow({ person: p, onPatch, onDelete }: {
   onPatch: (id: string, body: Record<string, unknown>) => void
   onDelete: () => void
 }) {
+  // El toggle de ocultar montos vale en TODA la app, también acá: lo que se
+  // le debe a alguien es tan sensible como cualquier saldo.
+  const { hidden } = useFinanzas()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: p.id })
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -788,7 +795,7 @@ function PersonRow({ person: p, onPatch, onDelete }: {
 
       {p.open_usd > 0 && (
         <span className="shrink-0 text-[13px] font-semibold fz-num text-[var(--fz-out-text)]">
-          debe {formatUSD(p.open_usd)}
+          debe {hidden ? HIDDEN : formatUSD(p.open_usd)}
         </span>
       )}
 
@@ -801,7 +808,7 @@ function PersonRow({ person: p, onPatch, onDelete }: {
               // Archivar a alguien que todavía te debe es válido, pero
               // conviene saberlo antes: la deuda no desaparece con la persona.
               if (!p.archived && p.open_usd > 0 &&
-                  !window.confirm(`${p.name} todavía te debe ${formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
+                  !window.confirm(`${p.name} todavía te debe ${hidden ? HIDDEN : formatUSD(p.open_usd)}. ¿Archivar igual?`)) return
               onPatch(p.id, { archived: !p.archived })
             },
           },

@@ -14,10 +14,10 @@ import {
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import {
-  surplusUsd, pendingSavingsPeriod, goalReached, computeGoalBalancesUsd, proposeAllocation,
-  validateGoalName, validateAllocation, validateTargetAmount,
+  surplusUsd, pendingSavingsPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
+  proposeAllocation, validateGoalName, validateAllocation, validateTargetAmount,
 } from './.fin/savings.mjs'
-import { isSavingsContribution, isSavingsWithdrawal, isValidSavingsReason } from './.fin/transactions.mjs'
+import { savingsFlowForType, isValidSavingsFlow, isValidSavingsReason } from './.fin/transactions.mjs'
 import { eq, ok, section, summary } from './harness.mjs'
 
 /** Tasas de referencia usadas por todas las pruebas. */
@@ -1665,32 +1665,62 @@ section('SPRINT 6 · validación')
   ok('rechaza formato libre', !isValidPeriod('agosto 2026'))
 }
 
-section('SPRINT 7 · flowTypeFor / isSavingsContribution / isSavingsWithdrawal')
+section('SPRINT 7 (revisión 26/8) · el ahorro es una etiqueta, no una cuenta')
 {
-  const savings = { is_investment: false, is_savings: true }
-  const investment = { is_investment: true, is_savings: false }
-  const normal = { is_investment: false, is_savings: false }
+  const investment = { is_investment: true }
+  const normal = { is_investment: false }
 
-  eq('un ingreso en cuenta de ahorro es movimiento (aporte)', flowTypeFor('ingreso', savings), 'movimiento')
-  eq('un gasto en cuenta de ahorro sigue consumo (retiro real)', flowTypeFor('gasto', savings), 'consumo')
-  eq('una transferencia siempre es movimiento, sea de ahorro o no', flowTypeFor('transferencia', normal), 'movimiento')
-  eq('inversión sigue ganando sobre ahorro (no debería pasar junto, pero por las dudas)',
-     flowTypeFor('gasto', investment), 'movimiento')
+  // Ninguna cuenta es "de ahorro": el flag se eliminó. Un ingreso siempre es
+  // ingreso real, caiga donde caiga.
+  eq('un ingreso siempre cuenta como ingreso real', flowTypeFor('ingreso', normal), 'consumo')
+  eq('un gasto sigue siendo consumo', flowTypeFor('gasto', normal), 'consumo')
+  eq('una transferencia sigue siendo movimiento', flowTypeFor('transferencia', normal), 'movimiento')
+  eq('inversión no cambió', flowTypeFor('gasto', investment), 'movimiento')
 
-  ok('ingreso en cuenta de ahorro es aporte', isSavingsContribution('ingreso', savings))
-  ok('transferencia HACIA una cuenta de ahorro es aporte', isSavingsContribution('transferencia', normal, savings))
-  ok('transferencia entre dos cuentas de ahorro NO es aporte (§0.1.2)', !isSavingsContribution('transferencia', savings, savings))
-  ok('un gasto nunca es aporte', !isSavingsContribution('gasto', savings))
+  // La DIRECCIÓN se declara. El tipo la fija solo donde no hay ambigüedad;
+  // en una transferencia devuelve null y hay que preguntar — antes se deducía
+  // de un motivo vacío, que confundía "es aporte" con "no puse motivo".
+  eq('un gasto etiquetado siempre retira', savingsFlowForType('gasto'), 'retiro')
+  eq('un ingreso etiquetado siempre aporta', savingsFlowForType('ingreso'), 'aporte')
+  eq('una transferencia es ambigua: hay que preguntar', savingsFlowForType('transferencia'), null)
 
-  ok('gasto en cuenta de ahorro es retiro', isSavingsWithdrawal('gasto', savings))
-  ok('transferencia DESDE una cuenta de ahorro hacia una normal es retiro', isSavingsWithdrawal('transferencia', savings, normal))
-  ok('transferencia entre dos cuentas de ahorro NO es retiro (§0.1.2)', !isSavingsWithdrawal('transferencia', savings, savings))
-  ok('un ingreso nunca es retiro', !isSavingsWithdrawal('ingreso', savings))
+  ok('aporte es una dirección válida', isValidSavingsFlow('aporte'))
+  ok('retiro también', isValidSavingsFlow('retiro'))
+  ok('cualquier otra cosa no', !isValidSavingsFlow('quizas'))
+  ok('y null tampoco: hay que declararla', !isValidSavingsFlow(null))
 
   ok('emergencia es un motivo válido', isValidSavingsReason('emergencia'))
-  ok('otro es válido', isValidSavingsReason('otro'))
   ok('cualquier cosa no lo es', !isValidSavingsReason('porque sí'))
-  ok('undefined no es válido', !isValidSavingsReason(undefined))
+}
+
+section('SPRINT 7 (revisión 26/8) · saldo del ahorro según el motivo')
+{
+  const txs = [
+    // Aporte del cierre: transferencia SIN motivo.
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'a', to_account_id: 'b', amount_usd: 100, to_amount_usd: 100, savings_flow: 'aporte' },
+    // Aporte con comisión: cuenta lo que LLEGÓ.
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'a', to_account_id: 'b', amount_usd: 50, to_amount_usd: 48, savings_flow: 'aporte' },
+    // Retiro gastado.
+    { savings_goal_id: 'g1', type: 'gasto', account_id: 'b', to_account_id: null, amount_usd: 30, to_amount_usd: null, savings_flow: 'retiro' },
+    // Retiro movido a otra cuenta: transferencia CON motivo.
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'b', to_account_id: 'a', amount_usd: 10, to_amount_usd: 10, savings_flow: 'retiro' },
+  ]
+  eq('100 + 48 − 30 − 10 = 108', computeGoalBalancesUsd(txs).get('g1'), 108)
+}
+
+section('SPRINT 7 (revisión 26/8) · cuánto de cada cuenta es ahorro')
+{
+  const txs = [
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'comun', to_account_id: 'ahorro', amount_usd: 100, to_amount_usd: 100, savings_flow: 'aporte' },
+    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'comun', to_account_id: 'ahorro', amount_usd: 50, to_amount_usd: 48, savings_flow: 'aporte' },
+    { savings_goal_id: 'g1', type: 'gasto', account_id: 'ahorro', to_account_id: null, amount_usd: 30, to_amount_usd: null, savings_flow: 'retiro' },
+    // Sin etiqueta no toca la porción apartada.
+    { savings_goal_id: null, type: 'ingreso', account_id: 'ahorro', to_account_id: null, amount_usd: 900, to_amount_usd: null, savings_flow: 'aporte' },
+  ]
+  const porCuenta = computeSavingsByAccountUsd(txs)
+  eq('la cuenta receptora tiene 100 + 48 − 30 apartados', porCuenta.get('ahorro'), 118)
+  eq('aportar no deja a la de origen con ahorro negativo', porCuenta.get('comun') ?? 0, 0)
+  eq('sin movimientos etiquetados, nada apartado', computeSavingsByAccountUsd([]).size, 0)
 }
 
 section('SPRINT 7 · surplusUsd — ingreso real menos gasto real')
@@ -1752,38 +1782,6 @@ section('SPRINT 7 · goalReached')
   eq('saldo por encima de la meta, se alcanzó', goalReached({ target_amount: 1000 }, 600, 500), true)
 }
 
-section('SPRINT 7 · computeGoalBalancesUsd — saldo derivado de movimientos tageados')
-{
-  const isSavingsAccount = id => id === 'ahorro-acc'
-  const txs = [
-    // ingreso directo a la cuenta de ahorro: +100
-    { savings_goal_id: 'g1', type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 100, to_amount_usd: null },
-    // transferencia normal -> ahorro: lo que LLEGÓ (to_amount_usd) es lo que suma
-    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'normal-acc', to_account_id: 'ahorro-acc', amount_usd: 50, to_amount_usd: 48 },
-    // retiro tipo gasto desde el ahorro: -20
-    { savings_goal_id: 'g1', type: 'gasto', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 20, to_amount_usd: null },
-    // retiro por transferencia hacia una cuenta normal: lo que SALIÓ (amount_usd) es lo que resta
-    { savings_goal_id: 'g1', type: 'transferencia', account_id: 'ahorro-acc', to_account_id: 'normal-acc', amount_usd: 10, to_amount_usd: 9 },
-    // sin savings_goal_id: se ignora
-    { savings_goal_id: null, type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 1000, to_amount_usd: null },
-    // de otro ahorro: no se mezcla
-    { savings_goal_id: 'g2', type: 'ingreso', account_id: 'ahorro-acc', to_account_id: null, amount_usd: 5, to_amount_usd: null },
-  ]
-  const balances = computeGoalBalancesUsd(txs, isSavingsAccount)
-  eq('g1: 100 + 48 − 20 − 10 = 118', balances.get('g1'), 118)
-  eq('g2 no se mezcla con g1', balances.get('g2'), 5)
-
-  const soloEntreAhorros = [
-    { savings_goal_id: 'g3', type: 'transferencia', account_id: 'ahorro-acc', to_account_id: 'ahorro-acc', amount_usd: 30, to_amount_usd: null },
-  ]
-  // Caso teórico: si igual llegara tageada una transferencia entre dos cuentas
-  // de ahorro (no debería pasar según §0.1.2, pero la función no debe romper),
-  // ninguna rama de isSavingsAccount(origen)/destino aplica un delta neto —
-  // el origen sí resta, así que el resultado es el retiro.
-  eq('transferencia entre dos cuentas de ahorro: se trata como salida si está tageada',
-     computeGoalBalancesUsd(soloEntreAhorros, isSavingsAccount).get('g3'), -30)
-}
-
 section('SPRINT 7 · proposeAllocation — la propuesta de reparto mensual')
 {
   const rates = { BOB: 6.96, USDT: 1, USDC: 1, BTC: 68000 }
@@ -1821,6 +1819,67 @@ section('SPRINT 7 · proposeAllocation — la propuesta de reparto mensual')
   eq('el archivado no entra en la propuesta', conArchivado.proposal.some(l => l.goal_id === 'p3'), false)
 }
 
+section('SPRINT 7 (revisión) · cajón de sastre y capeo por meta')
+{
+  const rates = { BOB: 6.96, USDT: 1, USDC: 1, BTC: 68000 }
+  const g = (id, name, type, value, extra = {}) => ({
+    id, name, input_currency: 'USD', allocation_type: type, allocation_value: value,
+    target_amount: null, target_date: null, is_catchall: false, sort_order: 0, archived: false,
+    balance: 0, balance_usd: 0, goal_reached: false, ...extra,
+  })
+  const usdDe = (r, id) => r.proposal.find(l => l.goal_id === id)?.amount_usd
+  const patri = g('P', 'Patrimonio', 'percent', 1, { is_catchall: true })
+
+  // "No quiero que haya un sin asignar" (decisión del usuario, 2026-08-24).
+  const conCajon = proposeAllocation([g('1', 'Emergencia', 'fixed', 50), g('2', 'Viaje', 'fixed', 30), patri], 300, rates)
+  eq('el cajón de sastre se lleva todo el resto', usdDe(conCajon, 'P'), 220)
+  eq('y no queda nada sin asignar', conCajon.unassignedUsd, 0)
+  eq('los fijos cobran lo suyo igual', usdDe(conCajon, '1'), 50)
+
+  // Los % siguen calculándose sobre el resto DESPUÉS de los fijos.
+  const conPct = proposeAllocation([g('1', 'Emergencia', 'fixed', 50), g('2', 'Viaje', 'percent', 30), patri], 300, rates)
+  eq('el 30% se toma del resto (250), no del sobrante entero', usdDe(conPct, '2'), 75)
+  eq('el cajón se lleva lo que sobra del reparto por %', usdDe(conPct, 'P'), 175)
+
+  // Capeo: ningún aporte automático se pasa de la meta.
+  const capFijo = proposeAllocation(
+    [g('1', 'Viaje', 'fixed', 50, { target_amount: 1000, balance: 980, balance_usd: 980 }), patri], 300, rates)
+  eq('un fijo de 50 al que le faltan 20 aporta solo 20', usdDe(capFijo, '1'), 20)
+  eq('y los 30 que no puso van al cajón', usdDe(capFijo, 'P'), 280)
+
+  const capPct = proposeAllocation(
+    [g('1', 'Viaje', 'percent', 30, { target_amount: 1000, balance: 990, balance_usd: 990 }), patri], 300, rates)
+  eq('un porcentual también se capea a lo que falta', usdDe(capPct, '1'), 10)
+  eq('y el resto va al cajón', usdDe(capPct, 'P'), 290)
+
+  // El cajón ignora su propia meta: si la respetara volvería a sobrar plata.
+  const cajonCumplido = proposeAllocation([
+    g('1', 'Emergencia', 'fixed', 50),
+    g('P', 'Patrimonio', 'percent', 1, { is_catchall: true, target_amount: 100, balance: 100, balance_usd: 100, goal_reached: true }),
+  ], 300, rates)
+  eq('el cajón absorbe aunque su meta ya esté cumplida', usdDe(cajonCumplido, 'P'), 250)
+  eq('sigue sin quedar nada sin asignar', cajonCumplido.unassignedUsd, 0)
+
+  // Con TODOS los demás cumplidos, el cajón se lleva el sobrante entero.
+  const todosCumplidos = proposeAllocation(
+    [g('1', 'Emergencia', 'fixed', 50, { goal_reached: true }), patri], 300, rates)
+  eq('con todos cumplidos, el cajón recibe todo', usdDe(todosCumplidos, 'P'), 300)
+
+  // Sin ningún cajón marcado, el comportamiento anterior sigue vigente.
+  const sinCajon = proposeAllocation([g('1', 'Emergencia', 'fixed', 50)], 300, rates)
+  eq('sin cajón marcado, el resto queda sin asignar como antes', sinCajon.unassignedUsd, 250)
+
+  // Un cajón archivado no cuenta: vuelve el fallback.
+  const cajonArchivado = proposeAllocation(
+    [g('1', 'Emergencia', 'fixed', 50), g('P', 'Patrimonio', 'percent', 1, { is_catchall: true, archived: true })], 300, rates)
+  eq('un cajón archivado no absorbe nada', cajonArchivado.unassignedUsd, 250)
+
+  // El monto nativo de un fijo NO capeado sigue siendo el que se escribió,
+  // sin round-trip por USD.
+  const bs = proposeAllocation([g('1', 'Bs', 'fixed', 696, { input_currency: 'BOB' })], 300, rates)
+  eq('un fijo no capeado conserva su monto nativo exacto', bs.proposal[0].amount, 696)
+}
+
 section('SPRINT 7 · validación')
 {
   eq('nombre válido', validateGoalName('Emergencia'), null)
@@ -1836,6 +1895,32 @@ section('SPRINT 7 · validación')
   eq('sin meta es válido', validateTargetAmount(null), null)
   eq('meta positiva es válida', validateTargetAmount(500), null)
   eq('meta en cero es inválida', validateTargetAmount(0), 'La meta debe ser mayor a cero')
+}
+
+section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
+{
+  // Lo que ve el usuario al tocar un fijo compartido: nombre y monto de cada
+  // persona, más cuánto le queda a él. Es el mismo par de funciones que usa el
+  // sheet de registrar, así que lo que se ve en el detalle es exactamente lo
+  // que se va a generar al pagarlo.
+  const conUno = [{ person_id: 'a', amount: null }]
+  const partesUno = resolveSplits(conUno, 60, 'USD')
+  eq('60 entre vos y una persona: 30 cada uno', partesUno.map(p => p.amount), [30])
+  eq('y tu parte son los otros 30', shareBreakdown(60, partesUno, 'USD').mine, 30)
+
+  // El centavo que no divide queda de TU lado, nunca del de ellos: es la regla
+  // "el que paga se come los centavos" (§ evenSplit), la única que mantiene
+  // Σ partes ≤ monto.
+  const conDos = [{ person_id: 'a', amount: null }, { person_id: 'b', amount: null }]
+  const partesDos = resolveSplits(conDos, 11.99, 'USD')
+  eq('11,99 entre tres: a ellos 3,99 cada uno', partesDos.map(p => p.amount), [3.99, 3.99])
+  eq('y el centavo que sobra lo pagás vos', shareBreakdown(11.99, partesDos, 'USD').mine, 4.01)
+
+  // Reparto que se pasa del gasto: tu parte queda negativa y se llama ganancia.
+  const cobrasDeMas = [{ person_id: 'a', amount: 40 }, { person_id: 'b', amount: 40 }]
+  const bd = shareBreakdown(60, resolveSplits(cobrasDeMas, 60, 'USD'), 'USD')
+  eq('repartir 80 sobre un gasto de 60 es ganancia', bd.kind, 'ganas')
+  eq('de 20', Math.abs(bd.mine), 20)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

@@ -22,7 +22,22 @@ import { Btn, ErrorNote, Label, SelectField, TextField } from './ui'
  * como cualquier retiro normal, desde Ahorros o el quick-add.
  */
 export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const { accounts, reload } = useFinanzas()
+  const { accounts, savings, reload } = useFinanzas()
+
+  // Mientras el sheet está abierto, el fondo no se toca: ni scroll ni clicks
+  // sueltos. Sin esto la lista de atrás seguía desplazándose bajo el dedo y
+  // se podía interactuar con ella — el sheet parecía un panel más de la
+  // página, no un formulario que te pide una decisión. Mismo efecto que ya
+  // tenían los otros once sheets de la mini-app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
   const [data, setData] = useState<SavingsClosureProposal | null>(null)
   const [amounts, setAmounts] = useState<Record<string, string>>({})
   const [fromAccountId, setFromAccountId] = useState('')
@@ -30,8 +45,16 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const regularAccounts = accounts.filter(a => !a.archived && !a.is_savings && !a.is_investment)
-  const savingsAccounts = accounts.filter(a => !a.archived && a.is_savings)
+  // Cualquier cuenta puede alojar ahorros (revisión 26/8): lo que hace que la
+  // plata sea ahorro es la etiqueta del aporte, no dónde cae.
+  const regularAccounts = accounts.filter(a => !a.archived && !a.is_investment)
+  const savingsAccounts = regularAccounts
+
+  // Para distinguir "no tenés ahorros" de "los tenés, pero todos ya llegaron
+  // a su meta": las dos dejan la propuesta vacía y el mensaje tiene que decir
+  // cuál de las dos es.
+  const activos = savings.goals.filter(g => !g.archived)
+  const todosCumplidos = activos.length > 0 && activos.every(g => g.goal_reached)
 
   useEffect(() => {
     let cancelled = false
@@ -118,7 +141,7 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
 
       <div
         role="dialog" aria-modal="true" aria-label="Repartir el sobrante del mes"
-        className="fz-sheet relative w-full min-[900px]:w-[440px] max-h-[92dvh] overflow-y-auto bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
+        className="fz-sheet relative w-full min-[900px]:w-[440px] max-h-[92dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
           <span className="w-9 h-1 rounded-full bg-[var(--fz-hairline)]" />
@@ -159,7 +182,24 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
               )}
 
               {data.proposal.length === 0 ? (
-                <p className="text-[13px] text-[var(--fz-ink-3)]">No hay ahorros activos para repartir.</p>
+                /* Una propuesta vacía tiene DOS causas muy distintas y decir
+                   siempre "no hay ahorros activos" era mentir en la segunda:
+                   los ahorros existen, solo que todos llegaron a su meta y por
+                   eso quedan fuera del reparto automático (§4.7). Y como el
+                   detalle del reparto no se renderiza en esta rama, la línea
+                   "Sin asignar" tampoco — así que el sobrante entero quedaba
+                   invisible justo cuando es lo único que hay para mirar. */
+                <div className="flex flex-col gap-2">
+                  <p className="text-[13px] text-[var(--fz-ink-3)]">
+                    {todosCumplidos
+                      ? 'Todos tus ahorros ya cumplieron su meta, así que ninguno entra en el reparto automático.'
+                      : 'No tenés ahorros activos para repartir.'}
+                  </p>
+                  <p className="text-[13px]">
+                    Los <strong>{formatUSD(data.surplus_usd)}</strong> se quedan donde están — no se mueven a
+                    ninguna cuenta de ahorro.
+                  </p>
+                </div>
               ) : savingsAccounts.length === 0 || regularAccounts.length === 0 ? (
                 /* Sin una cuenta de cada lado no hay transferencia posible.
                    Antes el selector quedaba vacío y "Confirmar" fallaba con un
@@ -209,8 +249,15 @@ export function SavingsClosureSheet({ onClose, onDone }: { onClose: () => void; 
                     ))}
                   </div>
 
+                  {/* Con un cajón de sastre marcado esto nunca aparece: el
+                      reparto asigna el 100%. Queda para quien no marcó
+                      ninguno — y ahí dice a dónde va la plata, en vez de
+                      dejar un número suelto sin explicación. */}
                   {data.unassigned_usd > 0 && (
-                    <p className="text-[12px] text-[var(--fz-ink-3)]">Sin asignar: {formatUSD(data.unassigned_usd)}</p>
+                    <p className="text-[12px] text-[var(--fz-ink-3)]">
+                      Quedan {formatUSD(data.unassigned_usd)} sin asignar: se quedan en tu cuenta, sin etiquetar.
+                      Marcá un ahorro como &ldquo;acá va lo que sobre&rdquo; para que se lo lleve.
+                    </p>
                   )}
                 </>
               )}

@@ -27,6 +27,21 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
 }) {
   const { budgets, reload } = useFinanzas()
 
+  // Mientras el sheet está abierto, el fondo no se toca: ni scroll ni clicks
+  // sueltos. Sin esto la lista de atrás seguía desplazándose bajo el dedo y
+  // se podía interactuar con ella — el sheet parecía un panel más de la
+  // página, no un formulario que te pide una decisión. Mismo efecto que ya
+  // tenían los otros once sheets de la mini-app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
   // Las categorías elegibles se capturan al abrir: crear una línea las saca
   // de `categories_without_line` en el próximo reload, y leerlas en vivo las
   // haría desaparecer del selector bajo el propio dedo del usuario.
@@ -147,7 +162,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
 
       <div
         role="dialog" aria-modal="true" aria-label={editing ? 'Editar presupuesto' : 'Nuevo presupuesto'}
-        className="fz-sheet relative w-full min-[900px]:w-[420px] max-h-[92dvh] overflow-y-auto bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
+        className="fz-sheet relative w-full min-[900px]:w-[420px] max-h-[92dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
           <span className="w-9 h-1 rounded-full bg-[var(--fz-hairline)]" />

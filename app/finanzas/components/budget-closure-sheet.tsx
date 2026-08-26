@@ -23,6 +23,21 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Mientras el sheet está abierto, el fondo no se toca: ni scroll ni clicks
+  // sueltos. Sin esto la lista de atrás seguía desplazándose bajo el dedo y
+  // se podía interactuar con ella — el sheet parecía un panel más de la
+  // página, no un formulario que te pide una decisión. Mismo efecto que ya
+  // tenían los otros once sheets de la mini-app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
   const finished = queue.length === 0 || index >= queue.length
 
   useEffect(() => {
