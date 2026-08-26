@@ -4,11 +4,13 @@ import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconArrowsLeftRight, IconBuildingBank,
-  IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconSettings, IconUsersGroup, IconWifiOff,
+  IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconRotateClockwise2,
+  IconSettings, IconSparkles, IconUsersGroup, IconWifiOff, IconX,
 } from '@tabler/icons-react'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { debtsNeedingAttention } from '@/lib/finanzas/splits'
 import { needsAttentionSoon } from '@/lib/finanzas/recurring'
+import { aportePendiente, roundsOf } from '@/lib/finanzas/pasanaku'
 import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { CURRENCY_META, type BudgetLineProgress } from '@/lib/finanzas/types'
 import { budgetBarView, type BudgetViewMode } from '@/lib/finanzas/budgets'
@@ -16,6 +18,8 @@ import { AmountUSD, HideToggle } from '../components/amount'
 import { monthQuery, useFinanzas, useTransactions } from '../components/data-context'
 import { useBudgetViewPref } from '../components/budget-view-pref'
 import { useHeroPref } from '../components/hero-pref'
+import { useDismissedBanners } from '../components/banner-dismiss'
+import { periodLabel } from '../components/savings-save-sheet'
 import { HeroSettingsSheet } from '../components/hero-settings-sheet'
 import { CategoryIcon } from '../components/category-icon'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
@@ -38,12 +42,13 @@ function firstName(name: string | null): string {
 }
 
 export function HomeScreen() {
-  const { accounts, categories, shared, recurring, budgets, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
+  const { accounts, categories, shared, recurring, budgets, savings, pasanaku, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
   const { mode: heroMode, setMode: setHeroMode } = useHeroPref()
   const { mode: budgetMode } = useBudgetViewPref()
+  const { ready: avisosReady, isDismissed, dismiss } = useDismissedBanners()
   const [heroSettings, setHeroSettings] = useState(false)
 
   const now = useMemo(() => new Date(), [])
@@ -70,6 +75,31 @@ export function HomeScreen() {
   // Las dos son alertas, no resúmenes — solo aparecen si hay algo que de
   // verdad requiere atención (ver `needsAttentionSoon`/`debtsNeedingAttention`).
   const hayFijos = needsAttentionSoon(recurring.recurring, hoy)
+
+  /* Avisos de la Home — la tarea del mes que todavía no hiciste, con el
+     atajo a su pantalla. Los dos se apagan solos al completar la tarea (son
+     una lectura de los datos, no un flag que haya que limpiar); la X solo los
+     calla antes, y solo hasta el período siguiente. */
+
+  // El mes cerrado que todavía no repartiste. Misma condición que el aviso de
+  // adentro de Ahorros, para que los dos digan lo mismo.
+  const ahorroPendiente = savings.pending_period
+    && savings.goals.some(g => !g.archived && !g.saved_periods.includes(savings.pending_period!))
+    ? savings.pending_period
+    : null
+
+  const pasanakusPendientes = useMemo(
+    () => pasanaku.filter(p => !p.archived && aportePendiente(p.start_date, roundsOf(p), hoy)),
+    [pasanaku, hoy],
+  )
+
+  const avisoAhorro = ahorroPendiente ? `ahorro:${ahorroPendiente}` : null
+  // Los ids en la clave: si aparece OTRO pasanaku pendiente después de cerrar
+  // el aviso, la clave cambia y el aviso vuelve — cerrarlo tapó lo que había
+  // en ese momento, no todo lo que pueda venir en el mes.
+  const avisoPasanaku = pasanakusPendientes.length > 0
+    ? `pasanaku:${hoy.slice(0, 7)}:${pasanakusPendientes.map(p => p.id).join(',')}`
+    : null
 
   const deudasAbiertas = shared.por_persona.flatMap(p => p.debts)
   const deudasRelevantes = debtsNeedingAttention(deudasAbiertas, hoy)
@@ -263,6 +293,32 @@ export function HomeScreen() {
                 ))}
               </div>
             </Panel>
+          )}
+
+          {avisosReady && avisoAhorro && !isDismissed(avisoAhorro) && (
+            <Aviso
+              Icon={IconSparkles}
+              tone="save"
+              title="Es hora de organizar tus ahorros"
+              description={`${periodLabel(ahorroPendiente!)} ya terminó. Guarda lo que dejó en cada plan.`}
+              onClick={() => navigate('/finanzas/ahorro')}
+              onDismiss={() => dismiss(avisoAhorro)}
+            />
+          )}
+
+          {avisosReady && avisoPasanaku && !isDismissed(avisoPasanaku) && (
+            <Aviso
+              Icon={IconRotateClockwise2}
+              tone="accent"
+              title={
+                pasanakusPendientes.length === 1
+                  ? `Te toca aportar a ${pasanakusPendientes[0].name}`
+                  : `${pasanakusPendientes.length} pasanakus esperan tu aporte`
+              }
+              description="Ya llegó la fecha del aporte. Registrá el tuyo para no perder la ronda."
+              onClick={() => navigate('/finanzas/pasanaku')}
+              onDismiss={() => dismiss(avisoPasanaku)}
+            />
           )}
 
           {/* Mismas barras anchas de siempre, pero solo hasta 900px: desde ahí
@@ -690,6 +746,59 @@ function HeroCard({ label, unit, value, of, note, foot, bar }: {
 
       <p className="relative mt-2 text-[13px] text-white/50">{foot}</p>
     </div>
+  )
+}
+
+/** Los dos tonos de aviso, en clases literales: Tailwind no ve un className
+    armado a mano en tiempo de ejecución. `save` es el azul de Ahorros (el
+    mismo del aviso de adentro de esa pantalla); `accent` el verde de la app. */
+const AVISO_TONE = {
+  save: {
+    panel: 'border-[color-mix(in_srgb,var(--fz-save)_22%,transparent)] bg-[var(--fz-save-tint)]',
+    chip: 'bg-[var(--fz-save)]',
+    title: 'text-[var(--fz-save)]',
+  },
+  accent: {
+    panel: 'border-[color-mix(in_srgb,var(--fz-accent)_22%,transparent)] bg-[var(--fz-accent-tint)]',
+    chip: 'bg-[var(--fz-accent)]',
+    title: 'text-[var(--fz-accent)]',
+  },
+} as const
+
+/**
+ * Un aviso de la Home: la tarea del mes que todavía no hiciste y el atajo a
+ * su pantalla. Mismo cuerpo que el aviso de adentro de Ahorros —invitación,
+ * no alerta— más la X para callarlo.
+ *
+ * El texto es un `<button>` y la X otro, en vez de envolver todo en un link:
+ * un botón adentro de un `<a>` no es HTML válido, y el tap en la X no debería
+ * navegar a ningún lado.
+ */
+function Aviso({ Icon, tone, title, description, onClick, onDismiss }: {
+  Icon: TablerIcon
+  tone: keyof typeof AVISO_TONE
+  title: string
+  description: string
+  onClick: () => void
+  onDismiss: () => void
+}) {
+  const t = AVISO_TONE[tone]
+  return (
+    <Panel className={`flex items-center gap-3 ${t.panel}`}>
+      <span className={`grid place-items-center w-9 h-9 rounded-full text-white shrink-0 ${t.chip}`} aria-hidden>
+        <Icon size={18} stroke={1.8} />
+      </span>
+      <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
+        <span className={`block text-[14px] font-semibold ${t.title}`}>{title}</span>
+        <span className="block text-[12.5px] text-[var(--fz-ink-2)]">{description}</span>
+      </button>
+      <button
+        type="button" onClick={onDismiss} aria-label="Cerrar aviso"
+        className="grid place-items-center w-8 h-8 rounded-full text-[var(--fz-ink-3)] hover:bg-[var(--fz-surface)] hover:text-[var(--fz-ink)] shrink-0"
+      >
+        <IconX size={16} stroke={1.8} />
+      </button>
+    </Panel>
   )
 }
 

@@ -243,6 +243,88 @@ del mes (`flowTypeFor` los pasaba a `'movimiento'` solo por caer en esa
 cuenta), aportes fantasma cuando la cuenta destino se desmarcaba, y filas que
 no se podían leer sin adivinar la intención de quien las cargó.
 
+### 0.9 Ronda 8 — cada cosa en su pantalla (2026-08-26)
+
+El usuario preguntó por qué una transferencia pregunta si aporta o retira, y
+la pregunta destapó que el modelo estaba puesto en el lugar equivocado:
+
+> *"Un aporte solo puede entrar a fin de mes desde la sección de ahorros. No
+> desde «Agregar Ingreso», y solo puede salir desde «Registrar Gasto». Una
+> transferencia por sí sola solo mueve el saldo disponible, no toca el saldo
+> de ahorros. Si se quiere mover un ahorro de una cuenta a otra, se lo debería
+> hacer desde la sección de Ahorros."*
+
+Tiene razón, y la razón es una **asimetría real de cómo se comporta el
+ahorro**:
+
+| | Cómo pasa | Dónde vive |
+|---|---|---|
+| **Aportar** | Por plan, y periódicamente: un fijo de ahorro o el reparto del cierre de mes | **Ahorros** y **Fijos** |
+| **Retirar** | Por circunstancia, en el momento: una emergencia, un cambio de idea | **Movimientos** (el gasto que lo rompe) |
+| **Trasladar** | Reacomodo de billeteras, no gasto ni ingreso | **Ahorros** |
+
+Aportar es una **decisión de plan**; Movimientos es donde se registra **lo que
+pasó**. Meter la decisión en el registro era lo que obligaba a preguntar
+"¿aporta o retira?" en medio de una transferencia — una pregunta que solo
+existía porque la pantalla estaba haciendo dos trabajos.
+
+Qué cambió:
+
+1. **`POST /transactions` solo acepta la etiqueta en un `gasto`.** Un `ingreso`
+   tageado y una `transferencia` tageada devuelven `400` con el mensaje que
+   dice a dónde ir.
+2. **Editar tampoco es la puerta de atrás.** Cargar un retiro y después
+   cambiarle el tipo a `ingreso` lo convertía en un aporte hecho desde
+   Movimientos. Ahora se rechaza — pero editar una transferencia tageada que
+   *ya existía* (la del fijo, la del cierre, la del traslado) sigue
+   funcionando: archivar o cambiar una regla no congela la historia (b08fdb4).
+3. **El quick-add perdió el selector de dirección.** Con solo retiros posibles,
+   el tipo ya la declara y no hay nada que preguntar. Queda un único botón,
+   *"Gastar de mis ahorros"*, y solo en un gasto desde una cuenta que tenga
+   algo apartado.
+4. **Nace el traslado** (§4.12), que era el hueco anotado en §4.9.
+
+### 0.10 Ronda 9 — el reparto deja de ser un trámite (2026-08-26)
+
+El cierre mensual funcionaba pero se sentía como una obligación administrativa:
+un banner rojo con triángulo de advertencia (*"Tienes un mes por repartir"*),
+un botón **Revisar**, y un formulario que pedía una cuenta de origen y una de
+destino para **todos** los ahorros de una sola vez, listándolos con montos sin
+moneda. El usuario lo dijo entero:
+
+> *"El mensaje parece un mensaje de error. Debería invitar al usuario a
+> organizar sus ahorros... En vez de un botón «Revisar» donde se haga toda la
+> repartición, cada card de ahorro debe tener su botón de «Ahorrar»."*
+
+| Antes | Ahora |
+|---|---|
+| ⚠️ *"Tienes un mes por repartir"* + **Revisar** | ✨ *"Es hora de organizar tus ahorros"*, en azul y sin botón |
+| Un reparto global para todos los planes | Un botón **Ahorrar** en la card de cada plan |
+| *"¿De qué cuenta sale?"*, un picker en blanco | **Dónde quedó la plata de ese mes**, cuenta por cuenta, filtrado por la moneda del plan |
+| *"¿A qué cuenta de ahorro entra?"* | *"¿En qué cuenta ahorrar?"*, con la misma cuenta por defecto |
+| Montos sin moneda | Monto con su moneda; y si el plan es por %, el % **y** cuánto es |
+
+Cuatro decisiones de fondo:
+
+1. **Guardar sin mover de banco.** Lo normal al ahorrar es que la plata ya esté
+   donde tiene que estar: lo que cambia es que pasa a estar apartada. Se
+   registra como una transferencia de la cuenta **a sí misma** — el saldo no se
+   mueve un peso (sale y entra el mismo monto) y lo apartado sube. Hubo que
+   abrir `fin_tx_transfer_shape` para ese caso (§4.13).
+2. **El origen sale de la plata del mes, no de un picker.** `month_funds` dice,
+   por cuenta, cuánto dejó ese mes **y** sigue libre hoy — el mínimo de las dos
+   cosas, porque no se puede guardar plata ya gastada ni plata ya apartada.
+3. **Una vez por mes y por plan.** `savings_period` en el aporte dice a qué mes
+   pertenece; con eso el botón se apaga y la tabla del detalle se dibuja.
+4. **Callejón sin salida, no.** Si el mes dejó plata pero en otra moneda, el
+   sheet no dice "no se puede": dice cuánto hay y qué hacer — convertir con una
+   transferencia y volver.
+
+El azul (`--fz-save`) es la cuarta excepción a *"el color es solo marca y
+dinero"*. Guardar no es ni ingreso ni gasto: es plata tuya que cambia de
+estado, y con el verde de la marca el botón se confundía con cualquier otra
+acción primaria. Vive acotado a la pantalla de Ahorros.
+
 ### 0.2 Simplificaciones que se tomaron al construir
 
 Dos decisiones de alcance que se tomaron durante la construcción, no antes —
@@ -510,26 +592,34 @@ traslado entre cuentas propias se cargan como `transferencia` (siempre
 Un movimiento **no es de ahorro por dónde cae**. Es de ahorro si trae
 `savings_goal_id`, y entonces:
 
-| Tipo | Dirección | Quién la pone |
+⚠️ **Reescrito otra vez el 2026-08-26 (Ronda 8).** La dirección ya no se
+pregunta nunca: la determina de dónde viene el movimiento.
+
+| Dirección | Quién la escribe | Por dónde |
 |---|---|---|
-| `gasto` | `retiro` | la impone el servidor (`savingsFlowForType`) |
-| `ingreso` | `aporte` | la impone el servidor |
-| `transferencia` | la que declare el cliente | **se pregunta** — el tipo no alcanza |
+| `aporte` | el servidor | registrar un **fijo de ahorro**, o confirmar el **cierre de mes** |
+| `retiro` | el servidor (`savingsFlowForType`) | un **gasto** etiquetado en el quick-add |
+| `traslado` | el servidor | **"Mover de cuenta"** en Ahorros (§4.12) |
 
 Reglas duras, todas con `400`:
 
-- Una `transferencia` tageada **sin** `savings_flow` se rechaza: *"¿Esta
-  transferencia aporta a un ahorro o retira de él?"*
+- `POST /transactions` acepta `savings_goal_id` **solo en un `gasto`**. Un
+  `ingreso` o una `transferencia` tageados se rechazan con el mensaje que dice
+  a dónde ir.
+- El `PATCH` no es la puerta de atrás: cambiarle el tipo a un retiro para
+  volverlo aporte se rechaza. Editar una transferencia tageada **que ya era
+  así** sigue permitido.
 - Una dirección **declarada que contradice al tipo** se rechaza (un `gasto`
   declarado como `aporte`), en vez de pisarla en silencio.
-- Un `retiro` **sin** `savings_reason` válido se rechaza — el justificativo en
+- Un retiro **sin** `savings_reason` válido se rechaza — el justificativo en
   cada salida es lo que se pidió al abrir el sprint.
 - Un movimiento **sin** `savings_goal_id` no lleva ni dirección ni motivo: son
   un solo dato y viajan juntos. Lo sostiene también la base
   (`fin_tx_savings_flow_shape`).
 
 Y una regla blanda, deliberada: un movimiento **sin etiquetar no pregunta
-nada**. Gastar de una cuenta que además guarda ahorros es un gasto común.
+nada**. Gastar de una cuenta que además guarda ahorros es un gasto común, y
+una transferencia común es solo plata cambiando de billetera.
 
 ### 4.7 Meta cumplida
 
@@ -573,12 +663,10 @@ cuenta no puede tener ahorro negativo.
 exactamente la suma de lo apartado en cada cuenta. Hay una regresión que lo
 prueba en `api.mjs` (§ "regresiones de los tres bugs de la revisión").
 
-**Límite conocido — no hay "traslado".** Mover plata *ya ahorrada* de una
-cuenta a otra no tiene forma de expresarse hoy: marcarla como `aporte` la
-contaría dos veces (queda apartada en el origen **y** en el destino), y como
-`retiro` la saca del ahorro. Sirve como taparrabos hacer retiro + aporte en
-dos movimientos. Una tercera dirección `'traslado'` que mueva los dos lados a
-la vez es el arreglo natural si aparece la necesidad.
+✅ **Resuelto en la Ronda 8.** Acá estaba anotado que mover plata *ya
+ahorrada* entre cuentas no tenía forma de expresarse: como `aporte` se contaba
+dos veces, como `retiro` salía del ahorro. La tercera dirección existe y vive
+en §4.12.
 
 ### 4.10 Qué bloquea de verdad, y qué no
 
@@ -595,20 +683,161 @@ la vez es el arreglo natural si aparece la necesidad.
   registrar un fijo.
 - Cambiar la moneda de un ahorro que ya tiene movimientos.
 
+- **El piso de ahorro**, en los cinco caminos que sacan plata de una cuenta
+  (§4.11).
+
 **Blando, y a propósito:**
 
-- **El tope "no toques los ahorros" lo aplica hoy solo el cliente.** El
-  quick-add calcula `disponible = saldo − apartado` y no deja pasar de ahí sin
-  encender *"gastar de mis ahorros"*, pero `assertBalance` en el servidor mide
-  contra el **saldo total**. Otros caminos que no pasan por el quick-add
-  —registrar un fijo, un aporte de pasanaku, una cuota de deuda— pueden comerse
-  lo apartado sin avisar. No se endureció porque hacerlo dejaría fijos
-  impagables sin escotilla de escape en su propio sheet: si se quiere duro,
-  hay que dar el toggle también en `<RegisterSheet>` y en el aporte de
-  pasanaku, y eso es trabajo de producto, no un parche de validación.
 - **Ninguna cuenta desaparece del picker.** No hay cuentas "de ahorro" que
   esconder, a diferencia de las de inversión.
+- **No hay confirmación al retirar.** Se puede romper un ahorro cuando se
+  quiera; lo único obligatorio es decir por qué.
 - **La historia previa nunca queda congelada** (ver abajo).
+
+### 4.11 El piso de ahorro — lo apartado no es plata disponible
+
+**Agregado el 2026-08-26.** Hasta acá el tope lo aplicaba **solo el
+quick-add**: el servidor medía contra el saldo total, así que registrar un
+fijo o aportar a un pasanaku se comía lo apartado sin decir una palabra.
+El usuario lo señaló: *"creo que es algo que debería estar en toda la app para
+que ahorrar tenga sentido"*. Tiene razón — un límite que se esquiva por
+cualquier otra pantalla no es un límite, es una decoración.
+
+La regla vive en `assertBalance` (`lib/finanzas/load.ts`), que es el punto por
+el que pasan **los cinco caminos** que sacan plata de una cuenta: crear un
+movimiento, editarlo, registrar un fijo, aportar a un pasanaku y repartir el
+cierre del mes.
+
+```
+movimiento común    → tope = saldo − apartado
+retiro declarado    → tope = apartado   (acotado por el saldo real)
+```
+
+Consecuencias que valen la pena decir en voz alta:
+
+- **Un fijo que no entra sin romper un ahorro, no entra.** Para pagarlo hay que
+  retirar del ahorro primero, a mano y con su motivo. Es incómodo a propósito:
+  es exactamente la fricción que hace que ahorrar signifique algo.
+- **No se puede retirar de una cuenta donde ese ahorro no tiene nada
+  apartado.** No se saca lo que no se puso. El quick-add ni siquiera ofrece el
+  toggle en ese caso, así que cliente y servidor coinciden.
+- **Una cuota de deuda cobrada no se ve afectada**: es un `ingreso`, plata que
+  **entra**, y `consumesBalance` ya la deja afuera. Lo aclaró el usuario en la
+  misma conversación, y estaba en lo cierto.
+- `<RegisterSheet>` y `<PasanakuAporteSheet>` muestran ahora el mismo
+  `disponible` que aplica el servidor, con la aclaración *"· X en ahorros"* al
+  lado, para que el número no aparezca sin explicación.
+
+#### Lo apartado se calcula en la moneda de la cuenta, no en USD
+
+`computeSavingsByAccount` (nativa) convive con `computeSavingsByAccountUsd`
+(para comparar cuentas entre sí). La nativa no usa ninguna tasa: `amount` ya
+está en la moneda de `account_id` y `to_amount` en la de `to_account_id` — el
+mismo par de campos con el que `computeBalances` deriva los saldos.
+
+Pasar por USD y volver arrastraba centavos: aportar **Bs 700** y ver *"Bs
+699,99 apartados"* es un número que el usuario sabe que está mal, y además
+dejaba el tope un centavo corrido respecto del saldo del que se resta.
+
+### 4.12 El traslado — mover un ahorro de cuenta
+
+`POST /api/finanzas/savings-goals/[id]/move`, desde **"Mover de cuenta"** en el
+menú de cada ahorro. No vive en el quick-add porque no es un movimiento del
+mes: no ganaste ni gastaste nada, solo cambiaste de billetera plata que ya
+estaba guardada.
+
+Pero **se ve como una transferencia**, porque lo es (rehecho en la Ronda 9 a
+pedido del usuario): mismo formulario que "Transferir" en el quick-add —monto
+grande arriba con su MAX, *Desde*, *Hacia*, y "cuánto llegó a X" cuando cambian
+de moneda, con la comisión calculada igual. Lo único distinto es de qué
+bolsillo sale y a cuál entra: **cada cuenta tiene su sección de ahorros**, y
+esto mueve de una a la otra. Por eso las tarjetas muestran lo que este plan
+tiene guardado en cada cuenta, no el saldo entero.
+
+```
+saldo real       A −X, B +X    (transferencia normal)
+lo apartado      A −X, B +X    (los DOS lados, a diferencia de aporte y retiro)
+saldo del ahorro    sin cambios
+```
+
+Se registra como `transferencia` con `flow_type: 'movimiento'` — no ensucia
+ingreso ni gasto real — y `savings_flow: 'traslado'`, sin motivo: no se está
+rompiendo nada.
+
+**El tope es por ahorro y por cuenta, no por cuenta.** Si en Efectivo hay
+Bs 500 del auto y Bs 300 de emergencias, del auto se pueden mover 500, no 800.
+Lo calcula `computeGoalBalancesByAccountUsd`, y lo mismo alimenta el campo
+`by_account` que la pantalla usa para listar los orígenes posibles y para
+mostrar *"Dónde está guardado"* en el detalle.
+
+Además pasa por `assertBalance` como salida de la alcancía (igual que un
+retiro): lo apartado es un dato **derivado**, no una caja aparte — si la plata
+se gastó por otro lado, no está, y el traslado se rechaza.
+
+---
+
+### 4.13 "Ahorrar" — el reparto plan por plan
+
+`POST /api/finanzas/savings-goals/[id]/save`, desde el botón **Ahorrar** de
+cada card. Reemplaza a `POST /savings-goals/close`, que repartía todo de una.
+
+```
+guardar en la MISMA cuenta   saldo sin cambios, apartado +X
+guardar en OTRA cuenta       A −X, B +X   ·   apartado +X en B
+saldo del ahorro             +X en los dos casos
+```
+
+Lo que valida, en orden:
+
+- El plan existe y no está archivado.
+- El período es un mes **ya terminado** — nunca el mes en curso: todavía no se
+  sabe cuánto va a sobrar.
+- Ese plan **no guardó ya** en ese período (`409`).
+- La cuenta de origen está en **la moneda del plan**. Un ahorro en Bs no se
+  alimenta con dólares sin decidir a qué tasa, y esa decisión no va escondida
+  en un endpoint.
+- El monto entra en lo que **ese mes dejó libre** en esa cuenta
+  (`month_funds`), no en el saldo entero.
+
+#### `available_funds` — de dónde se puede sacar
+
+Por cuenta: **saldo menos lo ya apartado**, clampeado en cero, sin cuentas
+archivadas ni de inversión.
+
+⚠️ **Corregido el 2026-08-26, reportado desde la cuenta demo.** La primera
+versión devolvía "lo que ese mes dejó en esa cuenta" — el mínimo entre cuánto
+creció su saldo durante el período y cuánto sigue libre hoy. Suena razonable y
+era un callejón sin salida:
+
+> *"Acabo de cambiar 1000 Bs a USDT pero aún no me deja ingresar el ahorro.
+> Incluso veo que ya tenía saldo disponible en Binance USDT que podía poner al
+> ahorro."*
+
+Las dos mitades del reporte eran ciertas:
+
+- Binance tenía 266 USDT libres y el sheet no la ofrecía, porque el mes
+  pendiente (julio) no la había tocado.
+- Y el propio consejo del sheet —*"convertí tus bolivianos a USDT y volvé a
+  registrar el ahorro"*— era **imposible de seguir**: la conversión ocurre hoy,
+  que cae en el mes en curso, no en el que se está organizando. Por más que se
+  convirtiera, la cuenta destino nunca sumaba nada al período pendiente.
+
+La plata es fungible. El sobrante del mes es un **monto**, no un lugar: dice
+cuánto te quedó, no en qué billetera está parado hoy. El usuario lo confirmó:
+*"al ahorro debe ir todo dinero del saldo disponible para usar, aunque no se
+haya ingresado este mes"*. Así que el sobrante quedó donde corresponde —como la
+**sugerencia** de cuánto guardar (§4.3)— y el tope por cuenta pasó a ser lo que
+de verdad hay libre. Regresión en `probe.mjs` §AP, que reproduce el reporte
+entero: convertir hoy y poder guardar.
+
+#### `savings_period` — a qué mes pertenece un aporte
+
+La fecha del movimiento no alcanza: el aporte del reparto de julio se registra
+en agosto. Lo escriben los dos caminos que aportan — el reparto con el mes que
+organiza, un fijo con el mes en que cae su fecha. De ahí salen el botón que se
+apaga y la tabla de meses del detalle (check si hubo aporte, guion si no).
+
+---
 
 #### Un movimiento anterior a la regla no se vuelve ineditable
 
@@ -876,7 +1105,7 @@ Los siete se corrigieron y las suites se volvieron a correr en verde, con
 pruebas de regresión propias para los cinco que son verificables
 automáticamente (1–5).
 
-### Tres bugs más en la revisión de la Ronda 7 (2026-08-26)
+### Cuatro bugs más en la revisión de la Ronda 7 (2026-08-26)
 
 Encontrados después del rediseño, corriendo las tres suites contra la base
 real y ampliando el probe con seis secciones nuevas (§AB–§AK).
@@ -921,7 +1150,26 @@ real y ampliando el probe con seis secciones nuevas (§AB–§AK).
    hacer, sin romper la regla b08fdb4: el fijo se sigue pausando, renombrando
    y editando.
 
-Los tres tienen regresión propia en `api.mjs`
+4. **Los ahorros no se podían alimentar a mano.** El botón de ahorro del
+   quick-add se mostraba solo si `savings_balance > 0` **y** el tipo consumía
+   saldo. Las dos condiciones juntas dejaban afuera todo aporte manual: no se
+   podía marcar un **ingreso** como aporte (el tipo no consume saldo), ni hacer
+   el **primer** aporte por transferencia desde una cuenta que todavía no tenía
+   nada apartado. Los ahorros solo podían nacer del cierre mensual o de un fijo
+   — la pantalla los mostraba y el modelo los soportaba, pero el único camino
+   manual estaba cerrado. Ahora el botón aparece siempre que se pueda aportar
+   (ingreso o transferencia); **retirar** sí sigue pidiendo que haya algo
+   apartado, que es la misma regla del piso (§4.11).
+
+   De paso, dos correcciones de la misma pantalla:
+   - Los chips de ahorro se filtraban por la moneda de la cuenta de ORIGEN. En
+     un aporte por transferencia la plata queda en la de **destino**, así que
+     ahora es esa la que manda.
+   - El selector de dirección decía *"Aporta al ahorro"* / *"Retira del
+     ahorro"* sin explicar qué significaba ninguno. Pasó a **"Guarda plata"** /
+     **"Saca plata"**, con una línea debajo que dice qué le hace al ahorro.
+
+Los cuatro tienen regresión propia en `api.mjs`
 (§ "regresiones de los tres bugs de la revisión") y en `db.mjs`.
 
 **Dos hallazgos que resultaron ser tests mal escritos, no bugs** — vale
@@ -982,6 +1230,93 @@ refactor de `validateRecurring`.
 
 ---
 
+### El sobrante ya descuenta lo que los fijos guardaron (2026-08-26)
+
+Encontrado al verificar la Ronda 8, y arreglado.
+
+`monthSurplusUsd` calculaba `ingresos − gastos`, ambos filtrados a `'consumo'`.
+Un aporte es una `transferencia` (`'movimiento'`), así que **nunca se restaba**.
+Con un fijo de ahorro de $100 corriendo, al cerrar el mes el reparto proponía
+repartir el sobrante **entero**, esos $100 incluidos: te pedía ahorrar plata
+que ya estaba ahorrada.
+
+Ahora se descuentan **solo los aportes de un fijo** (`recurring_id` no nulo),
+que desde la Ronda 8 son lo único que puede aportar a mitad de mes. Se usa el
+monto que **llegó** (`to_amount_usd ?? amount_usd`), no el que salió: en un
+aporte cross-currency son distintos, y lo que quedó guardado es el lado que
+entró.
+
+Tres cosas quedan deliberadamente afuera del descuento:
+
+- **Las transferencias del propio cierre.** Nacen con fecha de hoy, que cae en
+  el mes *siguiente* al que cierran: descontarlas arruinaría el sobrante de un
+  mes que todavía no terminó. Es la razón de elegir el filtro por
+  `recurring_id` y no "todos los aportes".
+- **Los traslados.** No ahorran nada nuevo, solo cambian de cuenta plata ya
+  guardada.
+- **Los aportes de otros meses.** El filtro de período ya los deja fuera.
+
+**Asimetría deliberada, no olvido:** un **retiro** sí sigue bajando el
+sobrante, porque para `gastoUsd` es un gasto normal. Se puede defender de las
+dos maneras —romper un ahorro deja menos para guardar el mes que viene— y no
+se tocó porque no se pidió. Si algún día se quiere simétrico, la fórmula
+completa es `ingresos − gastos − (aportes − retiros)`, que es exactamente el
+cambio de la plata **libre** del mes.
+
+Regresión en `probe.mjs` §AN y en `api.mjs`
+(§ "el sobrante descuenta lo que los fijos ya guardaron"); §F del probe, que
+afirmaba lo contrario, pasó a afirmar lo nuevo.
+
+---
+
+### El bug que la Ronda 9 dejó abierto: el mes pendiente no avanzaba
+
+Encontrado al preguntarse *"¿de verdad probamos todo?"*, que era la pregunta
+correcta: las tres suites estaban en verde y el bug igual estaba ahí.
+
+`pendingSavingsPeriod` devolvía *"el período vencido más viejo sin una fila en
+`fin_savings_closures`"*. Esa tabla la escribía el **reparto global**, que la
+Ronda 9 reemplazó por el botón de cada plan. Al dejar de escribirse:
+
+- guardabas en todos tus planes → los botones desaparecían (eso funcionaba,
+  porque sale de `saved_periods`);
+- pero `pending_period` se quedaba clavado en el mismo mes **para siempre**;
+- cuando terminaba el mes siguiente, la app seguía ofreciendo organizar el mes
+  viejo, y el nuevo no aparecía nunca.
+
+O sea: **la feature dejaba de funcionar sola a los treinta días de usarla**, en
+silencio y sin un solo test en rojo. Ninguna suite lo agarraba porque todas
+corren dentro de un mismo instante: nunca ven pasar un mes.
+
+Ahora el mes pendiente es **el mes pasado, y solo ese**. Sin tabla de estado,
+sin nada que escribir, siempre avanza. Un mes que decidiste no fondear no queda
+pendiente para siempre: pasa, y queda con su guion en la tabla del detalle. No
+hace falta un "saltar mes" porque no hay nada trabado.
+
+Y un plan solo organiza meses que **vivió**: uno creado en agosto no ofrece
+julio (`canSaveForPeriod`).
+
+#### Se borró el reparto global, no se dejó apagado
+
+`GET/POST /savings-goals/close`, `loadSavingsClosureProposal` y
+`applySavingsClosure` se eliminaron. No eran código muerto inofensivo:
+escribían aportes **sin `savings_period`**, así que una llamada desde un
+cliente viejo o desde `curl` habría metido plata en un ahorro sin marcar el
+mes — el botón seguiría ofreciéndose y la tabla mostraría un guion sobre un mes
+que sí recibió plata. `fin_savings_closures` queda en la base con lo escrito,
+pero ya nadie la lee.
+
+#### Consecuencia deliberada, para confirmar
+
+Un plan que **ya recibió el aporte de su fijo** ese mes tiene el botón apagado
+(`saved_periods` no distingue de dónde vino el aporte). Es la lectura literal
+de lo que se pidió —*"cuando ya se haya ahorrado en ese plan ese mes, ya no
+debe haber botón"*— y es coherente: un plan con fijo se financia por el fijo, y
+el sobrante va a los demás. Si se quisiera que un plan con fijo además reciba
+del reparto, hay que separar los dos marcadores.
+
+---
+
 ## 9. Qué desbloquea
 
 | Qué | Cómo |
@@ -994,3 +1329,38 @@ refactor de `validateRecurring`.
 día** y ya está usado. Este sprint no agrega ninguno — la detección de "mes
 por repartir" es bajo demanda, al cargar la pantalla, mismo criterio que
 Presupuesto.
+
+---
+
+## Avisos en la Home (2026-08-26)
+
+**Pedido del usuario:** debajo de Presupuestos, un banner cuando llega la
+fecha de registrar ahorros —parecido al que ya vive adentro de Ahorros— y
+otro igual para cuando toca aportar al pasanaku, cada uno con el atajo a su
+pantalla, una X para cerrarlo, y que desaparezca solo una vez completada la
+tarea.
+
+Los dos son **una lectura de los datos, no un flag que haya que limpiar**:
+
+- **Ahorros:** aparece con `savings.pending_period` + algún plan sin
+  guardar ese período. Es la misma condición del aviso de adentro de
+  Ahorros, a propósito: si los dos preguntan distinto, uno de los dos
+  miente. Se apaga solo al guardar el último plan del mes.
+- **Pasanaku:** `aportePendiente(start_date, roundsOf(p), hoy)` en
+  `lib/finanzas/pasanaku.ts` — falta el aporte del mes corriente (una vez
+  que llegó su día) o el de algún mes anterior. Es más estricto que
+  `canAportar` (§4.11 del sprint 5), que sigue en `true` aunque ya hayas
+  aportado: para el botón alcanza con que se pueda, para el aviso tiene que
+  faltar. Se apaga solo al registrar el aporte, y con el ciclo entero
+  aportado no vuelve nunca.
+- `roundsOf(p)` —aportes reales + históricos— quedó en la librería y ahora
+  la comparten la tabla del detalle, el botón "Aportar" y este aviso: los
+  tres tienen que contar los mismos meses.
+
+La X vive en `useDismissedBanners` (`components/banner-dismiss.tsx`),
+localStorage igual que `fz:hero`. La clave lleva el período adentro
+(`ahorro:2026-07`, `pasanaku:2026-08:<ids>`), así cerrar el de este mes no
+esconde el del que viene; en el del pasanaku los ids hacen que un pasanaku
+nuevo lo traiga de vuelta. Lo guardado es "ya lo vi", nunca "ya lo hice" —
+la tarea sigue viva en su pantalla. `ready` evita el parpadeo de pintar el
+aviso antes de leer localStorage, mismo criterio que `useHeroPref`.

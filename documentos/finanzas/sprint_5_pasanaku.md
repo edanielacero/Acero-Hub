@@ -230,10 +230,13 @@ Movimientos.
   con los aportes reales — directo, sin convertir nada: ya nacen en la
   moneda del pasanaku (§4.7 de más abajo explica por qué `total_aportado`
   no es en USD).
-- En `PasanakuAporteSheet`, el toggle **"Ya lo pagué antes de usar la
-  app"** cambia el sheet entero a este modo: sin selector de cuenta, sin
-  tope de saldo, un solo campo más que en el modo normal. Se listan (y se
-  pueden borrar de a una) en el detalle del pasanaku.
+- En `PasanakuAporteSheet` había un toggle **"Ya lo pagué antes de usar la
+  app"** que cambiaba el sheet entero a este modo (sin selector de cuenta,
+  sin tope de saldo). **Se sacó el 2026-08-26** (§4.10): todo aporte que se
+  registra hoy mueve plata de una cuenta real. Los históricos que ya
+  existen se siguen listando —y borrando de a uno— en el detalle del
+  pasanaku, y `POST .../historico` sigue en pie para ellos; lo único que
+  desapareció es la forma de crear uno nuevo desde la UI.
 
 ### 4.7 `total_aportado` va en la moneda del pasanaku, no en USD
 
@@ -315,6 +318,100 @@ La card muestra `current_round / my_slot` como barra solo mientras
 `!received && !tuTurnoLlego` — en cuanto la ronda te alcanza, la barra que
 importa pasa a ser la de "Lista de cobro" (§4.8), así que esta desaparece
 para no mostrar dos barras compitiendo por atención.
+
+### 4.10 Tabla de meses del ciclo + fuera el toggle histórico (2026-08-26)
+
+**Pedido del usuario:** (1) sacar del sheet de aporte la opción "Ya lo
+pagué antes de usar la app"; (2) ver en el detalle del pasanaku qué meses
+ya aportó y cuáles quedan pendientes hasta cerrar el ciclo, con un check en
+los que ya están.
+
+`pasanakuRounds(p, aportes)` en `lib/finanzas/pasanaku.ts` arma el ciclo
+entero: una fila por puesto (`total_slots`), desde `start_date`, con el mes
+(`'2026-08'`), si está pagado, cuánto y si esa ronda es la tuya
+(`my_slot`). Reglas:
+
+- Un aporte cuenta para el mes de **su fecha**, no para el mes en que se
+  cargó — cargar hoy el de junio marca junio. Mismo criterio que el resto
+  de la mini-app, donde la fecha del movimiento manda.
+- Dos aportes del mismo mes se suman en la misma fila.
+- Un aporte fuera del ciclo (anterior al inicio o posterior a la última
+  ronda) no aparece: la tabla contesta "¿me falta algún mes?", no es el
+  historial completo.
+- Los meses se cuentan sobre enteros de año/mes, nunca sumando días a un
+  `Date` — por lo mismo que explica `lastMonths` en `transactions.ts`.
+
+Para poder mirar mes a mes hacía falta la lista de aportes, no solo el
+total: `PasanakuWithState.aportes` (`PasanakuAporte[]`) trae cada aporte
+real con su `amount`/`currency` de `fin_transactions` **y**
+`amount_in_currency`, el mismo aporte llevado a `Pasanaku.currency` con la
+tasa de hoy. La conversión se resuelve en `loadPasanaku`, donde ya están
+las tasas, así que el detalle suma aportes de cuentas en distintas monedas
+sin volver a convertir nada en el cliente. La tabla mezcla estos aportes
+con los históricos (§4.6): para "¿me falta algún mes?" da lo mismo de dónde
+salió la plata.
+
+Cada fila pendiente se etiqueta sola según el mes: **Atrasado** (en rojo)
+si ya pasó, **Este mes** si es el corriente, **Pendiente** si todavía no
+llegó.
+
+### 4.11 "Aportar" bloqueado hasta el día del aporte (2026-08-26)
+
+**Pedido del usuario:** si todavía no es fecha de aportar, el botón
+**Aportar** de la card tiene que estar bloqueado; se habilita recién cuando
+llega la fecha.
+
+`canAportar(start_date, rounds, hoy)` en `lib/finanzas/pasanaku.ts`:
+
+- Se habilita desde `currentAporteDue(start_date, hoy)` — el mismo día del
+  mes que `start_date`, **en el mes corriente**. Es una función aparte de
+  `nextAporteDue` justamente porque esta NO salta al mes siguiente cuando
+  el día ya pasó: si saltara, el botón se habilitaría un solo día por mes.
+- **Excepción, los meses atrasados:** si `rounds` (§4.10) tiene una ronda
+  anterior al mes corriente sin aportar, se puede aportar en cualquier
+  momento. Sin esto, saltarse un mes dejaba la deuda trabada hasta que
+  cayera el día del mes siguiente — justo al revés de lo que hace falta.
+- El mes corriente sin aportar no cuenta como atraso antes de su día: si
+  contara, la regla no bloquearía nunca nada.
+
+Bloqueado, la card muestra "Se habilita el 5 de septiembre" debajo del
+botón. El bloqueo es solo de UI: `POST .../aporte` sigue aceptando
+cualquier fecha, porque la fecha del movimiento se elige a mano en el sheet
+y cargar un mes viejo es un caso legítimo.
+
+### 4.12 Tu mes: la acción principal pasa a ser cobrar (2026-08-26)
+
+**Pedido del usuario:** el mes que le toca recibir, el botón de la card
+tendría que cambiar y decir **"Registrar pagos recibidos"** — ahí registra
+los pagos que le van haciendo los demás participantes.
+
+En la card, con `toCobrar = tuTurnoLlego && !received`:
+
+- El botón primario pasa a ser **"Registrar pagos recibidos"** (abre
+  `<PasanakuCobroSheet>`, que ya registraba **un** pago por vez y muestra
+  "3 de 9 jugadores ya te pagaron · faltan 6").
+- Dura hasta cobrarle a todos, no solo el mes del turno: al que se atrasa
+  se le sigue cobrando después, y `received` se deriva de que
+  `collected_amount` alcance `collection_target` (§4.8).
+- **"Aportar" no desaparece, baja a secundario** (`variant="soft"`). Tu
+  parte la seguís poniendo ese mes igual que cualquier otro —por eso
+  `collection_target` es la parte de los OTROS (§4.8)— y las rondas
+  posteriores a tu turno también son tuyas. Si el botón desapareciera, esos
+  meses quedarían imposibles de registrar y su fila de la tabla (§4.10) no
+  se marcaría nunca.
+- El "Registrar cobro" que vivía dentro del desplegable ahora aparece solo
+  cuando `!toCobrar`: mientras el botón grande hace lo mismo, sobra. Queda
+  para después — corregir o sumar un pago tardío sobre un pasanaku que ya
+  figuraba cobrado del todo.
+- En la tabla de meses del detalle (§4.10), la fila de tu turno suma abajo
+  "3 de 9 pagos recibidos": ese mes tiene dos cosas que mirar, tu aporte (el
+  check de la fila) y lo que te tienen que pagar.
+
+Pasada de vocabulario, para que el botón y lo que abre hablen igual: el
+sheet se llama **"Pago recibido"** y su submit "Registrar pago recibido"; el
+desplegable de la card, "Pagos recibidos · 3 de 9"; el confirm de borrado,
+"Borrar pago recibido". En el código y la API sigue siendo `cobros` /
+`POST .../recibir` — no se tocó ni un contrato.
 
 ---
 

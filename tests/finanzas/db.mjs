@@ -175,6 +175,17 @@ async function run() {
     })
     ok('rechaza transferencia a la misma cuenta', trMisma.status >= 400, `HTTP ${trMisma.status}`)
 
+    // La única excepción (Ronda 9): un APORTE a la misma cuenta, que es cómo
+    // se guarda plata sin moverla de banco. Y es null-safe: sin etiqueta de
+    // ahorro la fila de arriba sigue rebotando, no cae en la rama del aporte.
+    const trMismaConMotivo = await post('fin_transactions', {
+      user_id: USER_ID, type: 'transferencia', date: '2026-08-18', account_id: airtm.id,
+      to_account_id: airtm.id, amount: 10, currency: 'USD', exchange_rate: rate, amount_usd: 10,
+      savings_flow: 'aporte', to_amount: 10,
+    })
+    ok('y también si dice aporte pero manda to_amount', trMismaConMotivo.status >= 400,
+       `HTTP ${trMismaConMotivo.status}`)
+
     const trConCategoria = await post('fin_transactions', {
       user_id: USER_ID, type: 'transferencia', date: '2026-08-18', account_id: airtm.id,
       to_account_id: broker.id, category_id: comida.id, amount: 10, currency: 'USD',

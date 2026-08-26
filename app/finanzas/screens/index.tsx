@@ -11,10 +11,18 @@ import { PasanakuScreen } from './pasanaku'
 import { PresupuestoScreen } from './presupuesto'
 import { AhorroScreen } from './ahorro'
 import { MasScreen } from './mas'
-import { AjustesScreen } from './ajustes'
+import {
+  AjustesScreen,
+  AjustesCategoriasScreen,
+  AjustesCategoriasGastoScreen,
+  AjustesCategoriasIngresoScreen,
+  AjustesPersonasScreen,
+  AjustesPresupuestoScreen,
+  AjustesTipoCambioScreen,
+} from './ajustes'
 
 /**
- * Las 8 pantallas de la mini-app, elegidas por el path del router interno.
+ * Las pantallas de la mini-app, elegidas por el path del router interno.
  *
  * No hay lazy loading a propósito: medido, las 7 originales pesaban 25.7 KB
  * gzip más que la Home sola sobre una base de 203 KB — un 13%. Partirlas en chunks
@@ -35,6 +43,12 @@ const SCREENS: Record<ScreenPath, () => React.ReactNode> = {
   '/finanzas/ahorro': AhorroScreen,
   '/finanzas/mas': MasScreen,
   '/finanzas/ajustes': AjustesScreen,
+  '/finanzas/ajustes/presupuesto': AjustesPresupuestoScreen,
+  '/finanzas/ajustes/tipo-de-cambio': AjustesTipoCambioScreen,
+  '/finanzas/ajustes/categorias': AjustesCategoriasScreen,
+  '/finanzas/ajustes/categorias/gasto': AjustesCategoriasGastoScreen,
+  '/finanzas/ajustes/categorias/ingreso': AjustesCategoriasIngresoScreen,
+  '/finanzas/ajustes/personas': AjustesPersonasScreen,
 }
 
 function isScreenPath(p: string): p is ScreenPath {

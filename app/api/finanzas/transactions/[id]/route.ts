@@ -113,12 +113,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const categoryError = await assertCategory(supabase, userId, merged.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
-  const balanceError = await assertBalance(
-    supabase, userId, account, merged.type!, merged.amount!,
-    { type: current.type as TxType, account_id: current.account_id as string, amount: num(current.amount) },
-  )
-  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
-
   const flowType = flowTypeOnEdit(merged.type!, account, current.flow_type)
 
   // Un movimiento ya NO sabe crear ni editar deudas. Las deudas se manejan en
@@ -199,6 +193,26 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!savingsGoalId) { savingsFlow = null; savingsReason = null }
   }
 
+  // Ronda 8: por Movimientos un ahorro solo puede SALIR, y editar no puede ser
+  // la puerta de atrás. Cargar un retiro (gasto) y después cambiarle el tipo a
+  // ingreso lo convertía en un aporte hecho desde acá, que es justo lo que la
+  // ronda vino a sacar.
+  //
+  // Lo que SÍ se sigue pudiendo: editar una transferencia tageada que ya
+  // existía —la que creó un fijo, el cierre de mes o un traslado— sin tocarle
+  // el tipo. Archivar o cambiar una regla no congela la historia (b08fdb4);
+  // lo que no se permite es fabricar historia nueva por el camino equivocado.
+  if (savingsGoalId && merged.type !== 'gasto') {
+    const yaEraAsi = !!current.savings_goal_id && current.type === merged.type
+    if (!yaEraAsi) {
+      return NextResponse.json({
+        error: merged.type === 'ingreso'
+          ? 'Un ingreso no aporta a un ahorro: la plata entra a un ahorro con un fijo de ahorro o en el reparto de fin de mes'
+          : 'Una transferencia solo mueve saldo disponible. Para mover un ahorro de cuenta, usá "Mover de cuenta" en Ahorros',
+      }, { status: 400 })
+    }
+  }
+
   if (savingsGoalId) {
     // Se acepta un ahorro archivado mientras sea el MISMO que ya tenía:
     // archivarlo no puede dejar sus movimientos sin poder editarse nunca más
@@ -231,6 +245,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     savingsFlow = null
     savingsReason = null
   }
+
+  // El saldo se mide recién acá: el tope depende de si la versión NUEVA del
+  // movimiento es un retiro declarado (gasta de la alcancía) o un movimiento
+  // común (que no puede tocarla). Ver el "piso de ahorro" en `assertBalance`.
+  const balanceError = await assertBalance(
+    supabase, userId, account, merged.type!, merged.amount!,
+    { type: current.type as TxType, account_id: current.account_id as string, amount: num(current.amount), id },
+    savingsFlow,
+  )
+  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const { data, error } = await supabase
     .from('fin_transactions')

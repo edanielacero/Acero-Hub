@@ -95,7 +95,7 @@ const EMPTY_BUDGETS: BudgetsPayload = {
   general: null, categories: [], pending_closures: [], categories_without_line: [],
 }
 
-const EMPTY_SAVINGS: SavingsGoalsPayload = { goals: [], pending_period: null }
+const EMPTY_SAVINGS: SavingsGoalsPayload = { goals: [], pending_period: null, pending_surplus_usd: 0, available_funds: [] }
 
 const EMPTY: TxResult = {
   transactions: [], total_gasto_usd: 0, total_ingreso_usd: 0,

@@ -75,9 +75,6 @@ export async function POST(request: Request) {
   const categoryError = await assertCategory(supabase, userId, input.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
-  const balanceError = await assertBalance(supabase, userId, account, input.type!, input.amount!)
-  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
-
   const frozen = freezeConversion(input.amount!, currency, rates)
 
   // El lado que LLEGA se congela igual que el que sale: sin esto, la comisión
@@ -105,13 +102,29 @@ export async function POST(request: Request) {
 
   const goalId = typeof body.savings_goal_id === 'string' && body.savings_goal_id ? body.savings_goal_id : null
   if (goalId) {
+    // Por esta ruta un ahorro solo puede SALIR (Ronda 8). La plata entra a un
+    // ahorro por dos caminos, los dos deliberados y periódicos: un fijo de
+    // ahorro y el reparto del cierre mensual. Romperlo, en cambio, pasa en el
+    // momento y sin plan — por eso vive acá, en el gasto que lo rompe.
+    //
+    // Y una transferencia común es solo plata cambiando de billetera: no toca
+    // ningún ahorro. Para mover un ahorro de cuenta está el traslado, en la
+    // pantalla de Ahorros, que mueve los dos lados a la vez.
+    if (input.type !== 'gasto') {
+      return NextResponse.json({
+        error: input.type === 'ingreso'
+          ? 'Un ingreso no aporta a un ahorro por acá: la plata entra a un ahorro con un fijo de ahorro o en el reparto de fin de mes'
+          : 'Una transferencia solo mueve saldo disponible. Para mover un ahorro de cuenta, usá "Mover de cuenta" en Ahorros',
+      }, { status: 400 })
+    }
+
     const goalError = await assertSavingsGoal(supabase, userId, goalId)
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
     savingsGoalId = goalId
 
-    // La dirección se DECLARA. En gasto e ingreso el tipo ya la declara sin
-    // ambigüedad; en una transferencia hay que decirla, y si no viene se
-    // rechaza en vez de asumir un default.
+    // La dirección la declara el tipo, y para un gasto es siempre un retiro.
+    // Se sigue rechazando una dirección declarada que lo contradiga, en vez
+    // de pisarla en silencio.
     const implicita = savingsFlowForType(input.type!)
     const declarada = isValidSavingsFlow(body.savings_flow) ? body.savings_flow : null
     if (implicita && declarada && declarada !== implicita) {
@@ -120,20 +133,20 @@ export async function POST(request: Request) {
         { status: 400 },
       )
     }
-    savingsFlow = implicita ?? declarada
-    if (!savingsFlow) {
-      return NextResponse.json({ error: '¿Esta transferencia aporta a un ahorro o retira de él?' }, { status: 400 })
-    }
+    savingsFlow = implicita
 
-    // El motivo solo tiene sentido al retirar: es el justificativo de romper
-    // un ahorro. Un aporte no necesita justificarse.
-    if (savingsFlow === 'retiro') {
-      if (!isValidSavingsReason(body.savings_reason)) {
-        return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
-      }
-      savingsReason = body.savings_reason
+    // El motivo es el justificativo de romper un ahorro.
+    if (!isValidSavingsReason(body.savings_reason)) {
+      return NextResponse.json({ error: 'Elige por qué retiras del ahorro' }, { status: 400 })
     }
+    savingsReason = body.savings_reason
   }
+
+  // El saldo se mide recién acá, no antes: el tope depende de si esto es un
+  // retiro declarado (gasta de la alcancía) o un movimiento común (que no
+  // puede tocarla). Ver el "piso de ahorro" en `assertBalance`.
+  const balanceError = await assertBalance(supabase, userId, account, input.type!, input.amount!, null, savingsFlow)
+  if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const { data, error } = await supabase
     .from('fin_transactions')

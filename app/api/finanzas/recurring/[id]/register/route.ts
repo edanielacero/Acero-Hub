@@ -7,12 +7,13 @@ import { freezeConversion, todayISO, isValidDate } from '@/lib/finanzas/transact
 import { freezeDebtUsd } from '@/lib/finanzas/splits'
 import { periodOf, resolveSplits } from '@/lib/finanzas/recurring'
 import { assertBalance, assertSavingsGoal } from '@/lib/finanzas/load'
+import { periodOfDate } from '@/lib/finanzas/savings'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Currency, Recurring, RecurringSplit, TxType } from '@/lib/finanzas/types'
 
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, savings_goal_id, savings_flow'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, recurring_id, savings_goal_id, savings_flow, savings_period'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
@@ -195,6 +196,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // Un fijo de ahorro siempre APORTA — para eso existe.
       savings_goal_id: esAhorro ? base.savings_goal_id : null,
       savings_flow: esAhorro ? 'aporte' : null,
+      // A qué mes pertenece el aporte (Ronda 9). Un fijo aporta DENTRO del mes
+      // en que cae su fecha, a diferencia del reparto de fin de mes, que se
+      // registra después y lleva el mes que organiza. Con esto la tabla del
+      // detalle marca el mes correcto y el botón "Ahorrar" sabe si ya hubo
+      // aporte para ese plan ese mes.
+      savings_period: esAhorro ? periodOfDate(date) : null,
     })
     .select(TX_COLS)
     .single()

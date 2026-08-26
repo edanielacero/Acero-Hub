@@ -83,7 +83,7 @@ type BtnProps = {
   children: ReactNode
   onClick?: () => void
   type?: 'button' | 'submit'
-  variant?: 'primary' | 'soft' | 'ghost' | 'danger'
+  variant?: 'primary' | 'soft' | 'ghost' | 'danger' | 'save'
   size?: 'md' | 'sm'
   disabled?: boolean
   full?: boolean
@@ -104,6 +104,10 @@ export function Btn({
     soft: 'bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] hover:brightness-[0.97]',
     ghost: 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] hover:text-[var(--fz-ink)]',
     danger: 'bg-[var(--fz-out-tint)] text-[var(--fz-out-text)] hover:brightness-[0.97]',
+    // Solo para "Ahorrar" (§ Azul de ahorro en theme.css): guardar no es ni
+    // ingreso ni gasto, y con el verde de la marca se confundía con cualquier
+    // otra acción primaria.
+    save: 'bg-[var(--fz-save)] text-white hover:bg-[var(--fz-save-press)]',
   }
   return (
     <button

@@ -493,6 +493,21 @@ export interface PasanakuCobro {
   currency: Currency
 }
 
+/**
+ * Un aporte real — un `gasto · movimiento` con este `pasanaku_id`, tal como
+ * quedó en `fin_transactions`. `amount`/`currency` son los de esa fila, sin
+ * convertir; `amount_in_currency` es el mismo aporte llevado a
+ * `Pasanaku.currency` con la tasa de HOY (lo que suma en `total_aportado` y
+ * lo que muestra la tabla de meses del ciclo).
+ */
+export interface PasanakuAporte {
+  id: string
+  date: string
+  amount: number
+  currency: Currency
+  amount_in_currency: number
+}
+
 export interface PasanakuWithState extends Pasanaku {
   /** `start_date` + `(my_slot − 1)` meses. Cuándo te toca recibir. */
   expected_turn: string
@@ -513,6 +528,9 @@ export interface PasanakuWithState extends Pasanaku {
   received_at: string | null
   /** Aportes reales (fin_transactions) + históricos (fin_pasanaku_historico). */
   aportes_count: number
+  /** Los aportes reales, del más nuevo al más viejo — para la tabla de meses
+      del ciclo (qué ronda ya pagaste y cuáles quedan). */
+  aportes: PasanakuAporte[]
   /** En `currency`, no en USD — es la moneda en la que el usuario piensa el
       pasanaku. Un aporte en otra moneda se convierte con la tasa de HOY. */
   total_aportado: number
@@ -676,8 +694,15 @@ export const ALLOCATION_TYPES: AllocationType[] = ['fixed', 'percent']
  * retiro sin motivo habría sumado al ahorro en vez de restarle, y mirando la
  * fila no había forma de distinguir intención de olvido.
  */
-export type SavingsFlow = 'aporte' | 'retiro'
-export const SAVINGS_FLOWS: SavingsFlow[] = ['aporte', 'retiro']
+/**
+ * En qué dirección cruza la plata la frontera de un ahorro (§4.6, §4.12).
+ *
+ *   aporte   — pasa a estar guardada; sube el ahorro
+ *   retiro   — sale de lo guardado; baja el ahorro
+ *   traslado — cambia de cuenta sin cambiar de dueño; el ahorro no se mueve
+ */
+export type SavingsFlow = 'aporte' | 'retiro' | 'traslado'
+export const SAVINGS_FLOWS: SavingsFlow[] = ['aporte', 'retiro', 'traslado']
 
 export type SavingsReason = 'emergencia' | 'meta_cumplida' | 'cambio_planes' | 'otro'
 export const SAVINGS_REASONS: SavingsReason[] = ['emergencia', 'meta_cumplida', 'cambio_planes', 'otro']
@@ -733,6 +758,17 @@ export interface SavingsGoalWithBalance extends SavingsGoal {
   /** Ya tiene aportes o retiros registrados. Bloquea cambiarle la moneda —
       mismo criterio que la moneda de una cuenta con movimientos. */
   has_movements: boolean
+  /** Desde cuándo existe: la tabla de meses del detalle arranca de acá. */
+  created_at: string
+  /** Los meses (primero del mes, ISO) en los que este ahorro ya recibió un
+      aporte — sea del reparto de fin de mes o de un fijo. Esconde el botón
+      "Ahorrar" del mes ya guardado y dibuja la tabla de meses del detalle. */
+  saved_periods: string[]
+  /** En qué cuentas vive físicamente este ahorro, y cuánto en cada una.
+      Solo las que tienen saldo positivo, de mayor a menor. Es lo que hace
+      posible el traslado (§4.12): mover plata de una cuenta a otra necesita
+      saber cuánto de ESTE ahorro hay en la de origen. */
+  by_account: { account_id: string; amount_usd: number }[]
 }
 
 /** Una línea de la propuesta de reparto al cerrar un mes (§4.3). */

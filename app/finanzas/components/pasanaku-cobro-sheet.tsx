@@ -105,7 +105,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
       <div className="fz-backdrop absolute inset-0 bg-[rgba(16,24,40,0.35)]" onClick={onClose} aria-hidden />
 
       <div
-        role="dialog" aria-modal="true" aria-label={`Registrar cobro de ${pasanaku.name}`}
+        role="dialog" aria-modal="true" aria-label={`Registrar un pago recibido de ${pasanaku.name}`}
         className="fz-sheet relative w-full min-[900px]:w-[420px] max-h-[92dvh] min-[900px]:max-h-[86dvh] overflow-y-auto overflow-x-hidden bg-[var(--fz-surface)] shadow-[var(--fz-sh-modal)]"
       >
         <div className="min-[900px]:hidden pt-2.5 pb-1 flex justify-center" aria-hidden>
@@ -115,7 +115,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
           <h2 className="flex items-center gap-2.5 text-[19px] font-bold tracking-[-0.01em]">
             <IconChip tint="in"><IconGift size={18} stroke={1.8} /></IconChip>
-            Registrar cobro
+            Pago recibido
           </h2>
           <button
             type="button" onClick={onClose} aria-label="Cerrar"
@@ -128,7 +128,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
         <div className="px-5 pb-5 flex flex-col gap-4">
           <p className="text-[13px] text-[var(--fz-ink-2)] -mt-1">
             {pasanaku.cobros.length} de {pasanaku.total_slots - 1} jugadores ya te pagaron
-            {faltan > 0 && ` · faltan ${faltan}`}
+            {faltan > 0 && ` · faltan ${faltan}`}. Registrá acá el de uno.
           </p>
 
           <div>
@@ -197,7 +197,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
           <ErrorNote>{error}</ErrorNote>
 
           <Btn onClick={submit} disabled={saving} full>
-            {saving ? 'Registrando…' : 'Registrar cobro'}
+            {saving ? 'Registrando…' : 'Registrar pago recibido'}
           </Btn>
         </div>
       </div>

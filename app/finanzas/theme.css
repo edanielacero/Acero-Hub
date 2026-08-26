@@ -84,6 +84,19 @@ body:has(#fz-root) {
   --fz-out-text:      #8B2E33;  /* guindo oscuro — montos chicos sobre blanco, 8.3:1 */
   --fz-out-tint:      #F5E9E8;
 
+  /* ── Azul de ahorro ──
+     La cuarta y última excepción a "el color es solo marca y dinero", pedida
+     por el usuario (Ronda 9). Guardar no es ni ingreso ni gasto: no es plata
+     que entra ni que sale, es plata tuya que cambia de estado. Con el verde de
+     la marca el botón "Ahorrar" se confundía con cualquier acción primaria, y
+     con el verde de ingreso habría dicho algo falso.
+
+     Vive acotado a la pantalla de Ahorros: el banner de fin de mes y el botón
+     "Ahorrar" de cada plan. No se usa en ninguna otra parte de la app. */
+  --fz-save:          #1D4ED8;
+  --fz-save-press:    #1A43B8;
+  --fz-save-tint:     #E8EEFC;
+
   /* ── Tinte neutro de categoría/persona/nav ──
      Un solo tono sobrio para todo ícono que no es dinero: chip de categoría,
      avatar de persona, tarjeta de "Más". El glifo de línea alcanza para

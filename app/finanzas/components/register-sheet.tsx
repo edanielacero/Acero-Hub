@@ -60,7 +60,15 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   // negativo. Mismo criterio que el quick-add (`consumesBalance`/`availableFrom`
   // en lib/finanzas/transactions.ts) — acá no hace falta la parte de "editar
   // un movimiento existente" porque registrar un fijo siempre crea uno nuevo.
-  const disponible = account?.balance ?? 0
+  //
+  // Y tampoco puede comerse lo apartado como ahorro: un fijo que no entra sin
+  // romper un ahorro NO entra. El servidor aplica el mismo piso
+  // (`assertBalance`), así que este número es el mismo que el de allá — para
+  // pagarlo hay que retirar del ahorro primero, a mano y con su motivo.
+  const apartado = account?.savings_balance ?? 0
+  const disponible = account
+    ? Math.max(0, roundFor((account.balance ?? 0) - apartado, account.currency))
+    : 0
   const excede = !!account && Number.isFinite(value) && value > disponible
   const sinFondos = !!account && disponible <= 0
 
@@ -245,6 +253,11 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
                   <div className="flex items-center gap-2 mt-2">
                     <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
                       Disponible {formatAmount(disponible, account.currency)}
+                      {apartado > 0 && (
+                        <span className="text-[var(--fz-ink-3)]">
+                          {' '}· {formatAmount(apartado, account.currency)} en ahorros
+                        </span>
+                      )}
                     </span>
                     <button
                       type="button"

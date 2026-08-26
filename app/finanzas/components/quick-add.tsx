@@ -84,7 +84,6 @@ export function QuickAdd() {
   const [gastarDeAhorros, setGastarDeAhorros] = useState(false)
   /** Solo para transferencias, donde el tipo no alcanza para saber la
       dirección. En gasto/ingreso lo fija `savingsFlowForType`. */
-  const [savingsFlowElegido, setSavingsFlowElegido] = useState<SavingsFlow>('retiro')
 
   const amountRef = useRef<HTMLInputElement>(null)
 
@@ -113,7 +112,6 @@ export function QuickAdd() {
       setSavingsGoalId(editing.savings_goal_id ?? '')
       setSavingsReason(editing.savings_reason ?? '')
       setGastarDeAhorros(!!editing.savings_goal_id)
-      setSavingsFlowElegido(editing.savings_flow ?? 'retiro')
 
     } else {
       const last = window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? ''
@@ -130,7 +128,6 @@ export function QuickAdd() {
       setSavingsGoalId('')
       setSavingsReason('')
       setGastarDeAhorros(false)
-      setSavingsFlowElegido('retiro')
     }
     setAccountSearch('')
     setToAccountSearch('')
@@ -225,12 +222,25 @@ export function QuickAdd() {
   const ahorradoEnCuenta = from?.savings_balance ?? 0
   const tieneAhorros = ahorradoEnCuenta > 0
 
-  // La dirección se DECLARA. En gasto e ingreso el tipo ya la declara; en una
-  // transferencia se pregunta — deducirla de un campo vacío confundía "es un
-  // aporte" con "no puse motivo".
-  const flowImplicito = savingsFlowForType(type)
-  const savingsFlow: SavingsFlow | null = flowImplicito ?? savingsFlowElegido
+  /**
+   * Por acá un ahorro solo puede SALIR (Ronda 8).
+   *
+   * La plata **entra** a un ahorro por dos caminos, los dos deliberados y
+   * periódicos: un fijo de ahorro y el reparto del cierre de mes. Ninguno de
+   * los dos pasa por esta pantalla, y ninguno debería: aportar es una
+   * decisión de plan, no el registro de algo que pasó.
+   *
+   * **Romper** un ahorro, en cambio, pasa en el momento y sin plan — una
+   * emergencia, un cambio de idea — así que vive justo acá, dentro del gasto
+   * que lo rompe.
+   *
+   * Y una transferencia común es solo plata cambiando de billetera: no toca
+   * ningún ahorro. Para mover un ahorro de cuenta está "Mover de cuenta" en
+   * la pantalla de Ahorros, que mueve lo apartado en las dos a la vez.
+   */
+  const savingsFlow: SavingsFlow | null = gastarDeAhorros ? savingsFlowForType(type) : null
   const isWithdrawal = savingsFlow === 'retiro'
+  const mostrarAhorro = !!from && type === 'gasto' && tieneAhorros
 
   const limita = consumesBalance(type) && !!from
   const saldoUsable = from ? availableFrom(from.balance, editing, from.id) : 0
@@ -270,6 +280,7 @@ export function QuickAdd() {
    * distinta, o archivado): editar un movimiento viejo no puede dejar sin
    * marcar lo que sí está guardado.
    */
+  // Solo se retira, y siempre de la cuenta de origen: la moneda es la de ahí.
   const monedaMovimiento = from?.currency
   const activeGoals = useMemo(() => {
     const elegibles = savings.goals.filter(
@@ -441,8 +452,8 @@ export function QuickAdd() {
     }
     // Solo en modo "gastar de ahorros" hay algo que exigir.
     if (gastarDeAhorros) {
-      if (!savingsGoalId) return setError(isWithdrawal ? 'Elige de qué ahorro sale' : 'Elige a qué ahorro aporta')
-      if (isWithdrawal && !savingsReason) return setError('Elige por qué retiras del ahorro')
+      if (!savingsGoalId) return setError('Elige de qué ahorro sale')
+      if (!savingsReason) return setError('Elige por qué retiras del ahorro')
     }
 
     const payload: Record<string, unknown> = {
@@ -457,7 +468,7 @@ export function QuickAdd() {
     if (savingsGoalId || editing) {
       payload.savings_goal_id = gastarDeAhorros ? savingsGoalId : null
       payload.savings_flow = gastarDeAhorros ? savingsFlow : null
-      payload.savings_reason = gastarDeAhorros && isWithdrawal ? savingsReason : null
+      payload.savings_reason = gastarDeAhorros ? savingsReason : null
     }
     if (type === 'transferencia') {
       payload.to_account_id = toAccountId
@@ -782,7 +793,7 @@ export function QuickAdd() {
           {/* Romper un ahorro se PIDE, no se deduce. Sin tocar esto, el gasto
               sale de la plata libre y los ahorros quedan intactos. Solo
               aparece si esta cuenta de verdad tiene plata apartada. */}
-          {tieneAhorros && consumesBalance(type) && (
+          {mostrarAhorro && (
             <div>
               <button
                 type="button"
@@ -800,42 +811,26 @@ export function QuickAdd() {
               >
                 <span className="flex items-center gap-2 text-[14px] font-semibold text-left">
                   <IconPigMoney size={18} stroke={1.8} />
-                  {type === 'transferencia' ? 'Involucra un ahorro' : 'Gastar de mis ahorros'}
+                  Gastar de mis ahorros
                 </span>
                 <span className="text-[12px] font-bold shrink-0">{gastarDeAhorros ? 'Sí' : 'No'}</span>
               </button>
               <p className="mt-1.5 text-[12px] text-[var(--fz-ink-3)] px-0.5 fz-num">
-                {!gastarDeAhorros
-                  ? `Tenés ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados en ahorros — este movimiento no los toca.`
-                  : isWithdrawal
-                    ? `Sale de los ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados.`
-                    : 'Se suma a lo apartado en el ahorro que elijas.'}
+                {gastarDeAhorros
+                  ? `Sale de los ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados: baja el ahorro.`
+                  : `Tenés ${formatAmount(ahorradoEnCuenta, from!.currency)} apartados en ahorros — este gasto no los toca.`}
               </p>
             </div>
           )}
 
           {/* Una transferencia puede aportar o retirar: se pregunta, no se
               adivina. En gasto e ingreso el tipo ya lo dice. */}
-          {gastarDeAhorros && type === 'transferencia' && (
-            <div>
-              <Label>¿Aporta o retira?</Label>
-              <Segmented
-                options={[
-                  { value: 'aporte', label: 'Aporta al ahorro' },
-                  { value: 'retiro', label: 'Retira del ahorro' },
-                ]}
-                value={savingsFlowElegido}
-                onChange={v => { setSavingsFlowElegido(v); if (v === 'aporte') setSavingsReason('') }}
-              />
-            </div>
-          )}
-
-          {gastarDeAhorros && tieneAhorros && (
+          {gastarDeAhorros && (
             <div>
               <Label>¿De qué ahorro?</Label>
               {activeGoals.length === 0 ? (
                 <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                  No tenés ahorros en {from?.currency}.
+                  No tenés ahorros en {monedaMovimiento ?? from?.currency}.
                 </p>
               ) : (
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
@@ -852,7 +847,7 @@ export function QuickAdd() {
             </div>
           )}
 
-          {gastarDeAhorros && savingsGoalId && isWithdrawal && (
+          {gastarDeAhorros && savingsGoalId && (
             <div>
               <Label>¿Por qué retiras?</Label>
               <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">

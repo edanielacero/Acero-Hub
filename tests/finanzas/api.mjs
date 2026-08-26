@@ -37,6 +37,26 @@ const api = (path, init = {}) => fetch(`${BASE}/api/finanzas${path}`, {
   ...init, headers: { Cookie: COOKIE, 'Content-Type': 'application/json', ...init.headers },
 })
 const json = async r => { try { return await r.json() } catch { return null } }
+
+/**
+ * Aportar a un ahorro por el único camino manual que existe desde la Ronda 8:
+ * un fijo de ahorro registrado. El quick-add ya no puede — aportar es una
+ * decisión de plan (fijo o cierre de mes), no el registro de algo que pasó.
+ */
+async function aportar({ goalId, fromId, toId, amount, date, currency = 'USD' }) {
+  const fijo = (await json(await api('/recurring', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: `Aporte ${Math.random().toString(36).slice(2, 8)}`, amount, currency,
+      savings_goal_id: goalId, to_account_id: toId,
+      starts_on: date, day_of_month: Number(date.slice(8, 10)),
+    }),
+  }))).recurring
+  const reg = await json(await api(`/recurring/${fijo.id}/register`, {
+    method: 'POST', body: JSON.stringify({ account_id: fromId, to_account_id: toId, date }),
+  }))
+  return { transaction: reg?.transaction, recurring_id: fijo?.id, error: reg?.error }
+}
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100
 
 async function run() {
@@ -2518,44 +2538,64 @@ async function run() {
 
     const hoy = new Date().toISOString().slice(0, 10)
 
-    // Una transferencia común entre dos cuentas cualesquiera NO pregunta nada:
-    // ninguna cuenta "es de ahorro" (revisión 26/8), así que mover plata entre
-    // ellas es solo mover plata.
+    // RONDA 8 — por el quick-add un ahorro solo puede SALIR.
+    //
+    // La plata entra a un ahorro por dos caminos deliberados y periódicos (un
+    // fijo de ahorro y el reparto del cierre de mes); romperlo pasa en el
+    // momento y sin plan, así que vive en el gasto que lo rompe. Una
+    // transferencia común, por su lado, solo mueve saldo disponible.
     eq('transferir sin tagear ningún ahorro → 201',
        (await api('/transactions', {
          method: 'POST',
          body: JSON.stringify({ type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 1 }),
        })).status, 201)
 
-    // Pero si la tageás, tenés que decir para qué lado va: en una transferencia
-    // el tipo no alcanza para deducirlo.
-    eq('tagear una transferencia sin declarar la dirección → 400',
-       (await api('/transactions', {
-         method: 'POST',
-         body: JSON.stringify({
-           type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50,
-           savings_goal_id: ahorroEmergencia.id,
-         }),
-       })).status, 400)
-
-    eq('aportar a un ahorro que no existe → 400',
-       (await api('/transactions', {
-         method: 'POST',
-         body: JSON.stringify({
-           type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50,
-           savings_goal_id: '00000000-0000-0000-0000-000000000000',
-         }),
-       })).status, 400)
-
-    const aporte = await json(await api('/transactions', {
+    const transfTageada = await api('/transactions', {
       method: 'POST',
       body: JSON.stringify({
         type: 'transferencia', date: hoy, account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, amount: 50,
         savings_goal_id: ahorroEmergencia.id, savings_flow: 'aporte',
       }),
+    })
+    eq('tagear una transferencia desde el quick-add → 400', transfTageada.status, 400)
+    ok('y el error manda a "Mover de cuenta"',
+       /Mover de cuenta/i.test((await json(transfTageada))?.error ?? ''), 'sin la referencia')
+
+    const ingresoTageado = await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'ingreso', date: hoy, account_id: cuentaAhorro.id, amount: 50,
+        savings_goal_id: ahorroEmergencia.id,
+      }),
+    })
+    eq('marcar un ingreso como aporte → 400', ingresoTageado.status, 400)
+    ok('y el error nombra los dos caminos reales',
+       /fijo de ahorro/i.test((await json(ingresoTageado))?.error ?? ''), 'sin la referencia')
+
+    eq('retirar de un ahorro que no existe → 400',
+       (await api('/transactions', {
+         method: 'POST',
+         body: JSON.stringify({
+           type: 'gasto', date: hoy, account_id: cuentaAhorro.id, amount: 10,
+           savings_goal_id: '00000000-0000-0000-0000-000000000000', savings_reason: 'otro',
+         }),
+       })).status, 400)
+
+    // El aporte se hace por donde corresponde: un fijo de ahorro registrado.
+    const fijoAporte = (await json(await api('/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Aporte de prueba', amount: 50, currency: 'USD',
+        savings_goal_id: ahorroEmergencia.id, to_account_id: cuentaAhorro.id,
+        starts_on: hoy, day_of_month: Number(hoy.slice(8, 10)),
+      }),
+    }))).recurring
+    const aporte = await json(await api(`/recurring/${fijoAporte.id}/register`, {
+      method: 'POST',
+      body: JSON.stringify({ account_id: cuentaRegular.id, to_account_id: cuentaAhorro.id, date: hoy }),
     }))
-    ok('el aporte se guarda', !!aporte.transaction?.id)
-    eq('y guarda la dirección declarada', aporte.transaction.savings_flow, 'aporte')
+    ok('el aporte se guarda desde el fijo', !!aporte.transaction?.id, JSON.stringify(aporte))
+    eq('y el fijo declara la dirección solo', aporte.transaction.savings_flow, 'aporte')
     eq('flow_type de una transferencia es siempre movimiento', aporte.transaction.flow_type, 'movimiento')
     eq('queda tageado con el ahorro', aporte.transaction.savings_goal_id, ahorroEmergencia.id)
 
@@ -2682,24 +2722,13 @@ async function run() {
 
     // El invariante que sostiene la pantalla de Cuentas: el saldo del ahorro
     // tiene que ser exactamente la suma de lo apartado en cada cuenta.
+    // Se aporta por el camino real: un fijo de ahorro registrado, que mueve la
+    // plata de cA a cB y la deja apartada en el DESTINO.
+    const aporteRev = await aportar({ goalId: meta.id, fromId: cA.id, toId: cB.id, amount: 200, date: hoy })
     await api('/transactions', {
       method: 'POST',
       body: JSON.stringify({
-        type: 'ingreso', date: hoy, account_id: cA.id, amount: 200,
-        savings_goal_id: meta.id, savings_flow: 'aporte',
-      }),
-    })
-    await api('/transactions', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'transferencia', date: hoy, account_id: cA.id, to_account_id: cB.id,
-        amount: 100, savings_goal_id: meta.id, savings_flow: 'aporte',
-      }),
-    })
-    await api('/transactions', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'gasto', date: hoy, account_id: cA.id, amount: 50,
+        type: 'gasto', date: hoy, account_id: cB.id, amount: 50,
         savings_goal_id: meta.id, savings_flow: 'retiro', savings_reason: 'emergencia',
       }),
     })
@@ -2707,8 +2736,8 @@ async function run() {
     const accs = (await json(await api('/accounts'))).accounts
     const apartadoA = accs.find(a => a.id === cA.id)?.savings_balance
     const apartadoB = accs.find(a => a.id === cB.id)?.savings_balance
-    eq('la alcancía de la cuenta de origen: 200 − 50', apartadoA, 150)
-    eq('la de destino: los 100 que le transfirieron', apartadoB, 100)
+    eq('la cuenta de origen del aporte no aparta nada', apartadoA, 0)
+    eq('la de destino guarda 200 − 50', apartadoB, 150)
     const conSaldo = (await json(await api('/savings-goals'))).goals.find(g => g.id === meta.id)
     eq('y el saldo del ahorro cuadra con la suma de las dos', conSaldo.balance_usd, apartadoA + apartadoB)
 
@@ -2716,18 +2745,24 @@ async function run() {
     // pasos (trigger + FK on delete set null) rompía a mitad de camino:
     // TODO ahorro con movimientos quedaba imborrable, con el mensaje crudo de
     // Postgres. Ahora el trigger suelta etiqueta, dirección y motivo juntos.
+    // El fijo que lo alimenta lo bloquea a propósito (409 con su nombre), así
+    // que primero se saca de en medio — es lo mismo que haría el usuario.
+    eq('mientras un fijo lo use, no se borra',
+       (await api(`/savings-goals/${meta.id}`, { method: 'DELETE' })).status, 409)
+    await api(`/recurring/${aporteRev.recurring_id}`, { method: 'DELETE' })
+
     const borrado = await api(`/savings-goals/${meta.id}`, { method: 'DELETE' })
     eq('un ahorro que YA tiene movimientos se puede borrar', borrado.status, 200)
 
     const tras = (await json(await api('/transactions?limit=100'))).transactions
       .filter(x => x.account_id === cA.id || x.account_id === cB.id)
-    ok('sus movimientos sobreviven', tras.length >= 3, String(tras.length))
+    ok('sus movimientos sobreviven', tras.length >= 2, String(tras.length))
     ok('ninguno queda con dirección colgada',
        tras.every(x => x.savings_goal_id == null && x.savings_flow == null && x.savings_reason == null),
        JSON.stringify(tras.map(x => [x.savings_goal_id, x.savings_flow, x.savings_reason])))
 
     const trasBorrar = (await json(await api('/accounts'))).accounts
-    eq('y las cuentas dejan de reportar alcancía', trasBorrar.find(a => a.id === cA.id)?.savings_balance, 0)
+    eq('y las cuentas dejan de reportar alcancía', trasBorrar.find(a => a.id === cB.id)?.savings_balance, 0)
 
     // BUG 3 — registrar un fijo contra un ahorro archivado devolvía 201 y
     // metía plata en un ahorro que la pantalla ni siquiera lista.
@@ -2758,115 +2793,239 @@ async function run() {
     await api(`/savings-goals/${meta2.id}`, { method: 'DELETE' })
   }
 
-  section('SPRINT 7 · cierre mensual del sobrante')
+  section('SPRINT 7 (rev. 26/8) · el piso de ahorro vale en todos los caminos')
   {
-    // Archiva todo lo que quedó activo de secciones anteriores para que la
-    // propuesta de reparto de acá abajo sea determinística.
-    const existentes = await json(await api('/savings-goals'))
-    for (const g of existentes.goals) {
-      await api(`/savings-goals/${g.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
-    }
-
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const thisMonth = `${todayStr.slice(0, 7)}-01`
-    const addMonths = (period, n) => {
-      const [y, m] = period.split('-').map(Number)
-      const total = y * 12 + (m - 1) + n
-      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}-01`
-    }
-    const prevMonth = addMonths(thisMonth, -1)
-    const prevMonthDate = `${prevMonth.slice(0, 7)}-15`
-
-    const fijoCierre = (await json(await api('/savings-goals', {
-      method: 'POST', body: JSON.stringify({ name: 'Cierre Fijo', currency: 'USD', allocation_type: 'fixed', allocation_value: 20 }),
+    // Pedido del usuario: "creo que debería estar en toda la app para que
+    // ahorrar tenga sentido". Antes lo aplicaba solo el quick-add, así que
+    // registrar un fijo o aportar a un pasanaku se comía lo apartado sin
+    // avisar. Ahora el piso vive en `assertBalance`, que es por donde pasan
+    // los cinco caminos que sacan plata de una cuenta.
+    const hoy = new Date().toISOString().slice(0, 10)
+    const c = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Piso Cuenta', currency: 'USD', initial_balance: 300 }),
+    }))).account
+    const otra = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Piso Otra', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const meta = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Piso Meta', currency: 'USD', allocation_type: 'fixed', allocation_value: 10 }),
     }))).goal
 
-    // Nace "hoy" — se retrocede a mano para simular que ya existía el mes
-    // pasado, mismo truco que necesita cualquier prueba de cierre mensual.
-    await adminFetch(`/rest/v1/fin_savings_goals?id=eq.${fijoCierre.id}`, {
-      method: 'PATCH', body: JSON.stringify({ created_at: `${prevMonth}T00:00:00Z` }),
+    // Arranca con 300; se le aportan 200 desde otra cuenta, así que queda con
+    // 500 de saldo y 200 apartados → 300 libres.
+    const fondeo = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Piso Fondeo', currency: 'USD', initial_balance: 500 }),
+    }))).account
+    await aportar({ goalId: meta.id, fromId: fondeo.id, toId: c.id, amount: 200, date: hoy })
+
+    const excede = await api('/transactions', {
+      method: 'POST', body: JSON.stringify({ type: 'gasto', date: hoy, account_id: c.id, amount: 350 }),
     })
+    eq('un gasto común no puede pasar de saldo − apartado', excede.status, 400)
+    ok('y el error nombra la plata apartada',
+       /apartad/i.test((await json(excede))?.error ?? ''), 'sin mención')
 
-    const cuenta = (await json(await api('/accounts', {
-      method: 'POST', body: JSON.stringify({ name: 'Cierre Origen', currency: 'USD', initial_balance: 1000 }),
-    }))).account
-    const ahorroDestino = (await json(await api('/accounts', {
-      method: 'POST', body: JSON.stringify({ name: 'Cierre Destino', currency: 'USD' }),
-    }))).account
-
-    // Ingreso 500, gasto 200: sobrante de 300 el mes pasado.
-    await api('/transactions', { method: 'POST', body: JSON.stringify({ type: 'ingreso', date: prevMonthDate, account_id: cuenta.id, amount: 500 }) })
-    await api('/transactions', { method: 'POST', body: JSON.stringify({ type: 'gasto', date: prevMonthDate, account_id: cuenta.id, amount: 200 }) })
-
-    const proposal = await json(await api('/savings-goals/close'))
-    eq('detecta el mes pasado como pendiente', proposal.pending_period, prevMonth)
-    eq('el sobrante es 500 − 200 = 300', proposal.surplus_usd, 300)
-    eq('una sola línea: el fijo de $20', proposal.proposal.length, 1)
-    eq('el fijo pide exactamente $20 (alcanza de sobra)', proposal.proposal[0].amount_usd, 20)
-    ok('no falta fondos para el fijo', !proposal.insufficient_for_fixed)
-
-    eq('cerrar sin cuentas en el reparto → 400',
-       (await api('/savings-goals/close', {
+    eq('una transferencia común tampoco se los lleva',
+       (await api('/transactions', {
          method: 'POST',
-         body: JSON.stringify({ period: prevMonth, allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: '', to_account_id: '' }] }),
+         body: JSON.stringify({ type: 'transferencia', date: hoy, account_id: c.id, to_account_id: otra.id, amount: 350 }),
        })).status, 400)
 
-    // El origen del reparto ya puede ser cualquier cuenta: la dirección del
-    // aporte se declara (`savings_flow: 'aporte'`), no se deduce de qué lado
-    // está una cuenta marcada. Lo que sigue prohibido es una transferencia a
-    // sí misma, que no movería nada y dejaría un aporte fantasma.
-    {
-      const res = await api('/savings-goals/close', {
-        method: 'POST',
-        body: JSON.stringify({
-          period: prevMonth,
-          allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: cuenta.id, to_account_id: cuenta.id }],
-        }),
-      })
-      eq('origen y destino iguales en el reparto → 400', res.status, 400)
-      const sinCerrar = await json(await api('/savings-goals/close'))
-      eq('y el mes sigue pendiente: el rechazo no lo cerró a medias', sinCerrar.pending_period, prevMonth)
-    }
+    eq('justo hasta lo libre sí entra',
+       (await api('/transactions', {
+         method: 'POST', body: JSON.stringify({ type: 'gasto', date: hoy, account_id: c.id, amount: 300 }),
+       })).status, 201)
 
-    // Una cuenta que no existe (o de otro usuario) tampoco entra al reparto.
-    eq('una cuenta ajena en el reparto → 400',
-       (await api('/savings-goals/close', {
+    // Un retiro DECLARADO sí gasta de la alcancía — para eso está.
+    eq('un retiro declarado gasta de lo apartado',
+       (await api('/transactions', {
          method: 'POST',
          body: JSON.stringify({
-           period: prevMonth,
-           allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: cuenta.id, to_account_id: '00000000-0000-0000-0000-000000000000' }],
+           type: 'gasto', date: hoy, account_id: c.id, amount: 150,
+           savings_goal_id: meta.id, savings_flow: 'retiro', savings_reason: 'emergencia',
          }),
-       })).status, 400)
+       })).status, 201)
 
-    const confirm = await api('/savings-goals/close', {
+    // ...pero tampoco más de lo apartado (quedan 50).
+    const pasado = await api('/transactions', {
       method: 'POST',
       body: JSON.stringify({
-        period: prevMonth,
-        allocations: [{ goal_id: fijoCierre.id, amount: 20, from_account_id: cuenta.id, to_account_id: ahorroDestino.id }],
+        type: 'gasto', date: hoy, account_id: c.id, amount: 80,
+        savings_goal_id: meta.id, savings_flow: 'retiro', savings_reason: 'otro',
       }),
     })
-    eq('confirma el reparto', confirm.status, 200)
+    eq('un retiro por más de lo apartado → 400', pasado.status, 400)
 
-    const goalsAfter = await json(await api('/savings-goals'))
-    eq('el fijo recibió su aporte: saldo 20', goalsAfter.goals.find(g => g.id === fijoCierre.id).balance_usd, 20)
+    // Registrar un FIJO respeta el mismo piso.
+    const catPiso = ((await json(await api('/categories'))).categories ?? [])
+      .find(x => !x.archived && x.kind === 'gasto')?.id ?? null
+    const fijoPiso = (await json(await api('/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Piso Fijo', amount: 60, currency: 'USD', category_id: catPiso,
+        starts_on: hoy, day_of_month: Number(hoy.slice(8, 10)),
+      }),
+    }))).recurring
+    const regPiso = await api(`/recurring/${fijoPiso.id}/register`, {
+      method: 'POST', body: JSON.stringify({ account_id: c.id, date: hoy }),
+    })
+    eq('registrar un fijo que se comería los ahorros → 400', regPiso.status, 400)
 
-    eq('el mismo período no se puede repartir dos veces → 409',
-       (await api('/savings-goals/close', { method: 'POST', body: JSON.stringify({ period: prevMonth, allocations: [], skip: true }) })).status, 409)
-
-    const afterClose = await json(await api('/savings-goals/close'))
-    eq('sin más meses pendientes', afterClose.pending_period, null)
-
-    // FIX (revisión post-construcción): solo se reparte un mes YA terminado.
-    // Cerrar el mes en curso repartía un sobrante a medias, y como los
-    // períodos cerrados se saltean, ese mes no volvía a preguntarse nunca.
-    eq('el mes EN CURSO no se puede repartir todavía → 400',
-       (await api('/savings-goals/close', {
-         method: 'POST', body: JSON.stringify({ period: thisMonth, allocations: [], skip: true }),
+    // Y un aporte de PASANAKU también.
+    const pasPiso = (await json(await api('/pasanaku', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Piso Pasanaku', account_id: c.id, currency: 'USD',
+        contribution_amount: 60, total_slots: 4, my_slot: 2, start_date: hoy,
+      }),
+    }))).pasanaku
+    eq('aportar a un pasanaku comiéndose los ahorros → 400',
+       (await api(`/pasanaku/${pasPiso.id}/aporte`, {
+         method: 'POST', body: JSON.stringify({ account_id: c.id, amount: 60, date: hoy }),
        })).status, 400)
-    eq('un mes futuro tampoco → 400',
-       (await api('/savings-goals/close', {
-         method: 'POST', body: JSON.stringify({ period: addMonths(thisMonth, 2), allocations: [], skip: true }),
+
+    const finales = (await json(await api('/accounts'))).accounts
+    eq('tras todos los rechazos, lo apartado quedó intacto',
+       finales.find(a => a.id === c.id)?.savings_balance, 50)
+
+    await api(`/recurring/${fijoPiso.id}`, { method: 'DELETE' })
+    await api(`/pasanaku/${pasPiso.id}`, { method: 'DELETE' })
+  }
+
+  section('SPRINT 7 (Ronda 8) · mover un ahorro de cuenta')
+  {
+    // El "traslado": la tercera dirección. Mover plata YA ahorrada entre dos
+    // cuentas propias no cambia cuánto tenés ahorrado, solo dónde está — así
+    // que mueve lo apartado en LAS DOS cuentas y deja el saldo del ahorro
+    // exactamente igual. Marcarlo como aporte lo contaba dos veces; como
+    // retiro lo sacaba del ahorro. Ninguna de las dos era lo que pasó.
+    const hoy = new Date().toISOString().slice(0, 10)
+    const origen = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Traslado Origen', currency: 'USD', initial_balance: 500 }),
+    }))).account
+    const guarda = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Traslado A', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const guardaB = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Traslado B', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const metaT = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Traslado Meta', currency: 'USD', allocation_type: 'fixed', allocation_value: 10 }),
+    }))).goal
+    const otraMeta = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Traslado Otra', currency: 'USD', allocation_type: 'fixed', allocation_value: 10 }),
+    }))).goal
+
+    await aportar({ goalId: metaT.id, fromId: origen.id, toId: guarda.id, amount: 120, date: hoy })
+    await aportar({ goalId: otraMeta.id, fromId: origen.id, toId: guarda.id, amount: 80, date: hoy })
+
+    const antes = await json(await api('/savings-goals'))
+    eq('el ahorro arranca con 120', antes.goals.find(g => g.id === metaT.id)?.balance_usd, 120)
+    const donde = antes.goals.find(g => g.id === metaT.id)?.by_account ?? []
+    eq('y la app sabe en qué cuenta está', donde.length, 1)
+    eq('con el monto correcto', donde[0]?.amount_usd, 120)
+
+    const move = p => api(`/savings-goals/${metaT.id}/move`, { method: 'POST', body: JSON.stringify(p) })
+
+    eq('mover a la misma cuenta → 400',
+       (await move({ from_account_id: guarda.id, to_account_id: guarda.id, amount: 10 })).status, 400)
+    eq('mover un monto en cero → 400',
+       (await move({ from_account_id: guarda.id, to_account_id: guardaB.id, amount: 0 })).status, 400)
+
+    // El tope es lo que hay DE ESTE AHORRO en esa cuenta (120), no lo apartado
+    // en la cuenta (200: 120 de este ahorro + 80 del otro).
+    const pasado = await move({ from_account_id: guarda.id, to_account_id: guardaB.id, amount: 150 })
+    eq('mover más de lo que este ahorro tiene ahí → 400', pasado.status, 400)
+    ok('y el error dice cuánto hay de ESTE ahorro',
+       /120/.test((await json(pasado))?.error ?? ''), 'sin el monto')
+
+    eq('desde una cuenta donde este ahorro no tiene nada → 400',
+       (await move({ from_account_id: guardaB.id, to_account_id: guarda.id, amount: 10 })).status, 400)
+
+    const movido = await json(await move({ from_account_id: guarda.id, to_account_id: guardaB.id, amount: 50 }))
+    ok('el traslado se guarda', !!movido.transaction?.id, JSON.stringify(movido))
+    eq('con la tercera dirección', movido.transaction.savings_flow, 'traslado')
+    eq('y sin motivo: no se está rompiendo nada', movido.transaction.savings_reason, null)
+    eq('es un movimiento, no ingreso ni gasto real', movido.transaction.flow_type, 'movimiento')
+
+    const despues = await json(await api('/savings-goals'))
+    const metaDespues = despues.goals.find(g => g.id === metaT.id)
+    eq('el saldo del ahorro NO se movió un peso', metaDespues.balance_usd, 120)
+    eq('pero ahora vive en dos cuentas', metaDespues.by_account.length, 2)
+    eq('el otro ahorro sigue intacto', despues.goals.find(g => g.id === otraMeta.id)?.balance_usd, 80)
+
+    const cuentas = (await json(await api('/accounts'))).accounts
+    eq('la cuenta de origen aparta 200 − 50', cuentas.find(a => a.id === guarda.id)?.savings_balance, 150)
+    eq('y la de destino los 50 que llegaron', cuentas.find(a => a.id === guardaB.id)?.savings_balance, 50)
+    eq('los saldos reales también se movieron', cuentas.find(a => a.id === guardaB.id)?.balance, 50)
+
+    // Un ahorro archivado no recibe movimientos nuevos, tampoco traslados.
+    await api(`/savings-goals/${metaT.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    eq('trasladar un ahorro archivado → 400',
+       (await move({ from_account_id: guarda.id, to_account_id: guardaB.id, amount: 10 })).status, 400)
+    await api(`/savings-goals/${metaT.id}`, { method: 'PATCH', body: JSON.stringify({ archived: false }) })
+  }
+
+  section('SPRINT 7 (Ronda 9) · el mes pendiente avanza solo')
+  {
+    // BUG DE LA RONDA 9. El reparto global escribía una fila en
+    // `fin_savings_closures` y `pendingSavingsPeriod` leía esa tabla para
+    // saber qué mes faltaba. Al reemplazarlo por el botón por plan, nadie la
+    // escribió más y **el mes pendiente quedó clavado para siempre**:
+    // guardabas en todos tus planes, los botones desaparecían, y al mes
+    // siguiente la app seguía ofreciendo organizar el mismo mes viejo. La
+    // feature dejaba de funcionar en silencio a los treinta días de usarla.
+    //
+    // Ahora el mes pendiente es, siempre, el mes pasado.
+    const hoyA = new Date().toISOString().slice(0, 10)
+    const mesA = `${hoyA.slice(0, 7)}-01`
+    const menos = n => {
+      const [y, m] = mesA.split('-').map(Number)
+      const k = y * 12 + (m - 1) - n
+      return `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, '0')}-01`
+    }
+    const mesPasado = menos(1)
+
+    for (const g of (await json(await api('/savings-goals'))).goals) {
+      if (!g.archived) await api(`/savings-goals/${g.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    }
+
+    const ctaAv = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Avance Cuenta', currency: 'USD', initial_balance: 5000 }),
+    }))).account
+    const metaAv = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Avance Meta', currency: 'USD', allocation_type: 'fixed', allocation_value: 50 }),
+    }))).goal
+    await adminFetch(`/rest/v1/fin_savings_goals?id=eq.${metaAv.id}`, {
+      method: 'PATCH', body: JSON.stringify({ created_at: `${menos(3)}T00:00:00Z` }),
+    })
+
+    eq('el mes pendiente es el mes pasado, no el más viejo de la historia',
+       (await json(await api('/savings-goals'))).pending_period, mesPasado)
+
+    const guardarAv = await api(`/savings-goals/${metaAv.id}/save`, {
+      method: 'POST', body: JSON.stringify({ period: mesPasado, from_account_id: ctaAv.id, amount: 50 }),
+    })
+    eq('se guarda para ese mes', guardarAv.status, 201)
+
+    const trasAv = await json(await api('/savings-goals'))
+    eq('el mes pendiente sigue siendo el pasado (el calendario no se movió)',
+       trasAv.pending_period, mesPasado)
+    const metaTras = trasAv.goals.find(g => g.id === metaAv.id)
+    ok('pero ese plan ya no lo tiene por guardar',
+       metaTras.saved_periods.includes(mesPasado), JSON.stringify(metaTras.saved_periods))
+
+    // Un plan creado DESPUÉS del mes pasado no lo organiza.
+    const nuevoAv = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Avance Nuevo', currency: 'USD', allocation_type: 'fixed', allocation_value: 10 }),
+    }))).goal
+    eq('un plan creado hoy no puede organizar el mes pasado → 400',
+       (await api(`/savings-goals/${nuevoAv.id}/save`, {
+         method: 'POST', body: JSON.stringify({ period: mesPasado, from_account_id: ctaAv.id, amount: 10 }),
        })).status, 400)
+
+    await api(`/savings-goals/${nuevoAv.id}`, { method: 'DELETE' })
+    await api(`/savings-goals/${metaAv.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
   }
 
   section('SPRINT 7 (revisión) · un fijo puede aportar a un ahorro')
@@ -3008,6 +3167,153 @@ async function run() {
     await api(`/savings-goals/${gol.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
     eq('con el ahorro archivado, el fijo se sigue pudiendo pausar',
        (await api(`/recurring/${fij.id}`, { method: 'PATCH', body: JSON.stringify({ active: false }) })).status, 200)
+  }
+
+  section('SPRINT 7 (Ronda 8) · el sobrante descuenta lo que los fijos ya guardaron')
+  {
+    // Un aporte es una `transferencia` (`flow_type: 'movimiento'`), así que ni
+    // `ingresoUsd` ni `gastoUsd` lo miran: con un fijo de ahorro corriendo, el
+    // reparto proponía repartir el sobrante ENTERO, incluido lo que el fijo ya
+    // se había llevado. Te pedía ahorrar plata que ya estaba ahorrada.
+    for (const g of (await json(await api('/savings-goals'))).goals) {
+      if (!g.archived) await api(`/savings-goals/${g.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    }
+
+    // El mes pasado: desde la Ronda 9 es SIEMPRE el período pendiente, y cada
+    // plan responde por su cuenta, así que dos secciones pueden compartirlo.
+    const hoyS = new Date().toISOString().slice(0, 10)
+    const mesActual = `${hoyS.slice(0, 7)}-01`
+    const [ay, am] = mesActual.split('-').map(Number)
+    const tot = ay * 12 + (am - 1) - 1
+    const mesPrevio = `${Math.floor(tot / 12)}-${String((tot % 12) + 1).padStart(2, '0')}-01`
+    const diaPrevio = d => `${mesPrevio.slice(0, 7)}-${String(d).padStart(2, '0')}`
+
+    const cta = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Neto Cuenta', currency: 'USD', initial_balance: 2000 }),
+    }))).account
+    const guarda = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Neto Guarda', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const metaNeto = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'Neto Meta', currency: 'USD', is_catchall: true }),
+    }))).goal
+    await adminFetch(`/rest/v1/fin_savings_goals?id=eq.${metaNeto.id}`, {
+      method: 'PATCH', body: JSON.stringify({ created_at: `${mesPrevio}T00:00:00Z` }),
+    })
+
+    await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'ingreso', date: diaPrevio(3), account_id: cta.id, amount: 1000 }),
+    })
+    await api('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'gasto', date: diaPrevio(8), account_id: cta.id, amount: 600 }),
+    })
+
+    const bruto = await json(await api('/savings-goals'))
+    eq('el mes pasado queda pendiente', bruto.pending_period, mesPrevio)
+    // Contra la línea de base: otras secciones también dejaron plata en ese mes.
+    const base = bruto.pending_surplus_usd
+
+    await aportar({ goalId: metaNeto.id, fromId: cta.id, toId: guarda.id, amount: 100, date: diaPrevio(15) })
+    const neto = await json(await api('/savings-goals'))
+    eq('el aporte del fijo se descuenta del sobrante', neto.pending_surplus_usd, Math.round((base - 100) * 100) / 100)
+
+    // Un traslado no ahorra nada nuevo: no puede tocarlo.
+    await api(`/savings-goals/${metaNeto.id}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ from_account_id: guarda.id, to_account_id: cta.id, amount: 40, date: diaPrevio(20) }),
+    })
+    eq('un traslado no mueve el sobrante',
+       (await json(await api('/savings-goals'))).pending_surplus_usd, Math.round((base - 100) * 100) / 100)
+
+    // Y un aporte de OTRO mes tampoco toca este.
+    await aportar({ goalId: metaNeto.id, fromId: cta.id, toId: guarda.id, amount: 250, date: hoyS })
+    eq('un aporte de este mes no toca el sobrante del pasado',
+       (await json(await api('/savings-goals'))).pending_surplus_usd, Math.round((base - 100) * 100) / 100)
+
+    // Y guardar por el camino nuevo tampoco lo descuenta dos veces: el aporte
+    // del reparto NO lleva `recurring_id`, así que no entra en la resta.
+    const antesDeGuardar = (await json(await api('/savings-goals'))).pending_surplus_usd
+    await api(`/savings-goals/${metaNeto.id}/save`, {
+      method: 'POST',
+      body: JSON.stringify({ period: mesPrevio, from_account_id: cta.id, amount: 30 }),
+    })
+    eq('guardar del mes no vuelve a bajar su propio sobrante',
+       (await json(await api('/savings-goals'))).pending_surplus_usd, antesDeGuardar)
+  }
+
+  section('SPRINT 7 (Ronda 9) · "Ahorrar" plan por plan')
+  {
+    // El reparto dejó de ser un trámite mensual global: cada plan tiene su
+    // botón. Lo que se prueba es lo que cambió — que el origen salga de dónde
+    // quedó la plata DEL MES, que se pueda guardar sin mover de cuenta, y que
+    // el botón se apague una vez por mes y por plan.
+    for (const g of (await json(await api('/savings-goals'))).goals) {
+      if (!g.archived) await api(`/savings-goals/${g.id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) })
+    }
+
+    const hoyR9 = new Date().toISOString().slice(0, 10)
+    const [ry, rm] = `${hoyR9.slice(0, 7)}-01`.split('-').map(Number)
+    const nR9 = ry * 12 + (rm - 1) - 1
+    const mesR9 = `${Math.floor(nR9 / 12)}-${String((nR9 % 12) + 1).padStart(2, '0')}-01`
+    const diaR9 = d => `${mesR9.slice(0, 7)}-${String(d).padStart(2, '0')}`
+
+    const bancoR9 = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'R9 Banco', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const quietaR9 = (await json(await api('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'R9 Quieta', currency: 'USD', initial_balance: 0 }),
+    }))).account
+    const metaR9 = (await json(await api('/savings-goals', {
+      method: 'POST', body: JSON.stringify({ name: 'R9 Meta', currency: 'USD', allocation_type: 'fixed', allocation_value: 100 }),
+    }))).goal
+    await adminFetch(`/rest/v1/fin_savings_goals?id=eq.${metaR9.id}`, {
+      method: 'PATCH', body: JSON.stringify({ created_at: `${mesR9}T00:00:00Z` }),
+    })
+
+    await api('/transactions', {
+      method: 'POST', body: JSON.stringify({ type: 'ingreso', date: diaR9(3), account_id: bancoR9.id, amount: 500 }),
+    })
+    await api('/transactions', {
+      method: 'POST', body: JSON.stringify({ type: 'gasto', date: diaR9(9), account_id: bancoR9.id, amount: 100 }),
+    })
+
+    const payloadR9 = await json(await api('/savings-goals'))
+    eq('el mes pendiente es el que terminó', payloadR9.pending_period, mesR9)
+    eq('el mes dejó 500 − 100 en la cuenta que lo recibió',
+       payloadR9.available_funds.find(f => f.account_id === bancoR9.id)?.available, 400)
+    ok('una cuenta que el mes no tocó no figura',
+       !payloadR9.available_funds.some(f => f.account_id === quietaR9.id), JSON.stringify(payloadR9.available_funds))
+
+    const guardar = body => api(`/savings-goals/${metaR9.id}/save`, { method: 'POST', body: JSON.stringify(body) })
+
+    eq('guardar más de lo que dejó el mes → 400',
+       (await guardar({ period: mesR9, from_account_id: bancoR9.id, amount: 450 })).status, 400)
+    eq('guardar desde una cuenta que el mes no tocó → 400',
+       (await guardar({ period: mesR9, from_account_id: quietaR9.id, amount: 10 })).status, 400)
+
+    // Sin cuenta destino: se guarda en la misma, el saldo no se mueve.
+    const antesR9 = (await json(await api('/accounts'))).accounts.find(a => a.id === bancoR9.id)
+    const guardadoR9 = await json(await guardar({ period: mesR9, from_account_id: bancoR9.id, amount: 250 }))
+    ok('se guarda sin mover de cuenta', !!guardadoR9.transaction?.id, JSON.stringify(guardadoR9))
+    eq('origen y destino son la misma cuenta', guardadoR9.transaction.to_account_id, bancoR9.id)
+    eq('con el período del mes que organiza', guardadoR9.transaction.savings_period?.slice(0, 10), mesR9)
+    eq('y es un aporte', guardadoR9.transaction.savings_flow, 'aporte')
+
+    const despuesR9 = (await json(await api('/accounts'))).accounts.find(a => a.id === bancoR9.id)
+    eq('el saldo de la cuenta no se movió', despuesR9.balance, antesR9.balance)
+    eq('pero ahora tiene 250 apartados', despuesR9.savings_balance, 250)
+
+    const conSaldoR9 = (await json(await api('/savings-goals'))).goals.find(g => g.id === metaR9.id)
+    eq('el ahorro subió 250', conSaldoR9.balance_usd, 250)
+    ok('y el mes queda marcado', conSaldoR9.saved_periods.includes(mesR9), JSON.stringify(conSaldoR9.saved_periods))
+
+    eq('guardar dos veces el mismo mes en el mismo plan → 409',
+       (await guardar({ period: mesR9, from_account_id: bancoR9.id, amount: 10 })).status, 409)
+
+    eq('lo guardado deja de figurar como disponible',
+       (await json(await api('/savings-goals'))).available_funds.find(f => f.account_id === bancoR9.id)?.available, 150)
   }
 
   section('SPRINT 7 · /bootstrap incluye ahorros')

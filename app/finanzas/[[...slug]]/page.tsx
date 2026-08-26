@@ -2,7 +2,7 @@ import { Screens } from '../screens'
 import { SCREEN_PATHS } from '../screens/paths'
 
 /**
- * La única ruta de la mini-app. Las 8 pantallas se resuelven en el cliente
+ * La única ruta de la mini-app. Las pantallas se resuelven en el cliente
  * (ver components/router.tsx), así que cambiar de pestaña no cuesta ni un
  * request: es un cambio de estado.
  *

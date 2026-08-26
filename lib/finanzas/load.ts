@@ -15,12 +15,12 @@ import {
   montoEfectivo, needsClosure, periodRange, periodStart, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets'
-import { computeGoalBalancesUsd, computeSavingsByAccountUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings'
+import { computeGoalBalancesByAccountUsd, computeGoalBalancesUsd, computeSavingsByAccount, computeSavingsByAccountUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings'
 import type {
   Account, AccountWithBalance, AllocationType, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
-  DebtWithContext, Pasanaku, PasanakuCobro, PasanakuHistorico, PasanakuWithState,
+  DebtWithContext, Pasanaku, PasanakuAporte, PasanakuCobro, PasanakuHistorico, PasanakuWithState,
   SavingsClosureProposal, SavingsGoal, SavingsGoalWithBalance, Transaction, TxType,
 } from './types'
 
@@ -92,59 +92,111 @@ export async function loadAccounts(
   // Cuánto de cada cuenta está apartado como ahorro. Sale de los mismos
   // movimientos etiquetados que alimentan el saldo de cada ahorro — cero datos
   // nuevos que mantener.
-  const ahorradoUsd = computeSavingsByAccountUsd(
-    (txRows ?? []).map(r => ({
-      savings_goal_id: r.savings_goal_id as string | null,
-      type: r.type as TxType,
-      account_id: r.account_id as string,
-      to_account_id: r.to_account_id as string | null,
-      amount_usd: num(r.amount_usd),
-      to_amount_usd: r.to_amount_usd == null ? null : num(r.to_amount_usd),
-      savings_flow: r.savings_flow as string | null,
-    })),
-  )
+  //
+  // Se calcula DOS veces a propósito, sobre las mismas filas: el número que se
+  // muestra y del que se resta va en la moneda de la cuenta, sin pasar por USD
+  // (aportar Bs 700 y ver "Bs 699,99 apartados" es un número que el usuario
+  // sabe que está mal), y el de USD queda para comparar cuentas entre sí.
+  const etiquetados = (txRows ?? []).map(r => ({
+    savings_goal_id: r.savings_goal_id as string | null,
+    type: r.type as TxType,
+    account_id: r.account_id as string,
+    to_account_id: r.to_account_id as string | null,
+    amount: num(r.amount),
+    to_amount: r.to_amount == null ? null : num(r.to_amount),
+    amount_usd: num(r.amount_usd),
+    to_amount_usd: r.to_amount_usd == null ? null : num(r.to_amount_usd),
+    savings_flow: r.savings_flow as string | null,
+  }))
+  const ahorradoUsd = computeSavingsByAccountUsd(etiquetados)
+  const ahorrado = computeSavingsByAccount(etiquetados)
 
-  const withFlags: AccountWithBalance[] = withBal.map(a => {
-    const savings_balance_usd = round2(ahorradoUsd.get(a.id) ?? 0)
-    return {
-      ...a,
-      has_value_updates: updatedIds.has(a.id),
-      savings_balance_usd,
-      savings_balance: fromUsd(savings_balance_usd, a.currency, rates),
-    }
-  })
+  const withFlags: AccountWithBalance[] = withBal.map(a => ({
+    ...a,
+    has_value_updates: updatedIds.has(a.id),
+    savings_balance_usd: round2(ahorradoUsd.get(a.id) ?? 0),
+    savings_balance: Math.max(0, roundFor(ahorrado.get(a.id) ?? 0, a.currency)),
+  }))
 
   return { accounts: withFlags, total_usd: totalUsd(withFlags), rates, rate_list: rateRows }
 }
 
-/** Saldo actual de UNA cuenta — mismo cálculo derivado que `loadAccounts`,
-    para cuando una escritura necesita validar sin traer todas las cuentas. */
+/**
+ * Saldo actual de UNA cuenta y **cuánto de ese saldo está apartado como
+ * ahorro** — mismo cálculo derivado que `loadAccounts`, para cuando una
+ * escritura necesita validar sin traer todas las cuentas.
+ *
+ * Los dos números salen del mismo barrido de movimientos: pedirlos por
+ * separado serían dos viajes a la base para recorrer exactamente las mismas
+ * filas. `savings` viene en la moneda de la cuenta, igual que `balance`, para
+ * que se puedan restar sin convertir nada en el llamador.
+ */
 export async function accountBalance(
   supabase: SupabaseClient,
   userId: string,
   account: Account,
-): Promise<number> {
+  excludeTxId?: string | null,
+): Promise<{ balance: number; savings: number }> {
   const { data: txRows } = await supabase
     .from('fin_transactions')
-    .select('type, account_id, to_account_id, amount, to_amount')
+    .select('id, type, account_id, to_account_id, amount, to_amount, amount_usd, to_amount_usd, savings_goal_id, savings_flow')
     .eq('user_id', userId)
 
   const movements = (txRows ?? []).map(mapBalanceMovement)
-  return computeBalances([account], movements).get(account.id) ?? account.initial_balance
+  const balance = computeBalances([account], movements).get(account.id) ?? account.initial_balance
+
+  // Al EDITAR, la fila que se está reemplazando no cuenta para lo apartado:
+  // su efecto viejo ya se revierte del saldo en `availableFrom`, y dejarla
+  // acá haría que subir el monto de un retiro se midiera contra una alcancía
+  // que ese mismo retiro ya vació.
+  const vigentes = excludeTxId ? (txRows ?? []).filter(r => r.id !== excludeTxId) : (txRows ?? [])
+
+  if (!vigentes.some(r => r.savings_goal_id)) return { balance, savings: 0 }
+
+  const ahorrado = computeSavingsByAccount(
+    vigentes.map(r => ({
+      savings_goal_id: r.savings_goal_id as string | null,
+      type: r.type as TxType,
+      account_id: r.account_id as string,
+      to_account_id: (r.to_account_id as string | null) ?? null,
+      amount: num(r.amount),
+      to_amount: r.to_amount == null ? null : num(r.to_amount),
+      amount_usd: num(r.amount_usd),
+      to_amount_usd: r.to_amount_usd == null ? null : num(r.to_amount_usd),
+      savings_flow: (r.savings_flow as string | null) ?? null,
+    })),
+  ).get(account.id) ?? 0
+
+  return { balance, savings: Math.max(0, roundFor(ahorrado, account.currency)) }
 }
 
 /**
  * La regla dura: un gasto o una transferencia nunca puede dejar la cuenta de
- * origen en negativo. El cliente ya avisa antes (mismo cálculo, ver
- * `consumesBalance`/`availableFrom` en `transactions.ts` — quick-add,
- * RegisterSheet), pero esto es lo que de verdad lo impide. Vive acá y no en
- * cada `route.ts` porque tres rutas distintas pueden dejar una cuenta en
- * rojo — crear un movimiento, editarlo, o registrar un fijo — y las tres
- * tienen que aplicar exactamente el mismo criterio.
+ * origen en negativo, **ni comerse lo que está apartado como ahorro**. El
+ * cliente ya avisa antes (mismo cálculo, ver `consumesBalance`/`availableFrom`
+ * en `transactions.ts` — quick-add, RegisterSheet, aporte de pasanaku), pero
+ * esto es lo que de verdad lo impide. Vive acá y no en cada `route.ts` porque
+ * cinco caminos distintos pueden sacar plata de una cuenta — crear un
+ * movimiento, editarlo, registrar un fijo, aportar a un pasanaku y repartir el
+ * cierre del mes — y los cinco tienen que aplicar exactamente el mismo
+ * criterio.
  *
  * `editing` es el movimiento que se está reemplazando (solo en un PATCH):
  * hay que revertir su efecto viejo antes de medir si el nuevo entra, o toda
  * edición hacia arriba de un gasto ya existente parecería "sin saldo".
+ *
+ * ## El piso de ahorro
+ *
+ * Lo apartado (`savings_balance`, § 4.9 de `sprint_7_ahorro.md`) no es plata
+ * disponible: es justamente lo que ahorrar significa. Un movimiento común
+ * llega hasta `saldo − apartado`; para pasar de ahí hay que **declararlo**
+ * como retiro (`savingsFlow: 'retiro'`), y entonces el tope pasa a ser lo
+ * apartado. Sin esta regla en el servidor, ahorrar era una decoración del
+ * quick-add: registrar un fijo o aportar a un pasanaku se comía los ahorros
+ * sin decir una palabra.
+ *
+ * No aplica a una cuota de deuda cobrada: eso es un `ingreso`, plata que
+ * **entra**, y `consumesBalance` ya la deja afuera.
  *
  * Excepción: un `gasto` en una cuenta `is_investment` no es plata saliendo,
  * es "Actualizar valor" bajando el número (§7.2 de `contexto_finanzas.md`) —
@@ -158,15 +210,31 @@ export async function assertBalance(
   account: Account,
   type: TxType,
   amount: number,
-  editing?: { type: TxType; account_id: string; amount: number } | null,
+  editing?: { type: TxType; account_id: string; amount: number; id?: string } | null,
+  savingsFlow?: string | null,
 ): Promise<string | null> {
   if (!consumesBalance(type) || (type === 'gasto' && account.is_investment)) return null
 
-  const balance = await accountBalance(supabase, userId, account)
-  const disponible = availableFrom(balance, editing, account.id)
+  const { balance, savings } = await accountBalance(supabase, userId, account, editing?.id)
+  const total = availableFrom(balance, editing, account.id)
+
+  // Un retiro o un traslado declarados salen de la ALCANCÍA, no del resto: su
+  // tope es lo apartado, acotado por lo que la cuenta realmente tiene. Los dos
+  // mueven plata que ya estaba guardada — el retiro la libera, el traslado la
+  // cambia de cuenta — así que miden contra el mismo techo.
+  const saleDelAhorro = savingsFlow === 'retiro' || savingsFlow === 'traslado'
+  const disponible = saleDelAhorro
+    ? Math.min(savings, total)
+    : Math.max(0, roundFor(total - savings, account.currency))
 
   if (amount > disponible) {
-    return `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles`
+    if (saleDelAhorro) {
+      return `${account.name} tiene ${formatAmount(disponible, account.currency)} apartados en ahorros`
+    }
+    return savings > 0
+      ? `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles ` +
+        `(${formatAmount(savings, account.currency)} están apartados en ahorros)`
+      : `${account.name} tiene ${formatAmount(disponible, account.currency)} disponibles`
   }
   return null
 }
@@ -456,6 +524,19 @@ export async function loadPasanaku(
 
     const cobros: PasanakuCobro[] = cobrosRaw.map(c => ({ id: c.id, date: c.date, amount: c.amount, currency: c.currency }))
 
+    // Con la conversión ya resuelta acá (donde están las tasas), la tabla de
+    // meses del detalle suma aportes de distintas cuentas sin volver a
+    // convertir nada en el cliente.
+    const aportesList: PasanakuAporte[] = aportes
+      .map(a => ({
+        id: a.id, date: a.date, amount: a.amount, currency: a.currency,
+        amount_in_currency: roundFor(
+          a.currency === p.currency ? a.amount : (crossCurrencySuggestion(a.amount, a.currency, p.currency, rates) ?? a.amount),
+          p.currency,
+        ),
+      }))
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+
     // Un cobro de otra moneda pasa por dos redondeos independientes (a USD y
     // de vuelta, en dos llamadas separadas a crossCurrencySuggestion — la
     // sugerencia al registrarlo, la conversión acá al sumarlo) y puede perder
@@ -473,6 +554,7 @@ export async function loadPasanaku(
       received: collected_amount >= collection_target - tolerance,
       received_at: cobrosRaw[0]?.date ?? null,
       aportes_count: aportes.length + historico.length,
+      aportes: aportesList,
       total_aportado: roundFor(aportesEnMoneda + historicoEnMoneda, p.currency),
       historico,
       collected_amount,
@@ -1121,10 +1203,55 @@ export async function applyBudgetExtension(
 
 /* ─── Ahorro (Sprint 7) ───────────────────────────────────────────────────── */
 
+/**
+ * De qué cuentas se puede sacar plata para ahorrar, y cuánto de cada una.
+ *
+ * ⚠️ **Corregido el 2026-08-26.** La primera versión devolvía "lo que ese mes
+ * dejó en esa cuenta": el mínimo entre cuánto creció su saldo durante el
+ * período y cuánto sigue libre hoy. Suena razonable y es un callejón sin
+ * salida:
+ *
+ * - Una cuenta con plata libre HOY no aparecía si el mes pendiente no la había
+ *   tocado. En la demo, Binance tenía 266 USDT libres y el sheet decía que no
+ *   había de dónde sacar.
+ * - Peor: el propio mensaje de ayuda —"convertí tus bolivianos a USDT y volvé
+ *   a registrar el ahorro"— era **imposible de seguir**. La conversión ocurre
+ *   hoy, que cae en el mes en curso, no en el mes que se está organizando; por
+ *   más que se convirtiera, la cuenta destino nunca sumaba nada al período
+ *   pendiente.
+ *
+ * La plata es fungible. El sobrante del mes es un **monto**, no un lugar: dice
+ * cuánto te quedó, no en qué billetera está parado hoy. Así que el tope por
+ * cuenta es lo que de verdad hay libre — saldo menos lo ya apartado — y el
+ * sobrante del mes queda donde corresponde: como la **sugerencia** de cuánto
+ * guardar (§4.3), no como una cerradura sobre de dónde sacarlo.
+ */
+function availableFundsByAccount(
+  accounts: AccountWithBalance[],
+): { account_id: string; available: number; currency: Currency }[] {
+  return accounts
+    .filter(a => !a.archived && !a.is_investment)
+    .map(a => ({
+      account_id: a.id,
+      available: roundFor(Math.max(0, a.balance - a.savings_balance), a.currency),
+      currency: a.currency as Currency,
+    }))
+    .filter(x => x.available > 0)
+    .sort((a, b) => b.available - a.available)
+}
+
 export interface SavingsGoalsPayload {
   goals: SavingsGoalWithBalance[]
   /** El período vencido más viejo sin repartir, o `null` si no hay ninguno. */
   pending_period: string | null
+  /** El sobrante de `pending_period`, ya neto de lo que los fijos guardaron. */
+  pending_surplus_usd: number
+  /**
+   * De qué cuentas se puede sacar para ahorrar, y cuánto: saldo menos lo ya
+   * apartado. Es lo que el sheet de "Ahorrar" ofrece como origen, en vez de
+   * pedir a secas "de qué cuenta sale".
+   */
+  available_funds: { account_id: string; available: number; currency: Currency }[]
 }
 
 /**
@@ -1139,9 +1266,8 @@ export async function loadSavingsGoals(
   today: string,
   precomputed?: { rates: RateMap },
 ): Promise<SavingsGoalsPayload> {
-  const [{ data: goalRows }, { data: closureRows }, ratesResult] = await Promise.all([
+  const [{ data: goalRows }, ratesResult] = await Promise.all([
     supabase.from('fin_savings_goals').select(SAVINGS_GOAL_COLS).eq('user_id', userId).order('sort_order').order('created_at'),
-    supabase.from('fin_savings_closures').select('period').eq('user_id', userId),
     precomputed ? Promise.resolve(null) : ensureRates(supabase, userId),
   ])
   const rates = precomputed?.rates ?? ratesResult!.rates
@@ -1160,20 +1286,20 @@ export async function loadSavingsGoals(
     created_at: r.created_at as string,
   }))
 
-  const closures = (closureRows ?? []).map(c => ({ period: c.period as string }))
-  const earliestActive = goals
-    .filter(g => !g.archived)
-    .map(g => g.created_at.slice(0, 10))
-    .sort()[0] ?? null
-  const pending_period = pendingSavingsPeriod(earliestActive, closures, today)
+  // El mes pasado, y solo ese. Ya no depende de `fin_savings_closures`: esa
+  // tabla la escribía el reparto global, que la Ronda 9 reemplazó, y al dejar
+  // de escribirse el mes pendiente quedaba clavado para siempre.
+  const pending_period = pendingSavingsPeriod(goals, today)
 
-  if (goals.length === 0) return { goals: [], pending_period }
+  if (goals.length === 0) {
+    return { goals: [], pending_period, pending_surplus_usd: 0, available_funds: [] }
+  }
 
   const goalIds = goals.map(g => g.id)
   const [{ data: txRows }] = await Promise.all([
     supabase
       .from('fin_transactions')
-      .select('savings_goal_id, type, account_id, to_account_id, amount_usd, to_amount_usd, savings_flow')
+      .select('savings_goal_id, type, account_id, to_account_id, amount, to_amount, amount_usd, to_amount_usd, savings_flow, savings_period')
       .eq('user_id', userId).in('savings_goal_id', goalIds),
   ])
 
@@ -1182,11 +1308,28 @@ export async function loadSavingsGoals(
     type: t.type as TxType,
     account_id: t.account_id as string,
     to_account_id: t.to_account_id as string | null,
+    amount: num(t.amount),
+    to_amount: t.to_amount == null ? null : num(t.to_amount),
     amount_usd: num(t.amount_usd),
     to_amount_usd: t.to_amount_usd == null ? null : num(t.to_amount_usd),
     savings_flow: t.savings_flow as string | null,
   }))
+  // Qué meses ya tienen un aporte, por ahorro (Ronda 9). Alimenta las dos
+  // cosas que se pidieron: esconder el botón "Ahorrar" de un plan cuando su
+  // mes ya se guardó, y la tabla de meses del detalle.
+  const mesesAhorrados = new Map<string, Set<string>>()
+  for (const r of txRows ?? []) {
+    const goal = r.savings_goal_id as string | null
+    const periodo = r.savings_period as string | null
+    if (!goal || !periodo) continue
+    if (!mesesAhorrados.has(goal)) mesesAhorrados.set(goal, new Set())
+    mesesAhorrados.get(goal)!.add(periodo.slice(0, 10))
+  }
+
   const balances = computeGoalBalancesUsd(taggedTxs)
+  // Dónde vive físicamente cada ahorro: lo necesita el traslado (§4.12) para
+  // saber de qué cuentas se puede sacar y cuánto.
+  const porCuenta = computeGoalBalancesByAccountUsd(taggedTxs)
   // Qué ahorros ya tienen movimientos: bloquea cambiarles la moneda, igual
   // que en una cuenta con transacciones.
   const conMovimientos = new Set(taggedTxs.map(t => t.savings_goal_id).filter((id): id is string => !!id))
@@ -1207,149 +1350,95 @@ export async function loadSavingsGoals(
       balance_usd,
       goal_reached: goalReached(goal, balance_usd, targetAmountUsd),
       has_movements: conMovimientos.has(g.id),
+      created_at: g.created_at,
+      saved_periods: [...(mesesAhorrados.get(g.id) ?? [])].sort(),
+      by_account: [...porCuenta]
+        .filter(([k, v]) => k.startsWith(`${g.id}:`) && v > 0)
+        .map(([k, v]) => ({
+          account_id: k.slice(g.id.length + 1),
+          amount_usd: round2(v),
+        }))
+        .sort((a, b) => b.amount_usd - a.amount_usd),
     }
   })
 
-  return { goals: withBalance, pending_period }
+  // El sobrante del mes pendiente y dónde quedó su plata: los dos los necesita
+  // el sheet de "Ahorrar" de cada plan, así que viajan con los ahorros en vez
+  // de costar un viaje aparte por cada card que se abre.
+  if (!pending_period) {
+    return { goals: withBalance, pending_period, pending_surplus_usd: 0, available_funds: [] }
+  }
+
+  const [pending_surplus_usd, { accounts }] = await Promise.all([
+    monthSurplusUsd(supabase, userId, pending_period),
+    loadAccounts(supabase, userId),
+  ])
+
+  return {
+    goals: withBalance,
+    pending_period,
+    pending_surplus_usd,
+    available_funds: availableFundsByAccount(accounts),
+  }
 }
 
-/** Los txs de un mes reducidos a lo que `surplusUsd`-style de `savings.ts`
-    necesita — ingreso real menos gasto real (§4.1 de sprint_7_ahorro.md). */
+/**
+ * El sobrante de un mes: ingreso real menos gasto real (§4.1), **menos lo que
+ * los fijos de ahorro ya guardaron en ese mismo mes**.
+ *
+ * Sin esa resta el reparto pedía ahorrar plata ya ahorrada. Un aporte es una
+ * `transferencia` (`flow_type: 'movimiento'`), así que `ingresoUsd`/`gastoUsd`
+ * ni lo miran: con un fijo de $100 corriendo, al cerrar el mes el reparto
+ * proponía repartir el sobrante entero, esos $100 incluidos.
+ *
+ * Se descuentan **solo los aportes de un fijo** (`recurring_id` no nulo), que
+ * desde la Ronda 8 son lo único que puede aportar a mitad de mes. Las
+ * transferencias que crea el propio cierre quedan afuera a propósito: nacen
+ * con fecha de hoy, que cae en el mes SIGUIENTE al que cierran, y descontarlas
+ * arruinaría el sobrante del mes que todavía no terminó. Un traslado tampoco
+ * cuenta: no ahorra nada nuevo, solo cambia de cuenta plata ya guardada.
+ *
+ * Asimetría deliberada, no olvido: un **retiro** sí baja el sobrante, porque
+ * es un `gasto` normal para `gastoUsd`. Se puede defender de las dos maneras
+ * —romper un ahorro deja menos para guardar el mes que viene— y no se tocó
+ * porque no se pidió; queda anotado en §8 del sprint.
+ */
 async function monthSurplusUsd(supabase: SupabaseClient, userId: string, period: string): Promise<number> {
   const { from, to } = periodRange(period)
   const { data: txRows } = await supabase
     .from('fin_transactions')
-    .select('type, amount_usd, flow_type')
+    .select('type, amount_usd, to_amount_usd, flow_type, savings_goal_id, savings_flow, recurring_id')
     .eq('user_id', userId).gte('date', from).lte('date', to)
 
   const txs = (txRows ?? []).map(t => ({
     type: t.type as TxType, amount_usd: num(t.amount_usd), flow_type: t.flow_type as Transaction['flow_type'],
   }))
-  return round2(ingresoUsd(txs) - gastoUsd(txs))
+
+  // Lo que llegó, no lo que salió: en un aporte cross-currency son distintos,
+  // y lo que quedó guardado es el lado que entró (mismo criterio que
+  // `computeGoalBalancesUsd`).
+  const yaGuardadoPorFijos = round2((txRows ?? [])
+    .filter(t => t.savings_goal_id && t.savings_flow === 'aporte' && t.recurring_id)
+    .reduce((s, t) => s + num(t.to_amount_usd ?? t.amount_usd), 0))
+
+  return round2(round2(ingresoUsd(txs) - gastoUsd(txs)) - yaGuardadoPorFijos)
 }
 
-/** La propuesta de reparto del período pendiente más viejo, para la pantalla
-    de cierre mensual de Ahorro (§4.3). */
-export async function loadSavingsClosureProposal(
-  supabase: SupabaseClient,
-  userId: string,
-  today: string,
-): Promise<SavingsClosureProposal> {
-  const { rates } = await ensureRates(supabase, userId)
-  const { goals, pending_period } = await loadSavingsGoals(supabase, userId, today, { rates })
-
-  if (!pending_period) {
-    return { pending_period: null, surplus_usd: 0, proposal: [], unassigned_usd: 0, insufficient_for_fixed: false }
-  }
-
-  const surplus_usd = await monthSurplusUsd(supabase, userId, pending_period)
-  const { proposal, unassignedUsd, insufficientForFixed } = proposeAllocation(goals, surplus_usd, rates)
-
-  return {
-    pending_period,
-    surplus_usd,
-    proposal,
-    unassigned_usd: unassignedUsd,
-    insufficient_for_fixed: insufficientForFixed,
-  }
-}
-
-/**
- * Confirma el cierre de un período: arma una `transferencia` real por cada
- * asignación (tageada con `savings_goal_id`) y recién después congela la
- * fila de `fin_savings_closures` — mismo criterio de atomicidad que Sprint 2
- * §4.7 y Sprint 4 §4.8: si algo falla a mitad de camino, se deshacen las
- * transferencias ya creadas en vez de dejar un reparto a medias.
+/*
+ * ── El reparto global se retiró en la Ronda 9 ──
  *
- * `skip: true` (o una lista sin montos positivos) no crea ninguna
- * transferencia — solo dice "ya se decidió, no repartir nada este mes".
+ * Acá vivían `loadSavingsClosureProposal` y `applySavingsClosure`: la pantalla
+ * que cerraba el mes entero de una vez, con una cuenta de origen y una de
+ * destino para TODOS los ahorros juntos. La reemplazó el botón "Ahorrar" de
+ * cada plan (`POST /savings-goals/[id]/save`, §4.13).
  *
- * El `surplus_usd` que se congela es el que el SERVER calcula en este
- * momento, no el que mandó el cliente — mismo criterio que
- * `POST /budgets/[id]/close`.
+ * Se borraron en vez de dejarlas: no eran código muerto inofensivo. Escribían
+ * aportes SIN `savings_period`, así que cualquier llamada —desde un cliente
+ * viejo, desde un test, desde curl— habría metido plata en un ahorro sin que
+ * el mes quedara marcado: el botón del plan seguiría ofreciéndose y la tabla
+ * de meses mostraría un guion sobre un mes que sí recibió plata.
+ *
+ * `fin_savings_closures` queda en la base con lo que se haya escrito, pero ya
+ * nadie la lee: `pendingSavingsPeriod` dejó de depender de ella justamente
+ * porque, al no escribirse más, dejaba el mes pendiente clavado para siempre.
  */
-export async function applySavingsClosure(
-  supabase: SupabaseClient,
-  userId: string,
-  input: {
-    period: string
-    allocations: { goal_id: string; amount: number; from_account_id: string; to_account_id: string }[]
-    skip?: boolean
-  },
-): Promise<{ ok: boolean; error?: string; status?: number }> {
-  const { data: existing } = await supabase
-    .from('fin_savings_closures').select('id').eq('user_id', userId).eq('period', input.period).maybeSingle()
-  if (existing) return { ok: false, error: 'Ese mes ya se repartió', status: 409 }
-
-  const surplus_usd = await monthSurplusUsd(supabase, userId, input.period)
-  const createdIds: string[] = []
-  const today = todayISO()
-
-  const positive = input.skip ? [] : input.allocations.filter(a => a.amount > 0)
-
-  if (positive.length > 0) {
-    const goalIds = [...new Set(positive.map(a => a.goal_id))]
-    const [{ data: accountRows }, { data: goalRows }, { rates }] = await Promise.all([
-      supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
-      supabase.from('fin_savings_goals').select('id, input_currency, archived').eq('user_id', userId).in('id', goalIds),
-      ensureRates(supabase, userId),
-    ])
-    const accountsById = new Map((accountRows ?? []).map(r => [r.id as string, mapAccount(r)]))
-    const goalsById = new Map((goalRows ?? []).map(r => [r.id as string, r as { id: string; input_currency: Currency; archived: boolean }]))
-
-    for (const a of positive) {
-      const from = accountsById.get(a.from_account_id)
-      const to = accountsById.get(a.to_account_id)
-      const goal = goalsById.get(a.goal_id)
-
-      const fail = async (error: string, status = 400) => {
-        if (createdIds.length > 0) await supabase.from('fin_transactions').delete().eq('user_id', userId).in('id', createdIds)
-        return { ok: false as const, error, status }
-      }
-
-      if (!from || !to || !goal) return fail('Datos inválidos en el reparto')
-      if (goal.archived) return fail('Ese ahorro está archivado')
-      if (from.id === to.id) return fail('El origen y el destino no pueden ser la misma cuenta')
-
-      const amountFrom = goal.input_currency === from.currency
-        ? a.amount
-        : fromUsd(toUsd(a.amount, goal.input_currency, rates), from.currency, rates)
-
-      const balanceError = await assertBalance(supabase, userId, from, 'transferencia', amountFrom)
-      if (balanceError) return fail(balanceError)
-
-      const frozen = freezeConversion(amountFrom, from.currency, rates)
-      const toAmount = from.currency === to.currency ? null : crossCurrencySuggestion(amountFrom, from.currency, to.currency, rates)
-      const frozenTo = toAmount != null ? freezeConversion(toAmount, to.currency, rates) : null
-
-      const { data: created, error } = await supabase
-        .from('fin_transactions')
-        .insert({
-          user_id: userId, type: 'transferencia', flow_type: 'movimiento',
-          date: today, account_id: from.id, to_account_id: to.id, category_id: null,
-          amount: amountFrom, currency: from.currency, to_amount: toAmount,
-          exchange_rate: frozen.exchange_rate, amount_usd: frozen.amount_usd,
-          to_amount_usd: frozenTo?.amount_usd ?? null, to_exchange_rate: frozenTo?.exchange_rate ?? null,
-          // Un cierre siempre APORTA: el camino lo sabe con certeza, no hace
-          // falta preguntarlo ni deducirlo de un campo vacío.
-          description: null, savings_goal_id: a.goal_id, savings_flow: 'aporte', savings_reason: null,
-        })
-        .select('id')
-        .single()
-
-      if (error || !created) return fail(error?.message ?? 'No se pudo registrar el aporte')
-      createdIds.push(created.id as string)
-    }
-  }
-
-  const { error: closureError } = await supabase
-    .from('fin_savings_closures')
-    .insert({ user_id: userId, period: input.period, surplus_usd })
-
-  if (closureError) {
-    if (createdIds.length > 0) await supabase.from('fin_transactions').delete().eq('user_id', userId).in('id', createdIds)
-    return { ok: false, error: closureError.message, status: 400 }
-  }
-
-  return { ok: true }
-}

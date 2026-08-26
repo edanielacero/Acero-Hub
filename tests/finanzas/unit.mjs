@@ -5,7 +5,7 @@ import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
-import { addMonthsClamped, currentRound, expectedTurnDate, nextAporteDue, validatePasanaku } from './.fin/pasanaku.mjs'
+import { addMonthsClamped, aportePendiente, canAportar, currentAporteDue, currentRound, expectedTurnDate, nextAporteDue, pasanakuRounds, roundsOf, validatePasanaku } from './.fin/pasanaku.mjs'
 import {
   periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
   gastoRealCategoria, comprometido, carriedInto, disponible, dayOfPeriod, needsClosure,
@@ -14,7 +14,7 @@ import {
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import {
-  surplusUsd, pendingSavingsPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
+  surplusUsd, pendingSavingsPeriod, canSaveForPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
   proposeAllocation, validateGoalName, validateAllocation, validateTargetAmount,
 } from './.fin/savings.mjs'
 import { savingsFlowForType, isValidSavingsFlow, isValidSavingsReason } from './.fin/transactions.mjs'
@@ -1359,6 +1359,109 @@ section('SPRINT 5 (revisión) · currentRound — en qué ronda vamos, para la b
   eq('nunca da menos de 1, ni antes de arrancar', currentRound('2026-08-05', '2026-06-01'), 1)
 }
 
+section('SPRINT 5 (revisión) · pasanakuRounds — la tabla de meses del ciclo')
+{
+  const p = { start_date: '2026-05-10', total_slots: 4, my_slot: 2 }
+
+  eq('una fila por puesto', pasanakuRounds(p, []).length, 4)
+  eq('los meses salen de start_date, uno por ronda',
+     pasanakuRounds(p, []).map(r => r.period), ['2026-05', '2026-06', '2026-07', '2026-08'])
+  eq('sin aportes, ninguna ronda está pagada',
+     pasanakuRounds(p, []).every(r => !r.paid && r.amount === 0), true)
+  eq('marca tu turno en my_slot', pasanakuRounds(p, []).map(r => r.mine), [false, true, false, false])
+
+  // Un aporte cuenta para el mes de SU fecha, no para el mes en que se cargó:
+  // cargar hoy el de junio tiene que marcar junio.
+  const conAportes = pasanakuRounds(p, [
+    { date: '2026-05-10', amount: 300 },
+    { date: '2026-06-28', amount: 300 },
+  ])
+  eq('marca los meses aportados', conAportes.map(r => r.paid), [true, true, false, false])
+  eq('y deja el monto de cada mes', conAportes.map(r => r.amount), [300, 300, 0, 0])
+
+  eq('dos aportes del mismo mes se suman en la fila',
+     pasanakuRounds(p, [{ date: '2026-05-01', amount: 150 }, { date: '2026-05-20', amount: 150 }])[0].amount, 300)
+  eq('un aporte fuera del ciclo no inventa filas ni se cuela',
+     pasanakuRounds(p, [{ date: '2026-12-01', amount: 300 }]).some(r => r.paid), false)
+
+  eq('el ciclo cruza de año sin saltarse un mes',
+     pasanakuRounds({ start_date: '2026-11-30', total_slots: 3, my_slot: 1 }, []).map(r => r.period),
+     ['2026-11', '2026-12', '2027-01'])
+}
+
+section('SPRINT 5 (revisión) · canAportar — el botón bloqueado hasta el día del aporte')
+{
+  const p = { start_date: '2026-05-10', total_slots: 4, my_slot: 2 }
+  const rondas = (aportes = []) => pasanakuRounds(p, aportes)
+  // Mayo y junio ya aportados: sin atrasos que destraben el botón por su cuenta.
+  const alDia = rondas([{ date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 }])
+
+  eq('el día del aporte del mes corriente, sin saltar al siguiente',
+     currentAporteDue('2026-05-10', '2026-07-25'), '2026-07-10')
+  eq('antes de arrancar el pasanaku, el día es el arranque mismo',
+     currentAporteDue('2026-05-10', '2026-04-01'), '2026-05-10')
+  eq('topa el 31 contra febrero, igual que nextAporteDue',
+     currentAporteDue('2026-01-31', '2026-02-20'), '2026-02-28')
+
+  eq('al día y todavía no llegó el día del mes: bloqueado',
+     canAportar('2026-05-10', alDia, '2026-07-03'), false)
+  eq('el día justo: habilitado', canAportar('2026-05-10', alDia, '2026-07-10'), true)
+  eq('pasado el día: sigue habilitado', canAportar('2026-05-10', alDia, '2026-07-21'), true)
+  eq('antes de que arranque el pasanaku: bloqueado',
+     canAportar('2026-09-10', pasanakuRounds({ ...p, start_date: '2026-09-10' }, []), '2026-08-26'), false)
+
+  // La excepción: un mes atrasado destraba el botón aunque el día de este mes
+  // no haya llegado — si no, la deuda quedaba trabada hasta el mes siguiente.
+  eq('con junio sin aportar, el 3 de julio ya se puede',
+     canAportar('2026-05-10', rondas([{ date: '2026-05-10', amount: 300 }]), '2026-07-03'), true)
+  eq('el mes corriente sin aportar NO cuenta como atraso antes de su día',
+     canAportar('2026-05-10', alDia, '2026-07-09'), false)
+}
+
+section('SPRINT 5 (revisión) · aportePendiente — el aviso de la Home')
+{
+  const p = { start_date: '2026-05-10', total_slots: 4, my_slot: 2 }
+  const rondas = (aportes = []) => pasanakuRounds(p, aportes)
+  const alDia = rondas([{ date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 }])
+
+  eq('llegó el día y no aportaste: pendiente',
+     aportePendiente('2026-05-10', alDia, '2026-07-10'), true)
+  eq('llegó el día y ya aportaste: nada pendiente',
+     aportePendiente('2026-05-10', rondas([
+       { date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 }, { date: '2026-07-10', amount: 300 },
+     ]), '2026-07-15'),
+     false)
+  eq('al día y todavía no llegó el día del mes: nada pendiente',
+     aportePendiente('2026-05-10', alDia, '2026-07-03'), false)
+  eq('un mes viejo sin aportar pesa aunque el de este mes no venza',
+     aportePendiente('2026-05-10', rondas([{ date: '2026-05-10', amount: 300 }]), '2026-07-03'), true)
+  eq('ciclo entero aportado: nada pendiente, ni el último día',
+     aportePendiente('2026-05-10', rondas([
+       { date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 },
+       { date: '2026-07-10', amount: 300 }, { date: '2026-08-10', amount: 300 },
+     ]), '2026-08-31'),
+     false)
+  eq('terminado el ciclo, los meses de después no piden nada',
+     aportePendiente('2026-05-10', rondas([
+       { date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 },
+       { date: '2026-07-10', amount: 300 }, { date: '2026-08-10', amount: 300 },
+     ]), '2026-11-20'),
+     false)
+  eq('antes de que arranque el pasanaku no hay nada pendiente',
+     aportePendiente('2026-09-10', pasanakuRounds({ ...p, start_date: '2026-09-10' }, []), '2026-08-26'), false)
+
+  // roundsOf: la forma en que lo llaman las pantallas, con un pasanaku cargado.
+  const cargado = {
+    ...p,
+    aportes: [{ id: 'a1', date: '2026-05-10', amount: 43.1, currency: 'USD', amount_in_currency: 300 }],
+    historico: [{ id: 'h1', pasanaku_id: 'x', date: '2026-06-10', amount: 300, note: null }],
+  }
+  eq('roundsOf junta aportes reales e históricos',
+     roundsOf(cargado).map(r => r.paid), [true, true, false, false])
+  eq('y usa el monto ya convertido a la moneda del pasanaku',
+     roundsOf(cargado)[0].amount, 300)
+}
+
 section('SPRINT 5 · validatePasanaku')
 {
   // Sin account_id a propósito: la cuenta se elige al aportar/recibir, no al
@@ -1735,43 +1838,49 @@ section('SPRINT 7 · surplusUsd — ingreso real menos gasto real')
   eq('sin movimientos, sobrante cero', surplusUsd([]), 0)
 }
 
-section('SPRINT 7 · pendingSavingsPeriod — la ausencia de fila es la pregunta pendiente')
+section('SPRINT 7 (Ronda 9) · pendingSavingsPeriod — el mes pasado, y solo ese')
 {
-  eq('sin ahorros todavía, nada pendiente', pendingSavingsPeriod(null, [], '2026-08-24'), null)
-  eq('un ahorro creado en junio, sin cierres: junio es lo más viejo pendiente',
-     pendingSavingsPeriod('2026-06-10', [], '2026-08-24'), '2026-06-01')
-  eq('con junio ya cerrado, julio es lo pendiente',
-     pendingSavingsPeriod('2026-06-10', [{ period: '2026-06-01' }], '2026-08-24'), '2026-07-01')
-  eq('todo cerrado hasta el mes vigente: nada pendiente',
-     pendingSavingsPeriod('2026-06-10', [{ period: '2026-06-01' }, { period: '2026-07-01' }], '2026-08-24'), null)
-  eq('un ahorro creado este mismo mes no tiene nada que repartir todavía',
-     pendingSavingsPeriod('2026-08-24', [], '2026-08-24'), null)
+  const g = (created_at, archived = false) => ({ created_at, archived })
 
-  // FIX: el tope de 24 acota la ventana HACIA ATRÁS, no cuántos meses se
-  // recorren. Antes contaba iteraciones, así que con más de 24 meses de
-  // historia ya cerrada el barrido se agotaba ANTES de llegar al mes
-  // pendiente y devolvía null — escondiendo justo la pregunta reciente.
-  {
-    const viejo = '2023-01-10'
-    // Todo cerrado desde enero 2023 hasta junio 2026; julio 2026 quedó sin cerrar.
-    const cerrados = []
-    for (let y = 2023; y <= 2026; y++) {
-      for (let m = 1; m <= 12; m++) {
-        const p = `${y}-${String(m).padStart(2, '0')}-01`
-        if (p >= '2026-07-01') continue
-        cerrados.push({ period: p })
-      }
-    }
-    eq('con 3 años de historia cerrada, el mes pendiente reciente NO se pierde',
-       pendingSavingsPeriod(viejo, cerrados, '2026-08-24'), '2026-07-01')
-    eq('y si TODO está cerrado, sigue sin haber pendientes',
-       pendingSavingsPeriod(viejo, [...cerrados, { period: '2026-07-01' }], '2026-08-24'), null)
-  }
+  eq('sin ahorros todavía, nada pendiente', pendingSavingsPeriod([], '2026-08-24'), null)
+  eq('con un ahorro que ya existía, el mes pendiente es el pasado',
+     pendingSavingsPeriod([g('2026-06-10')], '2026-08-24'), '2026-07-01')
+  eq('un ahorro creado este mismo mes no organiza el mes pasado',
+     pendingSavingsPeriod([g('2026-08-24')], '2026-08-24'), null)
+  eq('uno creado DENTRO del mes pasado sí lo organiza',
+     pendingSavingsPeriod([g('2026-07-28')], '2026-08-24'), '2026-07-01')
+  eq('los archivados no cuentan',
+     pendingSavingsPeriod([g('2026-01-01', true)], '2026-08-24'), null)
+  eq('pero alcanza con que UNO activo califique',
+     pendingSavingsPeriod([g('2026-08-20'), g('2026-02-01')], '2026-08-24'), '2026-07-01')
 
-  // Un ahorro muy viejo con nada cerrado: la ventana arranca 24 meses atrás,
-  // no en su fecha de creación — no tiene sentido reclamar 2023 en 2026.
-  eq('con nada cerrado nunca, arranca 24 meses atrás del mes vigente',
-     pendingSavingsPeriod('2020-01-10', [], '2026-08-24'), '2024-08-01')
+  // BUG DE LA RONDA 9 (arreglado): antes esto salía de "el período más viejo
+  // sin fila en fin_savings_closures", y esa tabla la escribía el reparto
+  // global que la ronda reemplazó. Al no escribirse nunca más, el mes
+  // pendiente quedaba clavado: guardabas en todos tus planes, los botones
+  // desaparecían, y al mes siguiente la app seguía ofreciendo el MISMO mes
+  // viejo. La feature dejaba de funcionar en silencio a los treinta días.
+  eq('un ahorro de hace años sigue apuntando al mes pasado, no a 2024',
+     pendingSavingsPeriod([g('2020-01-10')], '2026-08-24'), '2026-07-01')
+  eq('en enero, el mes pasado es diciembre del año anterior',
+     pendingSavingsPeriod([g('2025-05-01')], '2026-01-14'), '2025-12-01')
+}
+
+section('SPRINT 7 (Ronda 9) · canSaveForPeriod')
+{
+  const g = (created_at, saved_periods = [], archived = false) => ({ created_at, saved_periods, archived })
+
+  eq('un plan que existía y no guardó, puede',
+     canSaveForPeriod(g('2026-01-01'), '2026-07-01'), true)
+  eq('si ya guardó ese mes, no',
+     canSaveForPeriod(g('2026-01-01', ['2026-07-01']), '2026-07-01'), false)
+  eq('haber guardado OTRO mes no lo bloquea',
+     canSaveForPeriod(g('2026-01-01', ['2026-06-01']), '2026-07-01'), true)
+  eq('archivado, no', canSaveForPeriod(g('2026-01-01', [], true), '2026-07-01'), false)
+  eq('creado después del mes, no',
+     canSaveForPeriod(g('2026-08-02'), '2026-07-01'), false)
+  eq('creado dentro del mes, sí',
+     canSaveForPeriod(g('2026-07-20'), '2026-07-01'), true)
 }
 
 section('SPRINT 7 · goalReached')
