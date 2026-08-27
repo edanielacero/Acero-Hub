@@ -86,7 +86,7 @@ export function PasanakuSheet({ editing, onClose, onSaved }: {
     if (invalid) return setError(invalid)
 
     setSaving(true)
-    const res = await fetch(
+    const res = await fzFetch(
       editing ? `/api/finanzas/pasanaku/${editing.id}` : '/api/finanzas/pasanaku',
       {
         method: editing ? 'PATCH' : 'POST',

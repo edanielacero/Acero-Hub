@@ -143,7 +143,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
     }
 
     setSaving(true)
-    const res = await fetch(
+    const res = await fzFetch(
       editing ? `/api/finanzas/recurring/${editing.id}` : '/api/finanzas/recurring',
       {
         method: editing ? 'PATCH' : 'POST',

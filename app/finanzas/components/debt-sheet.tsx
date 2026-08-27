@@ -76,7 +76,7 @@ export function DebtSheet({ editing, onClose, onSaved }: {
     if (!desdeGasto && !concept.trim()) return setError('Di de qué es la deuda')
 
     setSaving(true)
-    const res = await fetch(
+    const res = await fzFetch(
       editing ? `/api/finanzas/debts/${editing.id}` : '/api/finanzas/debts',
       {
         method: editing ? 'PATCH' : 'POST',

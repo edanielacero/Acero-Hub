@@ -83,7 +83,7 @@ interface FinanzasData {
    * Cambia de perfil sin recargar la página: repinta el acento, cambia la
    * clave del snapshot y vuelve a pedir /bootstrap.
    */
-  switchProfile: (id: string) => void
+  switchProfile: (id: string, accentHint?: AccentKey) => void
 }
 
 const Ctx = createContext<FinanzasData | null>(null)
@@ -378,15 +378,25 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
    * si fueran de este — mismo criterio que el snapshot: un número de otro
    * perfil no es "todavía no sé", es un número equivocado.
    */
-  const switchProfile = useCallback((id: string) => {
+  const switchProfile = useCallback((id: string, accentHint?: AccentKey) => {
     if (id === wantedProfile.current) return
-    const destino = profiles.find(p => p.id === id)
-    if (!destino) return
 
+    // `accentHint` existe para el perfil recién creado.
+    //
+    // `profiles` acá es el de ESTA renderización. Quien acaba de crear un perfil
+    // y llama a esto en el mismo handler todavía tiene la lista vieja capturada
+    // en su closure, así que el perfil nuevo no está y el `find` fallaba: el
+    // switch se descartaba en silencio y el usuario quedaba en el perfil
+    // anterior creyendo que estaba en el nuevo. Con el color en la mano no hace
+    // falta encontrarlo en la lista — /bootstrap confirma el resto.
+    const destino = profiles.find(p => p.id === id)
+    if (!destino && !accentHint) return
+
+    const accentNuevo = destino?.accent ?? accentHint!
     wantedProfile.current = id
     setProfileId(id)
-    setAccent(destino.accent)
-    writeProfilePref({ id, accent: destino.accent })
+    setAccent(accentNuevo)
+    writeProfilePref({ id, accent: accentNuevo })
 
     // Lo cacheado es del perfil anterior: no sirve para este.
     txCache.clear()

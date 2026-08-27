@@ -129,7 +129,7 @@ export function CuentasScreen() {
     }
 
     setBusy(true)
-    const res = await fetch(
+    const res = await fzFetch(
       draft.id ? `/api/finanzas/accounts/${draft.id}` : '/api/finanzas/accounts',
       {
         method: draft.id ? 'PATCH' : 'POST',

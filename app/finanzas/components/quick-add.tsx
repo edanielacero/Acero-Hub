@@ -527,7 +527,7 @@ export function QuickAdd() {
     }
 
     setSaving(true)
-    const res = await fetch(
+    const res = await fzFetch(
       editing ? `/api/finanzas/transactions/${editing.id}` : '/api/finanzas/transactions',
       {
         method: editing ? 'PATCH' : 'POST',

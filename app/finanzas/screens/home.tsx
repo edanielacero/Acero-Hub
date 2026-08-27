@@ -43,7 +43,7 @@ function firstName(name: string | null): string {
 }
 
 export function HomeScreen() {
-  const { accounts, categories, shared, recurring, budgets, savings, pasanaku, totalUsd, rates, loading, stale, error, reload, hidden, userName } = useFinanzas()
+  const { accounts, categories, shared, recurring, budgets, savings, pasanaku, totalUsd, rates, loading, stale, error, reload, hidden, userName, profiles, profileId } = useFinanzas()
   const openQuickAdd = useQuickAdd()
   const openEdit = useQuickEdit()
   const { navigate } = useFzRouter()
@@ -187,12 +187,35 @@ export function HomeScreen() {
 
   const budgetLines = budgets.categories
 
+  // Con varios perfiles, el título deja de ser tu nombre y pasa a ser el del
+  // perfil: es la respuesta a "¿dónde estoy?" en el lugar donde ya estabas
+  // mirando. Con un solo perfil sigue saludándote a vos, como siempre — decir
+  // "Personal" no informaría nada.
+  //
+  // Antes los dos estados vacíos ponían un "Finanzas" fijo, así que un perfil
+  // recién creado —que siempre cae en el vacío— se presentaba con el nombre de
+  // la app en vez del suyo.
+  const perfilActivo = profiles.find(p => p.id === profileId) ?? null
+  const tituloPerfil = profiles.length > 1 && perfilActivo ? perfilActivo.name : firstName(userName)
+
+  // El selector va en LOS TRES encabezados, no solo en el de la Home cargada.
+  // Los dos estados vacíos hacían un `return` temprano sin él, y justo ahí es
+  // donde más falta hace: un perfil recién creado no tiene cuentas, así que
+  // caía en el estado vacío y se quedaba sin ninguna forma de volver al otro.
+  const selectorPerfil = (
+    <ProfileSwitcher
+      open={profileSheet}
+      onOpen={() => setProfileSheet(true)}
+      onClose={() => setProfileSheet(false)}
+    />
+  )
+
   // Sin datos y sin poder pedirlos. Decirlo es lo único honesto: un esqueleto
   // eterno se lee como "ya casi", y un $0 se lee como un saldo.
   if (loading && error) {
     return (
       <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
-        <PageHeader title="Finanzas" subtitle={greeting()} />
+        <PageHeader title={tituloPerfil} subtitle={greeting()} action={selectorPerfil} />
         <Panel>
           <EmptyState
             icon={IconWifiOff}
@@ -208,7 +231,7 @@ export function HomeScreen() {
   if (!loading && visible.length === 0) {
     return (
       <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
-        <PageHeader title="Finanzas" subtitle={greeting()} />
+        <PageHeader title={tituloPerfil} subtitle={greeting()} action={selectorPerfil} />
         <Panel>
           <EmptyState
             icon={IconBuildingBank}
@@ -224,7 +247,7 @@ export function HomeScreen() {
   return (
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0" aria-busy={loading}>
       <PageHeader
-        title={firstName(userName)}
+        title={tituloPerfil}
         subtitle={greeting()}
         action={
           <>

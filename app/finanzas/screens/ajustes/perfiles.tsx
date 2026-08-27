@@ -79,8 +79,14 @@ export function AjustesPerfilesScreen() {
     await load()
     // Cambiar a él es lo que uno espera después de crearlo: deja al usuario
     // parado en el perfil vacío, listo para cargar su primera cuenta.
-    await reload()
-    switchProfile(profile.id)
+    //
+    // Se le pasa el acento porque el `profiles` que ve `switchProfile` es el de
+    // la renderización en la que se creó este handler — sin el perfil nuevo. Sin
+    // el color en la mano, el cambio se descartaba en silencio y el usuario
+    // quedaba en el perfil anterior creyendo que estaba en el nuevo.
+    // `switchProfile` ya dispara su propio /bootstrap con el perfil nuevo, así
+    // que no hace falta un `reload()` extra acá.
+    switchProfile(profile.id, profile.accent)
   }
 
   async function renombrar(id: string) {

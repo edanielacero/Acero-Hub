@@ -2047,4 +2047,63 @@ section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
   eq('de 20', Math.abs(bd.mine), 20)
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SPRINT 8 · Guarda de código: toda llamada a la API lleva el perfil
+   ══════════════════════════════════════════════════════════════════════════
+
+   Esto no prueba una función: revisa el código fuente. Va acá porque el bug que
+   previene no se puede atrapar de otra forma y ya se escapó una vez.
+
+   Las rutas leen el perfil de `?profile=`, que pone `fzFetch`. Un `fetch()`
+   pelado a /api/finanzas NO falla: escribe en el perfil default en silencio.
+   Pasó de verdad — siete llamadas de crear/editar (cuentas, movimientos,
+   deudas, fijos, ahorros, pasanaku y planes) quedaron sin envolver porque
+   estaban escritas en varias líneas con un ternario:
+
+       await fetch(
+         editing ? `/api/finanzas/x/${id}` : '/api/finanzas/x',
+
+   El resultado era que en cualquier perfil que no fuera el principal, nada de
+   lo que creabas se guardaba ahí. Y la verificación original usaba el mismo
+   patrón pegado que la conversión, así que tampoco lo vio.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+section('SPRINT 8 · ninguna llamada a la API se salta el perfil')
+{
+  const { readdirSync, readFileSync, statSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  const raiz = join(process.env.FZ_ROOT ?? '.', 'app/finanzas')
+  const archivos = []
+  const recorrer = dir => {
+    for (const e of readdirSync(dir)) {
+      const full = join(dir, e)
+      if (statSync(full).isDirectory()) recorrer(full)
+      else if (/\.tsx?$/.test(e)) archivos.push(full)
+    }
+  }
+  recorrer(raiz)
+
+  // `data-context` arma la URL de /bootstrap con el perfil a mano, y `fz-fetch`
+  // es quien envuelve: los dos son la excepción legítima.
+  const exentos = ['data-context.tsx', 'fz-fetch.ts']
+
+  const crudos = []
+  for (const f of archivos) {
+    if (exentos.some(e => f.endsWith(e))) continue
+    const src = readFileSync(f, 'utf8')
+    const re = /(?<![A-Za-z])fetch\(/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      // La cabeza de la llamada: alcanza para ver a qué URL apunta, aunque esté
+      // partida en varias líneas.
+      if (!src.slice(m.index, m.index + 260).includes('/api/finanzas')) continue
+      crudos.push(`${f.replace(/.*\/app\//, 'app/')}:${src.slice(0, m.index).split('\n').length}`)
+    }
+  }
+
+  ok('todas usan fzFetch, ninguna fetch() pelado', crudos.length === 0, crudos.join('  ·  '))
+}
+
 process.exit(summary() === 0 ? 0 : 1)

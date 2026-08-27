@@ -12,8 +12,9 @@
 >
 > Última actualización: 2026-08-27 · Estado: **construido**. 661/202/737
 > pruebas en verde (unit/db/api), build en verde. Cinco desviaciones respecto
-> de lo especificado acá (§0.2) y seis bugs encontrados en la revisión posterior
-> (§0.3). Las dos secciones mandan sobre el resto del documento donde difieran.
+> de lo especificado acá (§0.2), seis bugs de la revisión posterior (§0.3) y
+> tres más que encontró el primer uso real (§0.4). Las tres secciones mandan
+> sobre el resto del documento donde difieran.
 
 ---
 
@@ -251,6 +252,73 @@ es más probable que el id de otro usuario—, aunque después del arreglo del b
 el cliente ya no manda un perfil desactualizado. Son 26 sitios y la mayoría son
 limpiezas internas donde borrar 0 filas es lo correcto, así que separarlo de este
 sprint es más seguro que reescribirlos acá.
+
+### 0.4 Los tres bugs que encontró el uso real
+
+El usuario creó su primer perfil de verdad ("Acros Software LLC") y los tres
+síntomas que reportó salían de tres bugs distintos. **Los tres eran del cliente**,
+que es la mitad que ni las 745 pruebas de API ni las 202 de base podían ver.
+
+#### 1. ⚠️ Siete llamadas de crear/editar se saltaban el perfil
+
+La conversión a `fzFetch` (§0.2 d) usó una expresión que exigía la URL **pegada**
+al paréntesis:
+
+```js
+fetch('/api/finanzas/x')     // ✅ convertida
+fetch(                       // ❌ NO convertida
+  editing ? `/api/finanzas/x/${id}` : '/api/finanzas/x',
+```
+
+Quedaron sin envolver las siete llamadas escritas en varias líneas con un
+ternario — y son justo las de **crear y editar**: cuentas, movimientos
+(el quick-add), deudas, fijos, ahorros, pasanaku y planes de pago.
+
+Consecuencia: **en cualquier perfil que no fuera el principal, nada de lo que
+creabas se guardaba ahí.** Iba al default, en silencio, porque una ruta sin
+`?profile=` cae al default por diseño (§4.1).
+
+Lo peor no fue el bug sino la verificación: el grep que usé para confirmar que
+no quedaba ninguna usaba **el mismo patrón defectuoso**, así que dio cero.
+
+Arreglado, y con una **guarda automática** en la suite `unit` que recorre
+`app/finanzas/` y falla si aparece un `fetch(` que mencione `/api/finanzas`. Se
+verificó que la guarda detecta la regresión, no solo que pasa.
+
+#### 2. Un perfil vacío no tenía forma de volver
+
+La Home hace un `return` temprano en dos estados —sin cuentas, y sin conexión— y
+esos encabezados no llevaban el selector de perfil. Un perfil recién creado
+**siempre** cae en el estado vacío, así que quedaba encerrado: sin botón para
+volver al principal.
+
+El selector pasó a estar en los tres encabezados.
+
+#### 3. Crear un perfil no cambiaba a él
+
+`crear()` llamaba a `switchProfile(nuevo.id)`, pero `switchProfile` valida contra
+el `profiles` **de su renderización**, que todavía no incluía el recién creado.
+El `find` fallaba y el cambio se descartaba **en silencio**: el usuario quedaba
+en el perfil anterior creyendo que estaba en el nuevo.
+
+`switchProfile` acepta ahora un `accentHint` opcional, que es lo único que
+necesitaba de la lista. `/bootstrap` confirma el resto.
+
+#### Y una cosa que NO era un bug
+
+El título "Finanzas" del estado vacío. Era correcto para una app de un solo
+perfil, pero con varios el encabezado tiene que decir en cuál estás: pasó a
+mostrar **el nombre del perfil activo** cuando hay más de uno, y a seguir
+saludando por el nombre del usuario cuando hay uno solo.
+
+#### Nota sobre lo que no se pudo reproducir
+
+La cuenta que el usuario dijo haber creado no aparecía **en ningún perfil**: no
+fue mal ruteada, no llegó a crearse. El log del dev server muestra a esa misma
+hora un `ReferenceError: debtLabelInPlan is not defined` sobre un símbolo que sí
+está exportado — la firma de un chunk de hot-reload servido a medio actualizar,
+porque el sprint se estaba editando mientras la app corría. **Al probar contra
+el código ya construido, el recorrido completo funciona.**
 
 ---
 

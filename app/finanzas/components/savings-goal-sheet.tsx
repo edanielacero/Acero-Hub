@@ -8,6 +8,7 @@ import { amountFromInput, decimalsFor, parseDecimalInput } from '@/lib/finanzas/
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 const ALLOCATION_OPTIONS: { value: AllocationType; label: string }[] = [
   { value: 'fixed', label: 'Monto fijo' },
@@ -99,7 +100,7 @@ export function SavingsGoalSheet({ editing, onClose, onSaved }: {
 
     setSaving(true)
 
-    const res = await fetch(
+    const res = await fzFetch(
       editing ? `/api/finanzas/savings-goals/${editing.id}` : '/api/finanzas/savings-goals',
       {
         method: editing ? 'PATCH' : 'POST',

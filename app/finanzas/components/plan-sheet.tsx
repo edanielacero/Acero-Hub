@@ -9,6 +9,7 @@ import { debtLabel } from '@/lib/finanzas/splits'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { Btn, DateField, ErrorNote, formatDayLabel, Label, PersonAvatar, Segmented, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 const MODE_OPTIONS: { value: PlanMode; label: string }[] = [
   { value: 'iguales', label: 'Cuotas iguales' },
@@ -162,7 +163,7 @@ export function PlanSheet({ plan, debt, onClose, onSaved }: {
     }
 
     setSaving(true)
-    const res = await fetch(
+    const res = await fzFetch(
       regenerando ? `/api/finanzas/debt-plans/${plan!.id}/regenerate` : '/api/finanzas/debt-plans',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     )
