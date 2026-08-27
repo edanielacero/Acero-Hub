@@ -5,6 +5,7 @@ import { IconGift, IconX } from '@tabler/icons-react'
 import type { PasanakuWithState } from '@/lib/finanzas/types'
 import { amountFromInput, crossCurrencySuggestion, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } from './ui'
@@ -132,11 +133,11 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
           </p>
 
           <div>
-            <Label>Monto {account && `(${account.currency})`}</Label>
-            <TextField
+            <AmountField
               value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-              inputMode="decimal" placeholder="0.00" className="fz-num"
+              onChange={setAmount}
+              currency={account?.currency ?? null}
+              decimals={decimals}
             />
             {account && crossCurrencyAmount != null && (
               <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">

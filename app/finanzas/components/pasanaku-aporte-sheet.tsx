@@ -5,6 +5,7 @@ import { IconRotateClockwise2, IconX } from '@tabler/icons-react'
 import type { PasanakuWithState } from '@/lib/finanzas/types'
 import { amountFromInput, crossCurrencySuggestion, decimalsFor, formatAmount, parseDecimalInput, roundFor } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } from './ui'
@@ -142,11 +143,32 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
 
         <div className="px-5 pb-5 flex flex-col gap-4">
           <div>
-            <Label>Monto {account && `(${account.currency})`}</Label>
-            <TextField
+            <AmountField
               value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-              inputMode="decimal" placeholder="0.00" className="fz-num"
+              onChange={setAmount}
+              currency={account?.currency ?? null}
+              decimals={decimals}
+              exceeded={excede}
+              footer={account ? (
+                <>
+                  <span className={`text-[12.5px] font-medium fz-num min-w-0 truncate ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+                    Disponible {formatAmount(disponible, account.currency)}
+                    {apartado > 0 && (
+                      <span className="text-[var(--fz-ink-3)] font-normal">
+                        {' '}· {formatAmount(apartado, account.currency)} en ahorros
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={sinFondos}
+                    onClick={() => setAmount(String(roundFor(disponible, account.currency)))}
+                    className="shrink-0 h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-surface)] border border-[var(--fz-hairline)] text-[11.5px] font-bold tracking-wide text-[var(--fz-ink-2)] disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    MÁX
+                  </button>
+                </>
+              ) : undefined}
             />
             {crossCurrency && account && sugerido != null && (
               <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[var(--fz-ink-3)] mt-1.5">

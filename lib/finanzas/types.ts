@@ -232,6 +232,14 @@ export interface DebtInput {
 export interface DebtWithContext extends Debt {
   state: DebtState
   person: Person
+  /** Cómo se cobró: a qué cuenta entró, cuándo y cuánto. `null` si sigue
+      pendiente o si se perdonó — ahí la fecha la da `waived_at`. */
+  settlement: {
+    date: string
+    account_id: string | null
+    amount: number | null
+    currency: Currency
+  } | null
   /** `null` si la deuda es suelta. */
   transaction: {
     id: string

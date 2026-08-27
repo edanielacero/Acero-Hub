@@ -221,3 +221,29 @@ export function groupByPerson(debts: DebtWithContext[], todayISO: string) {
 export function debtLabel(d: Pick<DebtWithContext, 'concept' | 'transaction'>): string {
   return d.transaction?.description?.trim() || d.concept?.trim() || 'Sin descripción'
 }
+
+/**
+ * El nombre de una deuda **con el número de cuota recalculado**.
+ *
+ * El `concept` de una cuota trae el ordinal horneado al crearse
+ * (`"Préstamo a Ana · cuota 2/4"`), y al **regenerar** un plan ese número
+ * queda viejo: las cuotas nuevas se numeran desde el máximo anterior
+ * (`cuota 5`, `cuota 6`…) mientras la lista del plan las muestra por su
+ * posición actual (`Cuota 3/6`). El mismo pago decía dos cosas distintas
+ * según la pantalla — en el plan una, y al tocar "Cobrar" otra.
+ *
+ * Acá el ordinal sale siempre de la posición en la lista viva del plan, que es
+ * lo único que no envejece. Una deuda sin plan no se toca: ahí el `concept` es
+ * el nombre de verdad.
+ */
+export function debtLabelInPlan(
+  d: Pick<DebtWithContext, 'concept' | 'transaction' | 'plan_id' | 'id'>,
+  plans: { id: string; concept: string; cuotas: { id: string }[] }[],
+): string {
+  if (!d.plan_id) return debtLabel(d)
+  const plan = plans.find(p => p.id === d.plan_id)
+  if (!plan) return debtLabel(d)
+  const i = plan.cuotas.findIndex(c => c.id === d.id)
+  if (i < 0) return debtLabel(d)
+  return `${plan.concept} · cuota ${i + 1}/${plan.cuotas.length}`
+}

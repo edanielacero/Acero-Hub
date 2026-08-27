@@ -8,6 +8,7 @@ import {
   fromUsd, parseDecimalInput, roundFor, toUsd,
 } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
+import { AmountField } from './amount-field'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, TextField } from './ui'
 
@@ -156,40 +157,18 @@ export function SavingsMoveSheet({ goal, onClose, onSaved }: {
           </p>
         ) : (
           <div className="px-5 pb-5 flex flex-col gap-4">
-            {/* Monto grande arriba, igual que en una transferencia. */}
-            <div className="flex items-center justify-center gap-3 py-3">
-              <span className="flex items-center gap-2 shrink-0">
-                {from
-                  ? <CurrencyIcon currency={from.currency} size={26} />
-                  : <span className="w-[26px] h-[26px] rounded-full bg-[var(--fz-surface-sunk)]" />}
-                <span className="w-[48px] text-[13px] font-bold text-[var(--fz-ink-3)] tracking-wide">
-                  {from?.currency ?? '—'}
-                </span>
-              </span>
-              <input
-                value={amount}
-                onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals: fromDecimals }))}
-                inputMode="decimal"
-                placeholder="0.00"
-                autoFocus
-                aria-label={`Monto en ${from?.currency ?? ''}`}
-                className={`fz-num w-full min-w-0 max-w-[190px] bg-transparent text-[40px] font-bold tracking-[-0.02em] leading-none outline-none placeholder:text-[var(--fz-ink-3)] ${excede ? 'text-[var(--fz-out-text)]' : ''}`}
-              />
-            </div>
-
-            <div className="flex items-center justify-center gap-3 -mt-2">
-              <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-                En ahorros {from ? formatAmount(disponible, from.currency) : '—'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setAmount(String(roundFor(disponible, from!.currency)))}
-                disabled={sinFondos}
-                className="h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[12px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
-              >
-                MAX
-              </button>
-            </div>
+            <AmountField
+              value={amount}
+              onChange={setAmount}
+              currency={from?.currency ?? null}
+              decimals={fromDecimals}
+              exceeded={excede}
+              autoFocus
+              available={from ? disponible : undefined}
+              availableLabel="En ahorros"
+              onMax={setAmount}
+              maxDisabled={sinFondos}
+            />
 
             <div>
               <Label>Desde</Label>

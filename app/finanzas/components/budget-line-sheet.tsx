@@ -9,7 +9,8 @@ import { periodStart } from '@/lib/finanzas/budgets'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
-import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
+import { Btn, ErrorNote, Label, SearchField, Segmented, TextField } from './ui'
+import { AmountField } from './amount-field'
 
 /**
  * Crea una línea nueva, o edita el monto (y el alias) de ESTE mes de una
@@ -58,6 +59,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   // Varias categorías por línea (rediseño post-Sprint 6): acá se juntan los
   // ids elegidos, tocando cada chip prende o apaga su selección.
   const [selected, setSelected] = useState<string[]>([])
+  const [categorySearch, setCategorySearch] = useState('')
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
   const [amount, setAmount] = useState('')
@@ -92,6 +94,20 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
   // placeholder ya la incluye.
   const fallbackName = selected.map(id => pickable.find(c => c.id === id)?.name).filter(Boolean).join(', ')
   const nothingLeftToPick = pickable.length === 0
+
+  /**
+   * El filtro del buscador. Acá se marcan VARIAS categorías, así que las ya
+   * elegidas se mantienen siempre visibles aunque no coincidan: si se
+   * escondieran, escribir en el buscador parecería haber deseleccionado lo que
+   * ya estaba marcado.
+   */
+  const visibles = (() => {
+    const q = categorySearch.trim().toLowerCase()
+    if (!q) return pickable
+    const coinciden = pickable.filter(c => c.name.toLowerCase().includes(q))
+    const yaMarcadas = pickable.filter(c => selected.includes(c.id) && !coinciden.includes(c))
+    return [...yaMarcadas, ...coinciden]
+  })()
 
   async function submit() {
     if (selected.length === 0) return setError('Elige al menos una categoría')
@@ -186,16 +202,26 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
                 Ya tienes presupuesto en todas las categorías.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {pickable.map(c => (
-                  <PickChip
-                    key={c.id}
-                    label={c.name}
-                    selected={selected.includes(c.id)}
-                    onClick={() => toggleCategory(c.id)}
-                  />
-                ))}
-              </div>
+              <>
+                {pickable.length > 4 && (
+                  <div className="mb-2">
+                    <SearchField value={categorySearch} onChange={setCategorySearch} placeholder="Buscar categoría…" />
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {visibles.map(c => (
+                    <PickChip
+                      key={c.id}
+                      label={c.name}
+                      selected={selected.includes(c.id)}
+                      onClick={() => toggleCategory(c.id)}
+                    />
+                  ))}
+                  {visibles.length === 0 && (
+                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna categoría coincide.</p>
+                  )}
+                </div>
+              </>
             )}
           </div>
 
@@ -236,13 +262,11 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
           )}
 
           <div>
-            <Label>Monto mensual ({currency})</Label>
-            <TextField
+            <AmountField
               value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-              inputMode="decimal"
-              placeholder="0.00"
-              className="fz-num"
+              onChange={setAmount}
+              currency={currency}
+              decimals={decimals}
               autoFocus={!!editing}
             />
           </div>

@@ -5,10 +5,11 @@ import { IconCheck, IconX } from '@tabler/icons-react'
 import type { PersonDebt } from '@/lib/finanzas/types'
 import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDecimalInput, round2, roundFor } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
-import { debtLabel } from '@/lib/finanzas/splits'
+import { debtLabelInPlan } from '@/lib/finanzas/splits'
+import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
-import { formatDayLabel, PersonAvatar } from './ui'
+import { PersonAvatar, SearchField, formatDayLabel } from './ui'
 import { Btn, DateField, ErrorNote, Label, TextField } from './ui'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
@@ -25,7 +26,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
   onClose: () => void
   onDone: () => void
 }) {
-  const { accounts, rates } = useFinanzas()
+  const { accounts, rates, plans } = useFinanzas()
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
 
   const [picked, setPicked] = useState<string[]>(() => debt.debts.map(s => s.id))
@@ -33,6 +34,17 @@ export function SettleSheet({ debt, onClose, onDone }: {
     const last = typeof window !== 'undefined' ? window.localStorage.getItem(LAST_ACCOUNT_KEY) ?? '' : ''
     return active.some(a => a.id === last) ? last : (active[0]?.id ?? '')
   })
+  const [accountSearch, setAccountSearch] = useState('')
+  /** El filtro del buscador. La cuenta ya elegida se mantiene visible aunque no
+      coincida — mismo criterio que el picker del quick-add. */
+  const visibles = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase()
+    if (!q) return active
+    const coinciden = active.filter(a => a.name.toLowerCase().includes(q))
+    if (!accountId || coinciden.some(a => a.id === accountId)) return coinciden
+    const elegida = active.find(a => a.id === accountId)
+    return elegida ? [elegida, ...coinciden] : coinciden
+  }, [active, accountSearch, accountId])
   const [amount, setAmount] = useState('')
   const [touched, setTouched] = useState(false)
   const [date, setDate] = useState(todayISO())
@@ -174,7 +186,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[14px] font-semibold truncate">
-                      {debtLabel(s)}
+                      {debtLabelInPlan(s, plans)}
                     </span>
                     <span className="block text-[12px] text-[var(--fz-ink-2)]">
                       {formatDayLabel(s.incurred_on, hoy)}
@@ -190,8 +202,13 @@ export function SettleSheet({ debt, onClose, onDone }: {
 
           <div>
             <Label>Entra a</Label>
+            {active.length > 4 && (
+              <div className="mb-2">
+                <SearchField value={accountSearch} onChange={setAccountSearch} placeholder="Buscar cuenta…" />
+              </div>
+            )}
             <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-              {active.map(a => (
+              {visibles.map(a => (
                 <button
                   key={a.id}
                   type="button"
@@ -207,34 +224,37 @@ export function SettleSheet({ debt, onClose, onDone }: {
                   {a.name}
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div>
-            <Label>Monto {account ? `(${account.currency})` : ''}</Label>
-            <TextField
-              value={amount}
-              onChange={e => { setTouched(true); setAmount(parseDecimalInput(e.target.value, { decimals })) }}
-              inputMode="decimal"
-              placeholder="0.00"
-              className="fz-num"
-            />
-            <div className="flex items-center justify-between gap-2 mt-1.5">
-              <span className="text-[12px] text-[var(--fz-ink-3)]">
-                Deuda {formatUSD(totalUsd)}
-                {account && account.currency !== 'USD' && sugerido != null && ' · sugerido a la tasa de hoy'}
-              </span>
-              {touched && sugerido != null && sugerido > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setTouched(false); setAmount(String(sugerido)) }}
-                  className="text-[12px] font-semibold text-[var(--fz-accent)] shrink-0"
-                >
-                  Usar {formatAmount(sugerido, account!.currency)}
-                </button>
+              {visibles.length === 0 && (
+                <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
               )}
             </div>
           </div>
+
+          <AmountField
+            value={amount}
+            onChange={v => { setTouched(true); setAmount(v) }}
+            currency={account?.currency ?? null}
+            decimals={decimals}
+            footer={
+              <>
+                <span className="text-[12.5px] text-[var(--fz-ink-2)] fz-num min-w-0 truncate">
+                  Deuda {formatUSD(totalUsd)}
+                  {account && account.currency !== 'USD' && sugerido != null && (
+                    <span className="text-[var(--fz-ink-3)]"> · sugerido a la tasa de hoy</span>
+                  )}
+                </span>
+                {touched && sugerido != null && sugerido > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setTouched(false); setAmount(String(sugerido)) }}
+                    className="shrink-0 h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-surface)] border border-[var(--fz-hairline)] text-[11.5px] font-bold text-[var(--fz-accent)]"
+                  >
+                    Usar {formatAmount(sugerido, account!.currency)}
+                  </button>
+                )}
+              </>
+            }
+          />
 
           <div>
             <Label>Fecha</Label>

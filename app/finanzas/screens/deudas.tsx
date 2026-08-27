@@ -6,7 +6,7 @@ import type { DebtPlanWithCuotas, DebtWithContext, PersonDebt } from '@/lib/fina
 import { formatAmount, formatUSD, HIDDEN, round2 } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
-import { debtLabel } from '@/lib/finanzas/splits'
+import { debtLabel, debtLabelInPlan } from '@/lib/finanzas/splits'
 import { CurrencyIcon } from '../components/currency-icon'
 import { useFinanzas } from '../components/data-context'
 import { DebtSheet } from '../components/debt-sheet'
@@ -18,7 +18,11 @@ import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel, PersonAvatar, RowMenu, SectionTitle, Skeleton } from '../components/ui'
 
 export function DeudasScreen() {
-  const { shared, hidden, loading, reload, plans } = useFinanzas()
+  const { shared, accounts, hidden, loading, reload, plans } = useFinanzas()
+
+  /** El nombre de la cuenta donde entró un cobro. Puede no existir: la cuenta
+      se pudo archivar o borrar después de haber cobrado. */
+  const cuentaDe = (id: string | null) => (id ? accounts.find(a => a.id === id) : undefined)
   const [cobrando, setCobrando] = useState<PersonDebt | null>(null)
   const [creando, setCreando] = useState(false)
   const [viendo, setViendo] = useState<DebtWithContext | null>(null)
@@ -144,6 +148,7 @@ export function DeudasScreen() {
                   onCobrarCuota={c => setCobrandoCuota({ plan: p, cuota: c })}
                   onEditarCuota={c => setEditando(c)}
                   onPerdonarCuota={c => post('waive', { split_ids: [c.id] }, c.id)}
+                  onVerCuota={c => setViendo(c)}
                 />
               ))}
               {sueltasPorPersona.map(d => (
@@ -186,7 +191,7 @@ export function DeudasScreen() {
                           className="flex-1 min-w-[60%] text-left"
                         >
                           <span className="block text-[13px] font-medium truncate">
-                            {debtLabel(s)}
+                            {debtLabelInPlan(s, plans)}
                           </span>
                           <span className="block text-[12px] text-[var(--fz-ink-3)]">
                             {formatDayLabel(s.incurred_on, hoy)}
@@ -263,9 +268,11 @@ export function DeudasScreen() {
                   <HistoryRow
                     key={s.id}
                     split={s}
+                    plans={plans}
                     hidden={hidden}
                     hoy={hoy}
                     busy={busy === s.id}
+                    onView={() => setViendo(s)}
                     onUndo={() =>
                       post('unsettle', { split_ids: [s.id], delete_transaction: s.state === 'cobrado' }, s.id)
                     }
@@ -289,27 +296,68 @@ export function DeudasScreen() {
         open={!!viendo}
         onClose={() => setViendo(null)}
         title="Deuda"
-        onEdit={() => { const s = viendo!; setViendo(null); setEditando(s) }}
-        onDelete={() => { const s = viendo!; setViendo(null); setEliminando(s) }}
+        // Una deuda ya cerrada no se edita ni se borra desde acá: primero hay
+        // que deshacer el cobro (el botón de la fila del historial), o el
+        // movimiento que entró quedaría apuntando a algo que ya no existe.
+        onEdit={viendo?.state === 'pendiente'
+          ? () => { const s = viendo!; setViendo(null); setEditando(s) }
+          : undefined}
+        onDelete={viendo?.state === 'pendiente'
+          ? () => { const s = viendo!; setViendo(null); setEliminando(s) }
+          : undefined}
       >
         {viendo && (
           <>
             <DeletePreview
               icon={<PersonAvatar name={viendo.person.name} size={40} />}
               title={viendo.person.name}
-              subtitle={debtLabel(viendo)}
+              subtitle={debtLabelInPlan(viendo, plans)}
               amount={hidden ? HIDDEN : formatAmount(viendo.amount, viendo.currency)}
             />
             <div>
-              <DetailField label="Desde" value={formatDayLabel(viendo.incurred_on, hoy)} />
+              {/* "Fecha" es la del hecho, no la del plan: cuando la deuda ya se
+                  cobró manda el día en que ENTRÓ la plata, aunque la cuota
+                  estuviera fechada para otro. Antes decía "Desde" y mostraba
+                  siempre `incurred_on`, así que una cuota vencida cobrada tarde
+                  seguía diciendo la fecha vieja. */}
               <DetailField
-                label="Origen"
-                value={viendo.transaction_id ? 'De un gasto' : viendo.plan_id ? 'Cuota de un plan' : 'Suelta'}
+                label="Fecha"
+                value={formatDayLabel(
+                  viendo.settlement?.date ?? viendo.waived_at ?? viendo.incurred_on,
+                  hoy,
+                )}
               />
               <DetailField
                 label="Estado"
                 value={viendo.state === 'cobrado' ? 'Cobrada' : viendo.state === 'perdonado' ? 'Perdonada' : 'Pendiente'}
               />
+
+              {/* Cómo se cerró. Eran datos que se guardaban al cobrar y no se
+                  mostraban en ninguna pantalla de Deudas: para saber a qué
+                  cuenta había entrado la plata había que ir a Movimientos y
+                  buscarla por fecha. */}
+              {viendo.settlement && (
+                <>
+                  <DetailField
+                    label="Entró a"
+                    value={cuentaDe(viendo.settlement.account_id)?.name ?? 'Una cuenta borrada'}
+                  />
+                  <DetailField
+                    label="Monto cobrado"
+                    value={hidden || viendo.settlement.amount == null
+                      ? null
+                      : formatAmount(viendo.settlement.amount, viendo.settlement.currency)}
+                  />
+                  {/* Solo si difieren: si la cuota se cobró el día que tocaba,
+                      repetir la fecha no dice nada. */}
+                  {viendo.settlement.date !== viendo.incurred_on && (
+                    <DetailField label="Vencía" value={formatDayLabel(viendo.incurred_on, hoy)} />
+                  )}
+                </>
+              )}
+              {viendo.state === 'perdonado' && (
+                <DetailField label="Motivo" value={viendo.note} />
+              )}
             </div>
           </>
         )}
@@ -375,7 +423,7 @@ export function DeudasScreen() {
           <DeletePreview
             icon={<PersonAvatar name={eliminando.person.name} size={40} />}
             title={eliminando.person.name}
-            subtitle={debtLabel(eliminando)}
+            subtitle={debtLabelInPlan(eliminando, plans)}
             amount={formatAmount(eliminando.amount, eliminando.currency)}
           />
         )}
@@ -393,7 +441,7 @@ export function DeudasScreen() {
  */
 function PlanRow({
   plan, hidden, expanded, busy, onToggle, onRegenerate, onDelete,
-  onCobrarCuota, onEditarCuota, onPerdonarCuota,
+  onCobrarCuota, onEditarCuota, onPerdonarCuota, onVerCuota,
 }: {
   plan: DebtPlanWithCuotas
   hidden: boolean
@@ -405,6 +453,7 @@ function PlanRow({
   onCobrarCuota: (cuota: DebtWithContext) => void
   onEditarCuota: (cuota: DebtWithContext) => void
   onPerdonarCuota: (cuota: DebtWithContext) => void
+  onVerCuota: (cuota: DebtWithContext) => void
 }) {
   return (
     <section className="py-3 first:pt-0 last:pb-0">
@@ -446,7 +495,13 @@ function PlanRow({
         <div className="mt-2 ml-[52px] flex flex-col divide-y divide-[var(--fz-hairline)]">
           {plan.cuotas.map((c, i) => (
             <div key={c.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
-              <span className="flex-1 min-w-[50%]">
+              {/* Toda cuota abre su detalle, cobrada o no: en una cobrada es la
+                  única forma de ver a qué cuenta entró la plata y cuándo. */}
+              <button
+                type="button"
+                onClick={() => onVerCuota(c)}
+                className="flex-1 min-w-[50%] text-left"
+              >
                 <span className="block text-[13px] font-medium">
                   {/* "N de las que hay hoy", no `plan_installment_no`/`plan.installments`:
                       después de regenerar esos dos números quedan con huecos (cobradas
@@ -461,7 +516,7 @@ function PlanRow({
                 >
                   {c.state === 'cobrado' ? 'Cobrada' : c.state === 'perdonado' ? 'Perdonada' : 'Pendiente'}
                 </span>
-              </span>
+              </button>
               <span className="ml-auto shrink-0 flex items-center gap-1.5">
                 {/* Una cuota cobrada no tiene botón ni menú, así que su fila
                     quedaba visualmente idéntica a una pendiente salvo por una
@@ -502,8 +557,11 @@ function PlanRow({
   )
 }
 
-function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
-  split: DebtWithContext; hidden: boolean; hoy: string; busy: boolean; onUndo: () => void
+function HistoryRow({ split, plans, hidden, hoy, busy, onView, onUndo }: {
+  split: DebtWithContext
+  plans: DebtPlanWithCuotas[]
+  hidden: boolean; hoy: string; busy: boolean
+  onView: () => void; onUndo: () => void
 }) {
   const cobrado = split.state === 'cobrado'
   return (
@@ -511,9 +569,12 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
       <IconChip tint={cobrado ? 'in' : 'neutral'}>
         {cobrado ? <IconReceiptRefund size={18} stroke={1.8} /> : <IconCoinOff size={18} stroke={1.8} />}
       </IconChip>
-      <span className="flex-1 min-w-0">
+      {/* Una deuda saldada también tiene detalles que valía la pena poder
+          mirar: a qué cuenta entró la plata y cuándo. Antes la fila era un
+          div muerto y ese dato quedaba solo en Movimientos. */}
+      <button type="button" onClick={onView} className="flex-1 min-w-0 text-left">
         <span className="block text-[14px] font-semibold truncate">
-          {split.person.name} · {debtLabel(split)}
+          {split.person.name} · {debtLabelInPlan(split, plans)}
         </span>
         <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">
           {cobrado ? 'Cobrado' : 'Perdonada'}
@@ -522,7 +583,7 @@ function HistoryRow({ split, hidden, hoy, busy, onUndo }: {
               en ninguna pantalla: era un dato de solo escritura. */}
           {!cobrado && split.note ? ` · ${split.note}` : ''}
         </span>
-      </span>
+      </button>
       <span className="fz-num text-[14px] font-semibold shrink-0">
         {hidden ? HIDDEN : formatAmount(split.amount, split.currency)}
       </span>

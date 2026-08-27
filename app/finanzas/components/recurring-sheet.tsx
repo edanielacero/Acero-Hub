@@ -7,12 +7,13 @@ import type { Currency, Frequency, RecurringWithState } from '@/lib/finanzas/typ
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { dateFromFields, fieldsFromDate } from '@/lib/finanzas/recurring'
 import { todayISO } from '@/lib/finanzas/transactions'
+import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryGlyph, CategoryIcon, IconPickerGrid } from './category-icon'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
-import { Btn, ErrorNote, Label, Segmented, TextField } from './ui'
+import { Btn, ErrorNote, Label, SearchField, Segmented, TextField } from './ui'
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'mensual', label: 'Cada mes' },
@@ -33,6 +34,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '')
   const [currency, setCurrency] = useState<Currency>(editing?.currency ?? 'USD')
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? '')
+  const [categorySearch, setCategorySearch] = useState('')
   // Fijo de ahorro (Sprint 7): en vez de un gasto, genera una transferencia a
   // una cuenta de ahorro tageada con el ahorro. Es un atributo del fijo, no un
   // módulo aparte — mismo criterio que el reparto de los compartidos.
@@ -76,6 +78,17 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   }, [onClose])
 
   const gastos = categories.filter(c => !c.archived && c.kind === 'gasto')
+  // La ya elegida se queda visible aunque el filtro la excluya: al escribir en
+  // el buscador desaparecía el chip marcado y parecía perdida la selección.
+  const categoriasVisibles = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase()
+    if (!q) return gastos
+    const filtradas = gastos.filter(c => c.name.toLowerCase().includes(q))
+    if (!categoryId || filtradas.some(c => c.id === categoryId)) return filtradas
+    const elegida = gastos.find(c => c.id === categoryId)
+    return elegida ? [elegida, ...filtradas] : filtradas
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, categorySearch, categoryId])
   // El ahorro y la cuenta ya elegidos se mantienen visibles aunque se hayan
   // archivado — mismo criterio que el picker del quick-add: editar un fijo
   // viejo no puede dejar sin marcar lo que sí está guardado.
@@ -218,11 +231,11 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           )}
 
           <div>
-            <Label>Monto ({currency})</Label>
-            <TextField
+            <AmountField
               value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-              inputMode="decimal" placeholder="0.00" className="fz-num"
+              onChange={setAmount}
+              currency={currency}
+              decimals={decimals}
             />
             <p className="text-[12px] text-[var(--fz-ink-3)] mt-1.5">
               Es el valor por defecto. Lo puedes cambiar al registrar cada mes.
@@ -318,8 +331,13 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
           ) : (
             <div>
               <Label>Categoría</Label>
+              {gastos.length > 4 && (
+                <div className="mb-2">
+                  <SearchField value={categorySearch} onChange={setCategorySearch} placeholder="Buscar categoría…" />
+                </div>
+              )}
               <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                {gastos.map(c => (
+                {categoriasVisibles.map(c => (
                   <button
                     key={c.id} type="button"
                     onClick={() => setCategoryId(c.id)}

@@ -12,6 +12,7 @@ import { CurrencyIcon } from './currency-icon'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { PersonPicker } from './person-picker'
 import { Btn, DateField, ErrorNote, Label, PersonAvatar, TextField } from './ui'
+import { AmountField } from './amount-field'
 
 /**
  * Alta y edición de una deuda **suelta**: alguien te debe plata sin que haya
@@ -169,19 +170,17 @@ export function DebtSheet({ editing, onClose, onSaved }: {
           )}
 
           <div>
-            <Label>Monto</Label>
-            {/* Mismo `flex-wrap` que <DateField>, y por lo mismo: el selector de
-                moneda mide 264px fijos (5 botones de 48), así que en una sola
-                línea le comía todo el ancho al monto —63px en un iPhone SE, 34
-                en uno de 320px, o sea cero lugar para escribir. Con wrap el
-                selector baja a su propia línea en el teléfono y vuelve al lado
-                del campo en el sheet de escritorio (480px), donde sí entra. */}
-            <div className="flex flex-wrap items-center gap-2">
-              <TextField
-                value={amount}
-                onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals }))}
-                inputMode="decimal" placeholder="0.00" className="fz-num flex-[1_1_150px]"
-              />
+            {/* El selector de moneda ya no compite por el ancho con el campo:
+                el monto ocupa su propio bloque y la moneda va debajo, en su
+                línea. Antes iban lado a lado y en un iPhone SE al campo le
+                quedaban 63px — cero lugar para escribir. */}
+            <AmountField
+              value={amount}
+              onChange={setAmount}
+              currency={currency}
+              decimals={decimals}
+            />
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               {/* Al editar una suelta también: te equivocaste de moneda y no
                   tenés por qué borrar la deuda para corregirlo. */}
               {!monedaFija && (

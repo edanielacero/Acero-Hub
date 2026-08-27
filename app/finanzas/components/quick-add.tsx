@@ -8,6 +8,7 @@ import { amountFromInput, decimalsFor, formatAmount, formatUSD, fromUsd, parseDe
 import { periodStart } from '@/lib/finanzas/budgets'
 import { budgetLineFor, useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
+import { AmountField } from './amount-field'
 import { CategoryGlyph, CategoryIcon } from './category-icon'
 import { SignedAmount } from './amount'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
@@ -59,6 +60,7 @@ export function QuickAdd() {
   const [accountId, setAccountId] = useState('')
   const [toAccountId, setToAccountId] = useState('')
   const [accountSearch, setAccountSearch] = useState('')
+  const [categorySearch, setCategorySearch] = useState('')
   const [toAccountSearch, setToAccountSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [date, setDate] = useState(todayISO())
@@ -385,8 +387,25 @@ export function QuickAdd() {
     return roundFor(salida - recibido, from.currency)
   }, [conDestino, crossCurrency, from, amount, recibido, fromDecimals])
 
-  const visibleCategories = useMemo(
-    () => categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto')),
+  /**
+   * Las categorías del tipo actual, filtradas por el buscador.
+   *
+   * Mismo criterio que el picker de cuentas: la ya elegida se mantiene visible
+   * aunque el filtro la excluya, o al escribir en el buscador desaparecía el
+   * chip marcado y parecía que se había perdido la selección.
+   */
+  const visibleCategories = useMemo(() => {
+    const delTipo = categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto'))
+    const q = categorySearch.trim().toLowerCase()
+    if (!q) return delTipo
+    const filtradas = delTipo.filter(c => c.name.toLowerCase().includes(q))
+    if (!categoryId || filtradas.some(c => c.id === categoryId)) return filtradas
+    const elegida = delTipo.find(c => c.id === categoryId)
+    return elegida ? [elegida, ...filtradas] : filtradas
+  }, [categories, type, categorySearch, categoryId])
+
+  const categoriasDelTipo = useMemo(
+    () => categories.filter(c => !c.archived && c.kind === (type === 'ingreso' ? 'ingreso' : 'gasto')).length,
     [categories, type],
   )
 
@@ -596,45 +615,35 @@ export function QuickAdd() {
             cuerpo de letra), así que el campo cambiaba de forma al elegir otra
             cuenta.
           */}
-          <div className="flex items-center justify-center gap-3 py-3">
-            <span className="flex items-center gap-2 shrink-0">
-              {from
-                ? <CurrencyIcon currency={from.currency} size={26} />
-                : <span className="w-[26px] h-[26px] rounded-full bg-[var(--fz-surface-sunk)]" />}
-              {/* Ancho fijo: USDT y USDC tienen 4 letras y USD/BOB/BTC 3, así que
-                  sin esto el número arrancaba en un punto distinto según la
-                  cuenta elegida — el mismo salto que se quería eliminar. */}
-              <span className="w-[48px] text-[13px] font-bold text-[var(--fz-ink-3)] tracking-wide">
-                {from?.currency ?? '—'}
-              </span>
-            </span>
-
-            <input
-              ref={amountRef}
-              value={amount}
-              onChange={e => setAmount(parseDecimalInput(e.target.value, { decimals: fromDecimals }))}
-              inputMode="decimal"
-              placeholder="0.00"
-              aria-label={`Monto en ${from?.currency ?? ''}`}
-              className={`fz-num w-full min-w-0 max-w-[190px] bg-transparent text-[40px] font-bold tracking-[-0.02em] leading-none outline-none placeholder:text-[var(--fz-ink-3)] ${excede ? 'text-[var(--fz-out-text)]' : ''}`}
-            />
-          </div>
-
-          {limita && (
-            <div className="flex items-center justify-center gap-3 -mt-2">
-              <span className={`text-[13px] font-medium fz-num ${excede || sinFondos ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-                Disponible {from ? formatAmount(disponible, from.currency) : '—'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setAmount(String(roundFor(disponible, from!.currency)))}
-                disabled={sinFondos}
-                className="h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-accent-tint)] text-[var(--fz-accent)] text-[12px] font-bold tracking-wide disabled:opacity-40 disabled:pointer-events-none"
-              >
-                MAX
-              </button>
-            </div>
-          )}
+          <AmountField
+            inputRef={amountRef}
+            value={amount}
+            onChange={setAmount}
+            currency={from?.currency ?? null}
+            decimals={fromDecimals}
+            exceeded={excede}
+            available={limita && from ? disponible : undefined}
+            onMax={setAmount}
+            maxDisabled={sinFondos}
+            footer={limita && from && ahorradoEnCuenta > 0 && !gastarDeAhorros ? (
+              <>
+                <span className={`text-[12.5px] font-medium fz-num min-w-0 truncate ${excede ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+                  Disponible {formatAmount(disponible, from.currency)}
+                  <span className="text-[var(--fz-ink-3)] font-normal">
+                    {' '}· {formatAmount(ahorradoEnCuenta, from.currency)} en ahorros
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={sinFondos}
+                  onClick={() => setAmount(String(roundFor(disponible, from.currency)))}
+                  className="shrink-0 h-7 px-2.5 rounded-[var(--fz-r-pill)] bg-[var(--fz-surface)] border border-[var(--fz-hairline)] text-[11.5px] font-bold tracking-wide text-[var(--fz-ink-2)] disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  MÁX
+                </button>
+              </>
+            ) : undefined}
+          />
 
           <div>
             <Label>{type === 'transferencia' ? 'Desde' : 'Cuenta'}</Label>
@@ -739,6 +748,13 @@ export function QuickAdd() {
           ) : (
             <div>
               <Label>Categoría</Label>
+              {/* Mismo umbral que el picker de cuentas: por debajo de cinco, el
+                  buscador estorba más de lo que ayuda. */}
+              {categoriasDelTipo > 4 && (
+                <div className="mb-2">
+                  <SearchField value={categorySearch} onChange={setCategorySearch} placeholder="Buscar categoría…" />
+                </div>
+              )}
               <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
                 {visibleCategories.map(c => (
                   <ChipButton
@@ -751,7 +767,9 @@ export function QuickAdd() {
                 ))}
                 {visibleCategories.length === 0 && (
                   <p className="text-[13px] text-[var(--fz-ink-3)] py-2">
-                    Todavía no hay categorías. Sembralas desde Ajustes.
+                    {categorySearch.trim()
+                      ? 'Ninguna categoría coincide.'
+                      : 'Todavía no hay categorías. Sembralas desde Ajustes.'}
                   </p>
                 )}
               </div>

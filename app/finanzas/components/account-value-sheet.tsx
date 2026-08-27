@@ -5,6 +5,7 @@ import { IconX } from '@tabler/icons-react'
 import { todayISO, valueUpdateDelta } from '@/lib/finanzas/transactions'
 import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
+import { AmountField } from './amount-field'
 import { CurrencyIcon } from './currency-icon'
 import { useAccountValueApi } from './account-value-context'
 import { Btn, ErrorNote } from './ui'
@@ -128,25 +129,17 @@ export function AccountValueSheet() {
             </div>
           </div>
 
-          <div className="flex flex-col items-center gap-1 py-2">
-            <p className="text-[13px] font-medium text-[var(--fz-ink-2)]">¿Cuánto hay en tu inversión hoy?</p>
-            <div className="flex items-center justify-center gap-3">
-              <span className="flex items-center gap-2 shrink-0">
-                <CurrencyIcon currency={account.currency} size={26} />
-                <span className="w-[48px] text-[13px] font-bold text-[var(--fz-ink-3)] tracking-wide">
-                  {account.currency}
-                </span>
-              </span>
-              <input
-                ref={valueRef}
-                value={value}
-                onChange={e => setValue(parseDecimalInput(e.target.value, { allowNegative: true, decimals }))}
-                inputMode="decimal"
-                placeholder="0.00"
-                aria-label={`Valor actual en ${account.currency}`}
-                className="fz-num w-full min-w-0 max-w-[190px] bg-transparent text-[40px] font-bold tracking-[-0.02em] leading-none outline-none placeholder:text-[var(--fz-ink-3)]"
-              />
-            </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-[13px] font-medium text-[var(--fz-ink-2)] text-center">¿Cuánto hay en tu inversión hoy?</p>
+            <AmountField
+              inputRef={valueRef}
+              value={value}
+              onChange={setValue}
+              currency={account.currency}
+              decimals={decimals}
+              allowNegative
+              ariaLabel={`Valor actual en ${account.currency}`}
+            />
             {resolved && (
               <p
                 className="text-[13px] font-semibold fz-num"
