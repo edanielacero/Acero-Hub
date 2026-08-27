@@ -31,7 +31,9 @@ export function createAdminClient() {
 export type Claims = {
   sub: string
   email?: string
-  app_metadata?: { role?: string }
+  /** `name` lo firma el custom access token hook desde `public.profiles.name`
+      (ver 20260818030000_custom_claims_projects.sql). */
+  app_metadata?: { role?: string; name?: string }
 }
 
 /**
@@ -105,7 +107,10 @@ export async function requireProfile(request?: Request) {
   const cookieStore = await cookies()
   const requested = query ?? cookieStore.get('fz_profile')?.value ?? null
 
-  const { profileId, profiles } = await resolveProfile(supabase, userId, requested)
+  // El nombre solo se usa si hay que CREAR el perfil principal: es su nombre
+  // inicial, en vez de un "Personal" genérico.
+  const nombre = claims?.app_metadata?.name ?? null
+  const { profileId, profiles } = await resolveProfile(supabase, userId, requested, nombre)
 
   return { supabase, userId, profileId, profiles, claims, role }
 }

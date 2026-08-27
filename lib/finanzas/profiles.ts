@@ -39,6 +39,27 @@ export function nextAccent(usados: AccentKey[]): AccentKey {
   return ACCENT_KEYS.find(a => !usados.includes(a)) ?? ACCENT_KEYS[usados.length % ACCENT_KEYS.length]
 }
 
+/**
+ * Cómo se llama el perfil principal de alguien.
+ *
+ * El nombre de pila del usuario, no "Personal". La app ya lo saluda así en la
+ * Home, y el encabezado muestra el nombre del perfil activo cuando hay más de
+ * uno: con el nombre de pila, el título dice lo mismo tengas un perfil o tres.
+ * Con el nombre completo diría "Daniel" con uno y "Daniel Acero" con dos.
+ *
+ * Es solo el valor inicial: el principal se puede renombrar como cualquier otro
+ * (es indeleble, no inmutable).
+ *
+ * Si el Hub no tiene un nombre real cargado, `public.profiles.name` guarda el
+ * prefijo del email (ver `handle_new_user` en schema.sql) — y como la Home ya
+ * saluda con eso, el perfil toma lo mismo. Que el título cambiara de texto al
+ * crear un segundo perfil sería peor que un nombre feo. `'Personal'` queda solo
+ * para el caso de que no haya absolutamente nada.
+ */
+export function defaultProfileName(nombreUsuario?: string | null): string {
+  return nombreUsuario?.trim().split(/\s+/)[0] || 'Personal'
+}
+
 /** Un nombre libre a partir de `base` — "Empresa", "Empresa 2", "Empresa 3"… */
 export function freeName(base: string, tomados: string[]): string {
   const lower = tomados.map(n => n.toLowerCase())
@@ -151,12 +172,13 @@ export async function resolveProfile(
   supabase: SupabaseClient,
   userId: string,
   requested?: string | null,
+  nombreUsuario?: string | null,
 ): Promise<{ profileId: string; profiles: Profile[] }> {
   let profiles = await listProfiles(supabase, userId)
 
   if (profiles.length === 0) {
     const { profile } = await createProfile(supabase, userId, {
-      name: 'Personal',
+      name: defaultProfileName(nombreUsuario),
       accent: 'verde',
       is_default: true,
     })

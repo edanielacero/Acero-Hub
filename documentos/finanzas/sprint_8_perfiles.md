@@ -14,8 +14,9 @@
 > pruebas en verde (unit/db/api), build en verde. Cinco desviaciones respecto
 > de lo especificado acá (§0.2), seis bugs de la revisión posterior (§0.3) y
 > tres más que encontró el primer uso real (§0.4). §0.5 cambia el mecanismo:
-> el perfil viaja en una cookie, no en la query string. Las cuatro secciones
-> mandan sobre el resto del documento donde difieran.
+> el perfil viaja en una cookie, no en la query string; §0.6, que un DELETE
+> que no tocó nada devuelve 404; §0.7, que el principal se llama como su dueño.
+> Las seis secciones mandan sobre el resto del documento donde difieran.
 
 ---
 
@@ -376,6 +377,62 @@ llamada nueva falla hasta que alguien la mire.
 un segundo perfil **sin un solo `?profile=`** —solo la cookie, igual que un
 `fetch` que se olvidó— y verifica que nada de eso aparezca en el principal,
 incluida la lectura de Movimientos.
+
+### 0.6 El 200 que mentía
+
+Reporte del usuario: *"en un perfil nuevo no me deja eliminar categorías solo
+para ese perfil"*.
+
+Era el mismo bug de §0.5 visto desde otro lado —el `DELETE` salía sin perfil,
+caía en el default y no encontraba el id— pero lo que lo volvió **invisible** fue
+otra cosa: ningún handler verificaba cuántas filas había borrado.
+
+```ts
+.delete().eq('id', id).eq('profile_id', profileId)
+// 0 filas afectadas → sin error → { ok: true } → 200
+```
+
+Desde afuera, *"no encontré nada"* y *"borré algo"* se veían idénticos. La
+pantalla decía "borrado", recargaba, y la categoría seguía ahí.
+
+**Los 11 handlers `DELETE` de recurso ahora devuelven 404** cuando no tocaron
+ninguna fila: cuentas, categorías, personas, movimientos, deudas, planes, fijos,
+ahorros, pasanaku, aportes de pasanaku y presupuestos.
+
+En §0.3 había anotado este comportamiento como *"predata al sprint, sin pérdida
+de datos, no se toca"*. Era cierto lo primero y equivocado lo último: con
+perfiles dejó de ser inofensivo, porque un id que no es del perfil activo pasó a
+ser una situación normal en vez de una imposible. **Es lo que habría convertido
+los bugs de §0.5 en un error visible en lugar de tres días de síntomas raros.**
+
+Un test existente afirmaba el comportamiento viejo (`borrar algo inexistente →
+200`). Estaba codificando el bug; se actualizó a 404 con la explicación al lado.
+
+### 0.7 El perfil principal se llama como su dueño
+
+Pedido del usuario (2026-08-27): el principal no debe llamarse "Personal" sino
+como el usuario logueado, y seguir siendo editable. Los demás conservan el
+nombre que se les ponga al crearlos.
+
+**Se usa el nombre de pila, no el completo.** El encabezado de la Home muestra
+el nombre del perfil activo cuando hay más de uno, y saluda al usuario cuando
+hay uno solo (`firstName`). Con el nombre completo el título diría "Daniel" con
+un perfil y "Daniel Acero" con dos; con el de pila dice lo mismo siempre.
+
+El nombre sale de `public.profiles.name`, que el custom access token hook firma
+en el JWT como `app_metadata.name` — así que `requireProfile` lo tiene sin
+consultar la base.
+
+Si el Hub no tiene un nombre real, `handle_new_user` guarda el prefijo del email
+y el perfil toma eso, porque **la Home ya saluda con eso**: que el título
+cambiara de texto al crear un segundo perfil sería peor que un nombre feo.
+`'Personal'` queda solo para el caso de que no haya absolutamente nada.
+
+La migración `20260827030000_finanzas_perfil_principal_con_nombre.sql` renombra
+los que ya existen, con dos guardas: solo toca los que **siguen llamándose
+"Personal"** —si alguien ya lo renombró, esa decisión manda— y saltea el caso en
+que el nombre nuevo chocaría con otro perfil del mismo usuario, en vez de hacer
+fallar la migración por un borde.
 
 ---
 

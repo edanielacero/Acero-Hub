@@ -320,7 +320,7 @@ mezclar los números, sin salir de la app y sin cambiar de cuenta.
 |---|---|
 | **Sin tipos** | No hay "personal" ni "empresa" como tipo. Se evaluó y **se descartó**: los dos se comportarían idénticamente, y una columna `type` con dos valores que no se diferencian en nada solo invita a bifurcar lógica sin una decisión detrás. Lo que distingue a un perfil es su **nombre** y su **color**, no un enum |
 | **Cuántos** | **Sin límite.** El costo de código de 1 vs. N es el mismo; un tope solo sería un número que después hay que sacar |
-| **El default** | Uno y solo uno, marcado con `is_default`. **No se borra ni se archiva nunca.** Es donde cae todo lo que ya existe |
+| **El default** | Uno y solo uno, marcado con `is_default`. **No se borra ni se archiva nunca.** Es donde cae todo lo que ya existe. Se llama **como el usuario** (su nombre de pila), no "Personal", y se puede renombrar |
 | **Usuario nuevo** | Al entrar por primera vez a la mini-app, se le crea su perfil default solo. Nunca hay un usuario sin perfil |
 | **Cómo nace uno nuevo** | Se crea a mano desde **Ajustes**. Nace con las **categorías semilla** sembradas y **nada más**: sin cuentas, sin movimientos, sin personas, sin fijos, sin ahorros |
 | **Renombrar** | **Sí, todos, incluido el default.** Indeleble no es lo mismo que inmutable: quizá el default se llama "Daniel" y no "Personal" |

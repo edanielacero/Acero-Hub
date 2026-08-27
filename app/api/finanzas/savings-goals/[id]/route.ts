@@ -140,12 +140,20 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     )
   }
 
-  const { error } = await supabase
+  const { data: borradas, error } = await supabase
     .from('fin_savings_goals')
     .delete()
     .eq('id', id)
     .eq('profile_id', profileId)
+    .select('id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  // Sin filas afectadas: el id no es de este perfil (o no existe). Antes
+  // esto devolvía 200 y la pantalla decía "borrado" sobre algo que seguía
+  // ahí — así se vio el bug de las categorías en un perfil nuevo.
+  if ((borradas ?? []).length === 0) {
+    return NextResponse.json({ error: 'Ese ahorro no existe' }, { status: 404 })
+  }
   return NextResponse.json({ ok: true })
 }

@@ -54,6 +54,11 @@ body:has(#fz-root) {
   --fz-lime:          #C8F169;
   --fz-lime-ink:      #12281D;
 
+  /* El destello del hero: el mismo lima al 14%, en el ángulo superior derecho.
+     Estaba escrito a mano dentro de home.tsx, así que el card no podía seguir
+     al perfil. Como token, cada paleta define el suyo. */
+  --fz-hero-glow:     rgba(200,241,105,0.14);
+
   /* ── Vidrio de la tab bar ──
      Neutro y bien translúcido: el verde competía con el acento y con la
      tarjeta del patrimonio, y con tres verdes en pantalla ninguno mandaba.
@@ -390,10 +395,19 @@ body:has(#fz-root) {
      --fz-accent-tint   fondos suaves
      --fz-glass-pill    el acento al 10% — la píldora del tab bar
 
-   `--fz-lime` NO cambia por perfil: es la contraparte del acento sobre el hero
-   oscuro y se usa en dos lugares (sidebar y person-picker). Que varíe obligaría
-   a encontrar cinco limas legibles sobre `--fz-hero`; que se quede fija es un
-   detalle que nadie nota.
+   Cada paleta define además su **familia de superficie oscura**, porque el card
+   de patrimonio es lo primero que se ve al abrir la app y tenía el verde
+   clavado:
+
+     --fz-hero       el fondo del card de patrimonio (y del de Cuentas)
+     --fz-hero-glow  el destello radial de su ángulo superior derecho
+     --fz-lime       la contraparte clara del acento SOBRE ese fondo
+     --fz-lime-ink   el texto oscuro sobre esa contraparte
+
+   El lima empezó siendo fijo —"que varíe obligaría a encontrar cinco limas
+   legibles"— y se revisó: con el hero siguiendo al perfil, un lima verde sobre
+   un violeta oscuro no pertenecía a ninguna de las dos paletas. Los cinco son
+   claros sobre fondos casi negros, así que todos pasan holgados de contraste.
 
    Los cuatro no-verdes se eligieron oscuros a propósito: van bajo texto blanco
    en superficies llenas, así que necesitan ≥4.5:1 contra #FFF.
@@ -414,6 +428,10 @@ body:has(#fz-root) {
   --fz-accent-press:  #0F4A2D;
   --fz-accent-tint:   #E4F0E9;
   --fz-glass-pill:    rgba(22,97,60,0.10);
+  --fz-hero:          #12281D;
+  --fz-lime:          #C8F169;
+  --fz-lime-ink:      #12281D;
+  --fz-hero-glow:     rgba(200,241,105,0.14);
 }
 
 /* naranja — el terracota de Claude. Lejos del guindo de "gasto" (#B8434A)
@@ -424,6 +442,10 @@ body:has(#fz-root) {
   --fz-accent-press:  #8F3817;
   --fz-accent-tint:   #FBEAE2;
   --fz-glass-pill:    rgba(180,73,31,0.10);
+  --fz-hero:          #2A1409;
+  --fz-lime:          #FFC46B;
+  --fz-lime-ink:      #2A1409;
+  --fz-hero-glow:     rgba(255,196,107,0.15);
 }
 
 #fz-root[data-accent='violeta'],
@@ -432,6 +454,10 @@ body:has(#fz-root) {
   --fz-accent-press:  #472D7C;
   --fz-accent-tint:   #EDE7F8;
   --fz-glass-pill:    rgba(91,58,158,0.10);
+  --fz-hero:          #1B1330;
+  --fz-lime:          #C9A9FF;
+  --fz-lime-ink:      #1B1330;
+  --fz-hero-glow:     rgba(201,169,255,0.17);
 }
 
 #fz-root[data-accent='magenta'],
@@ -440,6 +466,10 @@ body:has(#fz-root) {
   --fz-accent-press:  #7A2257;
   --fz-accent-tint:   #F8E5F1;
   --fz-glass-pill:    rgba(155,44,111,0.10);
+  --fz-hero:          #2A0F20;
+  --fz-lime:          #FFA8D8;
+  --fz-lime-ink:      #2A0F20;
+  --fz-hero-glow:     rgba(255,168,216,0.15);
 }
 
 /* teal — el que más cerca pasa del verde de la marca. Se lo corrió bien al azul
@@ -452,4 +482,8 @@ body:has(#fz-root) {
   --fz-accent-press:  #0C4453;
   --fz-accent-tint:   #E0F0F4;
   --fz-glass-pill:    rgba(16,89,107,0.10);
+  --fz-hero:          #08222A;
+  --fz-lime:          #7FE3F0;
+  --fz-lime-ink:      #08222A;
+  --fz-hero-glow:     rgba(127,227,240,0.15);
 }

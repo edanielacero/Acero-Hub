@@ -1600,8 +1600,13 @@ async function run() {
     await api(`/transactions/${gasto.id}`, { method: 'DELETE' })
     const final = await json(await api('/accounts'))
     eq('borrar el gasto devuelve Efectivo a 383', final.accounts.find(a => a.id === efectivo.id).balance, 383)
-    eq('borrar algo inexistente no rompe',
-       (await api('/transactions/00000000-0000-0000-0000-000000000009', { method: 'DELETE' })).status, 200)
+    // Antes esto devolvía 200: el handler no miraba cuántas filas había borrado,
+    // así que "no encontré nada" y "borré algo" se veían igual desde afuera. Con
+    // perfiles eso dejó de ser inofensivo — un DELETE que salía con el perfil
+    // equivocado respondía "listo" sobre algo que seguía ahí, y así se vio el
+    // bug de las categorías en un perfil nuevo (§0.5 del sprint).
+    eq('borrar algo inexistente devuelve 404, no un 200 que miente',
+       (await api('/transactions/00000000-0000-0000-0000-000000000009', { method: 'DELETE' })).status, 404)
 
     section('SPRINT 5 · autenticación de las rutas nuevas')
     {
@@ -3334,6 +3339,28 @@ async function run() {
      SPRINT 8 · Perfiles
      ════════════════════════════════════════════════════════════════════════ */
 
+  section('SPRINT 8 · el perfil principal se llama como su dueño')
+  {
+    // Nacía como "Personal", un nombre genérico. Ahora toma el nombre de pila
+    // del usuario: es como la app ya lo saluda en la Home, y como el encabezado
+    // muestra el nombre del perfil activo cuando hay más de uno, así el título
+    // dice lo mismo tengas un perfil o tres.
+    const perfilHub = await adminFetch(`/rest/v1/profiles?id=eq.${USER_ID}&select=name`).then(r => r.json())
+    const nombreHub = perfilHub[0]?.name ?? ''
+    const pila = nombreHub.trim().split(/\s+/)[0]
+
+    const principal = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    eq('el principal lleva el nombre de pila del usuario', principal.name, pila)
+    ok('y no el genérico "Personal"', pila === 'Personal' || principal.name !== 'Personal')
+
+    // Indeleble no es inmutable.
+    eq('se puede renombrar', (await api(`/profiles/${principal.id}`, {
+      method: 'PATCH', body: JSON.stringify({ name: 'Mi plata' }) })).status, 200)
+    eq('y queda con el nombre nuevo',
+       (await json(await api('/profiles'))).profiles.find(p => p.is_default).name, 'Mi plata')
+    await api(`/profiles/${principal.id}`, { method: 'PATCH', body: JSON.stringify({ name: pila }) })
+  }
+
   section('SPRINT 8 · el perfil default existe solo')
   {
     const boot = await json(await api('/bootstrap'))
@@ -3462,9 +3489,10 @@ async function run() {
     eq('el color nuevo', p.accent, 'magenta')
 
     const def = (await json(await api('/profiles'))).profiles.find(x => x.is_default)
+    const nombreOriginal = def.name
     eq('el default también se puede renombrar: es indeleble, no inmutable',
        (await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Daniel' }) })).status, 200)
-    await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Personal' }) })
+    await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ name: nombreOriginal }) })
 
     eq('un color fuera de la paleta → 400',
        (await api(`/profiles/${empresa.id}`, { method: 'PATCH', body: JSON.stringify({ accent: 'azul' }) })).status, 400)
@@ -3584,6 +3612,58 @@ async function run() {
     // `?profile=` sigue mandando sobre la cookie: es lo que usa esta suite.
     eq('el query param gana sobre la cookie',
        (await json(await enOtro(`/bootstrap?profile=${principal.id}`))).profile, principal.id)
+  }
+
+  section('SPRINT 8 (uso real) · borrar en un perfil no toca al otro, y ya no miente')
+  {
+    // Lo que reportó el usuario: "en un perfil nuevo no me deja eliminar
+    // categorías solo para ese perfil". El DELETE salía sin perfil (§0.5), caía
+    // en el default, no encontraba el id… y devolvía 200 igual, porque ningún
+    // handler verificaba cuántas filas había tocado. La pantalla decía
+    // "borrado" sobre algo que seguía ahí.
+    const principal = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    const otro = (await json(await api('/profiles', {
+      method: 'POST', body: JSON.stringify({ name: 'BorrarCats' }) }))).profile
+
+    const delPrincipal = (await json(await api(`/categories?profile=${principal.id}`))).categories
+    const delOtro = (await json(await api(`/categories?profile=${otro.id}`))).categories
+
+    const comidaA = delPrincipal.find(c => c.name === 'Comida')
+    const comidaB = delOtro.find(c => c.name === 'Comida')
+    ok('cada perfil tiene su propia fila de "Comida"', comidaA && comidaB && comidaA.id !== comidaB.id)
+
+    eq('borrar la del perfil nuevo funciona',
+       (await api(`/categories/${comidaB.id}?profile=${otro.id}`, { method: 'DELETE' })).status, 200)
+    eq('y la del principal sigue', delPrincipal.length,
+       (await json(await api(`/categories?profile=${principal.id}`))).categories.length)
+
+    // El 200 falso: un id que no es de este perfil ya no se reporta como borrado.
+    eq('borrar una categoría de otro perfil → 404, no 200',
+       (await api(`/categories/${comidaA.id}?profile=${otro.id}`, { method: 'DELETE' })).status, 404)
+    ok('y sigue viva en el principal',
+       (await json(await api(`/categories?profile=${principal.id}`))).categories.some(c => c.id === comidaA.id))
+
+    // Mismo trato para el resto de los recursos.
+    const cuentaA = (await json(await api(`/accounts?profile=${principal.id}`))).accounts[0]
+    if (cuentaA) {
+      eq('borrar una cuenta de otro perfil → 404',
+         (await api(`/accounts/${cuentaA.id}?profile=${otro.id}`, { method: 'DELETE' })).status, 404)
+    }
+    const personaA = (await json(await api(`/people?profile=${principal.id}`))).people[0]
+    if (personaA) {
+      eq('borrar una persona de otro perfil → 404',
+         (await api(`/people/${personaA.id}?profile=${otro.id}`, { method: 'DELETE' })).status, 404)
+    }
+
+    // Un perfil nuevo puede quedarse sin ninguna categoría si así lo quiere.
+    let fallos = 0
+    for (const c of (await json(await api(`/categories?profile=${otro.id}`))).categories) {
+      if (!(await api(`/categories/${c.id}?profile=${otro.id}`, { method: 'DELETE' })).ok) fallos++
+    }
+    eq('se pueden borrar todas las del perfil nuevo', fallos, 0)
+    eq('queda sin ninguna', (await json(await api(`/categories?profile=${otro.id}`))).categories.length, 0)
+    eq('y el principal intacto', (await json(await api(`/categories?profile=${principal.id}`))).categories.length,
+       delPrincipal.length)
   }
 }
 

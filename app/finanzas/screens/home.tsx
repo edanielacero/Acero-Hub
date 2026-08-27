@@ -37,7 +37,14 @@ function greeting(): string {
   return 'Buenas noches'
 }
 
-/** Solo el primero: en el título grande "Daniel Acero" no entra ni hace falta. */
+/**
+ * Solo el primero: en el título grande "Daniel Acero" no entra ni hace falta.
+ *
+ * Es el mismo criterio con el que se bautiza el perfil principal
+ * (`defaultProfileName`), y por eso el título dice lo mismo tengas un perfil o
+ * varios: con uno saluda al usuario, con varios muestra el nombre del perfil
+ * activo — que para el principal es este mismo.
+ */
 function firstName(name: string | null): string {
   return name?.trim().split(/\s+/)[0] || 'Finanzas'
 }
@@ -736,7 +743,7 @@ function HeroCard({ label, unit, value, of, note, foot, bar }: {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(130% 90% at 100% 0%, rgba(200,241,105,0.14), transparent 60%)' }}
+        style={{ background: 'radial-gradient(130% 90% at 100% 0%, var(--fz-hero-glow), transparent 60%)' }}
       />
 
       <p className="relative text-[13px] font-medium text-white/60">{label}</p>
