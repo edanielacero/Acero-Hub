@@ -15,8 +15,15 @@ export const metadata: Metadata = {
     // Sin esto, "Agregar a inicio" en iPhone abre Safari con su barra en vez de
     // la app a pantalla completa. Y sin instalarla, iOS no entrega push.
     capable: true,
-    title: 'Finanzas',
+    // El nombre que queda bajo el ícono en la pantalla de inicio.
+    title: 'Plata',
     statusBarStyle: 'default',
+  },
+  icons: {
+    // iOS no lee los íconos del manifest: necesita `apple-touch-icon`. Sin
+    // esto, agregar la app a la pantalla de inicio le saca una captura borrosa
+    // a la página en vez de usar un ícono.
+    apple: [{ url: '/finanzas/icon-180', sizes: '180x180', type: 'image/png' }],
   },
 }
 
