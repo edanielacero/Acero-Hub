@@ -10,3 +10,8 @@ verify_jwt = false
 # Función de diagnóstico: verifica que la copia de lib/finanzas corra en Deno.
 # No toca datos. Protegida igual con requireInternal.
 verify_jwt = false
+
+[functions.finanzas-push-test]
+# verify_jwt false — la invoca la ruta de Next con FIN_CRON_SECRET. Quien
+# verifica que el usuario sea dueño de los dispositivos es esa ruta.
+verify_jwt = false

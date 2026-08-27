@@ -1,6 +1,5 @@
 'use client'
 
-import { IconChevronRight } from '@tabler/icons-react'
 import { MORE_ITEMS, type NavItem } from '../components/nav-items'
 import { useFinanzas } from '../components/data-context'
 import { AmountUSD } from '../components/amount'
@@ -64,7 +63,10 @@ export function MasScreen() {
     <div className="px-4 pt-6 min-[900px]:px-0 min-[900px]:pt-0">
       <PageHeader title="Más" subtitle="Todo lo que no entra en la barra" />
 
-      <div className="flex flex-col gap-3 min-[600px]:grid min-[600px]:grid-cols-2 min-[600px]:items-start">
+      {/* Cuadrados y no filas: la grilla se barre de un vistazo y cada sección
+          ocupa el mismo peso visual. En filas, la que tenía descripción larga
+          se veía más importante que las demás. */}
+      <div className="grid grid-cols-2 gap-3 min-[600px]:grid-cols-3 min-[900px]:grid-cols-4">
         {MORE_ITEMS.map(item => (
           <MoreCard key={item.href} item={item} meta={meta[item.href]} />
         ))}
@@ -78,25 +80,23 @@ function MoreCard({ item, meta }: { item: NavItem; meta?: React.ReactNode }) {
   return (
     <FzLink
       href={item.href}
-      className="flex items-center gap-3 rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 active:brightness-[0.97] hover:brightness-[0.99] transition-[filter]"
+      className="aspect-square flex flex-col justify-between rounded-[var(--fz-r-tile)] bg-[var(--fz-surface)] shadow-[var(--fz-sh-rest)] p-4 active:brightness-[0.97] hover:brightness-[0.99] transition-[filter]"
     >
       <IconChip>
         <Icon size={20} stroke={1.9} />
       </IconChip>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="min-w-0 text-[16px] font-semibold tracking-[-0.01em] truncate">{item.label}</span>
-          {/* Se reserva su ancho pero no empuja al título: el meta es dato, no
-              etiqueta, y con `shrink-0` un monto largo no se corta a la mitad. */}
-          {meta && <span className="text-[13px] font-semibold fz-num shrink-0 ml-auto">{meta}</span>}
+
+      <span className="min-w-0">
+        <span className="block text-[15px] font-semibold tracking-[-0.01em] truncate">
+          {item.label}
         </span>
-        {item.description && (
-          <span className="block mt-0.5 text-[13px] text-[var(--fz-ink-2)] leading-snug">
-            {item.description}
-          </span>
-        )}
+        {/* El estado de la sección ocupa la línea de abajo. En el cuadrado no
+            compite con el título por el ancho, así que un monto largo se lee
+            entero en vez de cortarse. */}
+        <span className="block mt-0.5 h-[18px] text-[13px] font-semibold fz-num truncate">
+          {meta ?? <span className="text-[var(--fz-ink-3)] font-normal">{item.description}</span>}
+        </span>
       </span>
-      <IconChevronRight size={18} stroke={2} className="text-[var(--fz-ink-3)] shrink-0 self-center" />
     </FzLink>
   )
 }

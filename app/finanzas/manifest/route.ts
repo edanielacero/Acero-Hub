@@ -12,17 +12,16 @@
 export function GET() {
   return Response.json(
     {
-      // "Plata" y no "Finanzas": es la palabra que usa la app en todas partes
-      // ("dónde tenés tu plata", "la plata es fungible"), entra sin truncarse
-      // bajo el ícono de iOS, y sirve igual para el perfil personal y el de
-      // empresa. `short_name` es el que iOS pone en la pantalla de inicio.
-      name: 'Plata',
-      short_name: 'Plata',
+      // `short_name` es el que iOS pone bajo el ícono en la pantalla de inicio.
+      name: 'Mis Finanzas',
+      short_name: 'Mis Finanzas',
       description: 'Tus finanzas personales',
       start_url: '/finanzas',
       scope: '/finanzas',
       display: 'standalone',
-      background_color: '#12281D',
+      // El celeste del ícono, para que la pantalla de arranque no destelle en
+      // otro color antes de que cargue la app.
+      background_color: '#EEF5FC',
       theme_color: '#F3F4F6',
       lang: 'es',
       icons: [

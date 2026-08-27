@@ -27,7 +27,16 @@ export function AjustesScreen() {
   const activas = categories.filter(c => !c.archived).length
   const personasActivas = people.filter(p => !p.archived).length
 
+  // El orden lo eligió el usuario y no es alfabético ni por antigüedad:
+  // primero en qué cajón estás, después la plata, y las listas al final.
   const items: SettingsMenuItem[] = [
+    {
+      href: `${AJUSTES_HOME}/perfiles`,
+      label: 'Perfiles',
+      description: 'Separa finanzas que no tienen nada que ver entre sí',
+      Icon: IconUserCircle,
+      meta: profiles.length > 1 ? `${profiles.length}` : undefined,
+    },
     {
       href: `${AJUSTES_HOME}/presupuesto`,
       label: 'Presupuesto',
@@ -50,24 +59,17 @@ export function AjustesScreen() {
       meta: categories.length ? `${activas}` : undefined,
     },
     {
-      href: `${AJUSTES_HOME}/notificaciones`,
-      label: 'Notificaciones',
-      description: 'Que la app te avise sin que entres',
-      Icon: IconBell,
-    },
-    {
-      href: `${AJUSTES_HOME}/perfiles`,
-      label: 'Perfiles',
-      description: 'Separa finanzas que no tienen nada que ver entre sí',
-      Icon: IconUserCircle,
-      meta: profiles.length > 1 ? `${profiles.length}` : undefined,
-    },
-    {
       href: `${AJUSTES_HOME}/personas`,
       label: 'Personas',
       description: 'Con quiénes compartes gastos',
       Icon: IconUsersGroup,
       meta: people.length ? `${personasActivas}` : undefined,
+    },
+    {
+      href: `${AJUSTES_HOME}/notificaciones`,
+      label: 'Notificaciones',
+      description: 'Que la app te avise sin que entres',
+      Icon: IconBell,
     },
   ]
 

@@ -5,7 +5,7 @@ import type { TablerIcon } from '@tabler/icons-react'
 import {
   IconArrowsLeftRight, IconBuildingBank,
   IconChevronRight, IconMinus, IconNotes, IconPlus, IconRepeat, IconRotateClockwise2,
-  IconSettings, IconSparkles, IconUsersGroup, IconWifiOff, IconX,
+  IconAdjustmentsHorizontal, IconSparkles, IconUsersGroup, IconWifiOff, IconX,
 } from '@tabler/icons-react'
 import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { debtsNeedingAttention } from '@/lib/finanzas/splits'
@@ -265,7 +265,7 @@ export function HomeScreen() {
               aria-label="Elegir qué mostrar arriba"
               className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] hover:text-[var(--fz-ink)] transition-colors"
             >
-              <IconSettings size={18} stroke={1.8} />
+              <IconAdjustmentsHorizontal size={18} stroke={1.8} />
             </button>
             {/* Solo se pinta si hay 2 o más perfiles: con uno no hay nada que
                 elegir. Lo decide el propio componente. */}

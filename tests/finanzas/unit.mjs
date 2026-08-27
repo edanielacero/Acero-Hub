@@ -2271,6 +2271,8 @@ section('SPRINT 8 · ninguna llamada del cliente se salta el perfil')
     // avisos de todos. Mandarles `?profile=` no rompería nada, pero diría algo
     // falso sobre a quién pertenece el dato.
     ['components/push-setup.tsx', 2],
+    // 2: leer y guardar preferencias. Las dos van a una ruta de usuario, no de
+    // perfil — las preferencias de aviso son tuyas, no de un cajón.
     ['screens/ajustes/notificaciones.tsx', 2],
   ])
 

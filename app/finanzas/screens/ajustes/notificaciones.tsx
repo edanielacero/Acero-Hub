@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { IconBellOff, IconDeviceMobileMessage, IconShare2 } from '@tabler/icons-react'
+import { IconBellOff, IconDeviceMobile, IconShare2 } from '@tabler/icons-react'
 import { usePush } from '../../components/push-setup'
 import { Btn, ErrorNote, Label, Panel, TextField } from '../../components/ui'
 import { SettingsHeader, SettingsPage } from './shared'
@@ -17,19 +17,12 @@ interface Prefs {
   timezone: string
 }
 
-/**
- * Cada tipo con un EJEMPLO real del aviso debajo.
- *
- * Es más barato entender "Comida al 90% · Te quedan $32" que la etiqueta
- * "Presupuesto". La lista de arriba dice de qué te avisa; el ejemplo dice cómo
- * se va a ver a las 9 de la noche en la pantalla de bloqueo.
- */
-const TIPOS: { key: keyof Prefs; label: string; ejemplo: string }[] = [
-  { key: 'fijos', label: 'Fijos y cuotas', ejemplo: 'Alquiler vence en 2 días · Bs 2.100' },
-  { key: 'presupuesto', label: 'Presupuesto', ejemplo: 'Comida al 90% · Te quedan $32,00' },
-  { key: 'ahorro', label: 'Ahorro', ejemplo: 'Te sobraron $214,00 en julio · Sin repartir' },
-  { key: 'deudas', label: 'Deudas por cobrar', ejemplo: 'Ana te debe hace 30 días · $20,00' },
-  { key: 'recordar_anotar', label: 'Recordarme anotar', ejemplo: '¿Gastaste algo hoy?' },
+const TIPOS: { key: keyof Prefs; label: string }[] = [
+  { key: 'fijos', label: 'Fijos y cuotas' },
+  { key: 'presupuesto', label: 'Presupuesto' },
+  { key: 'ahorro', label: 'Ahorro' },
+  { key: 'deudas', label: 'Deudas por cobrar' },
+  { key: 'recordar_anotar', label: 'Recordarme anotar' },
 ]
 
 export function AjustesNotificacionesScreen() {
@@ -69,11 +62,13 @@ export function AjustesNotificacionesScreen() {
 
   async function activar() {
     await push.activar()
-    // La zona horaria del dispositivo, para que el recordatorio de las 21:00
-    // llegue a las 21:00 y no en UTC.
+    // La zona del dispositivo, para que el recordatorio de las 21:00 llegue a
+    // las 21:00 y no en UTC.
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     if (tz) await guardar({ timezone: tz } as Partial<Prefs>)
   }
+
+  const activo = push.estado === 'activo'
 
   return (
     <SettingsPage>
@@ -83,33 +78,30 @@ export function AjustesNotificacionesScreen() {
       {push.error && <ErrorNote>{push.error}</ErrorNote>}
 
       <Panel>
-        <EstadoDelDispositivo push={push} devices={devices} onActivar={activar} />
+        <Estado push={push} devices={devices} onActivar={activar} />
       </Panel>
 
-      {push.estado === 'activo' && prefs && (
+      {activo && prefs && (
         <>
           <Panel>
-            <p className="text-[13px] font-semibold mb-1">De qué avisarte</p>
-            <p className="text-[12px] text-[var(--fz-ink-3)] mb-3">
-              Te llegan cuando pasan, no una vez al día.
-            </p>
+            <SeccionTitulo
+              titulo="De qué avisarte"
+              nota="Te llegan cuando pasan, no una vez al día."
+            />
 
             <div className="flex flex-col">
               {TIPOS.map(t => (
                 <label
                   key={t.key}
-                  className="flex items-start gap-3 py-3 border-b border-[var(--fz-hairline)] last:border-0 cursor-pointer"
+                  className="flex items-center justify-between gap-3 py-3.5 border-b border-[var(--fz-hairline)] last:border-0 cursor-pointer"
                 >
+                  <span className="min-w-0 text-[15px] font-semibold truncate">{t.label}</span>
                   <input
                     type="checkbox"
                     checked={Boolean(prefs[t.key])}
                     onChange={e => void guardar({ [t.key]: e.target.checked } as Partial<Prefs>)}
-                    className="mt-0.5 w-[18px] h-[18px] accent-[var(--fz-accent)] shrink-0"
+                    className="w-[18px] h-[18px] accent-[var(--fz-accent)] shrink-0"
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold">{t.label}</span>
-                    <span className="block text-[12px] text-[var(--fz-ink-3)] truncate">{t.ejemplo}</span>
-                  </span>
                 </label>
               ))}
             </div>
@@ -117,12 +109,12 @@ export function AjustesNotificacionesScreen() {
 
           {prefs.recordar_anotar && (
             <Panel>
-              <p className="text-[13px] font-semibold mb-1">A qué hora recordarte</p>
-              <p className="text-[12px] text-[var(--fz-ink-3)] mb-3">
-                Dos por día. Llegan aunque ya hayas anotado algo.
-              </p>
+              <SeccionTitulo
+                titulo="A qué hora recordarte"
+                nota="Dos por día. Llegan aunque ya hayas anotado algo."
+              />
               <div className="flex gap-3">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <Label>Mediodía</Label>
                   <TextField
                     type="time"
@@ -130,7 +122,7 @@ export function AjustesNotificacionesScreen() {
                     onChange={e => void guardar({ recordar_mediodia: e.target.value })}
                   />
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <Label>Noche</Label>
                   <TextField
                     type="time"
@@ -143,10 +135,10 @@ export function AjustesNotificacionesScreen() {
           )}
 
           <Panel>
-            <p className="text-[12px] text-[var(--fz-ink-3)]">
-              Cada perfil decide si genera avisos por su cuenta. Ese interruptor está en
-              Ajustes → Perfiles.
-            </p>
+            <SeccionTitulo
+              titulo="Perfiles"
+              nota="Cada perfil decide por su cuenta si genera avisos. Ese interruptor está en Ajustes → Perfiles."
+            />
           </Panel>
         </>
       )}
@@ -154,9 +146,20 @@ export function AjustesNotificacionesScreen() {
   )
 }
 
+/** Mismo encabezado en los tres bloques: sin esto cada panel arrancaba con un
+ *  tamaño y un margen distinto, y la pantalla se leía desprolija. */
+function SeccionTitulo({ titulo, nota }: { titulo: string; nota: string }) {
+  return (
+    <div className="mb-4">
+      <p className="text-[15px] font-semibold tracking-[-0.01em]">{titulo}</p>
+      <p className="mt-0.5 text-[13px] text-[var(--fz-ink-2)] leading-snug">{nota}</p>
+    </div>
+  )
+}
+
 /* ─── El estado de ESTE dispositivo ────────────────────────────────────────── */
 
-function EstadoDelDispositivo({ push, devices, onActivar }: {
+function Estado({ push, devices, onActivar }: {
   push: ReturnType<typeof usePush>
   devices: number
   onActivar: () => void
@@ -170,78 +173,98 @@ function EstadoDelDispositivo({ push, devices, onActivar }: {
   // nada. Un botón que no hace nada es peor que no tener botón.
   if (push.estado === 'ios-sin-instalar') {
     return (
-      <div className="flex flex-col gap-2">
-        <p className="text-[15px] font-semibold">Primero agregá Finanzas a tu inicio</p>
-        <p className="text-[13px] text-[var(--fz-ink-2)]">
-          En iPhone, las notificaciones solo funcionan con la app instalada.
-        </p>
-        <ol className="flex flex-col gap-1.5 mt-1 text-[13px] text-[var(--fz-ink-2)]">
-          <li className="flex items-center gap-2">
-            <IconShare2 size={16} stroke={1.8} className="shrink-0 text-[var(--fz-ink-3)]" />
-            Tocá Compartir, abajo en Safari
-          </li>
+      <Bloque
+        icono={<IconShare2 size={20} stroke={1.8} />}
+        titulo="Primero agregá Mis Finanzas a tu inicio"
+        nota="En iPhone las notificaciones solo funcionan con la app instalada."
+      >
+        <ol className="flex flex-col gap-1 text-[13px] text-[var(--fz-ink-2)]">
+          <li>1 · Tocá <strong className="font-semibold text-[var(--fz-ink)]">Compartir</strong>, abajo en Safari</li>
           <li>2 · Elegí <strong className="font-semibold text-[var(--fz-ink)]">Agregar a inicio</strong></li>
-          <li>3 · Abrí Finanzas desde el ícono nuevo y volvé acá</li>
+          <li>3 · Abrí Mis Finanzas desde el ícono nuevo y volvé acá</li>
         </ol>
-      </div>
+      </Bloque>
     )
   }
 
   if (push.estado === 'bloqueado') {
     return (
-      <div className="flex items-start gap-3">
-        <IconBellOff size={20} stroke={1.8} className="mt-0.5 shrink-0 text-[var(--fz-ink-3)]" />
-        <div>
-          <p className="text-[15px] font-semibold">Están bloqueadas en este navegador</p>
-          <p className="text-[13px] text-[var(--fz-ink-2)]">
-            La app no puede volver a pedir permiso: hay que habilitarlo en los ajustes del
-            sitio, en la barra de direcciones.
-          </p>
-        </div>
-      </div>
+      <Bloque
+        icono={<IconBellOff size={20} stroke={1.8} />}
+        titulo="Están bloqueadas en este navegador"
+        nota="La app no puede volver a pedir permiso: hay que habilitarlo en los ajustes del sitio, desde la barra de direcciones."
+      />
     )
   }
 
   if (push.estado === 'no-soportado') {
     return (
-      <p className="text-[13px] text-[var(--fz-ink-2)]">
-        Este navegador no soporta notificaciones. Probá desde Chrome en Android o desde la
-        computadora.
-      </p>
+      <Bloque
+        icono={<IconBellOff size={20} stroke={1.8} />}
+        titulo="Este navegador no las soporta"
+        nota="Probá desde Chrome en Android, o desde la computadora."
+      />
     )
   }
 
   if (push.estado === 'activo') {
     return (
-      <div className="flex flex-col gap-3">
-        <div className="flex items-start gap-3">
-          <IconDeviceMobileMessage size={20} stroke={1.8} className="mt-0.5 shrink-0 text-[var(--fz-accent)]" />
-          <div>
-            <p className="text-[15px] font-semibold">Activadas en este dispositivo</p>
-            <p className="text-[13px] text-[var(--fz-ink-2)]">
-              {devices === 1 ? 'Es el único que tenés conectado' : `Tenés ${devices} dispositivos conectados`}
-            </p>
-          </div>
-        </div>
+      <Bloque
+        icono={<IconDeviceMobile size={20} stroke={1.8} />}
+        titulo="Activadas en este dispositivo"
+        nota={devices === 1 ? 'Es el único que tenés conectado' : `Tenés ${devices} dispositivos conectados`}
+        acento
+      >
         <Btn variant="ghost" onClick={() => void push.desactivar()} disabled={push.ocupado}>
           {push.ocupado ? 'Desactivando…' : 'Desactivar acá'}
         </Btn>
-      </div>
+      </Bloque>
     )
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <p className="text-[15px] font-semibold">Notificaciones apagadas</p>
-        <p className="text-[13px] text-[var(--fz-ink-2)]">
-          Te avisamos cuando venza un fijo, te pases del presupuesto o quede un mes sin cerrar.
-          {devices > 0 && ` Ya las tenés en ${devices === 1 ? 'otro dispositivo' : `otros ${devices} dispositivos`}.`}
-        </p>
-      </div>
+    <Bloque
+      icono={<IconDeviceMobile size={20} stroke={1.8} />}
+      titulo="Notificaciones apagadas"
+      nota={
+        'Te avisamos cuando venza un fijo, te pases del presupuesto o quede un mes sin cerrar.'
+        + (devices > 0 ? ` Ya las tenés en ${devices === 1 ? 'otro dispositivo' : `otros ${devices} dispositivos`}.` : '')
+      }
+    >
       <Btn onClick={onActivar} disabled={push.ocupado}>
         {push.ocupado ? 'Activando…' : 'Activar en este dispositivo'}
       </Btn>
+    </Bloque>
+  )
+}
+
+/** Los cinco estados comparten la misma forma. Antes cada uno armaba su propio
+ *  layout y ninguno alineaba con el siguiente. */
+function Bloque({ icono, titulo, nota, acento = false, children }: {
+  icono: React.ReactNode
+  titulo: string
+  nota: string
+  acento?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <span
+          className={`grid place-items-center w-10 h-10 rounded-[var(--fz-r-chip)] shrink-0 ${
+            acento
+              ? 'bg-[var(--fz-accent-tint)] text-[var(--fz-accent)]'
+              : 'bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-3)]'
+          }`}
+        >
+          {icono}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold tracking-[-0.01em]">{titulo}</span>
+          <span className="block mt-0.5 text-[13px] text-[var(--fz-ink-2)] leading-snug">{nota}</span>
+        </span>
+      </div>
+      {children}
     </div>
   )
 }

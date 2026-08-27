@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     // la app a pantalla completa. Y sin instalarla, iOS no entrega push.
     capable: true,
     // El nombre que queda bajo el ícono en la pantalla de inicio.
-    title: 'Plata',
+    title: 'Mis Finanzas',
     statusBarStyle: 'default',
   },
   icons: {
