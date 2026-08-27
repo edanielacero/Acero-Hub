@@ -1,6 +1,6 @@
 'use client'
 
-import { IconCategory, IconCoins, IconReportMoney, IconUserCircle, IconUsersGroup } from '@tabler/icons-react'
+import { IconBell, IconCategory, IconCoins, IconReportMoney, IconUserCircle, IconUsersGroup } from '@tabler/icons-react'
 import { CURRENCY_META } from '@/lib/finanzas/types'
 import { useBudgetViewPref } from '../../components/budget-view-pref'
 import { useFinanzas } from '../../components/data-context'
@@ -48,6 +48,12 @@ export function AjustesScreen() {
       description: 'Las de gasto y las de ingreso, cada una por su lado',
       Icon: IconCategory,
       meta: categories.length ? `${activas}` : undefined,
+    },
+    {
+      href: `${AJUSTES_HOME}/notificaciones`,
+      label: 'Notificaciones',
+      description: 'Que la app te avise sin que entres',
+      Icon: IconBell,
     },
     {
       href: `${AJUSTES_HOME}/perfiles`,

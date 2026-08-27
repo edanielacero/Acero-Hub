@@ -12,6 +12,10 @@ import {
   validateBudgetAmount, isValidPeriod, toNative, budgetBarView,
 } from './.fin/budgets.mjs'
 import { readSnapshot, writeSnapshot, clearSnapshots } from './.fin/snapshot.mjs'
+import {
+  avisosDeFijos, avisosDePresupuesto, avisosDeAhorro, avisosDeDeudas,
+  avisoDeAnotar, tocaRecordatorio, diasEntre, mesLargo, UMBRALES,
+} from './.fin/notifications.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import {
   surplusUsd, pendingSavingsPeriod, canSaveForPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
@@ -2069,6 +2073,165 @@ section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
    patrón pegado que la conversión, así que tampoco lo vio.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════
+   SPRINT 9 · Qué merece un aviso
+   ══════════════════════════════════════════════════════════════════════════ */
+
+section('SPRINT 9 · fijos')
+{
+  const rates = { BOB: 6.96 }
+  const base = {
+    id: 'f1', name: 'Alquiler', amount: 2100, currency: 'BOB',
+    status: 'pendiente', due: '2026-08-30', days_late: 0,
+  }
+
+  eq('un fijo pausado no avisa',
+     avisosDeFijos([{ ...base, status: 'pausado' }], '2026-08-29', rates).length, 0)
+  eq('uno ya registrado tampoco',
+     avisosDeFijos([{ ...base, status: 'registrado' }], '2026-08-29', rates).length, 0)
+
+  const lejos = avisosDeFijos([base], '2026-08-20', rates)
+  eq('a 10 días todavía no avisa', lejos.length, 0)
+
+  const cerca = avisosDeFijos([base], '2026-08-28', rates)
+  eq('a 2 días sí', cerca.length, 1)
+  eq('y dice cuánto falta', cerca[0].title, 'Alquiler vence en 2 días')
+  eq('con el monto convertido a USD', cerca[0].body, '$301.72')
+
+  const hoy = avisosDeFijos([base], '2026-08-30', rates)
+  eq('el día que vence lo dice así', hoy[0].title, 'Alquiler vence hoy')
+
+  const venc = avisosDeFijos([{ ...base, status: 'vencido' }], '2026-09-02', rates)
+  eq('vencido avisa aparte', venc[0].title, 'Alquiler venció')
+  ok('y dice qué día vencía', venc[0].body.includes('vencía el 30'), venc[0].body)
+
+  // El corazón del anti-repetición: la clave lleva el período.
+  const agosto = avisosDeFijos([base], '2026-08-28', rates)[0]
+  const septiembre = avisosDeFijos([{ ...base, due: '2026-09-30' }], '2026-09-28', rates)[0]
+  ok('la clave cambia de mes a mes', agosto.dedupeKey !== septiembre.dedupeKey,
+     `${agosto.dedupeKey} vs ${septiembre.dedupeKey}`)
+  eq('pero es la misma dos veces en el mismo mes',
+     avisosDeFijos([base], '2026-08-29', rates)[0].dedupeKey, agosto.dedupeKey)
+  ok('y distingue vencido de por-vencer',
+     venc[0].dedupeKey !== agosto.dedupeKey)
+}
+
+section('SPRINT 9 · presupuesto')
+{
+  const linea = (over) => ({
+    line_id: 'l1', name: 'Comida', category_names: ['Comida'],
+    amount_usd: 320, extended_usd: 0, carried_usd: 0, spent_usd: over,
+  })
+  const payload = (spent) => ({ categories: [linea(spent)], pending_closures: [] })
+
+  eq('al 50% no avisa', avisosDePresupuesto(payload(160), '2026-08').length, 0)
+  eq('al 89% tampoco', avisosDePresupuesto(payload(284.8), '2026-08').length, 0)
+
+  const al90 = avisosDePresupuesto(payload(290), '2026-08')
+  eq('al 90% sí', al90.length, 1)
+  eq('y dice cuánto queda', al90[0].body, 'Te quedan $30.00 de $320.00')
+
+  const pasado = avisosDePresupuesto(payload(358), '2026-08')
+  eq('pasarse avisa distinto', pasado[0].title, 'Te pasaste en Comida')
+  eq('con cuánto de más', pasado[0].body, '$38.00 por encima de $320.00')
+  ok('y con otra clave, para que no lo tape el aviso del 90%',
+     pasado[0].dedupeKey !== al90[0].dedupeKey)
+
+  eq('una línea sin monto cargado no avisa',
+     avisosDePresupuesto({ categories: [{ ...linea(999), amount_usd: null }], pending_closures: [] }, '2026-08').length, 0)
+
+  const cierre = avisosDePresupuesto({ categories: [], pending_closures: [{ period: '2026-07-01' }] }, '2026-08')
+  eq('un cierre sin responder avisa', cierre[0].title, 'Julio quedó sin cerrar')
+}
+
+section('SPRINT 9 · ahorro')
+{
+  const meta = { id: 'g1', name: 'Viaje', balance_usd: 1200, goal_reached: true, archived: false }
+
+  const sobrante = avisosDeAhorro([], '2026-07-01', 214)
+  eq('el sobrante sin repartir avisa', sobrante[0].title, 'Te sobraron $214.00 en Julio')
+
+  eq('un sobrante de cero no avisa', avisosDeAhorro([], '2026-07-01', 0).length, 0)
+  eq('ni uno negativo', avisosDeAhorro([], '2026-07-01', -50).length, 0)
+  eq('ni si no hay período pendiente', avisosDeAhorro([], null, 300).length, 0)
+
+  const cumplida = avisosDeAhorro([meta], null, 0)
+  eq('una meta cumplida avisa', cumplida[0].title, 'Viaje llegó a su meta')
+  eq('una meta archivada no', avisosDeAhorro([{ ...meta, archived: true }], null, 0).length, 0)
+  eq('ni una sin cumplir', avisosDeAhorro([{ ...meta, goal_reached: false }], null, 0).length, 0)
+
+  // Una meta se cumple una vez: su clave NO lleva período.
+  ok('la clave de la meta no depende del mes', cumplida[0].dedupeKey === 'meta:g1')
+}
+
+section('SPRINT 9 · deudas')
+{
+  const p = (dias, usd) => ({ person: { id: 'p1', name: 'Ana' }, oldest_days: dias, open_usd: usd })
+
+  eq('a 29 días no avisa', avisosDeDeudas([p(29, 20)]).length, 0)
+  const vieja = avisosDeDeudas([p(30, 20)])
+  eq('a 30 sí', vieja.length, 1)
+  eq('con el texto completo', vieja[0].title, 'Ana te debe hace 30 días')
+  eq('sin deuda abierta no avisa', avisosDeDeudas([p(60, 0)]).length, 0)
+  eq('sin fecha tampoco', avisosDeDeudas([p(null, 20)]).length, 0)
+
+  // Si la clave llevara los días exactos avisaría TODOS los días.
+  eq('la clave no cambia al pasar los días',
+     avisosDeDeudas([p(45, 20)])[0].dedupeKey, vieja[0].dedupeKey)
+}
+
+section('SPRINT 9 · recordatorio de anotar')
+{
+  ok('justo a la hora, toca', tocaRecordatorio('14:00', '14:00'))
+  ok('a los 14 minutos todavía toca', tocaRecordatorio('14:14', '14:00'))
+  ok('a los 15 ya no', !tocaRecordatorio('14:15', '14:00'))
+  ok('antes de la hora, no', !tocaRecordatorio('13:59', '14:00'))
+  ok('una hora después, no', !tocaRecordatorio('15:00', '14:00'))
+
+  const a = avisoDeAnotar('2026-08-27', 'mediodia')
+  const b = avisoDeAnotar('2026-08-27', 'noche')
+  const c = avisoDeAnotar('2026-08-28', 'mediodia')
+  ok('mediodía y noche son avisos distintos', a.dedupeKey !== b.dedupeKey)
+  ok('y el de mañana también', a.dedupeKey !== c.dedupeKey)
+  eq('abre el quick-add', a.url, '/finanzas?quickadd=1')
+}
+
+section('SPRINT 9 · auxiliares')
+{
+  eq('días entre dos fechas', diasEntre('2026-08-27', '2026-08-30'), 3)
+  eq('negativo si ya pasó', diasEntre('2026-08-30', '2026-08-27'), -3)
+  eq('cruzando el mes', diasEntre('2026-08-30', '2026-09-02'), 3)
+  eq('cruzando el año', diasEntre('2026-12-30', '2027-01-02'), 3)
+  eq('mes en texto', mesLargo('2026-08'), 'Agosto')
+  eq('desde el primero del mes', mesLargo('2026-01-01'), 'Enero')
+  eq('los umbrales son los documentados', [UMBRALES.diasAntesDeVencer, UMBRALES.pctAviso, UMBRALES.diasDeudaVieja], [2, 90, 30])
+}
+
+section('SPRINT 9 · la copia de lib/finanzas para Deno está al día')
+{
+  // La Edge Function de notificaciones no reescribe la lógica de dominio: usa
+  // una copia de lib/finanzas transformada para Deno por
+  // scripts/build-edge-shared.mjs. Si esa copia queda vieja, la notificación
+  // puede decir algo distinto de lo que muestra la app — dos verdades sobre la
+  // misma plata, que es el peor final posible de este sprint.
+  //
+  // Esto compara el hash del origen contra el sello de la copia.
+  const { execFileSync } = await import('node:child_process')
+  const { join } = await import('node:path')
+  const raiz = process.env.FZ_ROOT ?? '.'
+
+  let alDia = true
+  let detalle = ''
+  try {
+    execFileSync('node', [join(raiz, 'scripts/build-edge-shared.mjs'), '--check'], { stdio: 'pipe' })
+  } catch (e) {
+    alDia = false
+    detalle = String(e.stdout ?? '') + String(e.stderr ?? '')
+  }
+
+  ok('la copia refleja el lib/finanzas actual', alDia, detalle.trim())
+}
+
 section('SPRINT 8 · ninguna llamada del cliente se salta el perfil')
 {
   const { readdirSync, readFileSync, statSync } = await import('node:fs')
@@ -2102,6 +2265,13 @@ section('SPRINT 8 · ninguna llamada del cliente se salta el perfil')
     ['components/fz-fetch.ts', 1],
     // No es de finanzas: pregunta la versión del Hub.
     ['components/pull-to-refresh.tsx', 1],
+    // Sprint 9. Estas dos hablan con rutas que usan `requireUser`, no
+    // `requireProfile`: una suscripción de push y las preferencias de aviso son
+    // del USUARIO, no de un perfil — un teléfono es un teléfono y recibe los
+    // avisos de todos. Mandarles `?profile=` no rompería nada, pero diría algo
+    // falso sobre a quién pertenece el dato.
+    ['components/push-setup.tsx', 2],
+    ['screens/ajustes/notificaciones.tsx', 2],
   ])
 
   const sobrantes = []

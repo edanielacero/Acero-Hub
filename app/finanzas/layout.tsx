@@ -1,11 +1,23 @@
 import type { Metadata, Viewport } from 'next'
 import { AccessGate } from '@/components/AccessGate'
 import { Shell } from './components/shell'
+import { ServiceWorker } from './components/service-worker'
 import './theme.css'
 
 export const metadata: Metadata = {
   title: 'Finanzas',
   description: 'Finanzas personales',
+  // El manifest se enlaza SOLO desde acá y no con `app/manifest.ts`, que lo
+  // inyectaría en todas las páginas del Hub. Las notificaciones —y por lo
+  // tanto la instalación— son de esta mini-app.
+  manifest: '/finanzas/manifest',
+  appleWebApp: {
+    // Sin esto, "Agregar a inicio" en iPhone abre Safari con su barra en vez de
+    // la app a pantalla completa. Y sin instalarla, iOS no entrega push.
+    capable: true,
+    title: 'Finanzas',
+    statusBarStyle: 'default',
+  },
 }
 
 /**
@@ -24,6 +36,7 @@ export const viewport: Viewport = {
 export default function FinanzasLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="fz-root">
+      <ServiceWorker />
       <AccessGate project="finanzas">
         <Shell>{children}</Shell>
       </AccessGate>

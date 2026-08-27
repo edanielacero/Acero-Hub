@@ -16,6 +16,7 @@ import {
   AjustesCategoriasScreen,
   AjustesCategoriasGastoScreen,
   AjustesCategoriasIngresoScreen,
+  AjustesNotificacionesScreen,
   AjustesPerfilesScreen,
   AjustesPersonasScreen,
   AjustesPresupuestoScreen,
@@ -51,6 +52,7 @@ const SCREENS: Record<ScreenPath, () => React.ReactNode> = {
   '/finanzas/ajustes/categorias/ingreso': AjustesCategoriasIngresoScreen,
   '/finanzas/ajustes/personas': AjustesPersonasScreen,
   '/finanzas/ajustes/perfiles': AjustesPerfilesScreen,
+  '/finanzas/ajustes/notificaciones': AjustesNotificacionesScreen,
 }
 
 function isScreenPath(p: string): p is ScreenPath {

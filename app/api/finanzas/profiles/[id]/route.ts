@@ -28,6 +28,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!isAccentKey(body.accent)) return NextResponse.json({ error: 'Ese color no existe' }, { status: 400 })
     patch.accent = body.accent
   }
+  // Si este perfil genera notificaciones (Sprint 9). Vale también para el
+  // principal: alguien puede querer avisos solo de la empresa.
+  if (body.notify !== undefined) patch.notify = Boolean(body.notify)
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 })
   }

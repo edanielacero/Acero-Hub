@@ -26,6 +26,7 @@ export const SCREEN_PATHS = [
   '/finanzas/ajustes/categorias/ingreso',
   '/finanzas/ajustes/personas',
   '/finanzas/ajustes/perfiles',
+  '/finanzas/ajustes/notificaciones',
 ] as const
 
 export type ScreenPath = (typeof SCREEN_PATHS)[number]

@@ -174,7 +174,7 @@ No volver a preguntar por estas:
 | Deuda vs. compartido | **Conceptos distintos.** Compartido = responsabilidad recurrente sobre un servicio, atributo del fijo. Deuda = alguien te debe plata por lo que sea, entidad propia sin gasto padre obligatorio |
 | Gastos compartidos | Se registra el **bruto**; los reembolsos son movimientos aparte. Detalle **por persona**. Aplica a cualquier gasto, no solo suscripciones |
 | Pasanaku | **Personal, no de grupo** (revisado 2026-08-21): sin participantes ni rondas ajenas. Solo tu lado — aporte, puestos totales, tu puesto. La fecha de tu turno se deriva, no se pregunta. → *Especificado en `sprint_5_pasanaku.md`* |
-| Alertas | Panel in-app + email para las importantes (Resend, ya integrado) |
+| Notificaciones | **Push del navegador** (2026-08-27), con un switch por tipo de aviso y otro por perfil. Se evaluó email + panel in-app y se descartó. Programadas con `pg_cron` dentro de Supabase, no con el cron de Vercel → *`sprint_9_notificaciones.md`* |
 | Apple Wallet con push | Descartado por completo |
 | Gráficas | SVG propio, sin agregar librería |
 | Metodología | Sprints por **feature**, cada uno una versión usable de la app |
@@ -276,7 +276,7 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | Orden | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|---|
 | **Sprint 8** | 13 | **Perfiles** | N cajones de finanzas aislados —patrimonio, movimientos y categorías propios— dentro de la misma cuenta | ✅ **Construido** (2026-08-27) · `sprint_8_perfiles.md` |
-| Sprint 9 | 10 | **Alertas** | Que la app avise sin que entres: fijo por vencer, presupuesto al límite, mes por organizar. Requiere #6 y #3 | ⬜ Sin especificar · ⚠️ Vercel Hobby: **un solo cron por día** |
+| Sprint 9 | 10 | **Notificaciones** (era "Alertas") | Push del navegador: fijo por vencer, presupuesto al límite, mes por organizar, deuda vieja, y recordar anotar | ✅ **Construido** (2026-08-27) · `sprint_9_notificaciones.md` |
 
 ### Congelados (2026-08-27)
 

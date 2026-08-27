@@ -3665,6 +3665,100 @@ async function run() {
     eq('y el principal intacto', (await json(await api(`/categories?profile=${principal.id}`))).categories.length,
        delPrincipal.length)
   }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     SPRINT 9 · Notificaciones
+     ════════════════════════════════════════════════════════════════════════ */
+
+  section('SPRINT 9 · el andamiaje PWA')
+  {
+    // Sin esto no hay push: en iPhone las notificaciones solo funcionan con la
+    // app instalada en la pantalla de inicio, y para instalarla hace falta el
+    // manifest. Antes de este sprint el Hub no tenía nada de PWA.
+    const sw = await fetch(`${BASE}/finanzas/sw.js`)
+    ok('el service worker se sirve', sw.ok)
+    ok('y sabe qué hacer al tocar el aviso', (await sw.text()).includes('notificationclick'))
+
+    const man = await fetch(`${BASE}/finanzas/manifest`)
+    ok('el manifest se sirve', man.ok)
+    ok('con su content-type', (man.headers.get('content-type') ?? '').includes('manifest'))
+    const mj = await man.json()
+    eq('arranca en la mini-app, no en el Hub', mj.start_url, '/finanzas')
+    eq('standalone — lo que iOS exige para entregar push', mj.display, 'standalone')
+    eq('con sus íconos', mj.icons.length, 3)
+
+    for (const s of [192, 512]) {
+      const i = await fetch(`${BASE}/finanzas/icon-${s}`)
+      ok(`el ícono de ${s} es un PNG`, i.ok && (i.headers.get('content-type') ?? '').includes('png'))
+    }
+  }
+
+  section('SPRINT 9 · suscribir un dispositivo')
+  {
+    const sub = {
+      endpoint: `https://fcm.googleapis.com/fcm/send/TEST-${Date.now()}`,
+      keys: { p256dh: 'BTEST', auth: 'ATEST' },
+    }
+    const push = (init) => fetch(`${BASE}/api/finanzas/push/subscribe`, {
+      ...init, headers: { Cookie: COOKIE, 'Content-Type': 'application/json' },
+    })
+
+    eq('se guarda', (await push({ method: 'POST', body: JSON.stringify(sub) })).status, 200)
+
+    // Volver a activar en el mismo navegador devuelve el MISMO endpoint: sin el
+    // upsert, cada visita a Ajustes sumaría una fila y llegarían avisos
+    // repetidos al mismo teléfono.
+    await push({ method: 'POST', body: JSON.stringify(sub) })
+    const prefs = await json(await fetch(
+      `${BASE}/api/finanzas/push/prefs?endpoint=${encodeURIComponent(sub.endpoint)}`,
+      { headers: { Cookie: COOKIE } }))
+    eq('activarlo dos veces no duplica el dispositivo', prefs.devices, 1)
+    eq('y la app reconoce que ESTE es el suscrito', prefs.this_device, true)
+
+    eq('una suscripción incompleta → 400',
+       (await push({ method: 'POST', body: JSON.stringify({ endpoint: 'x' }) })).status, 400)
+
+    eq('desactivar acá lo borra',
+       (await push({ method: 'DELETE', body: JSON.stringify({ endpoint: sub.endpoint }) })).status, 200)
+    eq('y ya no queda ninguno',
+       (await json(await fetch(`${BASE}/api/finanzas/push/prefs`, { headers: { Cookie: COOKIE } }))).devices, 0)
+  }
+
+  section('SPRINT 9 · los switches')
+  {
+    const prefs = (init) => fetch(`${BASE}/api/finanzas/push/prefs`, {
+      ...init, headers: { Cookie: COOKIE, 'Content-Type': 'application/json' },
+    })
+
+    const inicial = await json(await prefs({}))
+    ok('los tipos nacen encendidos', inicial.prefs.fijos && inicial.prefs.recordar_anotar)
+
+    await prefs({ method: 'PATCH', body: JSON.stringify({ fijos: false }) })
+    eq('apagar un tipo se guarda', (await json(await prefs({}))).prefs.fijos, false)
+
+    // Una hora inválida terminaría en un `time` roto y el job fallaría en
+    // silencio a las 2 de la mañana.
+    eq('una hora inválida se rechaza',
+       (await prefs({ method: 'PATCH', body: JSON.stringify({ recordar_noche: '25:99' }) })).status, 400)
+    eq('una válida se guarda',
+       (await prefs({ method: 'PATCH', body: JSON.stringify({ recordar_noche: '22:30' }) })).status, 200)
+    ok('y queda', (await json(await prefs({}))).prefs.recordar_noche.startsWith('22:30'))
+
+    await prefs({ method: 'PATCH', body: JSON.stringify({ fijos: true }) })
+  }
+
+  section('SPRINT 9 · cada perfil decide si avisa')
+  {
+    const def = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    eq('un perfil nace avisando', def.notify, true)
+
+    eq('se puede apagar', (await api(`/profiles/${def.id}`, {
+      method: 'PATCH', body: JSON.stringify({ notify: false }) })).status, 200)
+    eq('y queda apagado',
+       (await json(await api('/profiles'))).profiles.find(p => p.is_default).notify, false)
+
+    await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ notify: true }) })
+  }
 }
 
 await setup()

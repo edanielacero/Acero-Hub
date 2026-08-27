@@ -1,0 +1,12 @@
+# Configuración del proyecto Supabase del Hub.
+# Ref: https://supabase.com/docs/guides/local-development/cli/config
+
+[functions.finanzas-notificaciones]
+# verify_jwt false — la invoca pg_cron, que no lleva JWT de usuario.
+# La autorización real la hace requireInternal contra SUPABASE_SERVICE_ROLE_KEY.
+verify_jwt = false
+
+[functions.finanzas-puente-check]
+# Función de diagnóstico: verifica que la copia de lib/finanzas corra en Deno.
+# No toca datos. Protegida igual con requireInternal.
+verify_jwt = false

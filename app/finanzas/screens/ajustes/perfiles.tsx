@@ -155,6 +155,21 @@ export function AjustesPerfilesScreen() {
                 </div>
 
                 {editing !== p.id && (
+                  <label
+                    className="flex items-center gap-1.5 shrink-0 text-[11px] font-semibold text-[var(--fz-ink-3)] cursor-pointer"
+                    title="Si está apagado, este perfil no genera notificaciones"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={p.notify}
+                      onChange={e => void call(`/api/finanzas/profiles/${p.id}`, json({ notify: e.target.checked }, 'PATCH'), 'No se pudo cambiar')}
+                      className="w-[15px] h-[15px] accent-[var(--fz-accent)]"
+                    />
+                    Avisos
+                  </label>
+                )}
+
+                {editing !== p.id && (
                   <RowMenu
                     items={[
                       {

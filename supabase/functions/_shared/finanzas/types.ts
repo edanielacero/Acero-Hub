@@ -1,3 +1,6 @@
+// ⚠️ ARCHIVO GENERADO — no editar.
+// Copia de lib/finanzas/, transformada para Deno por scripts/build-edge-shared.mjs.
+// Editá el original y volvé a correr el script.
 // Finanzas · tipos compartidos entre el server y el cliente de la mini-app.
 // Escritos desde cero para Finanzas: no se importan tipos de otras mini-apps.
 
