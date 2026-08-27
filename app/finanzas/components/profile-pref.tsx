@@ -22,6 +22,26 @@ export interface ProfilePref {
 }
 
 const KEY = 'fz:profile'
+/**
+ * El mismo id, además, en una cookie.
+ *
+ * Es lo que hace que **toda** petición a /api/finanzas lleve el perfil sin que
+ * el punto de llamada tenga que acordarse. Antes dependía de que cada `fetch`
+ * pasara por `fzFetch` para que le agregara `?profile=`, y eso falló tres
+ * veces seguidas: las llamadas multilínea con ternario, los helpers `call(url,
+ * init)` de Ajustes con la URL en una variable, y `useTransactions`. Ninguna
+ * fallaba de forma visible — leían y escribían en el perfil default en
+ * silencio, que es exactamente el bug que no puede existir en esta app.
+ *
+ * Una cookie no cuesta un viaje extra: viaja sola en la petición que ya se iba
+ * a hacer. Y sigue siendo por dispositivo, que es lo que se decidió (§4.6).
+ *
+ * `?profile=` se conserva y tiene prioridad: es lo que le permite a la suite de
+ * pruebas hablar de varios perfiles desde una misma sesión.
+ */
+const COOKIE = 'fz_profile'
+const UN_AÑO = 60 * 60 * 24 * 365
+
 const DEFAULT: ProfilePref = { id: null, accent: 'verde' }
 
 function read(): ProfilePref {
@@ -45,6 +65,16 @@ export function readProfilePref(): ProfilePref {
 export function writeProfilePref(pref: ProfilePref): void {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(pref))
+  } catch {}
+
+  // `SameSite=Lax` alcanza: todas las peticiones son al mismo origen. Sin
+  // `Secure` a propósito, para que también funcione en http://localhost.
+  try {
+    if (pref.id) {
+      document.cookie = `${COOKIE}=${encodeURIComponent(pref.id)}; path=/; max-age=${UN_AÑO}; SameSite=Lax`
+    } else {
+      document.cookie = `${COOKIE}=; path=/; max-age=0; SameSite=Lax`
+    }
   } catch {}
 }
 

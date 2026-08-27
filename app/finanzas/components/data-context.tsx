@@ -13,6 +13,7 @@ import { clearSnapshots, readSnapshot, writeSnapshot, type Snapshot } from '@/li
 import { readSessionClaims } from '@/lib/session-claims'
 import { createClient } from '@/lib/supabase'
 import { readProfilePref, writeProfilePref } from './profile-pref'
+import { fzFetch } from './fz-fetch'
 
 export type { TxResult }
 
@@ -508,7 +509,7 @@ export function useTransactions(params: Record<string, string | undefined>): {
     if (pending) return
 
     void (async () => {
-      const res = await fetch(`/api/finanzas/transactions?${key}`)
+      const res = await fzFetch(`/api/finanzas/transactions?${key}`)
       if (cancelled) return
       const fresh: TxResult = res.ok ? await res.json() : EMPTY
       if (cancelled) return

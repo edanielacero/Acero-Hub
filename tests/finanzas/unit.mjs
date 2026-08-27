@@ -2069,7 +2069,7 @@ section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
    patrón pegado que la conversión, así que tampoco lo vio.
    ══════════════════════════════════════════════════════════════════════════ */
 
-section('SPRINT 8 · ninguna llamada a la API se salta el perfil')
+section('SPRINT 8 · ninguna llamada del cliente se salta el perfil')
 {
   const { readdirSync, readFileSync, statSync } = await import('node:fs')
   const { join } = await import('node:path')
@@ -2085,25 +2085,36 @@ section('SPRINT 8 · ninguna llamada a la API se salta el perfil')
   }
   recorrer(raiz)
 
-  // `data-context` arma la URL de /bootstrap con el perfil a mano, y `fz-fetch`
-  // es quien envuelve: los dos son la excepción legítima.
-  const exentos = ['data-context.tsx', 'fz-fetch.ts']
+  // LISTA BLANCA, no patrón. Los intentos anteriores buscaban `fetch(` seguido
+  // de una URL literal de /api/finanzas, y se les escaparon tres formas
+  // distintas de escribir lo mismo:
+  //
+  //   fetch(\n  editing ? `/api/…/${id}` : '/api/…',   ← multilínea + ternario
+  //   fetch(url, init)                                  ← URL en una variable
+  //   fetch(`/api/finanzas/transactions?${key}`)        ← dentro de un hook
+  //
+  // Así que ahora se prohíbe `fetch(` en TODA la mini-app y se enumeran las
+  // excepciones. Una llamada nueva falla hasta que alguien la mire.
+  const PERMITIDOS = new Map([
+    // Arma la URL de /bootstrap con el perfil a mano; es el origen del dato.
+    ['components/data-context.tsx', 2],
+    // El envoltorio.
+    ['components/fz-fetch.ts', 1],
+    // No es de finanzas: pregunta la versión del Hub.
+    ['components/pull-to-refresh.tsx', 1],
+  ])
 
-  const crudos = []
+  const sobrantes = []
   for (const f of archivos) {
-    if (exentos.some(e => f.endsWith(e))) continue
+    const rel = f.replace(/.*\/app\/finanzas\//, '')
     const src = readFileSync(f, 'utf8')
-    const re = /(?<![A-Za-z])fetch\(/g
-    let m
-    while ((m = re.exec(src)) !== null) {
-      // La cabeza de la llamada: alcanza para ver a qué URL apunta, aunque esté
-      // partida en varias líneas.
-      if (!src.slice(m.index, m.index + 260).includes('/api/finanzas')) continue
-      crudos.push(`${f.replace(/.*\/app\//, 'app/')}:${src.slice(0, m.index).split('\n').length}`)
-    }
+    const n = (src.match(/(?<![A-Za-z])fetch\(/g) ?? []).length
+    const permitidas = PERMITIDOS.get(rel) ?? 0
+    if (n > permitidas) sobrantes.push(`${rel}: ${n} fetch() y solo ${permitidas} permitidas`)
   }
 
-  ok('todas usan fzFetch, ninguna fetch() pelado', crudos.length === 0, crudos.join('  ·  '))
+  ok('todo pasa por fzFetch; las excepciones están enumeradas', sobrantes.length === 0,
+     sobrantes.join('  ·  '))
 }
 
 process.exit(summary() === 0 ? 0 : 1)

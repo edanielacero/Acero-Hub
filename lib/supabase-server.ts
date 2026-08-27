@@ -90,7 +90,21 @@ export async function requireProfile(request?: Request) {
   }
 
   const { resolveProfile } = await import('./finanzas/profiles')
-  const requested = request ? new URL(request.url).searchParams.get('profile') : null
+
+  // El perfil llega por dos vías, en este orden:
+  //
+  //   1. `?profile=` — explícito. Lo usa la suite de pruebas, que necesita
+  //      hablar de varios perfiles desde una misma sesión.
+  //   2. La cookie `fz_profile` — la que usa la app de verdad.
+  //
+  // La cookie es lo que hace que ninguna petición pueda "olvidarse" del perfil:
+  // viaja sola. Depender de que cada punto de llamada agregara `?profile=`
+  // falló tres veces, y siempre en silencio — leyendo y escribiendo en el
+  // perfil default sin que nada lo dijera.
+  const query = request ? new URL(request.url).searchParams.get('profile') : null
+  const cookieStore = await cookies()
+  const requested = query ?? cookieStore.get('fz_profile')?.value ?? null
+
   const { profileId, profiles } = await resolveProfile(supabase, userId, requested)
 
   return { supabase, userId, profileId, profiles, claims, role }

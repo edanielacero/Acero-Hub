@@ -11,6 +11,7 @@ import { useFinanzas } from '../../components/data-context'
 import { DeleteConfirmSheet, DeletePreview } from '../../components/delete-confirm'
 import { Btn, ErrorNote, Label, Panel, PersonAvatar, RowMenu, TextField } from '../../components/ui'
 import { SettingsHeader, SettingsPage, useReorderSensors } from './shared'
+import { fzFetch } from '../../components/fz-fetch'
 
 export function AjustesPersonasScreen() {
   const { people, hidden, reload } = useFinanzas()
@@ -22,7 +23,7 @@ export function AjustesPersonasScreen() {
 
   async function call(url: string, init: RequestInit, fallback: string): Promise<boolean> {
     setError('')
-    const res = await fetch(url, init)
+    const res = await fzFetch(url, init)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setError(data.error ?? fallback)

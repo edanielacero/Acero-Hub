@@ -15,6 +15,7 @@ import {
 import type { Category, CategoryKind } from '@/lib/finanzas/types'
 import { CategoryIcon, IconPickerGrid } from '../../components/category-icon'
 import { useFinanzas } from '../../components/data-context'
+import { fzFetch } from '../../components/fz-fetch'
 import { DeleteConfirmSheet, DeletePreview } from '../../components/delete-confirm'
 import { Btn, ErrorNote, Label, Panel, RowMenu, TextField } from '../../components/ui'
 import {
@@ -56,7 +57,7 @@ function useCategoryActions() {
 
   async function call(url: string, init: RequestInit, fallback: string): Promise<boolean> {
     setError('')
-    const res = await fetch(url, init)
+    const res = await fzFetch(url, init)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setError(data.error ?? fallback)

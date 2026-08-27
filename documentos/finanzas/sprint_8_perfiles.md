@@ -13,8 +13,9 @@
 > Última actualización: 2026-08-27 · Estado: **construido**. 661/202/737
 > pruebas en verde (unit/db/api), build en verde. Cinco desviaciones respecto
 > de lo especificado acá (§0.2), seis bugs de la revisión posterior (§0.3) y
-> tres más que encontró el primer uso real (§0.4). Las tres secciones mandan
-> sobre el resto del documento donde difieran.
+> tres más que encontró el primer uso real (§0.4). §0.5 cambia el mecanismo:
+> el perfil viaja en una cookie, no en la query string. Las cuatro secciones
+> mandan sobre el resto del documento donde difieran.
 
 ---
 
@@ -319,6 +320,62 @@ hora un `ReferenceError: debtLabelInPlan is not defined` sobre un símbolo que s
 está exportado — la firma de un chunk de hot-reload servido a medio actualizar,
 porque el sprint se estaba editando mientras la app corría. **Al probar contra
 el código ya construido, el recorrido completo funciona.**
+
+### 0.5 El perfil pasa a viajar en una cookie
+
+Después de §0.4 el usuario insistió: *"no puede ser que lo que se crea en un
+perfil aparezca en otro"*. Tenía razón, y el arreglo de §0.4 era incompleto.
+
+#### Tres formas más de saltarse el perfil
+
+Una auditoría mecánica —enumerar **toda** mención a `/api/finanzas` en el
+cliente y ver qué función la ejecuta, en vez de buscar un patrón— encontró tres
+casos más, todos invisibles para los greps anteriores:
+
+| Dónde | Forma | Qué rompía |
+|---|---|---|
+| `ajustes/categorias.tsx` | `call(url, init)` → `fetch(url, init)` | Crear/editar/borrar categorías iba al default |
+| `ajustes/personas.tsx` | igual | Lo mismo con personas |
+| `data-context.tsx` · `useTransactions` | `fetch(\`/api/finanzas/transactions?${key}\`)` | **La pantalla de Movimientos mostraba los del default** |
+
+La última es la peor: no escribía mal, *leía* de otro perfil. Y ninguna fallaba
+de forma visible.
+
+#### La causa raíz no eran las llamadas
+
+El patrón se repitió tres veces porque el diseño lo permitía: la corrección
+dependía de que **~50 puntos de llamada se acordaran** de pasar por `fzFetch`.
+Eso no es una garantía, es una convención — y una convención que ya falló tres
+veces no va a dejar de fallar por revisarla una cuarta.
+
+**El perfil pasa a viajar en la cookie `fz_profile`.** La escribe
+`writeProfilePref` junto al `localStorage`, y `requireProfile` la lee cuando no
+viene `?profile=`. Una cookie va sola en la petición que ya se iba a hacer: no
+cuesta un viaje extra, sigue siendo por dispositivo (§4.6), y **ningún punto de
+llamada puede olvidarse de ella** — ni los que existen ni los que se escriban
+después.
+
+`?profile=` se conserva y tiene prioridad: es lo que le permite a la suite
+hablar de varios perfiles desde una sola sesión.
+
+Los tres call sites igual se arreglaron, por claridad. Pero la corrección ya no
+depende de ellos.
+
+#### La guarda pasó a ser lista blanca
+
+Las dos versiones anteriores buscaban `fetch(` seguido de una URL literal, y por
+eso se les escaparon la llamada multilínea con ternario, la de URL en variable y
+la del hook. La guarda ahora **prohíbe `fetch(` en toda la mini-app** y enumera
+las tres excepciones legítimas (`data-context` armando /bootstrap, el propio
+`fz-fetch`, y la consulta de versión del Hub, que no es de finanzas). Una
+llamada nueva falla hasta que alguien la mire.
+
+#### La regresión que lo fija
+
+`api.mjs` tiene una sección que crea cuenta, persona, categoría y movimiento en
+un segundo perfil **sin un solo `?profile=`** —solo la cookie, igual que un
+`fetch` que se olvidó— y verifica que nada de eso aparezca en el principal,
+incluida la lectura de Movimientos.
 
 ---
 

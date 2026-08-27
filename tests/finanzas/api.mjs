@@ -3528,6 +3528,63 @@ async function run() {
     eq('un perfil con solo un ahorro tampoco se borra', (await api(`/profiles/${q.id}`, { method: 'DELETE' })).status, 409)
     eq('y conserva sus categorías', (await json(await api(`/categories?profile=${q.id}`))).categories.length, 14)
   }
+
+  section('SPRINT 8 (uso real) · la cookie sola aísla, sin ?profile= en ninguna llamada')
+  {
+    // El bug que reportó el usuario: cosas creadas en un perfil aparecían en
+    // otro. La causa no era el server —que siempre filtró bien— sino que la
+    // corrección dependía de que ~50 puntos de llamada del cliente se acordaran
+    // de agregar `?profile=`. Tres formas de escribir un fetch se lo saltaron,
+    // todas en silencio.
+    //
+    // Ahora el perfil viaja en la cookie `fz_profile`. Esta sección prueba
+    // exactamente eso: NINGUNA llamada de acá lleva `?profile=`, igual que un
+    // fetch que se "olvidó", y el aislamiento tiene que aguantar igual.
+    const conPerfil = (id) => (path, init = {}) => fetch(`${BASE}/api/finanzas${path}`, {
+      ...init,
+      headers: { Cookie: `${COOKIE}; fz_profile=${id}`, 'Content-Type': 'application/json', ...init.headers },
+    })
+
+    const principal = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    const otro = (await json(await api('/profiles', {
+      method: 'POST', body: JSON.stringify({ name: 'SoloCookie' }) }))).profile
+
+    const enOtro = conPerfil(otro.id)
+    const enPrincipal = conPerfil(principal.id)
+
+    eq('la cookie decide el perfil activo', (await json(await enOtro('/bootstrap'))).profile, otro.id)
+
+    // Crear de todo, sin un solo ?profile=.
+    const cuenta = (await json(await enOtro('/accounts', {
+      method: 'POST', body: JSON.stringify({ name: 'Caja cookie', currency: 'USD', initial_balance: 300 }) }))).account
+    ok('la cuenta se crea', !!cuenta?.id)
+    await enOtro('/people', { method: 'POST', body: JSON.stringify({ name: 'ProveedorCookie' }) })
+    await enOtro('/categories', { method: 'POST', body: JSON.stringify({ name: 'HonorariosCookie', kind: 'gasto' }) })
+    await enOtro('/transactions', { method: 'POST', body: JSON.stringify({
+      type: 'gasto', date: '2026-08-27', account_id: cuenta.id, amount: 20, description: 'GastoCookie' }) })
+
+    const b = await json(await enOtro('/bootstrap'))
+    eq('todo quedó en su perfil: cuentas', b.accounts.length, 1)
+    ok('personas', b.people.some(p => p.name === 'ProveedorCookie'))
+    ok('categorías', b.categories.some(c => c.name === 'HonorariosCookie'))
+    ok('movimientos', b.tx.recent.transactions.some(t => t.description === 'GastoCookie'))
+
+    // `useTransactions` pedía /transactions sin perfil y mostraba los del
+    // default. Es la lectura que más se nota: la pantalla de Movimientos.
+    eq('Movimientos solo muestra los de este perfil',
+       (await json(await enOtro('/transactions?limit=100'))).transactions.length, 1)
+
+    // Y el principal, intacto.
+    const p = await json(await enPrincipal('/bootstrap'))
+    ok('el principal no ve la cuenta del otro', !p.accounts.some(a => a.name === 'Caja cookie'))
+    ok('ni su persona', !p.people.some(x => x.name === 'ProveedorCookie'))
+    ok('ni su categoría', !p.categories.some(c => c.name === 'HonorariosCookie'))
+    ok('ni su movimiento', !p.tx.recent.transactions.some(t => t.description === 'GastoCookie'))
+
+    // `?profile=` sigue mandando sobre la cookie: es lo que usa esta suite.
+    eq('el query param gana sobre la cookie',
+       (await json(await enOtro(`/bootstrap?profile=${principal.id}`))).profile, principal.id)
+  }
 }
 
 await setup()
