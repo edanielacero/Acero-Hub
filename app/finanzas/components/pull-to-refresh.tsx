@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconArrowDown, IconLoader2 } from '@tabler/icons-react'
 import { useFinanzas } from './data-context'
+import { fzFetch } from './fz-fetch'
 
 const THRESHOLD = 64
 const MAX_PULL = 88
@@ -89,7 +90,7 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
       }
 
       try {
-        await fetch('/api/finanzas/rates/refresh', { method: 'POST' })
+        await fzFetch('/api/finanzas/rates/refresh', { method: 'POST' })
       } catch {
         // Si el mercado no contesta igual vale la pena recargar el resto.
       }

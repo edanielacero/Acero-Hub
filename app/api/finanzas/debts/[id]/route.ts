@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, round2 } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
@@ -15,15 +15,15 @@ import { isValidDate } from '@/lib/finanzas/transactions'
  * no se cambia — si te confundiste de persona, la deuda es otra.
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const { data: current } = await supabase
-    .from('fin_debts').select(DEBT_COLS).eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debts').select(DEBT_COLS).eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Deuda no encontrada' }, { status: 404 })
 
   if (!isOpen(current)) {
@@ -106,7 +106,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.note !== undefined) patch.note = typeof body.note === 'string' ? body.note.trim() || null : null
 
   const { data, error } = await supabase
-    .from('fin_debts').update(patch).eq('id', id).eq('user_id', userId).select(DEBT_COLS).maybeSingle()
+    .from('fin_debts').update(patch).eq('id', id).eq('profile_id', profileId).select(DEBT_COLS).maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ debt: data })
@@ -118,13 +118,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * Una cobrada no se borra: hay un movimiento real apuntándola y borrarla lo
  * dejaría sin explicación. Primero se deshace el cobro.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const { data: current } = await supabase
-    .from('fin_debts').select('id, settled_tx_id').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debts').select('id, settled_tx_id').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Deuda no encontrada' }, { status: 404 })
 
   if (current.settled_tx_id) {
@@ -134,7 +134,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     )
   }
 
-  const { error } = await supabase.from('fin_debts').delete().eq('id', id).eq('user_id', userId)
+  const { error } = await supabase.from('fin_debts').delete().eq('id', id).eq('profile_id', profileId)
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })
 }

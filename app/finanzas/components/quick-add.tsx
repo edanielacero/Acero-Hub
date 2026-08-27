@@ -15,6 +15,8 @@ import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { IconGasto, IconIngreso } from './flow-icon'
 import { useQuickAddApi } from './quick-add-context'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, Segmented, TextArea, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
+import { ProfileDot } from './profile-switcher'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -43,7 +45,11 @@ const REASON_OPTIONS: { value: SavingsReason; label: string }[] = [
 
 export function QuickAdd() {
   const { open, editing, initialType, lockType, close } = useQuickAddApi()
-  const { accounts, categories, rates, budgets, savings, reload } = useFinanzas()
+  const { accounts, categories, rates, budgets, savings, reload, profiles, profileId } = useFinanzas()
+
+  // Solo con 2 o más perfiles: con uno solo, decir "Personal" bajo el título no
+  // informa nada y compite con él.
+  const perfilActivo = profiles.length > 1 ? profiles.find(p => p.id === profileId) ?? null : null
 
   const active = useMemo(() => accounts.filter(a => !a.archived), [accounts])
   // Gasto e Ingreso dejan de ofrecer cuentas de inversión: un ajuste de valor
@@ -551,7 +557,7 @@ export function QuickAdd() {
   async function remove() {
     if (!editing) return
     setRemoving(true)
-    const res = await fetch(`/api/finanzas/transactions/${editing.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/transactions/${editing.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setRemoving(false)
@@ -587,10 +593,25 @@ export function QuickAdd() {
         </div>
 
         <div className="flex items-center justify-between px-5 pt-3 pb-4">
-          <h2 className="text-[19px] font-bold tracking-[-0.01em]">{title}</h2>
+          <div className="min-w-0">
+            <h2 className="text-[19px] font-bold tracking-[-0.01em]">{title}</h2>
+            {/* En qué perfil se va a guardar esto.
+                Es un INDICADOR, no un selector: cambiar de perfil vive en la
+                Home. Un cambio a un click de distancia del botón de guardar
+                sería un click entre registrar bien y registrar mal — y desde el
+                Sprint 8 un movimiento no se puede mover de perfil: hay que
+                borrarlo y volver a cargarlo.
+                Solo aparece si hay más de un perfil; con uno es ruido. */}
+            {perfilActivo && (
+              <p className="flex items-center gap-1.5 mt-0.5 text-[12px] text-[var(--fz-ink-3)]">
+                <ProfileDot accent={perfilActivo.accent} size={7} />
+                <span className="truncate">{perfilActivo.name}</span>
+              </p>
+            )}
+          </div>
           <button
             type="button" onClick={close} aria-label="Cerrar"
-            className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)]"
+            className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] shrink-0"
           >
             <IconX size={18} stroke={1.8} />
           </button>

@@ -84,8 +84,14 @@ async function run() {
 
   section('POST /seed · idempotencia')
   {
+    // Desde el Sprint 8 las 14 categorías ya vienen sembradas: las pone
+    // `createProfile` al crear el perfil, que ocurre en el primer request que
+    // pasa por `requireProfile` — o sea, antes de que este test corra. El seed
+    // dejó de ser quien las crea y pasó a ser la red de seguridad que las
+    // repone si faltara alguna.
     const a = await json(await api('/seed', { method: 'POST' }))
-    eq('siembra 14 categorías', a.creadas, 14)
+    eq('el perfil ya nació con sus categorías: no hay nada que sembrar', a.creadas, 0)
+    eq('y están las 14', a.total, 14)
     const b = await json(await api('/seed', { method: 'POST' }))
     eq('la segunda corrida no crea nada', b.creadas, 0)
     eq('y el total sigue en 14', b.total, 14)
@@ -3322,6 +3328,205 @@ async function run() {
     ok('el payload trae savings con su forma esperada',
        boot.savings && Array.isArray(boot.savings.goals) && 'pending_period' in boot.savings,
        JSON.stringify(boot.savings))
+  }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     SPRINT 8 · Perfiles
+     ════════════════════════════════════════════════════════════════════════ */
+
+  section('SPRINT 8 · el perfil default existe solo')
+  {
+    const boot = await json(await api('/bootstrap'))
+    ok('bootstrap trae el perfil activo', typeof boot.profile === 'string' && boot.profile.length > 0, JSON.stringify(boot.profile))
+    ok('y la lista de perfiles', Array.isArray(boot.profiles) && boot.profiles.length >= 1, JSON.stringify(boot.profiles))
+
+    const p = await json(await api('/profiles'))
+    const def = p.profiles.find(x => x.is_default)
+    ok('hay exactamente un default', p.profiles.filter(x => x.is_default).length === 1)
+    eq('y es el activo', p.active, def.id)
+    eq('nace en verde', def.accent, 'verde')
+    ok('y con historia, porque este usuario ya cargó de todo', def.has_movements)
+  }
+
+  let empresa = null
+  section('SPRINT 8 · crear un perfil')
+  {
+    const r = await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Empresa' }) })
+    eq('lo crea', r.status, 201)
+    empresa = (await json(r)).profile
+    eq('no es default', empresa.is_default, false)
+    eq('y toma el siguiente color libre', empresa.accent, 'naranja')
+
+    eq('sin nombre → 400', (await api('/profiles', { method: 'POST', body: JSON.stringify({ name: '  ' }) })).status, 400)
+    eq('nombre repetido → 400', (await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Empresa' }) })).status, 400)
+    eq('color inexistente → cae al siguiente libre, no falla',
+       (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Tercero', accent: 'azul' }) }))).profile.accent, 'violeta')
+  }
+
+  section('SPRINT 8 · el perfil nuevo nace vacío pero usable')
+  {
+    const boot = await json(await api(`/bootstrap?profile=${empresa.id}`))
+    eq('el server confirma el perfil pedido', boot.profile, empresa.id)
+    eq('sin cuentas', boot.accounts.length, 0)
+    eq('patrimonio en cero', boot.total_usd, 0)
+    eq('sin personas', boot.people.length, 0)
+    eq('sin fijos', boot.recurring.recurring.length, 0)
+    eq('sin deudas', boot.shared.por_cobrar_usd, 0)
+    eq('sin ahorros', boot.savings.goals.length, 0)
+    eq('pero con sus 14 categorías sembradas', boot.categories.length, 14)
+    ok('y con la tasa global, que no es del perfil', boot.rates.BOB > 0, JSON.stringify(boot.rates))
+  }
+
+  section('SPRINT 8 · barrido de aislamiento — lo del default no se ve desde la empresa')
+  {
+    // Un movimiento propio, para no depender de lo que dejaron las secciones
+    // anteriores (varias borran lo que crean).
+    await api('/transactions', { method: 'POST', body: JSON.stringify({
+      type: 'gasto', date: '2026-08-20', account_id: airtm.id, amount: 3, description: 'Marca de aislamiento',
+    })})
+
+    const dflt = await json(await api('/bootstrap'))
+    const emp  = await json(await api(`/bootstrap?profile=${empresa.id}`))
+
+    ok('el default sí tiene cuentas', dflt.accounts.length > 0)
+    eq('la empresa no ve ninguna', emp.accounts.length, 0)
+    ok('el default tiene movimientos', dflt.tx.recent.transactions.length > 0)
+    eq('la empresa no ve ninguno', emp.tx.recent.transactions.length, 0)
+    ok('el default tiene personas', dflt.people.length > 0)
+    eq('la empresa no ve ninguna', emp.people.length, 0)
+    ok('los patrimonios son distintos', dflt.total_usd !== emp.total_usd, `${dflt.total_usd} vs ${emp.total_usd}`)
+
+    // Las listas sueltas, por si alguna ruta se quedó sin el filtro.
+    for (const [ruta, saca] of [
+      ['/accounts',      d => d.accounts.length],
+      ['/transactions',  d => d.transactions.length],
+      ['/people',        d => d.people.length],
+      ['/recurring',     d => d.recurring.length],
+      ['/savings-goals', d => d.goals.length],
+      ['/debt-plans',    d => d.plans.length],
+      ['/pasanaku',      d => d.pasanaku.length],
+    ]) {
+      const sep = ruta.includes('?') ? '&' : '?'
+      eq(`${ruta} no filtra nada de otro perfil`, saca(await json(await api(`${ruta}${sep}profile=${empresa.id}`))), 0)
+    }
+  }
+
+  section('SPRINT 8 · escribir en un perfil no toca al otro')
+  {
+    const cuenta = (await json(await api(`/accounts?profile=${empresa.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Caja empresa', currency: 'USD', initial_balance: 500 }),
+    }))).account
+    ok('la cuenta se crea en la empresa', !!cuenta?.id)
+
+    const emp = await json(await api(`/bootstrap?profile=${empresa.id}`))
+    eq('y el patrimonio de la empresa la refleja', emp.total_usd, 500)
+
+    const dflt = await json(await api('/bootstrap'))
+    ok('el default no la ve', !dflt.accounts.some(a => a.id === cuenta.id))
+    ok('y su patrimonio no se movió', dflt.total_usd !== 500)
+  }
+
+  section('SPRINT 8 · los únicos que cambiaron de alcance (§3.2.1)')
+  {
+    // Cada uno de estos era "único por usuario" y ahora es "único por perfil".
+    // Sin migrarlos, el segundo perfil recibiría un duplicate key.
+    const cat = await api(`/categories?profile=${empresa.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Comida', kind: 'gasto' }) })
+    ok('una categoría con el mismo nombre que en el otro perfil… ya existe en este, así que 409',
+       cat.status === 409 || cat.status === 400, `HTTP ${cat.status}`)
+
+    const persona = await api(`/people?profile=${empresa.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Ana' }) })
+    eq('la MISMA persona puede existir en los dos perfiles', persona.status, 201)
+
+    const cajon = await api(`/savings-goals?profile=${empresa.id}`, {
+      method: 'POST', body: JSON.stringify({
+        name: 'Sobrante', currency: 'USD', is_catchall: true }) })
+    ok('y cada perfil puede tener su propio cajón de sastre', cajon.status === 201, `HTTP ${cajon.status}`)
+  }
+
+  section('SPRINT 8 · un ?profile inválido cae al default, no rompe')
+  {
+    const otro = await json(await api('/bootstrap?profile=00000000-0000-0000-0000-000000000000'))
+    const def  = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    eq('un id que no existe cae al default', otro.profile, def.id)
+    ok('y devuelve los datos del default, no un error', otro.accounts.length > 0)
+  }
+
+  section('SPRINT 8 · renombrar y recolorear')
+  {
+    const r = await api(`/profiles/${empresa.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Acero SRL', accent: 'magenta' }) })
+    eq('renombra y recolorea', r.status, 200)
+    const p = (await json(r)).profile
+    eq('el nombre nuevo', p.name, 'Acero SRL')
+    eq('el color nuevo', p.accent, 'magenta')
+
+    const def = (await json(await api('/profiles'))).profiles.find(x => x.is_default)
+    eq('el default también se puede renombrar: es indeleble, no inmutable',
+       (await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Daniel' }) })).status, 200)
+    await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'Personal' }) })
+
+    eq('un color fuera de la paleta → 400',
+       (await api(`/profiles/${empresa.id}`, { method: 'PATCH', body: JSON.stringify({ accent: 'azul' }) })).status, 400)
+  }
+
+  section('SPRINT 8 · borrar y archivar')
+  {
+    const def = (await json(await api('/profiles'))).profiles.find(p => p.is_default)
+    eq('el default no se borra', (await api(`/profiles/${def.id}`, { method: 'DELETE' })).status, 409)
+    eq('ni se archiva', (await api(`/profiles/${def.id}/archive`, { method: 'POST', body: JSON.stringify({ archived: true }) })).status, 409)
+
+    // La empresa tiene una cuenta: no se borra, se archiva.
+    const conDatos = await api(`/profiles/${empresa.id}`, { method: 'DELETE' })
+    eq('un perfil con movimientos → 409', conDatos.status, 409)
+    ok('y dice por qué, para que la UI ofrezca archivar', (await json(conDatos)).has_movements === true)
+
+    const arch = await api(`/profiles/${empresa.id}/archive`, { method: 'POST', body: JSON.stringify({ archived: true }) })
+    eq('archivar sí', arch.status, 200)
+    ok('sale del selector', !(await json(await api('/profiles'))).profiles.find(p => p.id === empresa.id && !p.archived))
+
+    const boot = await json(await api(`/bootstrap?profile=${empresa.id}`))
+    ok('y pedir un perfil archivado cae al default', boot.profile !== empresa.id)
+
+    eq('reactivar lo devuelve',
+       (await api(`/profiles/${empresa.id}/archive`, { method: 'POST', body: JSON.stringify({ archived: false }) })).status, 200)
+
+    // Un perfil vacío de verdad sí se borra.
+    const vacio = (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Descartable' }) }))).profile
+    eq('un perfil sin nada se borra', (await api(`/profiles/${vacio.id}`, { method: 'DELETE' })).status, 200)
+    ok('y desaparece', !(await json(await api('/profiles'))).profiles.some(p => p.id === vacio.id))
+  }
+
+  section('SPRINT 8 (revisión) · el borrado fallido no deja daño')
+  {
+    // BUG encontrado en revisión: el DELETE borraba las categorías ANTES de
+    // intentar borrar el perfil. Con cualquier otro dato cargado el segundo
+    // delete fallaba, la ruta devolvía 409… y las 14 categorías ya no estaban.
+    // El perfil quedaba vivo e inutilizable, sin que nada lo dijera.
+    const p = (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'ConPersona' }) }))).profile
+
+    // Una persona: ni cuentas ni movimientos, pero el perfil NO está vacío.
+    eq('se le carga una persona', (await api(`/people?profile=${p.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Proveedor' }) })).status, 201)
+
+    const lista = (await json(await api('/profiles'))).profiles.find(x => x.id === p.id)
+    ok('un perfil con solo una persona NO se reporta vacío', lista.has_movements === true,
+       `has_movements=${lista.has_movements}`)
+
+    const antes = (await json(await api(`/categories?profile=${p.id}`))).categories.length
+    eq('tiene sus 14 categorías', antes, 14)
+
+    eq('borrarlo devuelve 409', (await api(`/profiles/${p.id}`, { method: 'DELETE' })).status, 409)
+
+    ok('el perfil sigue existiendo', (await json(await api('/profiles'))).profiles.some(x => x.id === p.id))
+    eq('y NO perdió sus categorías', (await json(await api(`/categories?profile=${p.id}`))).categories.length, 14)
+
+    // Lo mismo con un ahorro, que tampoco es "movimiento".
+    const q = (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'ConAhorro' }) }))).profile
+    await api(`/savings-goals?profile=${q.id}`, { method: 'POST', body: JSON.stringify({
+      name: 'Meta', currency: 'USD', allocation_type: 'fixed', allocation_value: 50 }) })
+    eq('un perfil con solo un ahorro tampoco se borra', (await api(`/profiles/${q.id}`, { method: 'DELETE' })).status, 409)
+    eq('y conserva sus categorías', (await json(await api(`/categories?profile=${q.id}`))).categories.length, 14)
   }
 }
 

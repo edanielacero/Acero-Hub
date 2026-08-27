@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, num, round2 } from '@/lib/finanzas/money'
@@ -30,8 +30,9 @@ const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date,
  * la plantilla no se modifica salvo que lo pidas aparte.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const { id } = await params
   const body = (await request.json().catch(() => ({}))) ?? {}
@@ -40,11 +41,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     supabase
       .from('fin_recurring')
       .select('id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id')
-      .eq('id', id).eq('user_id', userId).maybeSingle(),
+      .eq('id', id).eq('profile_id', profileId).maybeSingle(),
     supabase
       .from('fin_recurring_splits')
       .select('id, recurring_id, person_id, amount')
-      .eq('user_id', userId).eq('recurring_id', id),
+      .eq('profile_id', profileId).eq('recurring_id', id),
   ])
 
   if (!plantilla) return NextResponse.json({ error: 'Fijo no encontrado' }, { status: 404 })
@@ -77,7 +78,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { data: yaEsta } = await supabase
       .from('fin_transactions')
       .select('id, date')
-      .eq('user_id', userId).eq('recurring_id', id)
+      .eq('profile_id', profileId).eq('recurring_id', id)
       .gte('date', from).lte('date', to)
       .limit(1)
 
@@ -93,7 +94,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!accountId) return NextResponse.json({ error: 'Elige de qué cuenta sale' }, { status: 400 })
 
   const { data: accountRow } = await supabase
-    .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
+    .from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).eq('id', accountId).maybeSingle()
   if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
   const account = mapAccount(accountRow)
 
@@ -131,7 +132,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // b08fdb4: el fijo se sigue pausando, renombrando y editando), pero tampoco
   // sigue produciendo historia nueva.
   if (esAhorro) {
-    const goalError = await assertSavingsGoal(supabase, userId, base.savings_goal_id as string)
+    const goalError = await assertSavingsGoal(supabase, scope, base.savings_goal_id as string)
     if (goalError) {
       return NextResponse.json(
         { error: `${goalError}. Pausa este fijo o desarchívalo para seguir aportando.` },
@@ -142,7 +143,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Misma regla dura de saldo que /transactions, no una excepción para esta
   // pantalla — y una transferencia consume saldo igual que un gasto.
-  const balanceError = await assertBalance(supabase, userId, account, tipo, amount)
+  const balanceError = await assertBalance(supabase, scope, account, tipo, amount)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const currency = account.currency as Currency
@@ -155,7 +156,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   let destino: { id: string; currency: Currency } | null = null
   if (esAhorro) {
     const { data: destinoRow } = await supabase
-      .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', toAccountId!).maybeSingle()
+      .from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).eq('id', toAccountId!).maybeSingle()
     if (!destinoRow) return NextResponse.json({ error: 'La cuenta de ahorro no existe' }, { status: 400 })
     const cuentaDestino = mapAccount(destinoRow)
     if (cuentaDestino.id === accountId) {
@@ -172,7 +173,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: tx, error: txError } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: tipo,
       // Una transferencia siempre es 'movimiento': el aporte al ahorro no
       // ensucia el gasto real del mes, que es justo el punto de que sea un
@@ -241,7 +242,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .insert(partes.map(pt => {
         const amount_usd = freezeDebtUsd(pt.amount, frozen.exchange_rate)
         return {
-          user_id: userId,
+          user_id: userId, profile_id: profileId,
           transaction_id: tx.id,
           person_id: pt.person_id,
           amount: pt.amount,
@@ -260,7 +261,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (splitError) {
       // Misma compensación que en el Sprint 2: si el reparto no entra, el gasto
       // no queda. El peor caso posible es un gasto normal sin reparto.
-      await supabase.from('fin_transactions').delete().eq('id', tx.id).eq('user_id', userId)
+      await supabase.from('fin_transactions').delete().eq('id', tx.id).eq('profile_id', profileId)
       return NextResponse.json({ error: `No se pudo guardar el reparto: ${splitError.message}` }, { status: 400 })
     }
     debts = creados ?? []
@@ -271,7 +272,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (body.update_template === true && amount !== base.amount) {
     await supabase.from('fin_recurring')
       .update({ amount, updated_at: new Date().toISOString() })
-      .eq('id', id).eq('user_id', userId)
+      .eq('id', id).eq('profile_id', profileId)
   }
 
   // La cuenta de ahorro elegida queda como default para la próxima vez —
@@ -280,7 +281,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (esAhorro && toAccountId && toAccountId !== base.to_account_id) {
     await supabase.from('fin_recurring')
       .update({ to_account_id: toAccountId, updated_at: new Date().toISOString() })
-      .eq('id', id).eq('user_id', userId)
+      .eq('id', id).eq('profile_id', profileId)
   }
 
   return NextResponse.json({ transaction: { ...tx, debts } }, { status: 201 })

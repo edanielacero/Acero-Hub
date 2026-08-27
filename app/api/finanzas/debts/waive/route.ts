@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { isOpen } from '@/lib/finanzas/splits'
@@ -12,8 +12,8 @@ import { DEBT_COLS } from '@/lib/finanzas/shared'
  * por eso el split perdonado vuelve a contar en `gasto_real_usd`.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const ids: string[] = Array.isArray(body?.split_ids)
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const { data: rows } = await supabase
     .from('fin_debts')
     .select(DEBT_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids)
 
   if ((rows ?? []).length !== ids.length) {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('fin_debts')
     .update({ waived_at: todayISO(), ...(note ? { note } : {}) })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids)
     .is('settled_tx_id', null)
     .is('waived_at', null)

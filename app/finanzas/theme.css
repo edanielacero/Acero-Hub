@@ -363,3 +363,93 @@ body:has(#fz-root) {
   from { background-position: 100% 50%; }
   to   { background-position: 0 50%; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Acento por perfil (Sprint 8)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Cada perfil pinta la app con su color, y eso es lo que responde "¿en qué
+   perfil estoy?" desde cualquier pantalla. Importa más de lo que parece:
+   registrar un movimiento en el perfil equivocado es el único error
+   irreversible del Sprint 8 — los movimientos no se mueven entre perfiles.
+
+   Sale barato porque los tokens ya estaban bien puestos: los 88 usos de
+   `--fz-accent` repartidos en 31 archivos leen el token, ninguno tiene un hex
+   escrito a mano. Cambiar de perfil es cambiar `data-accent` en `#fz-root`.
+
+   ⚠️ NO HAY AZUL, y no puede haberlo: el azul significa "ahorro" en toda la
+   app. Se eligió en la Ronda 9 del Sprint 7 justamente porque con el verde de
+   la marca el botón "Ahorrar" se confundía con cualquier acción primaria. Un
+   perfil con acento azul recrearía ese bug dentro de ese perfil.
+
+   Cada paleta define los cuatro tokens juntos. Cambiar solo `--fz-accent`
+   dejaría el resto en verde y se vería sucio:
+
+     --fz-accent        superficies llenas (FAB, botones, tab activo)
+     --fz-accent-press  el mismo, presionado
+     --fz-accent-tint   fondos suaves
+     --fz-glass-pill    el acento al 10% — la píldora del tab bar
+
+   `--fz-lime` NO cambia por perfil: es la contraparte del acento sobre el hero
+   oscuro y se usa en dos lugares (sidebar y person-picker). Que varíe obligaría
+   a encontrar cinco limas legibles sobre `--fz-hero`; que se quede fija es un
+   detalle que nadie nota.
+
+   Los cuatro no-verdes se eligieron oscuros a propósito: van bajo texto blanco
+   en superficies llenas, así que necesitan ≥4.5:1 contra #FFF.
+
+   Cada paleta matchea DOS selectores: el propio `#fz-root` (el perfil activo,
+   que tiñe toda la app) y cualquier descendiente con su propio `data-accent`.
+   Lo segundo es lo que hace posible pintar el color de OTRO perfil dentro del
+   activo — los puntos de la lista de perfiles y los cinco del selector de
+   color. Sin el selector de descendiente, todos ellos heredaban el acento
+   activo y salían del mismo color: la lista no distinguía nada y el selector
+   de color mostraba cinco puntos idénticos. */
+
+/* verde — la marca. Es el default de :root, así que la regla solo existe para
+   que volver a él desde otro perfil sea explícito y no dependa de recargar. */
+#fz-root[data-accent='verde'],
+#fz-root [data-accent='verde'] {
+  --fz-accent:        #16613C;
+  --fz-accent-press:  #0F4A2D;
+  --fz-accent-tint:   #E4F0E9;
+  --fz-glass-pill:    rgba(22,97,60,0.10);
+}
+
+/* naranja — el terracota de Claude. Lejos del guindo de "gasto" (#B8434A)
+   porque es notoriamente más cálido y menos rojo. */
+#fz-root[data-accent='naranja'],
+#fz-root [data-accent='naranja'] {
+  --fz-accent:        #B4491F;
+  --fz-accent-press:  #8F3817;
+  --fz-accent-tint:   #FBEAE2;
+  --fz-glass-pill:    rgba(180,73,31,0.10);
+}
+
+#fz-root[data-accent='violeta'],
+#fz-root [data-accent='violeta'] {
+  --fz-accent:        #5B3A9E;
+  --fz-accent-press:  #472D7C;
+  --fz-accent-tint:   #EDE7F8;
+  --fz-glass-pill:    rgba(91,58,158,0.10);
+}
+
+#fz-root[data-accent='magenta'],
+#fz-root [data-accent='magenta'] {
+  --fz-accent:        #9B2C6F;
+  --fz-accent-press:  #7A2257;
+  --fz-accent-tint:   #F8E5F1;
+  --fz-glass-pill:    rgba(155,44,111,0.10);
+}
+
+/* teal — el que más cerca pasa del verde de la marca. Se lo corrió bien al azul
+   (hue ~188) y se le bajó la luminosidad para que a simple vista no se confunda
+   con el verde bosque. Es el quinto y último: del sexto perfil en adelante las
+   paletas se reciclan. */
+#fz-root[data-accent='teal'],
+#fz-root [data-accent='teal'] {
+  --fz-accent:        #10596B;
+  --fz-accent-press:  #0C4453;
+  --fz-accent-tint:   #E0F0F4;
+  --fz-glass-pill:    rgba(16,89,107,0.10);
+}

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, num, roundFor } from '@/lib/finanzas/money'
@@ -25,8 +25,8 @@ const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date,
  * misma plata que cada uno fue aportando mes a mes, volviendo de una vez.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = (await request.json().catch(() => ({}))) ?? {}
@@ -34,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: p } = await supabase
     .from('fin_pasanaku')
     .select('id, name, account_id, currency, contribution_amount, total_slots')
-    .eq('id', id).eq('user_id', userId).maybeSingle()
+    .eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!p) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
   // El pasanaku no tiene cuenta propia — se elige recién acá, igual que en
@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!accountId) return NextResponse.json({ error: 'Elige a qué cuenta entra' }, { status: 400 })
 
   const { data: accountRow } = await supabase
-    .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
+    .from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).eq('id', accountId).maybeSingle()
   if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
   const account = mapAccount(accountRow)
   // Misma razón que en /aporte: quedaría indistinguible de un ajuste de valor
@@ -73,7 +73,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: tx, error } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: 'ingreso',
       flow_type: 'movimiento',
       date,

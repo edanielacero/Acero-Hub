@@ -14,6 +14,18 @@ const as = (path, init = {}) => fetch(`${URL_}/rest/v1${path}`, {
 
 const EMAIL = `fz-test-${Date.now()}@acerotest.local`
 const PASSWORD = `Test-${Math.random().toString(36).slice(2)}-9xQ!`
+/** El perfil default del usuario de prueba (Sprint 8). Lo inyecta `post()`. */
+let PROFILE_ID = null
+
+/** Las tablas cuyo contenido pertenece a un perfil. Las globales —fin_rates,
+ *  fin_quotes, fin_settings— quedan afuera a propósito. */
+const PROFILE_TABLES = new Set([
+  'fin_accounts', 'fin_transactions', 'fin_categories', 'fin_people',
+  'fin_debts', 'fin_debt_plans', 'fin_recurring', 'fin_recurring_splits',
+  'fin_pasanaku', 'fin_pasanaku_historico', 'fin_budget_periods',
+  'fin_budget_lines', 'fin_budget_line_categories', 'fin_budget_extensions',
+  'fin_budget_closures', 'fin_savings_goals', 'fin_savings_closures',
+])
 let USER_ID = null
 
 async function setup() {
@@ -34,6 +46,15 @@ async function setup() {
   }).then(r => r.json())
   TOKEN = session.access_token
   if (!TOKEN) throw new Error('no se pudo iniciar sesión: ' + JSON.stringify(session))
+  // El perfil default. En la app lo crea /bootstrap en la primera visita; acá
+  // se crea a mano porque la suite habla REST directo, sin pasar por las rutas.
+  const perfil = await as('/fin_profiles', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: USER_ID, name: 'Personal', accent: 'verde', is_default: true }),
+  }).then(r => r.json())
+  PROFILE_ID = Array.isArray(perfil) ? perfil[0]?.id : perfil?.id
+  if (!PROFILE_ID) throw new Error('no se pudo crear el perfil de prueba: ' + JSON.stringify(perfil))
+
   console.log(`Usuario de prueba: ${EMAIL}\n`)
 }
 
@@ -43,7 +64,29 @@ async function teardown() {
   console.log(`\nUsuario de prueba eliminado (cascade borró sus datos).`)
 }
 
-const post = (t, body) => as(`/${t}`, { method: 'POST', body: JSON.stringify(body) })
+/**
+ * Inserta, poniendo el perfil por vos.
+ *
+ * `profile_id` es NOT NULL en las 17 tablas del dominio, así que sin esto cada
+ * insert de la suite tendría que repetirlo. Se inyecta acá y no en cada caso
+ * porque son 128 — y porque un test que se olvide no fallaría por lo que quiere
+ * probar, sino por un NOT NULL, que es ruido.
+ *
+ * Un `body` que traiga su propio `profile_id` manda: es lo que permite escribir
+ * los tests de aislamiento entre perfiles.
+ */
+const withProfile = row =>
+  row && typeof row === 'object' && !('profile_id' in row)
+    ? { ...row, profile_id: PROFILE_ID }
+    : row
+
+const post = (t, body) => {
+  // `body` puede ser una fila o un lote — la suite usa las dos formas.
+  const full = !PROFILE_TABLES.has(t) ? body
+    : Array.isArray(body) ? body.map(withProfile)
+    : withProfile(body)
+  return as(`/${t}`, { method: 'POST', body: JSON.stringify(full) })
+}
 const rows = async (t, q = '') => (await as(`/${t}?select=*${q}`)).json()
 
 async function run() {
@@ -1201,6 +1244,71 @@ async function run() {
       amount: Number(t.amount), to_amount: t.to_amount === null ? null : Number(t.to_amount),
     }))
     eq('sin el gasto, Efectivo vuelve a 348', computeBalances(accts, txs).get(efectivo.id), 348)
+  }
+
+  section('SPRINT 8 · fin_profiles')
+  {
+    const dup = await post('fin_profiles', { user_id: USER_ID, name: 'Personal' })
+    ok('no deja dos perfiles con el mismo nombre', dup.status >= 400, `HTTP ${dup.status}`)
+
+    const segundoDefault = await post('fin_profiles', { user_id: USER_ID, name: 'Otro', is_default: true })
+    ok('ni dos defaults', segundoDefault.status >= 400, `HTTP ${segundoDefault.status}`)
+
+    const azul = await post('fin_profiles', { user_id: USER_ID, name: 'Azul', accent: 'azul' })
+    ok('el azul está reservado para ahorro: no es un acento válido', azul.status >= 400, `HTTP ${azul.status}`)
+
+    const inventado = await post('fin_profiles', { user_id: USER_ID, name: 'Raro', accent: 'fucsia' })
+    ok('ni cualquier otro color fuera de la paleta', inventado.status >= 400, `HTTP ${inventado.status}`)
+
+    const empresa = (await post('fin_profiles', { user_id: USER_ID, name: 'Empresa', accent: 'naranja' }).then(r => r.json()))[0]
+    ok('un segundo perfil sí se crea', !!empresa?.id)
+
+    const archivarDefault = await as(`/fin_profiles?id=eq.${PROFILE_ID}`, {
+      method: 'PATCH', body: JSON.stringify({ archived: true }),
+    })
+    ok('el default no se puede archivar ni por REST directo', archivarDefault.status >= 400, `HTTP ${archivarDefault.status}`)
+
+    section('SPRINT 8 · aislamiento y FKs compuestas')
+
+    // Los únicos que cambiaron de alcance (§3.2.1): lo que ya existe en el
+    // perfil default tiene que poder repetirse en el otro.
+    const catRepetida = await post('fin_categories', {
+      user_id: USER_ID, profile_id: empresa.id, name: 'Comida', kind: 'gasto',
+    })
+    ok('la misma categoría puede existir en dos perfiles', catRepetida.ok, `HTTP ${catRepetida.status}`)
+
+    const personaRepetida = await post('fin_people', { user_id: USER_ID, profile_id: empresa.id, name: 'Ana' })
+    ok('y la misma persona también', personaRepetida.ok, `HTTP ${personaRepetida.status}`)
+
+    const cajon = await post('fin_savings_goals', {
+      user_id: USER_ID, profile_id: empresa.id, name: 'Sobrante',
+      input_currency: 'USD', is_catchall: true,
+    })
+    ok('cada perfil puede tener su propio cajón de sastre', cajon.ok, `HTTP ${cajon.status}`)
+
+    // La FK compuesta: un movimiento no puede salir de una cuenta de otro perfil.
+    const cuentaEmpresa = (await post('fin_accounts', {
+      user_id: USER_ID, profile_id: empresa.id, name: 'Caja', currency: 'USD', initial_balance: 100,
+    }).then(r => r.json()))[0]
+
+    const cruzado = await post('fin_transactions', {
+      user_id: USER_ID, profile_id: PROFILE_ID,   // perfil default…
+      account_id: cuentaEmpresa.id,               // …con una cuenta de la empresa
+      type: 'gasto', date: '2026-08-20', amount: 5, currency: 'USD',
+      amount_usd: 5, exchange_rate: 1,
+    })
+    ok('un movimiento NO puede salir de una cuenta de otro perfil', cruzado.status >= 400, `HTTP ${cruzado.status}`)
+
+    // Y el perfil de otro usuario es inalcanzable: lo cierra la FK (profile_id, user_id).
+    const ajeno = await post('fin_accounts', {
+      user_id: USER_ID, profile_id: '00000000-0000-0000-0000-000000000000',
+      name: 'Imposible', currency: 'USD',
+    })
+    ok('ni se puede escribir en un perfil que no existe', ajeno.status >= 400, `HTTP ${ajeno.status}`)
+
+    // Borrar un perfil con datos tiene que fallar en la BASE, no solo en el server.
+    const conDatos = await as(`/fin_profiles?id=eq.${empresa.id}`, { method: 'DELETE' })
+    ok('borrar un perfil con datos falla por el on delete restrict', conDatos.status >= 400, `HTTP ${conDatos.status}`)
   }
 }
 

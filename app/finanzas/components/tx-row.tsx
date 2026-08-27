@@ -12,6 +12,7 @@ import { useFinanzas } from './data-context'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { DetailField, DetailSheet } from './detail-sheet'
 import { formatDayLabel, IconChip, RowMenu } from './ui'
+import { fzFetch } from './fz-fetch'
 
 export function PageHeader({ title, subtitle, action }: {
   title: ReactNode; subtitle?: ReactNode; action?: ReactNode
@@ -117,7 +118,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   async function remove() {
     setRemoving(true)
     setDeleteError('')
-    const res = await fetch(`/api/finanzas/transactions/${tx.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/transactions/${tx.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setRemoving(false)

@@ -14,6 +14,7 @@ import { CategoryGlyph, CategoryIcon, IconPickerGrid } from './category-icon'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { SplitEditor, type SplitDraft, type SplitMode } from './split-editor'
 import { Btn, ErrorNote, Label, SearchField, Segmented, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'mensual', label: 'Cada mes' },
@@ -163,7 +164,7 @@ export function RecurringSheet({ editing, onClose, onSaved }: {
   async function remove() {
     if (!editing) return
     setRemoving(true)
-    const res = await fetch(`/api/finanzas/recurring/${editing.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/recurring/${editing.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setRemoving(false)

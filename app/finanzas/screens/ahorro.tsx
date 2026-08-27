@@ -17,6 +17,7 @@ import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 export function AhorroScreen() {
   const { savings, accounts, hidden, rates, loading, reload } = useFinanzas()
@@ -49,7 +50,7 @@ export function AhorroScreen() {
   async function confirmDelete() {
     if (!deleting) return
     setConfirmingDelete(true)
-    await fetch(`/api/finanzas/savings-goals/${deleting.id}`, { method: 'DELETE' })
+    await fzFetch(`/api/finanzas/savings-goals/${deleting.id}`, { method: 'DELETE' })
     await reload()
     setConfirmingDelete(false)
     setDeleting(null)

@@ -10,6 +10,7 @@ import { CurrencyIcon } from '../../components/currency-icon'
 import { useFinanzas } from '../../components/data-context'
 import { Btn, ErrorNote, Label, Panel, TextField } from '../../components/ui'
 import { SettingsHeader, SettingsPage } from './shared'
+import { fzFetch } from '../../components/fz-fetch'
 
 /** "hace 3 min" es más útil que un timestamp para saber si una tasa está fresca. */
 function relativo(iso: string): string {
@@ -37,7 +38,7 @@ export function AjustesTipoCambioScreen() {
   async function patchRate(currency: Currency, body: Record<string, unknown>) {
     setError('')
     setSavingRate(currency)
-    const res = await fetch('/api/finanzas/rates', {
+    const res = await fzFetch('/api/finanzas/rates', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currency, ...body }),
@@ -62,7 +63,7 @@ export function AjustesTipoCambioScreen() {
   async function refreshNow() {
     setError('')
     setRefreshing(true)
-    const res = await fetch('/api/finanzas/rates/refresh', { method: 'POST' })
+    const res = await fzFetch('/api/finanzas/rates/refresh', { method: 'POST' })
     setRefreshing(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))

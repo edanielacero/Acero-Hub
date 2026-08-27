@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { DEBT_COLS } from '@/lib/finanzas/shared'
 
@@ -9,8 +9,8 @@ import { DEBT_COLS } from '@/lib/finanzas/shared'
  * siempre querés: si la deuda vuelve a estar abierta, esa plata no entró.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const ids: string[] = Array.isArray(body?.split_ids)
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const { data: rows } = await supabase
     .from('fin_debts')
     .select(DEBT_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids)
 
   if ((rows ?? []).length !== ids.length) {
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const { error } = await supabase
     .from('fin_debts')
     .update({ settled_tx_id: null, settled_margin_tx_id: null, waived_at: null, note: null })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     const { data: still } = await supabase
       .from('fin_debts')
       .select('settled_tx_id, settled_margin_tx_id')
-      .eq('user_id', userId)
+      .eq('profile_id', profileId)
       .or(`settled_tx_id.in.(${txIds.join(',')}),settled_margin_tx_id.in.(${txIds.join(',')})`)
 
     const enUso = new Set((still ?? []).flatMap(s => [s.settled_tx_id, s.settled_margin_tx_id]))
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       const { data: gone } = await supabase
         .from('fin_transactions')
         .delete()
-        .eq('user_id', userId)
+        .eq('profile_id', profileId)
         .in('id', huerfanos)
         .select('id')
       deleted = (gone ?? []).length

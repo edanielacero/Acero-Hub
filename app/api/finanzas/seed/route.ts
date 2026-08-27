@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { SEED_CATEGORIES } from '@/lib/finanzas/types'
@@ -11,16 +11,16 @@ import { SEED_CATEGORIES } from '@/lib/finanzas/types'
  * Lee lo que ya existe e inserta solo lo que falta, así correrlo dos veces no
  * duplica nada ni pisa una categoría que el usuario haya renombrado.
  */
-export async function POST() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function POST(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   await ensureRates(supabase, userId)
 
   const { data: existing } = await supabase
     .from('fin_categories')
     .select('name, kind')
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   const taken = new Set((existing ?? []).map(c => `${c.kind}:${c.name}`))
   const missing = SEED_CATEGORIES
@@ -30,7 +30,7 @@ export async function POST() {
   if (missing.length > 0) {
     const { error } = await supabase.from('fin_categories').insert(
       missing.map(c => ({
-        user_id: userId,
+        user_id: userId, profile_id: profileId,
         name: c.name,
         kind: c.kind,
         icon: c.icon,

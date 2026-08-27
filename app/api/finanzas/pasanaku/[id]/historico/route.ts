@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { isValidDate } from '@/lib/finanzas/transactions'
@@ -14,14 +14,14 @@ const HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
  * sprint_5_pasanaku.md, "Aportes de antes de la app").
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = (await request.json().catch(() => ({}))) ?? {}
 
   const { data: p } = await supabase
-    .from('fin_pasanaku').select('id').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_pasanaku').select('id').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!p) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
   const amount = num(body.amount, NaN)
@@ -36,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data, error } = await supabase
     .from('fin_pasanaku_historico')
-    .insert({ user_id: userId, pasanaku_id: id, date, amount, note })
+    .insert({ user_id: userId, profile_id: profileId, pasanaku_id: id, date, amount, note })
     .select(HISTORICO_COLS)
     .single()
 

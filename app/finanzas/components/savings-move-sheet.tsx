@@ -11,6 +11,7 @@ import { useFinanzas } from './data-context'
 import { AmountField } from './amount-field'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Mover un ahorro de una cuenta a otra (Ronda 8, rehecho en la 9).
@@ -105,7 +106,7 @@ export function SavingsMoveSheet({ goal, onClose, onSaved }: {
     }
 
     setSaving(true)
-    const res = await fetch(`/api/finanzas/savings-goals/${goal.id}/move`, {
+    const res = await fzFetch(`/api/finanzas/savings-goals/${goal.id}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

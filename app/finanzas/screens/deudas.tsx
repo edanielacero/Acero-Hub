@@ -16,6 +16,7 @@ import { PlanSheet } from '../components/plan-sheet'
 import { SettleSheet } from '../components/settle-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel, PersonAvatar, RowMenu, SectionTitle, Skeleton } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 export function DeudasScreen() {
   const { shared, accounts, hidden, loading, reload, plans } = useFinanzas()
@@ -59,7 +60,7 @@ export function DeudasScreen() {
 
   async function post(path: string, body: unknown, key: string) {
     setBusy(key)
-    await fetch(`/api/finanzas/debts/${path}`, {
+    await fzFetch(`/api/finanzas/debts/${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -72,7 +73,7 @@ export function DeudasScreen() {
     if (!eliminando) return
     setConfirmingDelete(true)
     setDeleteError('')
-    const res = await fetch(`/api/finanzas/debts/${eliminando.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/debts/${eliminando.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setConfirmingDelete(false)
@@ -89,7 +90,7 @@ export function DeudasScreen() {
     if (!eliminandoPlan) return
     setConfirmingDeletePlan(true)
     setDeletePlanError('')
-    const res = await fetch(`/api/finanzas/debt-plans/${eliminandoPlan.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/debt-plans/${eliminandoPlan.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setConfirmingDeletePlan(false)

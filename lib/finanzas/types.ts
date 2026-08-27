@@ -833,3 +833,66 @@ export const SEED_CATEGORIES: { name: string; kind: CategoryKind; icon: string }
 ]
 
 
+
+/* ─── Perfiles (Sprint 8) ──────────────────────────────────────────────────── */
+
+/**
+ * Claves de paleta, no hexadecimales. El color de cada una vive en `theme.css`
+ * como un set de 4 tokens; acá solo se guarda cuál le toca al perfil.
+ *
+ * ⚠️ El azul NO está y no puede estar: significa "ahorro" en toda la app desde
+ * la Ronda 9 del Sprint 7, donde se eligió justamente porque con el verde de la
+ * marca el botón "Ahorrar" se confundía con cualquier acción primaria. Un
+ * perfil con acento azul recrearía ese bug dentro de ese perfil.
+ */
+export type AccentKey = 'verde' | 'naranja' | 'violeta' | 'magenta' | 'teal'
+
+export const ACCENT_KEYS: AccentKey[] = ['verde', 'naranja', 'violeta', 'magenta', 'teal']
+
+export function isAccentKey(v: unknown): v is AccentKey {
+  return typeof v === 'string' && (ACCENT_KEYS as string[]).includes(v)
+}
+
+/**
+ * Un cajón de finanzas aislado. Sin tipo (personal/empresa): lo que distingue a
+ * un perfil es su nombre y su color — ver `contexto_finanzas.md` §7.4.
+ */
+export interface Profile {
+  id: string
+  name: string
+  accent: AccentKey
+  is_default: boolean
+  archived: boolean
+  sort_order: number
+}
+
+/**
+ * Lo que la UI necesita para decidir si ofrece **Borrar** o **Archivar** sin
+ * tener que intentarlo y comerse un 409.
+ */
+export interface ProfileWithUsage extends Profile {
+  has_movements: boolean
+}
+
+export const PROFILE_COLS = 'id, name, accent, is_default, archived, sort_order'
+
+/**
+ * A quién pertenece lo que se lee o se escribe (Sprint 8).
+ *
+ * Los dos ids cumplen papeles distintos y ninguno reemplaza al otro:
+ *
+ * - `profileId` **filtra**: es lo que aísla un perfil de otro.
+ * - `userId` **escribe** y sirve para lo global (`fin_rates`, `fin_quotes`,
+ *   `fin_settings`, que no pertenecen a ningún perfil), porque es lo que
+ *   sostiene RLS.
+ *
+ * Va como objeto y no como dos parámetros sueltos a propósito: los dos son
+ * `string`, así que dos parámetros posicionales dejarían pasar en silencio el
+ * error de mandarlos al revés — que es exactamente la clase de bug que mezcla
+ * perfiles sin que nadie se entere. Con el objeto, TypeScript lo hace
+ * imposible.
+ */
+export interface Scope {
+  userId: string
+  profileId: string
+}

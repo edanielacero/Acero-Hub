@@ -11,6 +11,7 @@ import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, SearchField, Segmented, TextField } from './ui'
 import { AmountField } from './amount-field'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Crea una línea nueva, o edita el monto (y el alias) de ESTE mes de una
@@ -128,13 +129,13 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
       if (!sameCategories) linePatch.category_ids = selected
 
       const [periodRes, lineRes] = await Promise.all([
-        fetch(`/api/finanzas/budgets/${editing.line_id}/period`, {
+        fzFetch(`/api/finanzas/budgets/${editing.line_id}/period`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ period: periodStart(todayISO()), amount: value }),
         }),
         Object.keys(linePatch).length > 0
-          ? fetch(`/api/finanzas/budgets/${editing.line_id}`, {
+          ? fzFetch(`/api/finanzas/budgets/${editing.line_id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(linePatch),
@@ -149,7 +150,7 @@ export function BudgetLineSheet({ editing, onClose, onSaved }: {
         return setError(data.error ?? 'No se pudo guardar')
       }
     } else {
-      const res = await fetch('/api/finanzas/budgets', {
+      const res = await fzFetch('/api/finanzas/budgets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

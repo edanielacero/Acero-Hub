@@ -9,6 +9,7 @@ import { AmountField } from './amount-field'
 import { CurrencyIcon } from './currency-icon'
 import { useAccountValueApi } from './account-value-context'
 import { Btn, ErrorNote } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * "Actualizar valor" (§7.2 de contexto_finanzas.md): la puerta de entrada
@@ -78,7 +79,7 @@ export function AccountValueSheet() {
     }
 
     setSaving(true)
-    const res = await fetch('/api/finanzas/transactions', {
+    const res = await fzFetch('/api/finanzas/transactions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, formatAmount, fromUsd, num } from '@/lib/finanzas/money'
@@ -27,13 +27,14 @@ const TX_COLS =
  * emergencias, del auto se pueden mover 500, no 800.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const { id } = await params
   const body = (await request.json().catch(() => null)) ?? {}
 
-  const goalError = await assertSavingsGoal(supabase, userId, id)
+  const goalError = await assertSavingsGoal(supabase, scope, id)
   if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
 
   const fromId = typeof body.from_account_id === 'string' ? body.from_account_id : ''
@@ -50,7 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const [{ data: accountRows }, { rates }] = await Promise.all([
-    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).in('id', [fromId, toId]),
+    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).in('id', [fromId, toId]),
     ensureRates(supabase, userId),
   ])
   const cuentas = (accountRows ?? []).map(mapAccount)
@@ -62,7 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: txRows } = await supabase
     .from('fin_transactions')
     .select('savings_goal_id, type, account_id, to_account_id, amount, to_amount, amount_usd, to_amount_usd, savings_flow')
-    .eq('user_id', userId).eq('savings_goal_id', id)
+    .eq('profile_id', profileId).eq('savings_goal_id', id)
 
   const taggedTxs: GoalTaggedTx[] = (txRows ?? []).map(t => ({
     savings_goal_id: t.savings_goal_id as string | null,
@@ -88,7 +89,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Y la cuenta tiene que tener la plata de verdad: lo apartado es un dato
   // derivado, no una caja aparte. Si se gastó por otro lado, no está.
-  const balanceError = await assertBalance(supabase, userId, from, 'transferencia', amount, null, 'traslado')
+  const balanceError = await assertBalance(supabase, scope, from, 'transferencia', amount, null, 'traslado')
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const date = typeof body.date === 'string' && isValidDate(body.date) ? body.date : todayISO()
@@ -107,7 +108,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: tx, error } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: 'transferencia',
       // No es plata que entre ni salga de tu vida: solo cambia de bolsillo.
       flow_type: 'movimiento',

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 /**
@@ -10,8 +10,8 @@ import { NextResponse } from 'next/server'
  * deja el orden explícito y sin huecos, sin importar de dónde se venía.
  */
 export async function PATCH(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const ids: unknown = body?.ids
@@ -25,7 +25,7 @@ export async function PATCH(request: Request) {
   const { data: propias } = await supabase
     .from('fin_accounts')
     .select('id')
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids as string[])
 
   if ((propias?.length ?? 0) !== ids.length) {
@@ -38,7 +38,7 @@ export async function PATCH(request: Request) {
         .from('fin_accounts')
         .update({ sort_order: index, updated_at: new Date().toISOString() })
         .eq('id', id)
-        .eq('user_id', userId),
+        .eq('profile_id', profileId),
     ),
   )
 

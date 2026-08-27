@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 
 const DEBT_PLAN_COLS =
@@ -9,15 +9,15 @@ const DEBT_PLAN_COLS =
  * nota. Cuotas, capital, interés y fechas se tocan regenerando (§4.6).
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const { data: current } = await supabase
-    .from('fin_debt_plans').select('id').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debt_plans').select('id').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Plan no encontrado' }, { status: 404 })
 
   const patch: Record<string, unknown> = {}
@@ -32,7 +32,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const { data, error } = await supabase
-    .from('fin_debt_plans').update(patch).eq('id', id).eq('user_id', userId).select(DEBT_PLAN_COLS).maybeSingle()
+    .from('fin_debt_plans').update(patch).eq('id', id).eq('profile_id', profileId).select(DEBT_PLAN_COLS).maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ plan: data })
@@ -43,17 +43,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * pendientes con él. Si alguna ya está cobrada o condonada, esa historia no se
  * borra — el usuario tiene que regenerar en vez de borrar (§4.7).
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const { data: plan } = await supabase
-    .from('fin_debt_plans').select('id').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debt_plans').select('id').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!plan) return NextResponse.json({ error: 'Plan no encontrado' }, { status: 404 })
 
   const { data: cuotas } = await supabase
-    .from('fin_debts').select('id, settled_tx_id, waived_at').eq('user_id', userId).eq('plan_id', id)
+    .from('fin_debts').select('id, settled_tx_id, waived_at').eq('profile_id', profileId).eq('plan_id', id)
 
   const tocada = (cuotas ?? []).some(c => c.settled_tx_id || c.waived_at)
   if (tocada) {
@@ -68,9 +68,9 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   // esa fila no se toca acá. El `delete` del plan de abajo la deja huérfana
   // vía `on delete set null` — sigue existiendo, con su historia intacta.
   await supabase
-    .from('fin_debts').delete().eq('user_id', userId).eq('plan_id', id)
+    .from('fin_debts').delete().eq('profile_id', profileId).eq('plan_id', id)
     .is('settled_tx_id', null).is('waived_at', null)
-  const { error } = await supabase.from('fin_debt_plans').delete().eq('id', id).eq('user_id', userId)
+  const { error } = await supabase.from('fin_debt_plans').delete().eq('id', id).eq('profile_id', profileId)
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })
 }

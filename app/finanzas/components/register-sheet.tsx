@@ -11,6 +11,7 @@ import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { CategoryIcon } from './category-icon'
 import { Btn, ErrorNote, Label, SearchField, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Confirmar un gasto fijo del período.
@@ -127,7 +128,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
     }
 
     setSaving(true)
-    const res = await fetch(`/api/finanzas/recurring/${recurring.id}/register`, {
+    const res = await fzFetch(`/api/finanzas/recurring/${recurring.id}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

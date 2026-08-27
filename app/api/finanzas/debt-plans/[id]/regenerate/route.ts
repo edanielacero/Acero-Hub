@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, roundFor, toUsd } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
@@ -17,21 +17,21 @@ const DEBT_PLAN_COLS =
  * (§4.6): si la generación nueva falla, no se pierde el calendario viejo.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const { data: plan } = await supabase
-    .from('fin_debt_plans').select(DEBT_PLAN_COLS).eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_debt_plans').select(DEBT_PLAN_COLS).eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!plan) return NextResponse.json({ error: 'Plan no encontrado' }, { status: 404 })
 
   const { data: cuotas } = await supabase
     .from('fin_debts')
     .select('id, amount, settled_tx_id, waived_at, plan_installment_no')
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .eq('plan_id', id)
 
   const pendientes = (cuotas ?? []).filter(c => !c.settled_tx_id && !c.waived_at)
@@ -87,7 +87,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const cuotaRows = nuevas.map((c, i) => {
     const amount_usd = toUsd(c.amount, currency, rates)
     return {
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       transaction_id: null,
       person_id: plan.person_id,
       amount: c.amount,
@@ -125,14 +125,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const idsViejas = pendientes.map(c => c.id)
   if (idsViejas.length > 0) {
     await supabase
-      .from('fin_debts').delete().eq('user_id', userId).in('id', idsViejas)
+      .from('fin_debts').delete().eq('profile_id', profileId).in('id', idsViejas)
       .is('settled_tx_id', null).is('waived_at', null)
   }
 
   const { data: updatedPlan, error: planError } = await supabase
     .from('fin_debt_plans')
     .update({ principal, interest_rate: interestRate, installments, frequency, starts_on: startsOn })
-    .eq('id', id).eq('user_id', userId)
+    .eq('id', id).eq('profile_id', profileId)
     .select(DEBT_PLAN_COLS)
     .maybeSingle()
 

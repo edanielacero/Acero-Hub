@@ -5,7 +5,8 @@
 > producto ya cerradas y las lecciones del intento anterior. El plan de
 > construcción vive en `documento_maestro_finanzas.md`.
 >
-> Última actualización: 2026-08-18
+> Última actualización: 2026-08-27 (§4, §7 y §7.4: se congelan Reportes,
+> Fondo de crecimiento y Reglas; entra Perfiles como próximo sprint)
 
 ---
 
@@ -16,6 +17,12 @@ Mini-app **personal** de finanzas dentro de Acero Hub, en `/finanzas`.
 - **Un solo usuario: el admin (Daniel).** No se comparte con nadie, no hay
   colaboradores, no hay vistas de "otro usuario". Cualquier feature que
   implique compartir datos está fuera de alcance por definición.
+- **Un usuario, varios perfiles** (Sprint 8, 2026-08-27): el
+  mismo usuario puede tener **cuantos perfiles quiera** —personales, de una
+  empresa, de un proyecto— con finanzas completamente aisladas entre sí, cada
+  uno con su propio patrimonio y su propio color. Sigue sin haber
+  colaboradores: los perfiles no se comparten, son cajones separados del mismo
+  dueño. → *§7.4*.
 - **Totalmente independiente del resto de mini-apps.** No reutiliza componentes,
   utilidades, lógica, tipos ni estilos de Expandlogy, Trading Journal ni de
   ninguna otra. Lo único compartido son las primitivas del Hub (sesión, tabla
@@ -157,6 +164,8 @@ No volver a preguntar por estas:
 | Tema | Decisión |
 |---|---|
 | Usuarios | Uno solo (el admin). Sin compartir |
+| Perfiles | **Sin tipos y sin límite** (2026-08-27). Un perfil `default` indeleble más los que crees desde Ajustes; lo que los distingue es el **nombre** y el **color de acento**, no un enum. Cada perfil tiene su propio patrimonio, **sin total consolidado**. → *§7.4* |
+| Movimientos entre perfiles | **No se mueven.** Si se registró en el equivocado, se borra y se vuelve a cargar → *§7.4* |
 | Import CSV de banco/exchange | **Nunca.** Entrada 100% manual |
 | Auto-categorización | Reglas simples por palabra clave, editables. Sin IA en v1 |
 | Suscripciones recurrentes | Solo **recuerdan**. Nunca se auto-postea un gasto |
@@ -203,6 +212,10 @@ las tocan:
    → *Especificado en `sprint_7_ahorro.md` §4.3 y §4.13.*
 5. **Confirmar saldos actuales** de las 6 cuentas antes de cargarlas.
    → *Bloquea la carga inicial del Sprint 1 (no el desarrollo).*
+6. ~~**Perfiles (feature #13):** cuántos, qué queda global, si hay vista
+   consolidada, si se borran, si se mueven movimientos, qué recuerda el cambio
+   y cómo migra lo existente.~~ **Resuelto el 2026-08-27**, las ocho preguntas.
+   → *Todo cerrado en §7.4; el Sprint 8 está listo para especificarse.*
 
 ---
 
@@ -245,6 +258,8 @@ ningún dato real: había 0 cuentas, 0 transacciones y 0 tasas cargadas.
 
 Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 
+### Construido
+
 | # | Feature | Qué desbloquea | Estado |
 |---|---|---|---|
 | 1 | **Movimientos y Cuentas** — registrar, saldo derivado, multi-moneda con tasa congelada | Todo lo demás | ✅ `documento_maestro_finanzas.md` |
@@ -255,14 +270,230 @@ Cada uno es una versión usable. Solo el Sprint 1 está especificado en detalle.
 | 6 | **Presupuesto mensual** | Cuánto queda por gastar, por categoría y en general | ✅ `sprint_6_presupuesto.md` |
 | 7 | **Ahorro** | Apartar el sobrante del mes en planes con reparto propio, sin cuentas dedicadas | ✅ `sprint_7_ahorro.md` |
 | 11 | **Cuentas de inversión** | Ajustar su valor sin que cuente como gasto/ingreso real | ✅ §7.1 de este documento |
-| 8 | **Reportes** | Ver la evolución: en qué se va la plata mes a mes, tendencias, comparar períodos. Es lo primero que gana valor ahora que hay 1–7 generando historia | ⬜ Siguiente |
-| 9 | **Fondo de crecimiento y ROI** | Distinguir el ahorro que *trabaja* del que solo espera. Se apoya en el #7: sería un tipo de plan con retorno esperado | ⬜ |
-| 10 | **Alertas** | Que la app avise sin que entres: fijo por vencer, presupuesto al límite, mes por organizar. Requiere #6 y #3 | ⬜ · ⚠️ Vercel Hobby: **un solo cron por día** |
-| 12 | **Reglas y automatismos** | "Cada vez que entre el sueldo, aparta X" — el paso siguiente natural de los fijos de ahorro | ⬜ Sin especificar |
+
+### Por construir (orden vigente al 2026-08-27)
+
+| Orden | # | Feature | Qué desbloquea | Estado |
+|---|---|---|---|---|
+| **Sprint 8** | 13 | **Perfiles** | N cajones de finanzas aislados —patrimonio, movimientos y categorías propios— dentro de la misma cuenta | ✅ **Construido** (2026-08-27) · `sprint_8_perfiles.md` |
+| Sprint 9 | 10 | **Alertas** | Que la app avise sin que entres: fijo por vencer, presupuesto al límite, mes por organizar. Requiere #6 y #3 | ⬜ Sin especificar · ⚠️ Vercel Hobby: **un solo cron por día** |
+
+### Congelados (2026-08-27)
+
+Fuera de alcance **por ahora**, por decisión del usuario. No están descartados
+—la especificación de cada uno sigue valiendo si vuelven— pero no se planifican
+ni se usan como argumento para diseñar nada nuevo.
+
+| # | Feature | Por qué existía | Estado |
+|---|---|---|---|
+| 8 | **Reportes** | Ver la evolución: en qué se va la plata mes a mes, tendencias, comparar períodos | ⏸️ Congelado |
+| 9 | **Fondo de crecimiento y ROI** | Distinguir el ahorro que *trabaja* del que solo espera. Se apoyaba en el #7 | ⏸️ Congelado |
+| 12 | **Reglas y automatismos** | "Cada vez que entre el sueldo, aparta X" | ⏸️ Congelado |
+
+> **Los números no se renumeran.** Los sprints 2, 3, 4, 6 y 7 tienen secciones
+> de "qué desbloquea" que apuntan a `#8`, `#9`, `#10` y `#12` por número. Cambiar
+> la numeración rompería esas referencias sin ganar nada, así que el orden de
+> construcción vive en la columna **Orden**, no en la columna **#**. Perfiles
+> entra como **#13** por ser el siguiente número libre.
 
 Los tres primeros después de Movimientos (compartidos, por cobrar, pasanaku) son
-cosas que **ya le están pasando cada mes**. Por eso van antes que presupuesto y
-reportes, que necesitan meses de datos acumulados para valer algo.
+cosas que **ya le están pasando cada mes**. Por eso fueron antes que presupuesto,
+que necesita meses de datos acumulados para valer algo.
+
+### 7.4 Feature #13 — Perfiles (construido el 2026-08-27)
+
+**Construido el 2026-08-27**, mismo día en que se decidió. Todo lo que sigue
+está cerrado y no hay que volver a preguntarlo. El detalle técnico —modelo,
+migración, API, UI, checklist y las cinco desviaciones que salieron al
+construir— está en `sprint_8_perfiles.md`.
+
+#### Qué problema resuelve
+
+Hoy la app tiene un solo cajón: el sueldo, el alquiler, el pasanaku y los
+ahorros viven todos juntos. El usuario necesita **separar finanzas que no
+tienen nada que ver entre sí** —las de una empresa, las de un proyecto— sin
+mezclar los números, sin salir de la app y sin cambiar de cuenta.
+
+#### El modelo
+
+| Tema | Decisión |
+|---|---|
+| **Sin tipos** | No hay "personal" ni "empresa" como tipo. Se evaluó y **se descartó**: los dos se comportarían idénticamente, y una columna `type` con dos valores que no se diferencian en nada solo invita a bifurcar lógica sin una decisión detrás. Lo que distingue a un perfil es su **nombre** y su **color**, no un enum |
+| **Cuántos** | **Sin límite.** El costo de código de 1 vs. N es el mismo; un tope solo sería un número que después hay que sacar |
+| **El default** | Uno y solo uno, marcado con `is_default`. **No se borra ni se archiva nunca.** Es donde cae todo lo que ya existe |
+| **Usuario nuevo** | Al entrar por primera vez a la mini-app, se le crea su perfil default solo. Nunca hay un usuario sin perfil |
+| **Cómo nace uno nuevo** | Se crea a mano desde **Ajustes**. Nace con las **categorías semilla** sembradas y **nada más**: sin cuentas, sin movimientos, sin personas, sin fijos, sin ahorros |
+| **Renombrar** | **Sí, todos, incluido el default.** Indeleble no es lo mismo que inmutable: quizá el default se llama "Daniel" y no "Personal" |
+| **Color** | Cada perfil tiene su propio acento — ver *El acento por perfil*, abajo |
+
+Forma de la tabla: `fin_profiles(id, user_id, name, accent, is_default,
+archived, sort_order, created_at)`. Sin `type`.
+
+#### Qué es del perfil y qué es global
+
+De las **20 tablas `fin_*`** vivas, casi todas pasan a ser del perfil. Solo tres
+quedan afuera:
+
+| Alcance | Tablas | Por qué |
+|---|---|---|
+| **Del perfil** | `fin_accounts`, `fin_transactions`, `fin_categories`, `fin_people`, `fin_debts`, `fin_debt_plans`, `fin_recurring`, `fin_recurring_splits`, `fin_pasanaku`, `fin_pasanaku_historico`, `fin_budget_periods`, `fin_budget_lines`, `fin_budget_line_categories`, `fin_budget_extensions`, `fin_budget_closures`, `fin_savings_goals`, `fin_savings_closures` | Todo lo que es "cuánto tengo, cuánto gasté, quién me debe" es exactamente lo que se quiere aislar |
+| **Global** | `fin_rates`, `fin_quotes` | La tasa del día y las cotizaciones de mercado son **hechos del mundo**, no de un cajón. Duplicarlas significaría que el mismo día un perfil muestra Bs a 6,96 y el otro a 7,20 |
+| **Global** | `fin_settings` | Hoy es esencialmente la tasa. Si algún día guarda preferencias de UI, se parte ahí |
+
+Dos que se discutieron y **quedaron del perfil**:
+
+- **`fin_categories`.** Las categorías de una empresa no se parecen a las
+  personales. Si fueran globales, el picker del quick-add de cada perfil se
+  llenaría de ruido irrelevante y Presupuesto —que es por categoría— heredaría
+  ese ruido. El costo aceptado: si querés la misma categoría en dos perfiles,
+  la creás dos veces.
+- **`fin_people`.** Se propuso dejarlas globales (una persona es la misma
+  persona con cualquier sombrero) y el usuario decidió lo contrario: **por
+  perfil, para aislar de verdad.** El costo aceptado: si la misma persona te
+  debe plata en dos perfiles, existe dos veces y sus deudas no se suman.
+
+`fin_asset_valuations` no necesita `profile_id`: cuelga de `fin_accounts` y
+hereda el perfil por su FK. Lo mismo las tablas hijas de presupuesto y deudas.
+
+#### Patrimonio: aislado, y sin consolidado
+
+`patrimonio = Σ saldo(cuenta)` (§4.3 del maestro) y `saldo(cuenta)` se deriva de
+los movimientos de esa cuenta (§4.2). Como **la cuenta pertenece a un perfil**,
+el aislamiento sale solo: patrimonio, gasto del mes, sobrante, presupuesto,
+piso de ahorro y deudas quedan separados sin un solo caso especial.
+
+**Se evaluó el patrimonio compartido y se descartó**, por tres razones:
+
+1. *"El saldo de este perfil"* sería una ficción. Si una cuenta tiene $500 con
+   movimientos de dos perfiles, la plata es fungible: no hay $200 que sean "de
+   la empresa" salvo que se declare por fuera.
+2. **Rompería el piso de ahorro** (Sprint 7 §4.11), que valida cada gasto
+   contra el saldo de la cuenta. ¿Contra cuál — el total, el del perfil? Con
+   cuentas compartidas se podría gastar la plata de un perfil desde otro.
+3. **Ya se construyó y se tiró.** La migración
+   `20260813000000_finanzas_profiles.sql` del intento anterior (§6) decía
+   textualmente *"separar entre distintos sombreros **sin dividir el
+   patrimonio, que sigue compartido**"* — `profile_id` nullable solo en
+   transacciones, o sea una etiqueta. Duró cuatro días.
+
+**Sin total consolidado.** Se propuso mostrar la suma de todos los perfiles en
+el selector y el usuario lo rechazó: el hero de cada Home muestra el patrimonio
+de **su** perfil y nada más. *"Quiero saber cómo va cada perfil aislado."* Si
+hace falta el total, se suma mentalmente.
+
+**El costo aceptado:** si la plata de dos perfiles vive físicamente en la misma
+cuenta bancaria, hay que crear la cuenta dos veces y repartir el saldo a mano. Y
+mover plata entre perfiles son dos registros —un gasto en uno, un ingreso en el
+otro—, que es lo que pasa de verdad entre dos entidades distintas.
+
+#### Borrado y archivado
+
+Copia exacta de la regla que la app ya aplica a las cuentas (§4.5 del maestro):
+
+- **Perfil sin movimientos** → se borra de verdad.
+- **Perfil con movimientos** → **no se borra, se archiva.** Sale del selector;
+  sus datos quedan intactos y se puede reactivar.
+- **El default** → ni una cosa ni la otra, nunca.
+- Si se archiva el perfil activo, la app salta al default.
+
+Por qué no un cascade: borrar un perfil con historia sería la acción más
+destructiva de toda la app —N cuentas por meses de carga manual—, y esta app se
+define por la entrada 100% manual (§1). Hoy borrar *una* cuenta con movimientos
+devuelve 409 justamente para evitar eso. Sumado a que los movimientos no se
+mueven entre perfiles, un borrado equivocado no se desharía de ninguna forma.
+
+Un "vaciar y borrar" en dos pasos desde el perfil ya archivado es fácil de
+agregar después. **No entra en el Sprint 8.**
+
+#### Los movimientos no se mueven entre perfiles
+
+Decidido: no existe "cambiar este movimiento de perfil". Si se registró en el
+equivocado, se borra y se vuelve a cargar.
+
+**Consecuencia que hay que tener presente al diseñar la UI:** registrar en el
+perfil equivocado es el único error irreversible que introduce este sprint. Por
+eso el acento de color y el nombre del perfil en el quick-add no son adorno.
+
+#### El acento por perfil
+
+Cada perfil tiene su propio color de acento, y eso es lo que responde *"¿en qué
+perfil estoy?"* desde cualquier pantalla.
+
+**Es barato:** hay 88 usos de `--fz-accent` en 25 archivos y **todos leen el
+token** —ninguno tiene un hex escrito a mano—, la app no tiene modo oscuro y
+todos los tokens cuelgan de `#fz-root` (`theme.css:23`). Cambiar de perfil es
+sobrescribir unas variables CSS en el nodo raíz, sin tocar un solo componente.
+Se aplica **global**, no solo al hero y a los botones: así tiñe también la tab
+bar activa, los focus rings y los sheets.
+
+**No es un color, es un set de 4–5 tokens:** `--fz-accent`,
+`--fz-accent-press`, `--fz-accent-tint` y `--fz-glass-pill` (el acento al 10%
+de la píldora del tab bar). Cambiar solo el primero deja los otros en verde y se
+ve sucio. Falta decidir al implementar si `--fz-lime` —la contraparte del
+acento sobre el hero oscuro, de uso escaso— también cambia por perfil.
+
+**El azul está reservado: significa ahorro.** El sistema ya tiene cuatro colores
+con significado fijo —verde marca, verde ingreso, guindo gasto, azul ahorro— y
+el acento de perfil tiene que esquivar los cuatro. El azul se eligió en la
+Ronda 9 del Sprint 7 precisamente porque *"con el verde de la marca el botón
+'Ahorrar' se confundía con cualquier acción primaria"* (comentario en
+`theme.css`). Un perfil con acento azul recrearía ese mismo bug.
+
+| Perfil | Acento |
+|---|---|
+| 1 (default) | **Verde bosque** `#16613C` — es la marca, se queda |
+| 2 | **Naranja tipo Claude** |
+| 3 | **Violeta** |
+| 4 | **Magenta o teal oscuro** (teal roza el verde: confirmar el hex al elegirlo) |
+| 5+ | Se **reciclan** las paletas. Nadie va a llegar ahí, y si llega, el perfil funciona igual: solo repite color |
+| — | ~~Azul~~ **reservado para ahorro** |
+
+**El color se guarda en el perfil, no se deriva del orden** (columna `accent`).
+Se asigna solo al crear —la siguiente paleta libre— y se puede cambiar después.
+Si dependiera de la posición, borrar el perfil 2 recolorearía al 3 de golpe, y
+el perfil al que ya tenías el ojo entrenado cambiaría de color: exactamente lo
+que provoca registrar en el lugar equivocado.
+
+#### Cómo se cambia de perfil
+
+- **Un ícono de perfil en el header del Home**, al lado del engranaje — que hoy
+  convive ahí con el toggle del ojo (`home.tsx:224-236`).
+- **Solo aparece si hay 2 o más perfiles.** Con uno solo no hay nada que elegir.
+- **El perfil activo se recuerda por dispositivo** (`localStorage`): cambiarlo
+  en el celular no debe cambiarlo en la computadora. Además evita un viaje al
+  servidor por navegación.
+- **El perfil NO viaja en la URL.** Finanzas es una sola ruta `[[...slug]]` con
+  router de cliente; meterlo ahí obligaría a reescribir el router y a resolver
+  qué pasa al abrir el link de un perfil archivado, a cambio de nada — es una
+  app de un solo usuario que no comparte links.
+- **El nombre del perfil aparece en el header del quick-add.** Una línea de
+  texto chica, no un selector: cubre el caso de mirar la pantalla sin registrar
+  el color, y el quick-add se abre desde cualquier pantalla.
+
+#### Migración de lo que ya existe
+
+**Todo lo construido y cargado hasta hoy —los 7 sprints— cae en el perfil
+default.** Ningún dato se toca ni se reasigna; se crea el perfil default y todo
+lo existente pasa a apuntarle.
+
+#### Qué NO entra
+
+- **Compartir un perfil con otra persona.** Sigue habiendo un solo usuario
+  (§1): los perfiles son cajones del mismo dueño, no colaboración.
+- **Total consolidado** entre perfiles (rechazado explícitamente, arriba).
+- **Mover movimientos** entre perfiles.
+- **Borrado duro de un perfil con historia.**
+- **Comparativas entre perfiles**, si algún día llegan: eso es Reportes, hoy
+  congelado.
+
+#### Preguntas abiertas
+
+**Ninguna.** El sprint está especificado en `sprint_8_perfiles.md`.
+
+Una sola nota de dependencia, que no bloquea nada: **Alertas (Sprint 9) va a
+tener que decir de qué perfil es cada aviso.**
+
+---
 
 ### 7.3 Feature #7 — Ahorro (construido el 2026-08-24, rediseñado hasta el 26/8)
 

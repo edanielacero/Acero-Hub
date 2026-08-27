@@ -9,6 +9,7 @@ import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Registrar UN cobro de tu turno — la parte de un jugador, no el pozo entero
@@ -84,7 +85,7 @@ export function PasanakuCobroSheet({ pasanaku, onClose, onDone }: {
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     setSaving(true)
-    const res = await fetch(`/api/finanzas/pasanaku/${pasanaku.id}/recibir`, {
+    const res = await fzFetch(`/api/finanzas/pasanaku/${pasanaku.id}/recibir`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount: value, date, account_id: accountId }),

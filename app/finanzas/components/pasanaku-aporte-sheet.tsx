@@ -9,6 +9,7 @@ import { AmountField } from './amount-field'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, DateField, ErrorNote, IconChip, Label, SearchField, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Registrar un aporte del mes — o uno viejo que ya diste y todavía no
@@ -101,7 +102,7 @@ export function PasanakuAporteSheet({ pasanaku, onClose, onDone }: {
     if (excede) return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
 
     setSaving(true)
-    const res = await fetch(`/api/finanzas/pasanaku/${pasanaku.id}/aporte`, {
+    const res = await fzFetch(`/api/finanzas/pasanaku/${pasanaku.id}/aporte`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount: value, date, account_id: accountId }),

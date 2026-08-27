@@ -18,6 +18,7 @@ import { PasanakuAporteSheet } from '../components/pasanaku-aporte-sheet'
 import { PasanakuCobroSheet } from '../components/pasanaku-cobro-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, IconChip, Panel } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 export function PasanakuScreen() {
   const { pasanaku, accounts, hidden, loading, reload } = useFinanzas()
@@ -232,7 +233,7 @@ export function PasanakuScreen() {
         onConfirm={async () => {
           if (!borrandoHistorico) return
           setRemovingHistorico(true)
-          await fetch(`/api/finanzas/pasanaku/historico/${borrandoHistorico.id}`, { method: 'DELETE' })
+          await fzFetch(`/api/finanzas/pasanaku/historico/${borrandoHistorico.id}`, { method: 'DELETE' })
           await reload()
           setRemovingHistorico(false)
           setBorrandoHistorico(null)
@@ -256,7 +257,7 @@ export function PasanakuScreen() {
         onConfirm={async () => {
           if (!borrandoCobro) return
           setRemovingCobro(true)
-          await fetch(`/api/finanzas/transactions/${borrandoCobro.id}`, { method: 'DELETE' })
+          await fzFetch(`/api/finanzas/transactions/${borrandoCobro.id}`, { method: 'DELETE' })
           await reload()
           setRemovingCobro(false)
           setBorrandoCobro(null)

@@ -7,3 +7,4 @@ export {
   AjustesCategoriasIngresoScreen,
 } from './categorias'
 export { AjustesPersonasScreen } from './personas'
+export { AjustesPerfilesScreen } from './perfiles'

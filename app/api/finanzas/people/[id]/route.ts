@@ -1,10 +1,10 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { PERSON_COLS } from '@/lib/finanzas/people'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -23,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_people')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(PERSON_COLS)
     .maybeSingle()
 
@@ -43,16 +43,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * `fin_debts.person_id` lo impide y devolvemos 409 sugiriendo archivar — la
  * misma regla que las cuentas con movimientos.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
 
   const { count } = await supabase
     .from('fin_debts')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .eq('person_id', id)
 
   if ((count ?? 0) > 0) {
@@ -66,7 +66,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .from('fin_people')
     .delete()
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

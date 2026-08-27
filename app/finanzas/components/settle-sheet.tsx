@@ -11,6 +11,7 @@ import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { PersonAvatar, SearchField, formatDayLabel } from './ui'
 import { Btn, DateField, ErrorNote, Label, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 const LAST_ACCOUNT_KEY = 'fz:lastAccount'
 
@@ -114,7 +115,7 @@ export function SettleSheet({ debt, onClose, onDone }: {
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
 
     setSaving(true)
-    const res = await fetch('/api/finanzas/debts/settle', {
+    const res = await fzFetch('/api/finanzas/debts/settle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

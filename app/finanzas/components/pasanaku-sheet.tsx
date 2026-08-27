@@ -11,6 +11,7 @@ import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { Btn, ErrorNote, IconChip, Label, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Crear o editar un pasanaku. Personal a propósito — sin participantes ni
@@ -106,7 +107,7 @@ export function PasanakuSheet({ editing, onClose, onSaved }: {
   async function remove() {
     if (!editing) return
     setRemoving(true)
-    const res = await fetch(`/api/finanzas/pasanaku/${editing.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/pasanaku/${editing.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setRemoving(false)

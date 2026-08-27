@@ -41,28 +41,41 @@ export interface Snapshot {
 }
 
 const PREFIX = 'fz:snap:'
-/** Sube cuando cambia la forma del snapshot: descarta los viejos sin migrarlos. */
-const VERSION = 8
+/** Sube cuando cambia la forma del snapshot: descarta los viejos sin migrarlos.
+ *  9 = Sprint 8, la clave pasa a incluir el perfil. */
+const VERSION = 9
 /** Un patrimonio de hace más de una semana ya no informa nada: mejor el esqueleto. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** Tope de tamaño. Serializar de más bloquea el hilo principal en cada guardado. */
 const MAX_BYTES = 512 * 1024
 
-function keyFor(uid: string): string {
-  return `${PREFIX}${VERSION}:${uid}`
+/**
+ * La clave incluye el perfil (Sprint 8).
+ *
+ * Sin esto, cambiar de perfil mostraría el patrimonio del anterior en el primer
+ * frame — exactamente el número falso que este archivo existe para evitar. El
+ * `VERSION` que subió a 9 descarta de paso los snapshots viejos, que no sabrían
+ * a qué perfil pertenecen.
+ *
+ * `profileId` puede faltar en el primer arranque, antes de que /bootstrap diga
+ * cuál es el activo: ahí se usa un cajón propio en vez de mezclarlo con el de
+ * un perfil real.
+ */
+function keyFor(uid: string, profileId: string | null): string {
+  return `${PREFIX}${VERSION}:${uid}:${profileId ?? 'pendiente'}`
 }
 
 /* ─── Lectura y escritura ──────────────────────────────────────────────────── */
 
-export function readSnapshot(uid: string | null): Snapshot | null {
+export function readSnapshot(uid: string | null, profileId: string | null = null): Snapshot | null {
   if (!uid) return null
   try {
-    const raw = window.localStorage.getItem(keyFor(uid))
+    const raw = window.localStorage.getItem(keyFor(uid, profileId))
     if (!raw) return null
 
     const snap = JSON.parse(raw) as Snapshot
     if (!snap || typeof snap.at !== 'number' || Date.now() - snap.at > MAX_AGE_MS) {
-      window.localStorage.removeItem(keyFor(uid))
+      window.localStorage.removeItem(keyFor(uid, profileId))
       return null
     }
     return snap
@@ -71,12 +84,12 @@ export function readSnapshot(uid: string | null): Snapshot | null {
   }
 }
 
-export function writeSnapshot(uid: string | null, snap: Omit<Snapshot, 'at'>): void {
+export function writeSnapshot(uid: string | null, profileId: string | null, snap: Omit<Snapshot, 'at'>): void {
   if (!uid) return
   try {
     const raw = JSON.stringify({ ...snap, at: Date.now() })
     if (raw.length > MAX_BYTES) return
-    window.localStorage.setItem(keyFor(uid), raw)
+    window.localStorage.setItem(keyFor(uid, profileId), raw)
   } catch {
     // Cuota llena o modo privado: el snapshot es una mejora, nunca un requisito.
   }

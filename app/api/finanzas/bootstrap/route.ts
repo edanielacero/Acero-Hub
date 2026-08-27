@@ -1,4 +1,4 @@
-import { requireUser, createAdminClient } from '@/lib/supabase-server'
+import { requireProfile, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse, after } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { readQuotes, refreshQuotes, quotesAreStale, QUOTE_PAIRS } from '@/lib/finanzas/quotes'
@@ -17,8 +17,9 @@ import { monthRange, todayISO } from '@/lib/finanzas/transactions'
  * servidor, que en Vercel corre en UTC.
  */
 export async function GET(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId, profiles } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const url = new URL(request.url)
   const fallback = monthRange()
@@ -60,31 +61,38 @@ export async function GET(request: Request) {
   // pasárselos hechos, en vez de que cada uno los vuelva a pedir por su
   // cuenta un segundo después en el mismo viaje.
   const [accounts, recurring] = await Promise.all([
-    loadAccounts(supabase, userId, quotes),
-    loadRecurring(supabase, userId, today),
+    loadAccounts(supabase, scope, quotes),
+    loadRecurring(supabase, scope, today),
   ])
 
   const [categories, people, shared, plans, pasanaku, budgets, savings, months, month, recent] = await Promise.all([
-    loadCategories(supabase, userId),
-    loadPeople(supabase, userId),
-    loadShared(supabase, userId, range),
-    loadDebtPlans(supabase, userId),
-    loadPasanaku(supabase, userId),
+    loadCategories(supabase, scope),
+    loadPeople(supabase, scope),
+    loadShared(supabase, scope, range),
+    loadDebtPlans(supabase, scope),
+    loadPasanaku(supabase, scope),
     // El quick-add necesita esto para poder bloquear un gasto que se pasa del
     // presupuesto en CUALQUIER pantalla, no solo en /presupuesto — por eso va
     // acá desde el día uno y no se difiere (Decisiones Técnicas §2.1).
-    loadBudgets(supabase, userId, today, { rates: accounts.rates, recurring }),
+    loadBudgets(supabase, scope, today, { rates: accounts.rates, recurring }),
     // Mismo motivo que budgets: el quick-add necesita la lista de ahorros
     // para el picker de "a qué ahorro corresponde" en cualquier pantalla.
-    loadSavingsGoals(supabase, userId, today, { rates: accounts.rates }),
-    loadAvailableMonths(supabase, userId),
-    loadTransactions(supabase, userId, { from: range.from, to: range.to, limit: monthLimit }),
-    loadTransactions(supabase, userId, { limit: recentLimit }),
+    loadSavingsGoals(supabase, scope, today, { rates: accounts.rates }),
+    loadAvailableMonths(supabase, scope),
+    loadTransactions(supabase, scope, { from: range.from, to: range.to, limit: monthLimit }),
+    loadTransactions(supabase, scope, { limit: recentLimit }),
   ])
 
   return NextResponse.json({
     // Le sirve al cliente para no reusar el snapshot cacheado de otra sesión.
     uid: userId,
+    // Los perfiles del usuario, para pintar el selector sin un segundo viaje.
+    profiles,
+    // El perfil que el server resolvió — puede NO ser el que el cliente pidió:
+    // un `?profile=` archivado o borrado desde otro dispositivo cae al default
+    // en silencio (§4.1). Que el activo viaje de vuelta es lo que le permite al
+    // cliente darse cuenta y corregir su localStorage.
+    profile: profileId,
     ...accounts,
     categories,
     people,

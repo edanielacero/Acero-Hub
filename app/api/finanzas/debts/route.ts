@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, round2, toUsd } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
@@ -10,8 +10,9 @@ import { monthRange, isValidDate } from '@/lib/finanzas/transactions'
 
 /** Todo el panel de Compartidos en un solo viaje. */
 export async function GET(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   // El mes lo puede fijar el cliente: "cobrado este mes" tiene que medirse
   // contra su calendario, no contra el UTC del servidor.
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     to: url.searchParams.get('to') || fallback.to,
   }
 
-  return NextResponse.json(await loadShared(supabase, userId, range))
+  return NextResponse.json(await loadShared(supabase, scope, range))
 }
 
 
@@ -39,8 +40,9 @@ export async function GET(request: Request) {
  * cambiar de valor.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -64,8 +66,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Elige quién te debe' }, { status: 400 })
   }
 
-  const { resolved, error: peopleError } = await resolvePeople(
-    supabase, userId, [{ person_id: personId, person_name: personName, amount }],
+  const { resolved, error: peopleError } = await resolvePeople(supabase, scope, [{ person_id: personId, person_name: personName, amount }],
   )
   if (peopleError || resolved.length === 0) {
     return NextResponse.json({ error: peopleError ?? 'No se pudo resolver la persona' }, { status: 400 })
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('fin_debts')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       transaction_id: null,
       person_id: resolved[0].person_id,
       amount,

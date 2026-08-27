@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect,
   useMemo, useRef, useState,
 } from 'react'
-import type { AccountWithBalance, BudgetsPayload, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
+import type { AccentKey, AccountWithBalance, BudgetsPayload, Category, DebtPlanWithCuotas, PasanakuWithState, PersonWithDebt, Profile, RateMap, RecurringSummary, SharedSummary } from '@/lib/finanzas/types'
 import type { RateDetail } from '@/lib/finanzas/rates'
 import type { SavingsGoalsPayload, TxResult } from '@/lib/finanzas/load'
 import { CURRENCY_META, RATED_CURRENCIES } from '@/lib/finanzas/types'
@@ -12,6 +12,7 @@ import { monthRange, todayISO } from '@/lib/finanzas/transactions'
 import { clearSnapshots, readSnapshot, writeSnapshot, type Snapshot } from '@/lib/finanzas/snapshot'
 import { readSessionClaims } from '@/lib/session-claims'
 import { createClient } from '@/lib/supabase'
+import { readProfilePref, writeProfilePref } from './profile-pref'
 
 export type { TxResult }
 
@@ -70,6 +71,19 @@ interface FinanzasData {
   toggleHidden: () => void
   /** Nombre del usuario logueado, para saludos. Null hasta leer la sesión. */
   userName: string | null
+
+  /* ── Perfiles (Sprint 8) ── */
+  /** Los perfiles del usuario, para el selector. Solo los no archivados. */
+  profiles: Profile[]
+  /** El id del perfil activo. Null hasta que /bootstrap lo confirme. */
+  profileId: string | null
+  /** El acento del perfil activo — ya aplicado sobre `#fz-root`. */
+  accent: AccentKey
+  /**
+   * Cambia de perfil sin recargar la página: repinta el acento, cambia la
+   * clave del snapshot y vuelve a pedir /bootstrap.
+   */
+  switchProfile: (id: string) => void
 }
 
 const Ctx = createContext<FinanzasData | null>(null)
@@ -157,6 +171,13 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
   const uid = useRef<string | null>(null)
   const firstLoad = useRef(true)
 
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const [accent, setAccent] = useState<AccentKey>('verde')
+  // El perfil que va en el próximo /bootstrap. En un ref además del estado
+  // porque `reload` lo lee y no debe recrearse cada vez que cambia.
+  const wantedProfile = useRef<string | null>(null)
+
   const apply = useCallback((snap: Omit<Snapshot, 'at'>, v: number) => {
     setAccounts(snap.accounts)
     setCategories(snap.categories)
@@ -185,7 +206,14 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     uid.current = claims?.sub ?? null
     setUserName(claims?.name ?? null)
 
-    const snap = readSnapshot(uid.current)
+    // El perfil de este dispositivo, antes de tocar la red: de él dependen la
+    // clave del snapshot y el color del primer frame.
+    const pref = readProfilePref()
+    wantedProfile.current = pref.id
+    setProfileId(pref.id)
+    setAccent(pref.accent)
+
+    const snap = readSnapshot(uid.current, pref.id)
     if (!snap) return
 
     apply(snap, FROM_SNAPSHOT)
@@ -204,6 +232,14 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     firstLoad.current = false
     setPending(true)
 
+    // Con qué perfil sale ESTE request. Si al volver la respuesta el usuario ya
+    // cambió a otro, lo que trae es de un cajón que ya no está mirando: se
+    // descarta. Sin esta marca, una respuesta lenta del perfil anterior podía
+    // aterrizar después de la del nuevo y dejar la plata de uno bajo el nombre
+    // del otro — con el localStorage apuntando al equivocado, así que la
+    // próxima apertura heredaba el error.
+    const pedido = wantedProfile.current
+
     const range = monthRange()
     const qs = new URLSearchParams({
       from: range.from, to: range.to, limit: MONTH_LIMIT, recent: String(RECENT),
@@ -211,6 +247,9 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       // vencido o todavía no.
       today: todayISO(),
     })
+    // El perfil activo de este dispositivo. Si no hay (primer arranque) o si es
+    // inválido, el server cae al default en silencio y lo dice en la respuesta.
+    if (wantedProfile.current) qs.set('profile', wantedProfile.current)
 
     let res: Response
     try {
@@ -248,16 +287,35 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (!res.ok) {
-      setError(true)
+      // Un fallo del perfil anterior no debe pintar de rojo el que se está
+      // mirando ahora.
+      if (wantedProfile.current === pedido) setError(true)
       setPending(false)
       return
     }
 
     const data = await res.json()
 
+    // Llegó tarde: el usuario ya está en otro perfil.
+    if (wantedProfile.current !== pedido) return
+
     // Si la cookie no se pudo leer al montar, el id del server es la red de
     // seguridad: el snapshot nunca se guarda sin saber de quién es.
     if (typeof data.uid === 'string') uid.current = data.uid
+
+    // El perfil que el server resolvió puede NO ser el que se pidió: un id
+    // archivado, borrado desde otro dispositivo o de otro usuario cae al
+    // default. Por eso el activo manda sobre lo que había en localStorage.
+    const activos: Profile[] = (data.profiles ?? []).filter((p: Profile) => !p.archived)
+    setProfiles(activos)
+    if (typeof data.profile === 'string') {
+      const actual = (data.profiles ?? []).find((p: Profile) => p.id === data.profile)
+      const nuevoAccent: AccentKey = actual?.accent ?? 'verde'
+      wantedProfile.current = data.profile
+      setProfileId(data.profile)
+      setAccent(nuevoAccent)
+      writeProfilePref({ id: data.profile, accent: nuevoAccent })
+    }
 
     // Las dos consultas que /bootstrap ya resolvió, guardadas con la clave con
     // la que las pantallas las van a buscar.
@@ -292,7 +350,7 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     }
 
     apply(next, cacheVersion)
-    writeSnapshot(uid.current, next)
+    writeSnapshot(uid.current, wantedProfile.current, next)
     setError(false)
     setLoading(false)
     setPending(false)
@@ -308,14 +366,64 @@ export function FinanzasProvider({ children }: { children: React.ReactNode }) {
     void reload()
   }, [reload])
 
+  /**
+   * Cambia de perfil sin recargar la página.
+   *
+   * El acento se pinta de inmediato desde lo que ya sabemos del perfil, sin
+   * esperar a /bootstrap: es el color el que dice en cuál estás, y medio
+   * segundo del color anterior es medio segundo diciendo algo falso.
+   *
+   * Los datos, en cambio, sí esperan. Se marca `loading` para que las pantallas
+   * pinten su esqueleto en vez de mostrar los números del perfil anterior como
+   * si fueran de este — mismo criterio que el snapshot: un número de otro
+   * perfil no es "todavía no sé", es un número equivocado.
+   */
+  const switchProfile = useCallback((id: string) => {
+    if (id === wantedProfile.current) return
+    const destino = profiles.find(p => p.id === id)
+    if (!destino) return
+
+    wantedProfile.current = id
+    setProfileId(id)
+    setAccent(destino.accent)
+    writeProfilePref({ id, accent: destino.accent })
+
+    // Lo cacheado es del perfil anterior: no sirve para este.
+    txCache.clear()
+    cacheVersion += 1
+
+    const snap = readSnapshot(uid.current, id)
+    if (snap) {
+      apply(snap, FROM_SNAPSHOT)
+    } else {
+      setLoading(true)
+    }
+    void reload()
+  }, [profiles, apply, reload])
+
+  // El acento vive en `#fz-root`, el mismo nodo donde theme.css define todos
+  // los tokens. Se escribe por efecto y no en el JSX porque el provider no
+  // renderiza ese div — lo hace el layout, que es un server component.
+  //
+  // **Layout effect, no effect.** `useEffect` corre DESPUÉS del primer paint,
+  // así que la app se pintaba un frame en verde antes de tomar el color del
+  // perfil. No es solo un parpadeo: durante ese frame el color está diciendo
+  // que estás en otro perfil, y el color es justamente lo que evita registrar
+  // un movimiento donde no va.
+  useIsoLayoutEffect(() => {
+    document.getElementById('fz-root')?.setAttribute('data-accent', accent)
+  }, [accent])
+
   const value = useMemo<FinanzasData>(
     () => ({
       accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, savings, months, totalUsd,
       loading, stale: pending && !loading, pending, error,
       reload, version, seed, hidden, toggleHidden, userName,
+      profiles, profileId, accent, switchProfile,
     }),
     [accounts, categories, rates, rateList, people, shared, recurring, plans, pasanaku, budgets, savings, months, totalUsd,
-     loading, pending, error, reload, version, seed, hidden, toggleHidden, userName],
+     loading, pending, error, reload, version, seed, hidden, toggleHidden, userName,
+     profiles, profileId, accent, switchProfile],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

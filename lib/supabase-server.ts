@@ -62,3 +62,36 @@ export async function requireUser() {
     role: claims.app_metadata?.role ?? null,
   }
 }
+
+/**
+ * Identidad **y perfil activo** del request (Finanzas, Sprint 8).
+ *
+ * Spec: documentos/finanzas/sprint_8_perfiles.md §4.2
+ *
+ * Devuelve los dos ids porque cumplen papeles distintos y ninguno reemplaza al
+ * otro:
+ *
+ * - `profileId` es el que **filtra**: toda lectura del dominio lleva
+ *   `.eq('profile_id', profileId)`. Es lo que aísla un perfil de otro.
+ * - `userId` es el que **escribe**: todo insert sigue guardando `user_id`,
+ *   porque es lo que sostiene RLS. Sin él, la fila no pasa la policy.
+ *
+ * La FK compuesta `(profile_id, user_id) → fin_profiles(id, user_id)` garantiza
+ * que los dos no puedan quedar en desacuerdo.
+ *
+ * El perfil se lee de `?profile=<id>`; si no viene o es inválido, cae al
+ * default (ver `resolveProfile`, que además lo crea si el usuario no tiene
+ * ninguno). Nunca devuelve un `profileId` vacío con `userId` presente.
+ */
+export async function requireProfile(request?: Request) {
+  const { supabase, userId, claims, role } = await requireUser()
+  if (!userId) {
+    return { supabase, userId: null as string | null, profileId: null as string | null, profiles: [], claims, role }
+  }
+
+  const { resolveProfile } = await import('./finanzas/profiles')
+  const requested = request ? new URL(request.url).searchParams.get('profile') : null
+  const { profileId, profiles } = await resolveProfile(supabase, userId, requested)
+
+  return { supabase, userId, profileId, profiles, claims, role }
+}

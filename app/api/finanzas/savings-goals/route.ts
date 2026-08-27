@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { loadSavingsGoals } from '@/lib/finanzas/load'
@@ -7,11 +7,12 @@ import { todayISO } from '@/lib/finanzas/transactions'
 import { CURRENCIES, type AllocationType, type Currency } from '@/lib/finanzas/types'
 
 export async function GET(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const today = new URL(request.url).searchParams.get('today') || todayISO()
-  return NextResponse.json(await loadSavingsGoals(supabase, userId, today))
+  return NextResponse.json(await loadSavingsGoals(supabase, scope, today))
 }
 
 /**
@@ -20,8 +21,8 @@ export async function GET(request: Request) {
  * de en qué cuenta vive su plata recién cuando se registra un aporte.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -51,13 +52,13 @@ export async function POST(request: Request) {
     await supabase
       .from('fin_savings_goals')
       .update({ is_catchall: false })
-      .eq('user_id', userId).eq('is_catchall', true)
+      .eq('profile_id', profileId).eq('is_catchall', true)
   }
 
   const { data, error } = await supabase
     .from('fin_savings_goals')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       name: (body.name as string).trim(),
       input_currency: currency,
       allocation_type: allocationType,

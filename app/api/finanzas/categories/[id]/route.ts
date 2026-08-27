@@ -1,12 +1,12 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_categories')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(CATEGORY_COLS)
     .maybeSingle()
 
@@ -58,14 +58,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * en RESTRICT y hay que reasignarlos antes. Se chequea acá para poder decir
  * CUÁLES son, en vez de dejar salir el error crudo de Postgres.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
 
   const { data: fijos } = await supabase
-    .from('fin_recurring').select('name').eq('user_id', userId).eq('category_id', id)
+    .from('fin_recurring').select('name').eq('profile_id', profileId).eq('category_id', id)
   if ((fijos ?? []).length > 0) {
     const nombres = (fijos ?? []).map(f => f.name as string)
     const lista = nombres.slice(0, 3).join(', ') + (nombres.length > 3 ? ` y ${nombres.length - 3} más` : '')
@@ -79,7 +79,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .from('fin_categories')
     .delete()
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

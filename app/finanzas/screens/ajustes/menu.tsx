@@ -1,6 +1,6 @@
 'use client'
 
-import { IconCategory, IconCoins, IconReportMoney, IconUsersGroup } from '@tabler/icons-react'
+import { IconCategory, IconCoins, IconReportMoney, IconUserCircle, IconUsersGroup } from '@tabler/icons-react'
 import { CURRENCY_META } from '@/lib/finanzas/types'
 import { useBudgetViewPref } from '../../components/budget-view-pref'
 import { useFinanzas } from '../../components/data-context'
@@ -20,7 +20,7 @@ import { AJUSTES_HOME, SettingsMenu, SettingsPage, type SettingsMenuItem } from 
  * el menú no debería obligar a entrar solo para ver qué hay configurado.
  */
 export function AjustesScreen() {
-  const { categories, people, rates } = useFinanzas()
+  const { categories, people, rates, profiles } = useFinanzas()
   const { mode } = useBudgetViewPref()
 
   const bob = rates.BOB ?? CURRENCY_META.BOB.defaultRate
@@ -38,7 +38,7 @@ export function AjustesScreen() {
     {
       href: `${AJUSTES_HOME}/tipo-de-cambio`,
       label: 'Tipo de cambio',
-      description: 'Cotizaciones automáticas o fijadas a mano',
+      description: 'Cotizaciones automáticas o fijadas a mano · igual en todos los perfiles',
       Icon: IconCoins,
       meta: <span className="fz-num">Bs {bob.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>,
     },
@@ -48,6 +48,13 @@ export function AjustesScreen() {
       description: 'Las de gasto y las de ingreso, cada una por su lado',
       Icon: IconCategory,
       meta: categories.length ? `${activas}` : undefined,
+    },
+    {
+      href: `${AJUSTES_HOME}/perfiles`,
+      label: 'Perfiles',
+      description: 'Separa finanzas que no tienen nada que ver entre sí',
+      Icon: IconUserCircle,
+      meta: profiles.length > 1 ? `${profiles.length}` : undefined,
     },
     {
       href: `${AJUSTES_HOME}/personas`,

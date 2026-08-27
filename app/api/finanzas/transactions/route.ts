@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num } from '@/lib/finanzas/money'
@@ -13,11 +13,12 @@ const TX_COLS =
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
 export async function GET(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const q = new URL(request.url).searchParams
-  const { data, error } = await loadTransactions(supabase, userId, {
+  const { data, error } = await loadTransactions(supabase, scope, {
     from: q.get('from'),
     to: q.get('to'),
     type: q.get('type'),
@@ -34,8 +35,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
 
   // Cuentas y tasas no dependen entre sí — van juntas en un solo viaje.
   const [{ data: accountRows }, { rates }] = await Promise.all([
-    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
+    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId),
     ensureRates(supabase, userId),
   ])
 
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
   const account = accountsById.get(input.account_id!)!
   const currency = account.currency
 
-  const categoryError = await assertCategory(supabase, userId, input.category_id)
+  const categoryError = await assertCategory(supabase, scope, input.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   const frozen = freezeConversion(input.amount!, currency, rates)
@@ -118,7 +120,7 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
-    const goalError = await assertSavingsGoal(supabase, userId, goalId)
+    const goalError = await assertSavingsGoal(supabase, scope, goalId)
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
     savingsGoalId = goalId
 
@@ -145,13 +147,13 @@ export async function POST(request: Request) {
   // El saldo se mide recién acá, no antes: el tope depende de si esto es un
   // retiro declarado (gasta de la alcancía) o un movimiento común (que no
   // puede tocarla). Ver el "piso de ahorro" en `assertBalance`.
-  const balanceError = await assertBalance(supabase, userId, account, input.type!, input.amount!, null, savingsFlow)
+  const balanceError = await assertBalance(supabase, scope, account, input.type!, input.amount!, null, savingsFlow)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const { data, error } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: input.type,
       // El cliente nunca manda `flow_type`: lo decide el server según el tipo
       // y la cuenta (ver `flowTypeFor`).
@@ -184,7 +186,7 @@ export async function POST(request: Request) {
   // pueda avisar, en vez de que la categoría aparezca "pasada" sin explicación.
   let budgetExtensionError: string | undefined
   if (input.type === 'gasto' && input.budget_extension_usd) {
-    const result = await applyBudgetExtension(supabase, userId, input.category_id ?? null, input.date!, input.budget_extension_usd)
+    const result = await applyBudgetExtension(supabase, scope, input.category_id ?? null, input.date!, input.budget_extension_usd)
     if (!result.ok) budgetExtensionError = result.error
   }
 

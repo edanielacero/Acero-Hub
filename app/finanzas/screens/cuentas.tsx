@@ -23,6 +23,7 @@ import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, ErrorNote, formatDayLabel, Label, Panel, RowMenu, SearchField, SectionTitle, TextField } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 interface Draft {
   id?: string
@@ -148,7 +149,7 @@ export function CuentasScreen() {
 
   async function patch(id: string, body: Record<string, unknown>) {
     setError('')
-    const res = await fetch(`/api/finanzas/accounts/${id}`, {
+    const res = await fzFetch(`/api/finanzas/accounts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -176,7 +177,7 @@ export function CuentasScreen() {
     setOrder(next)
     setError('')
 
-    const res = await fetch('/api/finanzas/accounts/reorder', {
+    const res = await fzFetch('/api/finanzas/accounts/reorder', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: next }),
@@ -192,7 +193,7 @@ export function CuentasScreen() {
 
   async function remove(id: string) {
     setError('')
-    const res = await fetch(`/api/finanzas/accounts/${id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/accounts/${id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       return setError(data.error ?? 'No se pudo borrar')

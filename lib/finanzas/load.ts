@@ -21,7 +21,7 @@ import type {
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
   DebtWithContext, Pasanaku, PasanakuAporte, PasanakuCobro, PasanakuHistorico, PasanakuWithState,
-  SavingsClosureProposal, SavingsGoal, SavingsGoalWithBalance, Transaction, TxType,
+  SavingsClosureProposal, SavingsGoal, SavingsGoalWithBalance, Scope, Transaction, TxType,
 } from './types'
 
 /**
@@ -52,15 +52,15 @@ export interface AccountsPayload {
 /** Cuentas con saldo derivado, más las tasas con que se valuaron. */
 export async function loadAccounts(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   quotes?: QuoteMap,
 ): Promise<AccountsPayload> {
   const [{ rates, rows: rateRows }, { data: accountRows }, { data: txRows }] = await Promise.all([
-    ensureRates(supabase, userId, quotes),
+    ensureRates(supabase, scope.userId, quotes),
     supabase
       .from('fin_accounts')
       .select(ACCOUNT_COLS)
-      .eq('user_id', userId)
+      .eq('profile_id', scope.profileId)
       .order('sort_order')
       .order('created_at'),
     // Se traen todos los movimientos porque el saldo es derivado: no hay forma
@@ -70,7 +70,7 @@ export async function loadAccounts(
     supabase
       .from('fin_transactions')
       .select('type, account_id, to_account_id, amount, to_amount, flow_type, amount_usd, to_amount_usd, savings_goal_id, savings_flow')
-      .eq('user_id', userId),
+      .eq('profile_id', scope.profileId),
   ])
 
   const accounts = (accountRows ?? []).map(mapAccount)
@@ -133,14 +133,14 @@ export async function loadAccounts(
  */
 export async function accountBalance(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   account: Account,
   excludeTxId?: string | null,
 ): Promise<{ balance: number; savings: number }> {
   const { data: txRows } = await supabase
     .from('fin_transactions')
     .select('id, type, account_id, to_account_id, amount, to_amount, amount_usd, to_amount_usd, savings_goal_id, savings_flow')
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
 
   const movements = (txRows ?? []).map(mapBalanceMovement)
   const balance = computeBalances([account], movements).get(account.id) ?? account.initial_balance
@@ -211,7 +211,7 @@ export async function accountBalance(
  */
 export async function assertBalance(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   account: Account,
   type: TxType,
   amount: number,
@@ -220,7 +220,7 @@ export async function assertBalance(
 ): Promise<string | null> {
   if (!consumesBalance(type) || (type === 'gasto' && account.is_investment)) return null
 
-  const { balance, savings } = await accountBalance(supabase, userId, account, editing?.id)
+  const { balance, savings } = await accountBalance(supabase, scope, account, editing?.id)
   const total = availableFrom(balance, editing, account.id)
 
   // Un retiro o un traslado declarados salen de la ALCANCÍA, no del resto: su
@@ -256,12 +256,12 @@ export async function assertBalance(
  */
 export async function assertCategory(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   categoryId: string | null | undefined,
 ): Promise<string | null> {
   if (!categoryId) return null
   const { data } = await supabase
-    .from('fin_categories').select('id').eq('user_id', userId).eq('id', categoryId).maybeSingle()
+    .from('fin_categories').select('id').eq('profile_id', scope.profileId).eq('id', categoryId).maybeSingle()
   return data ? null : 'La categoría no existe'
 }
 
@@ -280,22 +280,22 @@ export async function assertCategory(
  */
 export async function assertSavingsGoal(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   goalId: string,
   opts?: { allowArchived?: boolean },
 ): Promise<string | null> {
   const { data } = await supabase
-    .from('fin_savings_goals').select('id, archived').eq('user_id', userId).eq('id', goalId).maybeSingle()
+    .from('fin_savings_goals').select('id, archived').eq('profile_id', scope.profileId).eq('id', goalId).maybeSingle()
   if (!data) return 'Ese ahorro no existe'
   if (data.archived && !opts?.allowArchived) return 'Ese ahorro está archivado'
   return null
 }
 
-export async function loadCategories(supabase: SupabaseClient, userId: string): Promise<Category[]> {
+export async function loadCategories(supabase: SupabaseClient, scope: Scope): Promise<Category[]> {
   const { data } = await supabase
     .from('fin_categories')
     .select(CATEGORY_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
     .order('kind')
     .order('sort_order')
     .order('name')
@@ -308,13 +308,13 @@ export async function loadCategories(supabase: SupabaseClient, userId: string): 
  * porque tanto Compartidos como el picker lo necesitan, y traer todos los
  * splits solo para contarlos sería un viaje entero desperdiciado.
  */
-export async function loadPeople(supabase: SupabaseClient, userId: string): Promise<PersonWithDebt[]> {
+export async function loadPeople(supabase: SupabaseClient, scope: Scope): Promise<PersonWithDebt[]> {
   const [{ data: people }, { data: splits }] = await Promise.all([
-    supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId).order('sort_order').order('name'),
+    supabase.from('fin_people').select(PERSON_COLS).eq('profile_id', scope.profileId).order('sort_order').order('name'),
     supabase
       .from('fin_debts')
       .select('person_id, amount_usd, settled_tx_id, waived_at')
-      .eq('user_id', userId),
+      .eq('profile_id', scope.profileId),
   ])
 
   const open = new Map<string, { count: number; usd: number }>()
@@ -342,10 +342,10 @@ export async function loadPeople(supabase: SupabaseClient, userId: string): Prom
  */
 export async function loadShared(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   range: { from: string; to: string } = monthRange(),
 ): Promise<SharedSummary> {
-  const { rows, raw } = await readDebts(supabase, userId)
+  const { rows, raw } = await readDebts(supabase, scope)
   const today = todayISO()
 
   const byId = new Map(raw.map(r => [r.id, r]))
@@ -391,19 +391,19 @@ const DEBT_PLAN_COLS =
  */
 export async function loadDebtPlans(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
 ): Promise<DebtPlanWithCuotas[]> {
   const [{ data: planRows }, { data: peopleRows }, { data: cuotaRows }] = await Promise.all([
     supabase
       .from('fin_debt_plans')
       .select(DEBT_PLAN_COLS)
-      .eq('user_id', userId)
+      .eq('profile_id', scope.profileId)
       .order('created_at', { ascending: false }),
-    supabase.from('fin_people').select(PERSON_COLS).eq('user_id', userId),
+    supabase.from('fin_people').select(PERSON_COLS).eq('profile_id', scope.profileId),
     supabase
       .from('fin_debts')
       .select(DEBT_CTX_COLS)
-      .eq('user_id', userId)
+      .eq('profile_id', scope.profileId)
       .not('plan_id', 'is', null)
       .order('plan_installment_no'),
   ])
@@ -471,17 +471,17 @@ const PASANAKU_HISTORICO_COLS = 'id, pasanaku_id, date, amount, note'
  */
 export async function loadPasanaku(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
 ): Promise<PasanakuWithState[]> {
   const [{ data: rows }, { data: txRows }, { data: historicoRows }, { rates }] = await Promise.all([
-    supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('user_id', userId).order('created_at'),
+    supabase.from('fin_pasanaku').select(PASANAKU_COLS).eq('profile_id', scope.profileId).order('created_at'),
     supabase
       .from('fin_transactions')
       .select('id, type, date, amount, currency, pasanaku_id')
-      .eq('user_id', userId)
+      .eq('profile_id', scope.profileId)
       .not('pasanaku_id', 'is', null),
-    supabase.from('fin_pasanaku_historico').select(PASANAKU_HISTORICO_COLS).eq('user_id', userId),
-    ensureRates(supabase, userId),
+    supabase.from('fin_pasanaku_historico').select(PASANAKU_HISTORICO_COLS).eq('profile_id', scope.profileId),
+    ensureRates(supabase, scope.userId),
   ])
 
   const byPasanaku = new Map<string, { id: string; type: TxType; date: string; amount: number; currency: Currency }[]>()
@@ -625,22 +625,22 @@ const RECURRING_SPLIT_COLS = 'id, recurring_id, person_id, amount'
  */
 export async function loadRecurring(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   todayISO: string,
 ): Promise<RecurringSummary> {
   const [{ data: rows }, { data: splitRows }, { data: hechos }, { data: deudas }] =
     await Promise.all([
-      supabase.from('fin_recurring').select(RECURRING_COLS).eq('user_id', userId),
-      supabase.from('fin_recurring_splits').select(RECURRING_SPLIT_COLS).eq('user_id', userId),
+      supabase.from('fin_recurring').select(RECURRING_COLS).eq('profile_id', scope.profileId),
+      supabase.from('fin_recurring_splits').select(RECURRING_SPLIT_COLS).eq('profile_id', scope.profileId),
       supabase
         .from('fin_transactions')
         .select('id, date, recurring_id')
-        .eq('user_id', userId)
+        .eq('profile_id', scope.profileId)
         .not('recurring_id', 'is', null),
       supabase
         .from('fin_debts')
         .select('amount_usd, settled_tx_id, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(recurring_id)')
-        .eq('user_id', userId),
+        .eq('profile_id', scope.profileId),
     ])
 
   const splitsByRec = new Map<string, RecurringSplit[]>()
@@ -712,8 +712,8 @@ export async function loadRecurring(
  * más reciente al más viejo — es lo que puebla el filtro de mes de
  * Movimientos: no tiene sentido ofrecer un mes vacío para elegir.
  */
-export async function loadAvailableMonths(supabase: SupabaseClient, userId: string): Promise<string[]> {
-  const { data } = await supabase.from('fin_transactions').select('date').eq('user_id', userId)
+export async function loadAvailableMonths(supabase: SupabaseClient, scope: Scope): Promise<string[]> {
+  const { data } = await supabase.from('fin_transactions').select('date').eq('profile_id', scope.profileId)
 
   const months = new Set<string>()
   for (const row of data ?? []) months.add((row.date as string).slice(0, 7))
@@ -723,7 +723,7 @@ export async function loadAvailableMonths(supabase: SupabaseClient, userId: stri
 
 export async function loadTransactions(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   f: TxFilters,
 ): Promise<{ data: TxResult | null; error: string | null }> {
   const limit = Math.min(f.limit ?? 200, 500)
@@ -732,7 +732,7 @@ export async function loadTransactions(
   let query = supabase
     .from('fin_transactions')
     .select(`${TX_COLS}, debts:fin_debts!fin_debts_transaction_id_fkey(${DEBT_COLS})`)
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
     .order('date', { ascending: false })
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
@@ -756,7 +756,7 @@ export async function loadTransactions(
     // Para poder sacar las "Actualizar valor" de la lista (ver más abajo):
     // no son un movimiento de cuenta, son un ajuste del valor de la cuenta —
     // no tienen nada que hacer en Movimientos (§7.2 de contexto_finanzas.md).
-    supabase.from('fin_accounts').select('id').eq('user_id', userId).eq('is_investment', true),
+    supabase.from('fin_accounts').select('id').eq('profile_id', scope.profileId).eq('is_investment', true),
   ])
   if (error) return { data: null, error: error.message }
 
@@ -876,15 +876,15 @@ function sumGeneral(categories: BudgetLineProgress[]): BudgetGeneralProgress | n
  */
 export async function loadBudgets(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   today: string,
   precomputed?: { rates: RateMap; recurring: RecurringSummary },
 ): Promise<BudgetsPayload> {
   const currentPeriod = periodStart(today)
 
   const [{ data: lineRows }, { data: catRows }] = await Promise.all([
-    supabase.from('fin_budget_lines').select(BUDGET_LINE_COLS).eq('user_id', userId).eq('archived', false),
-    supabase.from('fin_categories').select('id, name, kind, archived').eq('user_id', userId),
+    supabase.from('fin_budget_lines').select(BUDGET_LINE_COLS).eq('profile_id', scope.profileId).eq('archived', false),
+    supabase.from('fin_categories').select('id, name, kind, archived').eq('profile_id', scope.profileId),
   ])
 
   const categoriesById = new Map(
@@ -902,11 +902,11 @@ export async function loadBudgets(
   }
 
   const [{ data: periodRows }, { data: closureRows }, { data: lineCatRows }, ratesResult, recurringResult] = await Promise.all([
-    supabase.from('fin_budget_periods').select(BUDGET_PERIOD_COLS).eq('user_id', userId).in('line_id', lineIds),
-    supabase.from('fin_budget_closures').select(BUDGET_CLOSURE_COLS).eq('user_id', userId).in('line_id', lineIds),
-    supabase.from('fin_budget_line_categories').select(BUDGET_LINE_CATEGORY_COLS).eq('user_id', userId).in('line_id', lineIds),
-    precomputed ? null : ensureRates(supabase, userId),
-    precomputed ? null : loadRecurring(supabase, userId, today),
+    supabase.from('fin_budget_periods').select(BUDGET_PERIOD_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+    supabase.from('fin_budget_closures').select(BUDGET_CLOSURE_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+    supabase.from('fin_budget_line_categories').select(BUDGET_LINE_CATEGORY_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+    precomputed ? null : ensureRates(supabase, scope.userId),
+    precomputed ? null : loadRecurring(supabase, scope, today),
   ])
 
   const rates = precomputed?.rates ?? ratesResult!.rates
@@ -950,7 +950,7 @@ export async function loadBudgets(
 
   const periodIds = periods.map(p => p.id)
   const { data: extensionRows } = periodIds.length > 0
-    ? await supabase.from('fin_budget_extensions').select(BUDGET_EXTENSION_COLS).eq('user_id', userId).in('period_id', periodIds)
+    ? await supabase.from('fin_budget_extensions').select(BUDGET_EXTENSION_COLS).eq('profile_id', scope.profileId).in('period_id', periodIds)
     : { data: [] as { period_id: string; amount: number; amount_usd: number; created_at: string }[] }
   const extensions = (extensionRows ?? []).map(e => ({
     period_id: e.period_id as string, amount: num(e.amount), amount_usd: num(e.amount_usd),
@@ -977,12 +977,12 @@ export async function loadBudgets(
     supabase
       .from('fin_transactions')
       .select('id, category_id, amount, currency, amount_usd, flow_type, date')
-      .eq('user_id', userId).eq('type', 'gasto')
+      .eq('profile_id', scope.profileId).eq('type', 'gasto')
       .gte('date', rangeFrom).lte('date', rangeTo),
     supabase
       .from('fin_debts')
       .select('amount, currency, amount_usd, principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
-      .eq('user_id', userId),
+      .eq('profile_id', scope.profileId),
   ])
 
   // Un gasto de cuenta de inversión ("Actualizar valor") no es plata real
@@ -1148,7 +1148,7 @@ export async function loadBudgets(
  */
 export async function applyBudgetExtension(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   categoryId: string | null,
   date: string,
   amountUsd: number,
@@ -1157,18 +1157,18 @@ export async function applyBudgetExtension(
 
   const { data: membership } = await supabase
     .from('fin_budget_line_categories')
-    .select('line_id').eq('user_id', userId).eq('category_id', categoryId).maybeSingle()
+    .select('line_id').eq('profile_id', scope.profileId).eq('category_id', categoryId).maybeSingle()
   if (!membership) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
 
   const { data: line } = await supabase
     .from('fin_budget_lines')
-    .select('id, input_currency').eq('user_id', userId).eq('id', membership.line_id).eq('archived', false).maybeSingle()
+    .select('id, input_currency').eq('profile_id', scope.profileId).eq('id', membership.line_id).eq('archived', false).maybeSingle()
   if (!line) return { ok: false, error: 'Esa categoría no tiene una línea de presupuesto activa' }
 
   const period = periodStart(date)
   const { data: periodRows } = await supabase
     .from('fin_budget_periods')
-    .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('user_id', userId).eq('line_id', line.id)
+    .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('profile_id', scope.profileId).eq('line_id', line.id)
   const periods = (periodRows ?? []).map(p => ({
     id: p.id as string, line_id: p.line_id as string, period: p.period as string,
     amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
@@ -1189,7 +1189,7 @@ export async function applyBudgetExtension(
     const { data: created, error: createError } = await supabase
       .from('fin_budget_periods')
       .insert({
-        user_id: userId, line_id: line.id, period,
+        user_id: scope.userId, profile_id: scope.profileId, line_id: line.id, period,
         amount: resolved.amount, amount_usd: resolved.amountUsd, exchange_rate: rate,
       })
       .select('id')
@@ -1200,7 +1200,7 @@ export async function applyBudgetExtension(
 
   const { error } = await supabase
     .from('fin_budget_extensions').insert({
-      user_id: userId, period_id: periodId,
+      user_id: scope.userId, profile_id: scope.profileId, period_id: periodId,
       amount: round2(amountUsd / (rate || 1)), amount_usd: round2(amountUsd), exchange_rate: rate,
     })
   return error ? { ok: false, error: error.message } : { ok: true }
@@ -1267,13 +1267,13 @@ export interface SavingsGoalsPayload {
  */
 export async function loadSavingsGoals(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   today: string,
   precomputed?: { rates: RateMap },
 ): Promise<SavingsGoalsPayload> {
   const [{ data: goalRows }, ratesResult] = await Promise.all([
-    supabase.from('fin_savings_goals').select(SAVINGS_GOAL_COLS).eq('user_id', userId).order('sort_order').order('created_at'),
-    precomputed ? Promise.resolve(null) : ensureRates(supabase, userId),
+    supabase.from('fin_savings_goals').select(SAVINGS_GOAL_COLS).eq('profile_id', scope.profileId).order('sort_order').order('created_at'),
+    precomputed ? Promise.resolve(null) : ensureRates(supabase, scope.userId),
   ])
   const rates = precomputed?.rates ?? ratesResult!.rates
 
@@ -1305,7 +1305,7 @@ export async function loadSavingsGoals(
     supabase
       .from('fin_transactions')
       .select('savings_goal_id, type, account_id, to_account_id, amount, to_amount, amount_usd, to_amount_usd, savings_flow, savings_period')
-      .eq('user_id', userId).in('savings_goal_id', goalIds),
+      .eq('profile_id', scope.profileId).in('savings_goal_id', goalIds),
   ])
 
   const taggedTxs: GoalTaggedTx[] = (txRows ?? []).map(t => ({
@@ -1375,8 +1375,8 @@ export async function loadSavingsGoals(
   }
 
   const [pending_surplus_usd, { accounts }] = await Promise.all([
-    monthSurplusUsd(supabase, userId, pending_period),
-    loadAccounts(supabase, userId),
+    monthSurplusUsd(supabase, scope, pending_period),
+    loadAccounts(supabase, scope),
   ])
 
   return {
@@ -1408,12 +1408,12 @@ export async function loadSavingsGoals(
  * —romper un ahorro deja menos para guardar el mes que viene— y no se tocó
  * porque no se pidió; queda anotado en §8 del sprint.
  */
-async function monthSurplusUsd(supabase: SupabaseClient, userId: string, period: string): Promise<number> {
+async function monthSurplusUsd(supabase: SupabaseClient, scope: Scope, period: string): Promise<number> {
   const { from, to } = periodRange(period)
   const { data: txRows } = await supabase
     .from('fin_transactions')
     .select('type, amount_usd, to_amount_usd, flow_type, savings_goal_id, savings_flow, recurring_id')
-    .eq('user_id', userId).gte('date', from).lte('date', to)
+    .eq('profile_id', scope.profileId).gte('date', from).lte('date', to)
 
   const txs = (txRows ?? []).map(t => ({
     type: t.type as TxType, amount_usd: num(t.amount_usd), flow_type: t.flow_type as Transaction['flow_type'],

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, num } from '@/lib/finanzas/money'
@@ -23,8 +23,9 @@ const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date,
  * tracker personal, no un calendario de rondas ajenas.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const { id } = await params
   const body = (await request.json().catch(() => ({}))) ?? {}
@@ -32,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: p } = await supabase
     .from('fin_pasanaku')
     .select('id, name, account_id, currency, contribution_amount')
-    .eq('id', id).eq('user_id', userId).maybeSingle()
+    .eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!p) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
   // El pasanaku no tiene cuenta propia — se elige recién acá, igual que un
@@ -42,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!accountId) return NextResponse.json({ error: 'Elige de qué cuenta sale' }, { status: 400 })
 
   const { data: accountRow } = await supabase
-    .from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).eq('id', accountId).maybeSingle()
+    .from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).eq('id', accountId).maybeSingle()
   if (!accountRow) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
   const account = mapAccount(accountRow)
   // Un aporte ahí sería indistinguible de un ajuste de valor de inversión
@@ -68,7 +69,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const date = typeof body.date === 'string' && isValidDate(body.date) ? body.date : todayISO()
 
-  const balanceError = await assertBalance(supabase, userId, account, 'gasto', amount)
+  const balanceError = await assertBalance(supabase, scope, account, 'gasto', amount)
   if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 })
 
   const frozen = freezeConversion(amount, currency, rates)
@@ -76,7 +77,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: tx, error } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: 'gasto',
       flow_type: 'movimiento',
       date,

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { num } from './money'
 import { debtState } from './splits'
-import type { Currency, Person, DebtWithContext } from './types'
+import type { Currency, Person, DebtWithContext, Scope } from './types'
 
 /**
  * Un split trae dos cosas de `fin_transactions` por caminos distintos — el
@@ -101,15 +101,15 @@ export function mapDebtContext(row: RawDebtRow): DebtWithContext {
   }
 }
 
-/** Todos los repartos del usuario con su contexto, del gasto más nuevo al más viejo. */
+/** Todos los repartos del perfil con su contexto, del gasto más nuevo al más viejo. */
 export async function readDebts(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
 ): Promise<{ rows: DebtWithContext[]; raw: RawDebtRow[] }> {
   const { data } = await supabase
     .from('fin_debts')
     .select(DEBT_CTX_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
 
   const raw = (data ?? []) as unknown as RawDebtRow[]
   const rows = raw

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2 } from '@/lib/finanzas/money'
@@ -25,14 +25,14 @@ interface DebtRow {
 }
 
 async function readDebts(
-  supabase: Awaited<ReturnType<typeof requireUser>>['supabase'],
-  userId: string,
+  supabase: Awaited<ReturnType<typeof requireProfile>>['supabase'],
+  profileId: string,
   txId: string,
 ): Promise<DebtRow[]> {
   const { data } = await supabase
     .from('fin_debts')
     .select(DEBT_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .eq('transaction_id', txId)
 
   return (data ?? []).map(s => ({
@@ -47,8 +47,9 @@ async function readDebts(
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -59,10 +60,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       .from('fin_transactions')
       .select(TX_COLS)
       .eq('id', id)
-      .eq('user_id', userId)
+      .eq('profile_id', profileId)
       .maybeSingle(),
-    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId),
-    readDebts(supabase, userId, id),
+    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId),
+    readDebts(supabase, profileId, id),
   ])
 
   if (!current) return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 })
@@ -110,7 +111,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const account = accountsById.get(merged.account_id!)!
   const currency = account.currency
 
-  const categoryError = await assertCategory(supabase, userId, merged.category_id)
+  const categoryError = await assertCategory(supabase, scope, merged.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   const flowType = flowTypeOnEdit(merged.type!, account, current.flow_type)
@@ -217,7 +218,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // Se acepta un ahorro archivado mientras sea el MISMO que ya tenía:
     // archivarlo no puede dejar sus movimientos sin poder editarse nunca más
     // (§ assertSavingsGoal).
-    const goalError = await assertSavingsGoal(supabase, userId, savingsGoalId, {
+    const goalError = await assertSavingsGoal(supabase, scope, savingsGoalId, {
       allowArchived: savingsGoalId === current.savings_goal_id,
     })
     if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
@@ -249,8 +250,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // El saldo se mide recién acá: el tope depende de si la versión NUEVA del
   // movimiento es un retiro declarado (gasta de la alcancía) o un movimiento
   // común (que no puede tocarla). Ver el "piso de ahorro" en `assertBalance`.
-  const balanceError = await assertBalance(
-    supabase, userId, account, merged.type!, merged.amount!,
+  const balanceError = await assertBalance(supabase, scope, account, merged.type!, merged.amount!,
     { type: current.type as TxType, account_id: current.account_id as string, amount: num(current.amount), id },
     savingsFlow,
   )
@@ -279,7 +279,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(TX_COLS)
     .single()
 
@@ -294,13 +294,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const { error: reError } = await supabase
         .from('fin_debts')
         .update({ currency, amount_usd: freezeDebtUsd(d.amount, exchange_rate) })
-        .eq('user_id', userId)
+        .eq('profile_id', profileId)
         .eq('id', d.id)
       if (reError) {
         return NextResponse.json(
           {
             error: `El movimiento se guardó, pero no se pudo recongelar la deuda: ${reError.message}`,
-            transaction: { ...data, debts: await readDebts(supabase, userId, id) },
+            transaction: { ...data, debts: await readDebts(supabase, profileId, id) },
           },
           { status: 409 },
         )
@@ -311,20 +311,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const budgetExtensionUsd = body.budget_extension_usd == null ? undefined : num(body.budget_extension_usd)
   let budgetExtensionError: string | undefined
   if (merged.type === 'gasto' && budgetExtensionUsd) {
-    const result = await applyBudgetExtension(supabase, userId, merged.category_id ?? null, merged.date!, budgetExtensionUsd)
+    const result = await applyBudgetExtension(supabase, scope, merged.category_id ?? null, merged.date!, budgetExtensionUsd)
     if (!result.ok) budgetExtensionError = result.error
   }
 
-  const splits = await readDebts(supabase, userId, id)
+  const splits = await readDebts(supabase, profileId, id)
   return NextResponse.json({ transaction: { ...data, debts: splits }, budget_extension_error: budgetExtensionError })
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const splits = await readDebts(supabase, userId, id)
+  const splits = await readDebts(supabase, profileId, id)
 
   // Un split cobrado cuyo gasto padre desaparece dejaría un ingreso en la
   // cuenta sin nada que lo explique. El `on delete restrict` de la base lo
@@ -341,7 +341,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     const { error: splitError } = await supabase
       .from('fin_debts')
       .delete()
-      .eq('user_id', userId)
+      .eq('profile_id', profileId)
       .eq('transaction_id', id)
 
     if (splitError) return NextResponse.json({ error: splitError.message }, { status: 400 })
@@ -351,7 +351,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .from('fin_transactions')
     .delete()
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

@@ -17,6 +17,7 @@ import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { useFzRouter } from '../components/router'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, Panel, RowMenu, SectionTitle } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 export function PresupuestoScreen() {
   const { budgets, categories, rates, hidden, loading, reload } = useFinanzas()
@@ -37,7 +38,7 @@ export function PresupuestoScreen() {
   async function confirmDelete() {
     if (!deleting) return
     setConfirmingDelete(true)
-    await fetch(`/api/finanzas/budgets/${deleting.line_id}`, { method: 'DELETE' })
+    await fzFetch(`/api/finanzas/budgets/${deleting.line_id}`, { method: 'DELETE' })
     await reload()
     setConfirmingDelete(false)
     setDeleting(null)

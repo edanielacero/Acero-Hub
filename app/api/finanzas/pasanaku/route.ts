@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { loadPasanaku } from '@/lib/finanzas/load'
@@ -8,16 +8,17 @@ import type { PasanakuInput } from '@/lib/finanzas/types'
 const PASANAKU_COLS =
   'id, name, account_id, currency, contribution_amount, total_slots, my_slot, start_date, archived'
 
-export async function GET() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function GET(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
-  return NextResponse.json({ pasanaku: await loadPasanaku(supabase, userId) })
+  return NextResponse.json({ pasanaku: await loadPasanaku(supabase, scope) })
 }
 
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
 
   if (input.account_id) {
     const { data: account } = await supabase
-      .from('fin_accounts').select('id, is_investment').eq('user_id', userId).eq('id', input.account_id).maybeSingle()
+      .from('fin_accounts').select('id, is_investment').eq('profile_id', profileId).eq('id', input.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
     // Un aporte/recepción de pasanaku es 'gasto/ingreso · movimiento', igual
     // que un ajuste de valor de inversión — isInvestmentAdjustment() no podría
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from('fin_pasanaku')
-    .insert({ user_id: userId, ...input })
+    .insert({ user_id: userId, profile_id: profileId, ...input })
     .select(PASANAKU_COLS)
     .single()
 

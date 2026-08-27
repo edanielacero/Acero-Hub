@@ -790,33 +790,48 @@ const DATOS = {
   tx: { 'limit=5': { transactions: [] } },
 }
 
-eq('sin nada guardado', readSnapshot(UID), null)
-writeSnapshot(UID, DATOS)
-eq('vuelve el patrimonio guardado', readSnapshot(UID).total_usd, 1234.5)
-eq('y las consultas cacheadas', Object.keys(readSnapshot(UID).tx), ['limit=5'])
+// Desde el Sprint 8 la clave incluye el perfil: el mismo usuario tiene un
+// snapshot por cajón.
+const PERFIL = 'perfil-personal'
+const PERFIL_2 = 'perfil-empresa'
 
-writeSnapshot(null, DATOS)
+eq('sin nada guardado', readSnapshot(UID, PERFIL), null)
+writeSnapshot(UID, PERFIL, DATOS)
+eq('vuelve el patrimonio guardado', readSnapshot(UID, PERFIL).total_usd, 1234.5)
+eq('y las consultas cacheadas', Object.keys(readSnapshot(UID, PERFIL).tx), ['limit=5'])
+
+// El corazón del cambio: sin esto, cambiar de perfil pintaba el primer frame
+// con el patrimonio del anterior — un número de otro cajón, no un "cargando".
+eq('otro perfil del MISMO usuario no ve este snapshot', readSnapshot(UID, PERFIL_2), null)
+writeSnapshot(UID, PERFIL_2, { ...DATOS, total_usd: 99 })
+eq('cada perfil guarda el suyo', readSnapshot(UID, PERFIL_2).total_usd, 99)
+eq('y el primero queda intacto', readSnapshot(UID, PERFIL).total_usd, 1234.5)
+
+almacen.clear()
+writeSnapshot(UID, PERFIL, DATOS)
+
+writeSnapshot(null, PERFIL, DATOS)
 eq('sin usuario no escribe nada', almacen.size, 1)
-eq('sin usuario no lee nada', readSnapshot(null), null)
+eq('sin usuario no lee nada', readSnapshot(null, PERFIL), null)
 
 // Lo importante de todo esto: RLS protege los datos reales, pero un caché mal
 // llaveado le mostraría a otra cuenta el patrimonio de la anterior.
-eq('otro usuario no ve este snapshot', readSnapshot('otro-uid-cualquiera'), null)
+eq('otro usuario no ve este snapshot', readSnapshot('otro-uid-cualquiera', PERFIL), null)
 
 {
   const clave = [...almacen.keys()][0]
   const guardado = JSON.parse(almacen.get(clave))
   guardado.at = Date.now() - (7 * 24 * 60 * 60 * 1000 + 60_000)
   almacen.set(clave, JSON.stringify(guardado))
-  eq('un patrimonio de más de una semana se descarta', readSnapshot(UID), null)
+  eq('un patrimonio de más de una semana se descarta', readSnapshot(UID, PERFIL), null)
   eq('y se borra solo', almacen.size, 0)
 }
 
-almacen.set('fz:snap:1:roto', '{ esto no es json')
-eq('json corrupto devuelve null', readSnapshot('roto'), null)
+almacen.set('fz:snap:1:roto:x', '{ esto no es json')
+eq('json corrupto devuelve null', readSnapshot('roto', 'x'), null)
 
 almacen.clear()
-writeSnapshot(UID, DATOS)
+writeSnapshot(UID, PERFIL, DATOS)
 almacen.set('fz:hidden', '1')
 clearSnapshots()
 ok('clearSnapshots borra los snapshots', ![...almacen.keys()].some(k => k.startsWith('fz:snap:')))

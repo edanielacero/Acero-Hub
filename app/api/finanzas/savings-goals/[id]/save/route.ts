@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { crossCurrencySuggestion, formatAmount, num, roundFor } from '@/lib/finanzas/money'
@@ -34,17 +34,18 @@ const TX_COLS =
  *    distintos" que sí vale para un traslado.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const { id } = await params
   const body = (await request.json().catch(() => null)) ?? {}
 
-  const goalError = await assertSavingsGoal(supabase, userId, id)
+  const goalError = await assertSavingsGoal(supabase, scope, id)
   if (goalError) return NextResponse.json({ error: goalError }, { status: 400 })
 
   const hoy = todayISO()
-  const savings = await loadSavingsGoals(supabase, userId, hoy)
+  const savings = await loadSavingsGoals(supabase, scope, hoy)
   const goal = savings.goals.find(g => g.id === id)
   if (!goal) return NextResponse.json({ error: 'Ese ahorro no existe' }, { status: 400 })
 
@@ -75,7 +76,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const [{ data: accountRows }, { rates }] = await Promise.all([
-    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('user_id', userId).in('id', [...new Set([fromId, toId])]),
+    supabase.from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).in('id', [...new Set([fromId, toId])]),
     ensureRates(supabase, userId),
   ])
   const cuentas = (accountRows ?? []).map(mapAccount)
@@ -120,7 +121,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: tx, error } = await supabase
     .from('fin_transactions')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       type: 'transferencia',
       // Guardar no es ganar ni gastar: no ensucia el ingreso ni el gasto real.
       flow_type: 'movimiento',

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { validatePasanaku } from '@/lib/finanzas/pasanaku'
@@ -8,15 +8,15 @@ const PASANAKU_COLS =
   'id, name, account_id, currency, contribution_amount, total_slots, my_slot, start_date, archived'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
 
   const { data: current } = await supabase
-    .from('fin_pasanaku').select(PASANAKU_COLS).eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_pasanaku').select(PASANAKU_COLS).eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Pasanaku no encontrado' }, { status: 404 })
 
   const pick = <T,>(next: T | undefined, prev: T): T => (next === undefined ? prev : next)
@@ -36,7 +36,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (merged.account_id && merged.account_id !== current.account_id) {
     const { data: account } = await supabase
-      .from('fin_accounts').select('id, is_investment').eq('user_id', userId).eq('id', merged.account_id).maybeSingle()
+      .from('fin_accounts').select('id, is_investment').eq('profile_id', profileId).eq('id', merged.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
     // Mismo motivo que en POST /pasanaku: un aporte ahí quedaría indistinguible
     // de un ajuste de valor y desaparecería de Movimientos.
@@ -52,7 +52,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_pasanaku')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(PASANAKU_COLS)
     .single()
 
@@ -67,12 +67,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * A diferencia de una cuenta, acá no hace falta "restrict + archivar": nada se
  * queda huérfano de un modo que rompa algo.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const { error } = await supabase.from('fin_pasanaku').delete().eq('id', id).eq('user_id', userId)
+  const { error } = await supabase.from('fin_pasanaku').delete().eq('id', id).eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

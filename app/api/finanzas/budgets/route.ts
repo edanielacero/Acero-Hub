@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { freezeRate, num, round2, toUsd } from '@/lib/finanzas/money'
 import { loadBudgets } from '@/lib/finanzas/load'
@@ -10,13 +10,14 @@ import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 export const BUDGET_LINE_COLS = 'id, name, input_currency, retroactive, created_on, archived'
 
 export async function GET(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   // El día del usuario, no el del servidor (Vercel corre en UTC) — de él
   // depende qué período es "el vigente" y qué meses ya terminaron.
   const today = new URL(request.url).searchParams.get('today') || todayISO()
-  return NextResponse.json(await loadBudgets(supabase, userId, today))
+  return NextResponse.json(await loadBudgets(supabase, scope, today))
 }
 
 /**
@@ -36,8 +37,8 @@ export async function GET(request: Request) {
  * categorías como default, así que acá no hace falta resolver nada.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
   if (invalidAmount) return NextResponse.json({ error: invalidAmount }, { status: 400 })
 
   const { data: categories } = await supabase
-    .from('fin_categories').select('id, kind, archived').eq('user_id', userId).in('id', categoryIds)
+    .from('fin_categories').select('id, kind, archived').eq('profile_id', profileId).in('id', categoryIds)
   if ((categories ?? []).length !== categoryIds.length) {
     return NextResponse.json({ error: 'Alguna de esas categorías no existe' }, { status: 400 })
   }
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
   // Chequeo previo para un mensaje legible — el índice único de
   // `fin_budget_line_categories` (user_id, category_id) es la red de verdad.
   const { data: dup } = await supabase
-    .from('fin_budget_line_categories').select('category_id').eq('user_id', userId).in('category_id', categoryIds)
+    .from('fin_budget_line_categories').select('category_id').eq('profile_id', profileId).in('category_id', categoryIds)
   if ((dup ?? []).length > 0) {
     return NextResponse.json({ error: 'Alguna de esas categorías ya tiene un presupuesto' }, { status: 409 })
   }
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
   const today = todayISO()
   const { data: line, error } = await supabase
     .from('fin_budget_lines')
-    .insert({ user_id: userId, name, input_currency: currency, retroactive, created_on: today })
+    .insert({ user_id: userId, profile_id: profileId, name, input_currency: currency, retroactive, created_on: today })
     .select(BUDGET_LINE_COLS)
     .single()
 
@@ -91,10 +92,10 @@ export async function POST(request: Request) {
 
   const { error: categoriesError } = await supabase
     .from('fin_budget_line_categories')
-    .insert(categoryIds.map(category_id => ({ user_id: userId, line_id: line.id, category_id })))
+    .insert(categoryIds.map(category_id => ({ user_id: userId, profile_id: profileId, line_id: line.id, category_id })))
 
   if (categoriesError) {
-    await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('user_id', userId)
+    await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('profile_id', profileId)
     return NextResponse.json({ error: `No se pudieron guardar las categorías: ${categoriesError.message}` }, { status: 400 })
   }
 
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
   const { error: periodError } = await supabase
     .from('fin_budget_periods')
     .insert({
-      user_id: userId, line_id: line.id, period: periodStart(today),
+      user_id: userId, profile_id: profileId, line_id: line.id, period: periodStart(today),
       amount: rawAmount, amount_usd: amountUsd, exchange_rate: exchangeRate,
     })
 
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
     // Compensación: sin su primer monto, la línea no queda a medias — mismo
     // criterio que el reparto de un gasto (Sprint 2 §4.7). Cascade se lleva
     // las filas de fin_budget_line_categories.
-    await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('user_id', userId)
+    await supabase.from('fin_budget_lines').delete().eq('id', line.id).eq('profile_id', profileId)
     return NextResponse.json({ error: `No se pudo guardar el monto: ${periodError.message}` }, { status: 400 })
   }
 

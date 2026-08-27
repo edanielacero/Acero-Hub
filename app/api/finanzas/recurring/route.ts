@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { todayISO, isValidDate } from '@/lib/finanzas/transactions'
@@ -57,16 +57,16 @@ export function validateRecurring(body: Partial<RecurringInput>): string | null 
  * aporte y no dónde cae (revisión 26/8).
  */
 export async function assertSavingsTarget(
-  supabase: Awaited<ReturnType<typeof requireUser>>['supabase'],
-  userId: string,
+  supabase: Awaited<ReturnType<typeof requireProfile>>['supabase'],
+  profileId: string,
   goalId: string | null | undefined,
   toAccountId: string | null | undefined,
 ): Promise<string | null> {
   if (!goalId || !toAccountId) return null
 
   const [{ data: goal }, { data: account }] = await Promise.all([
-    supabase.from('fin_savings_goals').select('id, archived').eq('user_id', userId).eq('id', goalId).maybeSingle(),
-    supabase.from('fin_accounts').select('id, name, archived').eq('user_id', userId).eq('id', toAccountId).maybeSingle(),
+    supabase.from('fin_savings_goals').select('id, archived').eq('profile_id', profileId).eq('id', goalId).maybeSingle(),
+    supabase.from('fin_accounts').select('id, name, archived').eq('profile_id', profileId).eq('id', toAccountId).maybeSingle(),
   ])
 
   if (!goal) return 'Ese ahorro no existe'
@@ -92,16 +92,18 @@ function validarCalendario(body: Partial<RecurringInput>): string | null {
   return null
 }
 
-export async function GET() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function GET(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
-  return NextResponse.json(await loadRecurring(supabase, userId, todayISO()))
+  return NextResponse.json(await loadRecurring(supabase, scope, todayISO()))
 }
 
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -134,19 +136,19 @@ export async function POST(request: Request) {
   // movimiento a transferencia — normalizar la forma, no pelear con el cliente.
   if (input.savings_goal_id) input.category_id = null
 
-  const savingsError = await assertSavingsTarget(supabase, userId, input.savings_goal_id, input.to_account_id)
+  const savingsError = await assertSavingsTarget(supabase, profileId, input.savings_goal_id, input.to_account_id)
   if (savingsError) return NextResponse.json({ error: savingsError }, { status: 400 })
 
   // La cuenta es opcional en la plantilla — se elige recién al registrar cada
   // instancia. Si de todos modos viene una, tiene que ser tuya; y si no vino
   // moneda explícita, se infiere de ahí — mismo comportamiento de siempre,
   // de cuando la cuenta era la única fuente de la moneda.
-  const categoryError = await assertCategory(supabase, userId, input.category_id)
+  const categoryError = await assertCategory(supabase, scope, input.category_id)
   if (categoryError) return NextResponse.json({ error: categoryError }, { status: 400 })
 
   if (input.account_id) {
     const { data: account } = await supabase
-      .from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', input.account_id).maybeSingle()
+      .from('fin_accounts').select('id, currency').eq('profile_id', profileId).eq('id', input.account_id).maybeSingle()
     if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
     if (!input.currency) input.currency = account.currency
     else if (account.currency !== input.currency) {
@@ -161,14 +163,14 @@ export async function POST(request: Request) {
   // la plantilla, fallaba al insertar las partes y había que compensar.
   const splitsPre = readTemplateSplits(body.splits) ?? []
   const conocidas = splitsPre.length > 0
-    ? (await supabase.from('fin_people').select('id, name').eq('user_id', userId)).data ?? []
+    ? (await supabase.from('fin_people').select('id, name').eq('profile_id', profileId)).data ?? []
     : []
   const splitCheck = validateTemplateSplits(splitsPre, conocidas)
   if (!splitCheck.ok) return NextResponse.json({ error: splitCheck.error }, { status: 400 })
 
   const { data, error } = await supabase
     .from('fin_recurring')
-    .insert({ user_id: userId, ...input })
+    .insert({ user_id: userId, profile_id: profileId, ...input })
     .select(RECURRING_COLS)
     .single()
 
@@ -176,20 +178,19 @@ export async function POST(request: Request) {
 
   const splits = splitsPre
   if (splits.length > 0) {
-    const { resolved, error: peopleError } = await resolvePeople(
-      supabase, userId,
+    const { resolved, error: peopleError } = await resolvePeople(supabase, scope,
       // `resolvePeople` espera montos reales; acá el monto puede ser null
       // (parte pareja) y solo importa resolver la persona.
       splits.map(s => ({ ...s, amount: 1 })),
     )
     if (peopleError) {
-      await supabase.from('fin_recurring').delete().eq('id', data.id).eq('user_id', userId)
+      await supabase.from('fin_recurring').delete().eq('id', data.id).eq('profile_id', profileId)
       return NextResponse.json({ error: peopleError }, { status: 400 })
     }
 
     const { error: splitError } = await supabase.from('fin_recurring_splits').insert(
       resolved.map((r, i) => ({
-        user_id: userId,
+        user_id: userId, profile_id: profileId,
         recurring_id: data.id,
         person_id: r.person_id,
         amount: splits[i].amount == null || Number.isNaN(splits[i].amount) ? null : splits[i].amount,
@@ -199,7 +200,7 @@ export async function POST(request: Request) {
       // Compensación: si el reparto no entra, la plantilla no debe quedar a
       // medias. Igual que en el Sprint 2, el peor caso es que quede un fijo sin
       // reparto — una fila válida, no un dato roto.
-      await supabase.from('fin_recurring').delete().eq('id', data.id).eq('user_id', userId)
+      await supabase.from('fin_recurring').delete().eq('id', data.id).eq('profile_id', profileId)
       return NextResponse.json({ error: `No se pudo guardar el reparto: ${splitError.message}` }, { status: 400 })
     }
   }

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { validateAllocation, validateGoalName, validateTargetAmount } from '@/lib/finanzas/savings'
@@ -7,8 +7,8 @@ import { CURRENCIES, type AllocationType, type Currency } from '@/lib/finanzas/t
 const GOAL_COLS = 'id, name, input_currency, allocation_type, allocation_value, target_amount, target_date, is_catchall, sort_order, archived'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -26,7 +26,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // cajón de sastre sigue siéndolo (define si el reparto es obligatorio) y si
   // ya tiene movimientos (bloquea cambiarle la moneda).
   const { data: actual } = await supabase
-    .from('fin_savings_goals').select('is_catchall, input_currency').eq('user_id', userId).eq('id', id).maybeSingle()
+    .from('fin_savings_goals').select('is_catchall, input_currency').eq('profile_id', profileId).eq('id', id).maybeSingle()
   if (!actual) return NextResponse.json({ error: 'Ahorro no encontrado' }, { status: 404 })
 
   const seraCatchall = body.is_catchall === undefined ? Boolean(actual.is_catchall) : Boolean(body.is_catchall)
@@ -59,7 +59,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { count } = await supabase
       .from('fin_transactions')
       .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId).eq('savings_goal_id', id)
+      .eq('profile_id', profileId).eq('savings_goal_id', id)
 
     if ((count ?? 0) > 0) {
       return NextResponse.json(
@@ -89,7 +89,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       await supabase
         .from('fin_savings_goals')
         .update({ is_catchall: false })
-        .eq('user_id', userId).eq('is_catchall', true).neq('id', id)
+        .eq('profile_id', profileId).eq('is_catchall', true).neq('id', id)
     }
     patch.is_catchall = wantsCatchall
   }
@@ -98,7 +98,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_savings_goals')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(GOAL_COLS)
     .maybeSingle()
 
@@ -119,9 +119,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * así que soltarlas en dos pasos rompía a mitad de camino y dejaba imborrable
  * cualquier ahorro que hubiera recibido un aporte.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
 
@@ -130,7 +130,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   // Postgres, ilegible. Mismo criterio que la ruta de categorías (§ b08fdb4):
   // decir QUÉ lo está usando, no solo que no se puede.
   const { data: fijos } = await supabase
-    .from('fin_recurring').select('name').eq('user_id', userId).eq('savings_goal_id', id)
+    .from('fin_recurring').select('name').eq('profile_id', profileId).eq('savings_goal_id', id)
 
   if ((fijos ?? []).length > 0) {
     const nombres = (fijos ?? []).map(f => f.name as string).join(', ')
@@ -144,7 +144,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .from('fin_savings_goals')
     .delete()
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

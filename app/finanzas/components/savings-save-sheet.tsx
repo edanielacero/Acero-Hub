@@ -7,6 +7,7 @@ import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput, roundFor
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, TextField } from './ui'
+import { fzFetch } from './fz-fetch'
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
                'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -110,7 +111,7 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
     if (excede) return setError(`${origen!.cuenta.name} tiene ${formatAmount(origen!.disponible, cur)} libres`)
 
     setSaving(true)
-    const res = await fetch(`/api/finanzas/savings-goals/${goal.id}/save`, {
+    const res = await fzFetch(`/api/finanzas/savings-goals/${goal.id}/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ period, from_account_id: fromId, to_account_id: toId || fromId, amount: value }),

@@ -13,6 +13,7 @@ import { DeleteConfirmSheet, DeletePreview } from './delete-confirm'
 import { PersonPicker } from './person-picker'
 import { Btn, DateField, ErrorNote, Label, PersonAvatar, TextField } from './ui'
 import { AmountField } from './amount-field'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Alta y edición de una deuda **suelta**: alguien te debe plata sin que haya
@@ -100,7 +101,7 @@ export function DebtSheet({ editing, onClose, onSaved }: {
   async function remove() {
     if (!editing) return
     setRemoving(true)
-    const res = await fetch(`/api/finanzas/debts/${editing.id}`, { method: 'DELETE' })
+    const res = await fzFetch(`/api/finanzas/debts/${editing.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       setRemoving(false)

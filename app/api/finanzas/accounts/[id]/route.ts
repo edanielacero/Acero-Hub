@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
@@ -7,21 +7,21 @@ const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date,
 
 /** Cuántos movimientos tocan esta cuenta, como origen o como destino. */
 async function txCount(
-  supabase: Awaited<ReturnType<typeof requireUser>>['supabase'],
-  userId: string,
+  supabase: Awaited<ReturnType<typeof requireProfile>>['supabase'],
+  profileId: string,
   accountId: string,
 ): Promise<number> {
   const { count } = await supabase
     .from('fin_transactions')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .or(`account_id.eq.${accountId},to_account_id.eq.${accountId}`)
   return count ?? 0
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -41,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     // Cambiar la moneda reinterpretaría todos los movimientos ya registrados
     // en esta cuenta, que quedaron congelados con la moneda anterior.
-    if (await txCount(supabase, userId, id) > 0) {
+    if (await txCount(supabase, profileId, id) > 0) {
       return NextResponse.json(
         { error: 'No se puede cambiar la moneda de una cuenta que ya tiene movimientos' },
         { status: 409 },
@@ -58,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.is_investment !== undefined) {
     const wantsInvestment = Boolean(body.is_investment)
     const { data: currentAccount } = await supabase
-      .from('fin_accounts').select('is_investment').eq('id', id).eq('user_id', userId).maybeSingle()
+      .from('fin_accounts').select('is_investment').eq('id', id).eq('profile_id', profileId).maybeSingle()
 
     // Cambiar el flag en CUALQUIER dirección con `gasto`/`ingreso ·
     // movimiento` ya cargados los deja ambiguos: isInvestmentAdjustment()
@@ -73,7 +73,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const { count } = await supabase
         .from('fin_transactions')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
+        .eq('profile_id', profileId)
         .eq('account_id', id)
         .in('type', ['gasto', 'ingreso'])
         .eq('flow_type', 'movimiento')
@@ -96,7 +96,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_accounts')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .select(ACCOUNT_COLS)
     .maybeSingle()
 
@@ -105,13 +105,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ account: data })
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
 
-  if (await txCount(supabase, userId, id) > 0) {
+  if (await txCount(supabase, profileId, id) > 0) {
     return NextResponse.json(
       { error: 'Esta cuenta tiene movimientos. Archivala en vez de borrarla para no perder su historial.' },
       { status: 409 },
@@ -125,7 +125,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { count: pasanakuCount } = await supabase
     .from('fin_pasanaku')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .eq('account_id', id)
   if ((pasanakuCount ?? 0) > 0) {
     return NextResponse.json(
@@ -141,7 +141,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { data: fijos } = await supabase
     .from('fin_recurring')
     .select('name')
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .or(`account_id.eq.${id},to_account_id.eq.${id}`)
 
   if ((fijos ?? []).length > 0) {
@@ -156,7 +156,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .from('fin_accounts')
     .delete()
     .eq('id', id)
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

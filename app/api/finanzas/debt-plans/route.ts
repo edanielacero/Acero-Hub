@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, toUsd } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
@@ -14,11 +14,12 @@ const DEBT_COLS =
   'id, transaction_id, person_id, amount, currency, amount_usd, settled_tx_id, waived_at, note, concept, incurred_on, plan_id, plan_installment_no'
 
 /** Todos los planes de pago del usuario, con sus cuotas ya resueltas. */
-export async function GET() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function GET(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
-  return NextResponse.json({ plans: await loadDebtPlans(supabase, userId) })
+  return NextResponse.json({ plans: await loadDebtPlans(supabase, scope) })
 }
 
 /**
@@ -31,8 +32,8 @@ export async function GET() {
  * el mismo monto, solo que partido.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   const { data: debt } = await supabase
     .from('fin_debts')
     .select('id, person_id, amount, currency, concept, transaction_id, plan_id, settled_tx_id, waived_at')
-    .eq('id', debtId).eq('user_id', userId).maybeSingle()
+    .eq('id', debtId).eq('profile_id', profileId).maybeSingle()
 
   if (!debt) return NextResponse.json({ error: 'Deuda no encontrada' }, { status: 404 })
   if (debt.transaction_id) {
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
   const { data: plan, error: planError } = await supabase
     .from('fin_debt_plans')
     .insert({
-      user_id: userId, person_id, concept, principal, currency,
+      user_id: userId, profile_id: profileId, person_id, concept, principal, currency,
       interest_rate: interestRate, installments, frequency, starts_on: startsOn,
       note: typeof body.note === 'string' ? body.note.trim() || null : null,
     })
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
   const cuotaRows = cuotas.map((c, i) => {
     const amount_usd = toUsd(c.amount, currency, rates)
     return {
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       transaction_id: null,
       person_id,
       amount: c.amount,
@@ -146,7 +147,7 @@ export async function POST(request: Request) {
   if (cuotasError || !inserted || inserted.length !== cuotaRows.length) {
     // Compensación: sin cuotas, un plan solo no significa nada. La deuda
     // original ni se tocó — no se pierde nada, se puede reintentar.
-    await supabase.from('fin_debt_plans').delete().eq('id', plan.id).eq('user_id', userId)
+    await supabase.from('fin_debt_plans').delete().eq('id', plan.id).eq('profile_id', profileId)
     return NextResponse.json(
       { error: 'No se pudo generar el calendario de cuotas. No se creó nada.' },
       { status: 500 },
@@ -164,7 +165,7 @@ export async function POST(request: Request) {
   // condonó justo entre el chequeo de arriba y este borrado, no se toca —
   // borrarla a ciegas dejaría un cobro real sin nada que lo explique.
   await supabase
-    .from('fin_debts').delete().eq('id', debt.id).eq('user_id', userId)
+    .from('fin_debts').delete().eq('id', debt.id).eq('profile_id', profileId)
     .is('settled_tx_id', null).is('waived_at', null)
 
   return NextResponse.json({ plan: { ...plan, cuotas: inserted } }, { status: 201 })

@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { num, round2, roundFor } from '@/lib/finanzas/money'
@@ -28,8 +28,8 @@ const TX_SELECT = 'id, type, flow_type, date, account_id, amount, currency, exch
  * agosto de una transferencia.
  */
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
@@ -51,9 +51,9 @@ export async function POST(request: Request) {
     supabase
       .from('fin_debts')
       .select(`${DEBT_COLS}, person:fin_people!fin_debts_person_id_fkey(name), transaction:fin_transactions!fin_debts_transaction_id_fkey(description)`)
-      .eq('user_id', userId)
+      .eq('profile_id', profileId)
       .in('id', ids),
-    supabase.from('fin_accounts').select('id, currency').eq('user_id', userId).eq('id', accountId).maybeSingle(),
+    supabase.from('fin_accounts').select('id, currency').eq('profile_id', profileId).eq('id', accountId).maybeSingle(),
   ])
 
   if (!account) return NextResponse.json({ error: 'La cuenta no existe' }, { status: 400 })
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     return supabase
       .from('fin_transactions')
       .insert({
-        user_id: userId,
+        user_id: userId, profile_id: profileId,
         type: 'ingreso',
         flow_type,
         date,
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
     // es donde se reconoce — no al crear el gasto.
     const { data, error } = await crearMovimiento(ganancia, 'consumo', `Ganancia — ${description}`)
     if (error || !data) {
-      if (reembolsoTx) await supabase.from('fin_transactions').delete().eq('id', reembolsoTx.id).eq('user_id', userId)
+      if (reembolsoTx) await supabase.from('fin_transactions').delete().eq('id', reembolsoTx.id).eq('profile_id', profileId)
       return NextResponse.json({ error: error?.message ?? 'No se pudo registrar la ganancia' }, { status: 400 })
     }
     gananciaTx = data
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
   const { data: updated, error: linkError } = await supabase
     .from('fin_debts')
     .update({ settled_tx_id: principalTx.id, settled_margin_tx_id: margenTx?.id ?? null })
-    .eq('user_id', userId)
+    .eq('profile_id', profileId)
     .in('id', ids)
     .is('settled_tx_id', null)
     .is('waived_at', null)
@@ -169,8 +169,8 @@ export async function POST(request: Request) {
     // movimientos debe quedar. En el peor caso — que este delete también
     // falle — quedan ingresos sueltos en la lista, filas válidas que se
     // arreglan a mano.
-    await supabase.from('fin_transactions').delete().eq('id', principalTx.id).eq('user_id', userId)
-    if (margenTx) await supabase.from('fin_transactions').delete().eq('id', margenTx.id).eq('user_id', userId)
+    await supabase.from('fin_transactions').delete().eq('id', principalTx.id).eq('profile_id', profileId)
+    if (margenTx) await supabase.from('fin_transactions').delete().eq('id', margenTx.id).eq('profile_id', profileId)
     return NextResponse.json(
       { error: 'No se pudo enlazar el cobro con las deudas. No se registró nada.' },
       { status: 409 },

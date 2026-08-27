@@ -6,6 +6,7 @@ import { formatAmount } from '@/lib/finanzas/money'
 import { monthLabel } from '@/lib/finanzas/transactions'
 import { useFinanzas } from './data-context'
 import { Btn, ErrorNote } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * La pregunta de cierre de mes, una línea a la vez (§4.5 de
@@ -52,7 +53,7 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
   async function responder(carried: boolean) {
     setSaving(true)
     setError('')
-    const res = await fetch(`/api/finanzas/budgets/${current.line_id}/close`, {
+    const res = await fzFetch(`/api/finanzas/budgets/${current.line_id}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ period: current.period, carried }),

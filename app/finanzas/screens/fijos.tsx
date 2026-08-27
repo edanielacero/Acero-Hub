@@ -16,6 +16,7 @@ import { RecurringSheet } from '../components/recurring-sheet'
 import { RegisterSheet } from '../components/register-sheet'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
+import { fzFetch } from '../components/fz-fetch'
 
 export function FijosScreen() {
   const { recurring, categories, rates, hidden, loading, reload } = useFinanzas()
@@ -37,7 +38,7 @@ export function FijosScreen() {
 
   async function togglePause(r: RecurringWithState) {
     setBusy(r.id)
-    await fetch(`/api/finanzas/recurring/${r.id}`, {
+    await fzFetch(`/api/finanzas/recurring/${r.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active: !r.active }),
@@ -47,7 +48,7 @@ export function FijosScreen() {
   }
 
   async function remove(id: string) {
-    await fetch(`/api/finanzas/recurring/${id}`, { method: 'DELETE' })
+    await fzFetch(`/api/finanzas/recurring/${id}`, { method: 'DELETE' })
     await reload()
   }
 

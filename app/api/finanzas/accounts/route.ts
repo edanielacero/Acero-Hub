@@ -1,4 +1,4 @@
-import { requireUser, createAdminClient } from '@/lib/supabase-server'
+import { requireProfile, createAdminClient } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
 import { readQuotes, refreshQuotes, quotesAreStale } from '@/lib/finanzas/quotes'
@@ -9,9 +9,10 @@ import { CURRENCIES, type Currency } from '@/lib/finanzas/types'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
-export async function GET() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function GET(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
   // El patrimonio se valúa a la cotización de hoy, así que si está vencida se
   // refresca antes de calcular. Refrescar es idempotente: si otra request ya lo
@@ -24,12 +25,12 @@ export async function GET() {
     quotes = await refreshQuotes(createAdminClient())
   }
 
-  return NextResponse.json(await loadAccounts(supabase, userId, quotes))
+  return NextResponse.json(await loadAccounts(supabase, scope, quotes))
 }
 
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('fin_accounts')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       name,
       currency,
       initial_balance: num(body?.initial_balance),

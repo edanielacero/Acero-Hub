@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num } from '@/lib/finanzas/money'
 import { loadCategories } from '@/lib/finanzas/load'
@@ -7,16 +7,17 @@ import type { CategoryKind } from '@/lib/finanzas/types'
 const CATEGORY_COLS = 'id, name, kind, icon, sort_order, archived'
 const KINDS: CategoryKind[] = ['gasto', 'ingreso']
 
-export async function GET() {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function GET(request: Request) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const scope = { userId, profileId }
 
-  return NextResponse.json({ categories: await loadCategories(supabase, userId) })
+  return NextResponse.json({ categories: await loadCategories(supabase, scope) })
 }
 
 export async function POST(request: Request) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('fin_categories')
     .insert({
-      user_id: userId,
+      user_id: userId, profile_id: profileId,
       name,
       kind,
       icon: typeof body?.icon === 'string' ? body.icon : null,

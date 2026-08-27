@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { freezeRate, num, round2, toUsd } from '@/lib/finanzas/money'
 import { ensureRates } from '@/lib/finanzas/rates'
@@ -15,8 +15,8 @@ import { isValidPeriod, validateBudgetAmount } from '@/lib/finanzas/budgets'
  * convertir antes de guardar.
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -28,7 +28,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
 
   const { data: line } = await supabase
-    .from('fin_budget_lines').select('id, input_currency').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_budget_lines').select('id, input_currency').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
   // El monto nativo se guarda tal cual y la tasa se congela — el número que
@@ -41,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from('fin_budget_periods')
     .upsert(
       {
-        user_id: userId, line_id: id, period: body.period,
+        user_id: userId, profile_id: profileId, line_id: id, period: body.period,
         amount: rawAmount, amount_usd: amountUsd, exchange_rate: exchangeRate,
         updated_at: new Date().toISOString(),
       },

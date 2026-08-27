@@ -8,6 +8,8 @@
 > Aplica la regla de independencia (§5.1 del maestro): todo esto se implementa
 > desde cero en `app/finanzas/theme.css` y `app/finanzas/components/`. No se
 > toma nada de otra mini-app.
+>
+> Última actualización: 2026-08-27 (§4.1: el acento pasa a ser por perfil).
 
 ---
 
@@ -195,6 +197,52 @@ Todo vive en `app/finanzas/theme.css`, aplicado sobre el div wrapper de
 persona y navegación — no hay una asignación por hash ni variedad de color
 que guardar. Lo que identifica a una categoría es su ícono (§15), no un color
 distinto por cada una.
+
+### 4.1 El acento cambia por perfil (Sprint 8 — construido el 2026-08-27)
+
+Con **Perfiles** (`contexto_finanzas.md` §7.4), `--fz-accent` deja de ser una
+constante: **cada perfil tiene el suyo**, y ese color es lo que responde *"¿en
+qué perfil estoy?"* desde cualquier pantalla. Registrar un movimiento en el
+perfil equivocado es el único error irreversible que introduce ese sprint —los
+movimientos no se mueven entre perfiles—, así que el color no es decoración.
+
+**Sale barato porque los tokens ya están bien puestos:** hay 88 usos de
+`--fz-accent` en 25 archivos y *todos leen el token*, ninguno tiene un hex
+escrito a mano. Sumado a que la app no tiene modo oscuro y a que todo cuelga de
+`#fz-root`, cambiar de perfil es sobrescribir unas variables CSS en el nodo
+raíz. Ningún componente se toca. Se aplica **global** —tab bar activa, focus
+rings y sheets incluidos—, no solo al hero y a los botones.
+
+Los cinco hexes quedaron elegidos en `theme.css`: verde `#16613C`, naranja
+`#B4491F`, violeta `#5B3A9E`, magenta `#9B2C6F` y teal `#10596B`. Los cuatro
+no-verdes van oscuros porque llevan texto blanco encima. `--fz-lime` **se quedó
+fija**, como estaba previsto.
+
+**No es un color suelto, es un set de 4–5 tokens:** `--fz-accent`,
+`--fz-accent-press`, `--fz-accent-tint` y `--fz-glass-pill` (el acento al 10%,
+la píldora del tab bar). Cambiar solo el primero deja los otros tres en verde y
+se ve sucio. Queda por decidir al implementar si `--fz-lime` —la contraparte
+sobre el hero oscuro, de uso escaso— también cambia por perfil.
+
+⚠️ **El azul no puede ser acento de perfil: ya significa ahorro.** El sistema
+tiene cuatro roles de color con significado fijo —marca, ingreso, gasto y
+ahorro— y el acento de perfil tiene que esquivar los cuatro. El azul se eligió
+en la Ronda 9 del Sprint 7 justamente porque *"con el verde de la marca el
+botón 'Ahorrar' se confundía con cualquier acción primaria"*. Un perfil con
+acento azul recrea ese mismo bug dentro de ese perfil.
+
+| Perfil | Acento |
+|---|---|
+| 1 (default) | **Verde bosque** `#16613C` — la marca, se queda donde está |
+| 2 | **Naranja tipo Claude** |
+| 3 | **Violeta** |
+| 4 | **Magenta o teal oscuro** (teal roza el verde: medir el hex antes de fijarlo) |
+| 5+ | Se **reciclan** las paletas — el perfil funciona igual, solo repite color |
+| — | ~~Azul~~ **reservado: es el color de ahorro** |
+
+El acento se **guarda en el perfil** (columna `fin_profiles.accent`), no se
+deriva de su posición: si dependiera del orden, borrar el perfil 2 recolorearía
+al 3 y el perfil que ya tenías identificado de un vistazo cambiaría de color.
 
 ---
 

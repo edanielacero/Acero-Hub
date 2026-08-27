@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeName } from './splits'
-import type { Person, DebtInput } from './types'
+import type { Person, DebtInput, Scope } from './types'
 
 export const PERSON_COLS = 'id, name, sort_order, archived'
 
@@ -11,13 +11,13 @@ export const PERSON_COLS = 'id, name, sort_order, archived'
  */
 export async function findPersonByName(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   name: string,
 ): Promise<Person | null> {
   const { data } = await supabase
     .from('fin_people')
     .select(PERSON_COLS)
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
     .eq('archived', false)
 
   const key = normalizeName(name)
@@ -33,7 +33,7 @@ export async function findPersonByName(
  */
 export async function resolvePeople(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   splits: DebtInput[],
 ): Promise<{ resolved: { person_id: string; amount: number }[]; error?: string }> {
   const resolved: { person_id: string; amount: number }[] = []
@@ -47,7 +47,7 @@ export async function resolvePeople(
     const name = (s.person_name ?? '').trim()
     if (!name) return { resolved: [], error: 'Cada parte necesita una persona' }
 
-    const existing = await findPersonByName(supabase, userId, name)
+    const existing = await findPersonByName(supabase, scope, name)
     if (existing) {
       resolved.push({ person_id: existing.id, amount: s.amount })
       continue
@@ -55,14 +55,14 @@ export async function resolvePeople(
 
     const { data, error } = await supabase
       .from('fin_people')
-      .insert({ user_id: userId, name })
+      .insert({ user_id: scope.userId, profile_id: scope.profileId, name })
       .select(PERSON_COLS)
       .single()
 
     // Carrera con otro request que creó la misma persona: se relee en vez de
     // fallar. El índice único es el que decide, no quién llegó primero.
     if (error) {
-      const retry = await findPersonByName(supabase, userId, name)
+      const retry = await findPersonByName(supabase, scope, name)
       if (!retry) return { resolved: [], error: `No se pudo crear a "${name}"` }
       resolved.push({ person_id: retry.id, amount: s.amount })
       continue
@@ -73,17 +73,17 @@ export async function resolvePeople(
   return { resolved }
 }
 
-/** Verifica que todas las personas del reparto existan y sean del usuario. */
+/** Verifica que todas las personas del reparto existan y sean **de este perfil**. */
 export async function assertOwnedPeople(
   supabase: SupabaseClient,
-  userId: string,
+  scope: Scope,
   ids: string[],
 ): Promise<string | null> {
   if (ids.length === 0) return null
   const { data } = await supabase
     .from('fin_people')
     .select('id')
-    .eq('user_id', userId)
+    .eq('profile_id', scope.profileId)
     .in('id', ids)
 
   const found = new Set((data ?? []).map(p => p.id))

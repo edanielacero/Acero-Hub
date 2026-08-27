@@ -6,6 +6,7 @@ import type { Person } from '@/lib/finanzas/types'
 import { normalizeName } from '@/lib/finanzas/splits'
 import { useFinanzas } from './data-context'
 import { PersonAvatar } from './ui'
+import { fzFetch } from './fz-fetch'
 
 /**
  * Chips de personas para el reparto, con creación al vuelo.
@@ -50,7 +51,7 @@ export function PersonPicker({ selected, onToggle, onCreated, showMe = true }: {
     }
 
     setBusy(true)
-    const res = await fetch('/api/finanzas/people', {
+    const res = await fzFetch('/api/finanzas/people', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: value }),

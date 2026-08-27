@@ -21,6 +21,7 @@ import { useHeroPref } from '../components/hero-pref'
 import { useDismissedBanners } from '../components/banner-dismiss'
 import { periodLabel } from '../components/savings-save-sheet'
 import { HeroSettingsSheet } from '../components/hero-settings-sheet'
+import { ProfileSwitcher } from '../components/profile-switcher'
 import { CategoryIcon } from '../components/category-icon'
 import { useQuickAdd, useQuickEdit } from '../components/quick-add-context'
 import { CurrencyIcon } from '../components/currency-icon'
@@ -50,6 +51,7 @@ export function HomeScreen() {
   const { mode: budgetMode } = useBudgetViewPref()
   const { ready: avisosReady, isDismissed, dismiss } = useDismissedBanners()
   const [heroSettings, setHeroSettings] = useState(false)
+  const [profileSheet, setProfileSheet] = useState(false)
 
   const now = useMemo(() => new Date(), [])
   const range = useMemo(() => monthRange(now), [now])
@@ -235,6 +237,13 @@ export function HomeScreen() {
             >
               <IconSettings size={18} stroke={1.8} />
             </button>
+            {/* Solo se pinta si hay 2 o más perfiles: con uno no hay nada que
+                elegir. Lo decide el propio componente. */}
+            <ProfileSwitcher
+              open={profileSheet}
+              onOpen={() => setProfileSheet(true)}
+              onClose={() => setProfileSheet(false)}
+            />
           </>
         }
       />

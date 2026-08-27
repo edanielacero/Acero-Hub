@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { BUDGET_LINE_COLS } from '../route'
 
@@ -16,8 +16,8 @@ import { BUDGET_LINE_COLS } from '../route'
  * garantizando el índice único de `fin_budget_line_categories`.
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -42,7 +42,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const { data: categories } = await supabase
-      .from('fin_categories').select('id, kind, archived').eq('user_id', userId).in('id', ids)
+      .from('fin_categories').select('id, kind, archived').eq('profile_id', profileId).in('id', ids)
     if ((categories ?? []).length !== ids.length) {
       return NextResponse.json({ error: 'Alguna de esas categorías no existe' }, { status: 400 })
     }
@@ -56,7 +56,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // Chequeo previo para un mensaje legible: las que ya estén tomadas por
     // OTRA línea. Las de esta misma no cuentan — se están reescribiendo.
     const { data: taken } = await supabase
-      .from('fin_budget_line_categories').select('category_id, line_id').eq('user_id', userId).in('category_id', ids)
+      .from('fin_budget_line_categories').select('category_id, line_id').eq('profile_id', profileId).in('category_id', ids)
     if ((taken ?? []).some(t => t.line_id !== id)) {
       return NextResponse.json({ error: 'Alguna de esas categorías ya tiene un presupuesto' }, { status: 409 })
     }
@@ -68,13 +68,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     ? await supabase
         .from('fin_budget_lines')
         .update(patch)
-        .eq('id', id).eq('user_id', userId)
+        .eq('id', id).eq('profile_id', profileId)
         .select(BUDGET_LINE_COLS)
         .single()
     : await supabase
         .from('fin_budget_lines')
         .select(BUDGET_LINE_COLS)
-        .eq('id', id).eq('user_id', userId)
+        .eq('id', id).eq('profile_id', profileId)
         .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -86,7 +86,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { error: insertError } = await supabase
       .from('fin_budget_line_categories')
       .upsert(
-        categoryIds.map(category_id => ({ user_id: userId, line_id: id, category_id })),
+        categoryIds.map(category_id => ({ user_id: userId, profile_id: profileId, line_id: id, category_id })),
         { onConflict: 'line_id,category_id', ignoreDuplicates: true },
       )
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 400 })
@@ -94,7 +94,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { error: deleteError } = await supabase
       .from('fin_budget_line_categories')
       .delete()
-      .eq('user_id', userId).eq('line_id', id)
+      .eq('profile_id', profileId).eq('line_id', id)
       .not('category_id', 'in', `(${categoryIds.join(',')})`)
     if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 400 })
   }
@@ -104,7 +104,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // siempre por el índice único de `fin_budget_line_categories`, sin ninguna
   // línea activa que las mostrara.
   if (patch.archived === true) {
-    await supabase.from('fin_budget_line_categories').delete().eq('line_id', id).eq('user_id', userId)
+    await supabase.from('fin_budget_line_categories').delete().eq('line_id', id).eq('profile_id', profileId)
   }
 
   return NextResponse.json({ line: data })
@@ -114,12 +114,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  * Sin `409` posible: una línea es configuración, no historial de plata real.
  * `on delete cascade` se lleva sus períodos, ampliaciones y cierres.
  */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const { error } = await supabase.from('fin_budget_lines').delete().eq('id', id).eq('user_id', userId)
+  const { error } = await supabase.from('fin_budget_lines').delete().eq('id', id).eq('profile_id', profileId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

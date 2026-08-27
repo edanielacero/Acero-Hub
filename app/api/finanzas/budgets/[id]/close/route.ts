@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/supabase-server'
+import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { num, roundFor } from '@/lib/finanzas/money'
 import {
@@ -23,8 +23,8 @@ interface DebtEmbed {
  * única fuente que puede leer los movimientos reales de ese mes.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, userId } = await requireUser()
-  if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
   const body = await request.json().catch(() => null)
@@ -34,15 +34,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (typeof body.carried !== 'boolean') return NextResponse.json({ error: 'Falta decir si se lleva o no' }, { status: 400 })
 
   const { data: line } = await supabase
-    .from('fin_budget_lines').select('id, input_currency, retroactive, created_on').eq('id', id).eq('user_id', userId).maybeSingle()
+    .from('fin_budget_lines').select('id, input_currency, retroactive, created_on').eq('id', id).eq('profile_id', profileId).maybeSingle()
   if (!line) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 })
 
   const [{ data: periodRows }, { data: closureRows }, { data: lineCatRows }] = await Promise.all([
     supabase.from('fin_budget_periods')
-      .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('user_id', userId).eq('line_id', id),
+      .select('id, line_id, period, amount, amount_usd, exchange_rate').eq('profile_id', profileId).eq('line_id', id),
     supabase.from('fin_budget_closures')
-      .select('line_id, period, carried, amount, amount_usd').eq('user_id', userId).eq('line_id', id),
-    supabase.from('fin_budget_line_categories').select('category_id').eq('user_id', userId).eq('line_id', id),
+      .select('line_id, period, carried, amount, amount_usd').eq('profile_id', profileId).eq('line_id', id),
+    supabase.from('fin_budget_line_categories').select('category_id').eq('profile_id', profileId).eq('line_id', id),
   ])
   const categoryIds = (lineCatRows ?? []).map(r => r.category_id as string)
   const periods = (periodRows ?? []).map(p => ({
@@ -81,11 +81,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [{ data: txRows }, { data: debtRows }] = await Promise.all([
     supabase
       .from('fin_transactions').select('id, category_id, amount, currency, amount_usd, flow_type, date')
-      .eq('user_id', userId).eq('type', 'gasto').gte('date', from).lte('date', to),
+      .eq('profile_id', profileId).eq('type', 'gasto').gte('date', from).lte('date', to),
     supabase
       .from('fin_debts')
       .select('amount, currency, amount_usd, principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
-      .eq('user_id', userId),
+      .eq('profile_id', profileId),
   ])
 
   const txs = (txRows ?? [])
@@ -118,7 +118,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data, error } = await supabase
     .from('fin_budget_closures')
     .insert({
-      user_id: userId, line_id: id, period: body.period, carried: body.carried,
+      user_id: userId, profile_id: profileId, line_id: id, period: body.period, carried: body.carried,
       amount, amount_usd, exchange_rate: rate,
     })
     .select('id, line_id, period, carried, amount, amount_usd')
