@@ -2207,6 +2207,36 @@ section('SPRINT 9 · auxiliares')
   eq('los umbrales son los documentados', [UMBRALES.diasAntesDeVencer, UMBRALES.pctAviso, UMBRALES.diasDeudaVieja], [2, 90, 30])
 }
 
+section('SPRINT 9 · las Edge Functions compilan')
+{
+  // El chequeo que faltaba. `tsconfig.json` excluye `supabase/functions` porque
+  // ese código es para Deno —imports con extensión .ts y el cliente por URL—,
+  // así que TypeScript nunca lo miraba.
+  //
+  // El costo fue real: se desplegó una llamada a `loadBudgets` sin una
+  // propiedad obligatoria, la función reventó en CADA corrida durante horas, y
+  // no se vio porque el cron reportaba "succeeded" (pg_net solo encola) y el
+  // 500 quedaba enterrado en net._http_response.
+  //
+  // `tsconfig.functions.json` lo mira con las reglas de Deno. Verificado:
+  // reintroducir aquel bug hace fallar esta prueba.
+  const { execFileSync } = await import('node:child_process')
+  const { join } = await import('node:path')
+  const raiz = process.env.FZ_ROOT ?? '.'
+
+  let compila = true
+  let detalle = ''
+  try {
+    execFileSync('npx', ['tsc', '--noEmit', '-p', join(raiz, 'tsconfig.functions.json')],
+      { cwd: raiz, stdio: 'pipe' })
+  } catch (e) {
+    compila = false
+    detalle = (String(e.stdout ?? '') + String(e.stderr ?? '')).split('\n').slice(0, 3).join(' · ')
+  }
+
+  ok('el código que corre en Supabase pasa el chequeo de tipos', compila, detalle.trim())
+}
+
 section('SPRINT 9 · la copia de lib/finanzas para Deno está al día')
 {
   // La Edge Function de notificaciones no reescribe la lógica de dominio: usa

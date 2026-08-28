@@ -1,0 +1,31 @@
+{
+  // Chequeo de tipos de las Edge Functions.
+  //
+  // POR QUÉ EXISTE
+  //
+  // `tsconfig.json` excluye `supabase/functions` porque su código es para Deno:
+  // imports con extensión `.ts` explícita y el cliente de Supabase por URL, dos
+  // cosas que el tsconfig de Next rechaza. El costo de esa exclusión fue real:
+  // se desplegó una llamada a `loadBudgets` a la que le faltaba una propiedad
+  // obligatoria, TypeScript nunca la miró, y la función reventó en CADA corrida
+  // durante horas sin que nadie se enterara — el cron reportaba "succeeded"
+  // porque pg_net solo encola, y el 500 quedaba enterrado en net._http_response.
+  //
+  // Este config mira ese código con las reglas de Deno.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    // Lo que el tsconfig de Next no permite y Deno exige.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": []
+    // Los especificadores de Deno (URL y `npm:`) se declaran como módulos en
+    // scripts/types/, no con `paths` — eso necesitaría `baseUrl`, deprecado
+    // desde TypeScript 6.
+  },
+  "include": ["supabase/functions/**/*.ts", "scripts/types/*.d.ts"]
+}

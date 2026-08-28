@@ -149,16 +149,26 @@ async function evaluarUsuario(userId: string, prefs: Prefs): Promise<Pendiente[]
     const hoy = hoyEnZona(prefs.timezone)
 
     const avisos: Notif[] = []
+    let rec: Awaited<ReturnType<typeof loadRecurring>> | null = null
 
     if (prefs.fijos || prefs.presupuesto || prefs.ahorro) {
       const cuentas = await loadAccounts(supabase, scope, quotes)
 
-      if (prefs.fijos) {
-        const rec = await loadRecurring(supabase, scope, hoy)
+      // Los fijos se cargan si los pide el usuario O si hacen falta para el
+      // presupuesto: `loadBudgets` toma `precomputed` como todo-o-nada — si
+      // recibe el objeto, da por hecho que trae `rates` Y `recurring`, y saltea
+      // cargarlos. Pasarle solo `rates` lo hacía reventar con "Cannot read
+      // properties of null (reading 'recurring')" en cuanto el perfil tenía
+      // aunque sea una línea de presupuesto.
+      rec = (prefs.fijos || prefs.presupuesto)
+        ? await loadRecurring(supabase, scope, hoy)
+        : null
+
+      if (prefs.fijos && rec) {
         avisos.push(...avisosDeFijos(rec.recurring, hoy, cuentas.rates))
       }
-      if (prefs.presupuesto) {
-        const b = await loadBudgets(supabase, scope, hoy, { rates: cuentas.rates })
+      if (prefs.presupuesto && rec) {
+        const b = await loadBudgets(supabase, scope, hoy, { rates: cuentas.rates, recurring: rec })
         avisos.push(...avisosDePresupuesto(b, hoy.slice(0, 7)))
       }
       if (prefs.ahorro) {
