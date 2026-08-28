@@ -4,7 +4,7 @@ import { createMiniAppRouter } from '@/components/mini-app-router'
 
 /**
  * El router interno de Finanzas. La mecánica vive en components/mini-app-router
- * y es la misma para las tres mini-apps; acá solo se fija el base path y se le
+ * y es la misma para todas las mini-apps; acá solo se fija el base path y se le
  * ponen los nombres con los que la app ya llamaba a estas cosas.
  */
 const router = createMiniAppRouter('/finanzas')

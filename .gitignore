@@ -7,3 +7,8 @@ out/
 
 # CodeGraph local index (auto-synced, not source of truth)
 .codegraph/
+
+# Compilado temporal de la capa de dominio para las suites de tests.
+# Los run.mjs lo borran al terminar; queda si la corrida se interrumpe.
+tests/finanzas/.fin/
+tests/gas/.gas/

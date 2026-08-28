@@ -31,6 +31,34 @@ function b64ToText(b64: string): string {
 const AUTH_COOKIE = /^sb-.+-auth-token(?:\.(\d+))?$/
 
 /**
+ * Decodifica los claims de un access token que ya se tiene en la mano.
+ *
+ * Existe aparte de `readSessionClaims()` para el caso de haber pedido un token
+ * nuevo con `refreshSession()`: ahí los claims que importan son los del token
+ * recién llegado, y esperar a que aparezcan en `document.cookie` sería confiar
+ * en el orden interno con que auth-js persiste la sesión.
+ *
+ * ⚠️ No verifica la firma, igual que `readSessionClaims()`. Mismo alcance:
+ * decidir qué pintar.
+ */
+export function parseSessionClaims(accessToken: string): SessionClaims | null {
+  try {
+    const payload = JSON.parse(b64ToText(accessToken.split('.')[1]))
+    if (typeof payload?.sub !== 'string') return null
+
+    const meta = payload.app_metadata ?? {}
+    return {
+      sub: payload.sub,
+      role: typeof meta.role === 'string' ? meta.role : null,
+      name: typeof meta.name === 'string' ? meta.name : null,
+      projects: Array.isArray(meta.projects) ? meta.projects : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Tiene que ser síncrono: si hubiera que esperar a `getSession()`, tanto el
  * snapshot como el gate llegarían después del primer frame y no habrían servido
  * de nada.
@@ -68,16 +96,7 @@ export function readSessionClaims(): SessionClaims | null {
     const token = JSON.parse(json)?.access_token
     if (typeof token !== 'string') return null
 
-    const payload = JSON.parse(b64ToText(token.split('.')[1]))
-    if (typeof payload?.sub !== 'string') return null
-
-    const meta = payload.app_metadata ?? {}
-    return {
-      sub: payload.sub,
-      role: typeof meta.role === 'string' ? meta.role : null,
-      name: typeof meta.name === 'string' ? meta.name : null,
-      projects: Array.isArray(meta.projects) ? meta.projects : [],
-    }
+    return parseSessionClaims(token)
   } catch {
     return null
   }

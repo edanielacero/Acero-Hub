@@ -153,6 +153,45 @@ const FinanzasIcon = () => (
   </svg>
 )
 
+/* ─── Gas ──────────────────────────────────────────────────────────────────
+   Ámbar de combustible sobre un negro cálido, la identidad de la mini-app
+   (ver app/gas/theme.css). */
+
+const GasBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-gas" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#14110B" />
+        <stop offset="100%" stopColor="#0B0C0F" />
+      </linearGradient>
+      <radialGradient id="glow-gas" cx="50%" cy="80%" r="55%">
+        <stop offset="0%" stopColor="#F5A524" stopOpacity="0.12" />
+        <stop offset="100%" stopColor="#F5A524" stopOpacity="0" />
+      </radialGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-gas)" />
+    <rect width="400" height="120" fill="url(#glow-gas)" />
+    {/* Medidor de combustible: arco vacío, arco lleno y aguja */}
+    <path d="M148,96 A52,52 0 0 1 252,96" fill="none" stroke="#FFFFFF" strokeOpacity="0.07" strokeWidth="7" strokeLinecap="round" />
+    <path d="M148,96 A52,52 0 0 1 252,96" fill="none" stroke="#F5A524" strokeOpacity="0.9" strokeWidth="7" strokeLinecap="round" strokeDasharray="62 170" />
+    <line x1="200" y1="96" x2="185" y2="59" stroke="#F5A524" strokeWidth="2.5" strokeLinecap="round" />
+    <circle cx="200" cy="96" r="4" fill="#F5A524" />
+    <text x="140" y="112" fill="#F5A524" fillOpacity="0.45" fontSize="9" fontFamily="system-ui" fontWeight="700">E</text>
+    <text x="254" y="112" fill="#F5A524" fillOpacity="0.45" fontSize="9" fontFamily="system-ui" fontWeight="700">F</text>
+    <text x="200" y="40" textAnchor="middle" fill="#F5A524" fontSize="10" fontFamily="system-ui" fontWeight="700" opacity="0.55" letterSpacing="6">GAS</text>
+  </svg>
+)
+
+const GasIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {/* Surtidor: cuerpo, visor, base y manguera */}
+    <rect x="3" y="3" width="10" height="18" rx="2" />
+    <line x1="2" y1="21" x2="14" y2="21" />
+    <rect x="6" y="6.5" width="4" height="3.5" rx="0.6" opacity="0.55" />
+    <path d="M13 9h3.2a1.8 1.8 0 0 1 1.8 1.8v6a1.5 1.5 0 0 0 3 0v-5.6L18.4 9" />
+  </svg>
+)
+
 /**
  * Catálogo de mini-apps tal como se muestran en el Hub.
  *
@@ -180,5 +219,11 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
     description: 'Finanzas personales',
     icon: <FinanzasIcon />,
     banner: <FinanzasBanner />,
+  },
+  'gas': {
+    name: 'Gas',
+    description: 'Próximamente',
+    icon: <GasIcon />,
+    banner: <GasBanner />,
   },
 }

@@ -18,7 +18,7 @@ import { createClient } from '@/lib/supabase'
  * para las rutas de API sin que ellas cambien en nada. Y al correr de fondo,
  * el refresco deja de estar delante del primer pintado.
  *
- * Va en el layout raíz para cubrir el Hub y las tres mini-apps por igual: la
+ * Va en el layout raíz para cubrir el Hub y todas las mini-apps por igual: la
  * sesión es del Hub, no de una app.
  */
 export function SessionKeeper() {

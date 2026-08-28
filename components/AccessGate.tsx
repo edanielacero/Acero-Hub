@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { readSessionClaims } from '@/lib/session-claims'
+import { parseSessionClaims, readSessionClaims } from '@/lib/session-claims'
+import { createClient } from '@/lib/supabase'
 
 /**
  * Gate de navegación de una mini-app, en el cliente.
@@ -12,7 +13,8 @@ import { readSessionClaims } from '@/lib/session-claims'
  * en cada prefetch, y con el token vencido salía a la red de Supabase a
  * refrescar — 276 ms medidos, ~583 ms en el arranque con los prefetch de la tab
  * bar encima, todo delante del primer pintado. Acá el mismo permiso se resuelve
- * leyendo la cookie, síncrono, sin red.
+ * leyendo la cookie, síncrono, sin red — salvo cuando la cookie dice que NO,
+ * que es el único caso en que se sale a pedir un token nuevo (ver abajo).
  *
  * ⚠️ Como todo gate de cliente, esto decide QUÉ PINTAR, no a qué datos se puede
  * llegar. Quien fabrique una cookie ve el cascarón vacío y nada más: las rutas
@@ -41,10 +43,36 @@ export function AccessGate({ project, children }: { project: string; children: R
       router.replace('/login')
       return
     }
-    if (!claims.projects.includes(project)) {
-      setDenied(true)
+    if (claims.projects.includes(project)) return
+
+    /*
+      El token dice que no, pero puede estar diciendo algo viejo: los permisos
+      quedan congelados en el JWT hasta que se renueva. Antes de echar a alguien
+      a quien SÍ le concedieron el acceso hace un minuto, se pide un token nuevo
+      —GoTrue vuelve a correr el hook y recalcula los slugs contra la base— y se
+      mira de nuevo. Es lo que hace que entrar directo por URL a una mini-app
+      recién concedida funcione recargando, sin cerrar sesión.
+
+      El request se paga SOLO en este camino: a quien el token ya le da permiso
+      no le cuesta nada. Mientras tanto sigue sin pintarse nada, igual que
+      antes — quien no tenga acceso no llega a ver el cascarón.
+    */
+    setDenied(true)
+    let vivo = true
+
+    void (async () => {
+      const { data } = await createClient().auth.refreshSession()
+      if (!vivo) return
+
+      const frescos = data.session ? parseSessionClaims(data.session.access_token) : null
+      if (frescos?.projects.includes(project)) {
+        setDenied(false)
+        return
+      }
       router.replace('/')
-    }
+    })()
+
+    return () => { vivo = false }
   }, [project, router])
 
   if (denied) return null

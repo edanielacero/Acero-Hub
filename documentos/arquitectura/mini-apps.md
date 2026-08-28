@@ -49,7 +49,7 @@ El slug tiene que coincidir con el de la tabla `projects` de Supabase.
 
 ### 3. La sesión la refresca el cliente, no el servidor
 
-`<SessionKeeper/>` vive en el layout raíz y cubre Hub y las tres mini-apps.
+`<SessionKeeper/>` vive en el layout raíz y cubre Hub y todas las mini-apps.
 Mantiene el token fresco de fondo con `autoRefreshToken`, y en `SIGNED_OUT`
 manda a `/login`.
 
@@ -59,6 +59,30 @@ refrescar y reintentar una vez antes de rendirse. Abrir la app después de horas
 sale con el token viejo, y borrar el caché local ahí deja al usuario sin datos
 por un token de una hora. Ver `reload()` en
 `app/finanzas/components/data-context.tsx`.
+
+#### Un acceso recién concedido se ve al recargar
+
+Los slugs permitidos viajan **firmados dentro del token**, así que conceder un
+acceso en `/admin` no cambia nada hasta que el usuario recibe un token nuevo.
+Con solo el refresco automático eso era esperar hasta una hora, o cerrar sesión
+y volver a entrar.
+
+Por eso se pide un token nuevo a propósito en dos lugares, los dos **después**
+del primer pintado:
+
+| Dónde | Cuándo | Qué cuesta |
+|---|---|---|
+| Portada del Hub (`app/page.tsx`) | siempre, al montar | un request de fondo; la tarjeta nueva aparece sola |
+| `<AccessGate>` | solo si el token dice que NO | nada en el camino feliz |
+
+GoTrue vuelve a correr el custom access token hook en **cada** emisión de token,
+refresh incluido, y ahí es donde `app_metadata.projects` se recalcula contra
+`project_access`. Verificado de punta a punta contra el proyecto real: con el
+token ya emitido y el permiso concedido después, el refresh trae el slug nuevo.
+
+Lo que sigue congelado hasta el refresco es la **revocación**: a quien le
+quiten un acceso puede seguir abriendo el cascarón vacío un rato. No hay fuga
+de datos — `requireUser()` y RLS siguen filtrando en cada ruta de `/api`.
 
 ### 4. Una sola ruta de Next por mini-app
 
@@ -119,6 +143,7 @@ pesada — no estaba comprando casi nada.
 | Finanzas | 7 (`○` estáticas) | `● /finanzas/[[...slug]]` |
 | Trading Journal | 7, **5 de ellas `ƒ`** | `● /trading-journal/[[...slug]]` |
 | Expandlogy | 6, **1 de ellas `ƒ`** | `● /expandlogy/[[...slug]]` |
+| Gas | — (creada ya con esta forma) | `● /gas/[[...slug]]` |
 
 Las 6 rutas `ƒ` se renderizaban en el servidor bajo demanda: cada click entre
 Dashboard, Stats, Sweet Spot, Montecarlo y Variables era un viaje al servidor.

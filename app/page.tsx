@@ -24,28 +24,63 @@ type Session = {
   slugs: string[]
 }
 
+type Claims = {
+  email?: string
+  app_metadata?: { role?: string; name?: string; projects?: string[] }
+}
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    void (async () => {
-      const { data } = await createClient().auth.getClaims()
-      const claims = data?.claims as
-        | { email?: string; app_metadata?: { role?: string; name?: string; projects?: string[] } }
-        | undefined
+    // Un solo cliente para las dos lecturas: auth-js cachea el JWKS en la
+    // instancia, así que verificar el segundo token no vuelve a bajarlo.
+    const supabase = createClient()
+    let vivo = true
 
-      if (claims) {
-        const meta = claims.app_metadata ?? {}
-        setSession({
-          name: meta.name ?? '',
-          email: claims.email ?? '',
-          isAdmin: meta.role === 'admin',
-          slugs: meta.projects ?? [],
-        })
-      }
+    const aplicar = (claims: Claims | undefined) => {
+      if (!claims) return
+      const meta = claims.app_metadata ?? {}
+      setSession({
+        name: meta.name ?? '',
+        email: claims.email ?? '',
+        isAdmin: meta.role === 'admin',
+        slugs: meta.projects ?? [],
+      })
+    }
+
+    void (async () => {
+      const { data } = await supabase.auth.getClaims()
+      if (!vivo) return
+
+      aplicar(data?.claims as Claims | undefined)
       setReady(true)
+      if (!data?.claims) return
+
+      /*
+        Las mini-apps permitidas viajan firmadas dentro del token, así que un
+        acceso recién concedido no se ve hasta que el token se renueva: antes
+        eso era esperar hasta una hora, o cerrar sesión y volver a entrar.
+
+        Acá se pide un token nuevo a propósito. GoTrue vuelve a correr el
+        custom access token hook, que recalcula `app_metadata.projects` contra
+        `project_access` — verificado de punta a punta: con el token ya emitido
+        y el permiso dado después, el refresh trae el slug nuevo.
+
+        Va DESPUÉS del primer pintado y fuera del camino crítico: la portada se
+        dibuja con lo que ya decía la cookie y la tarjeta nueva aparece sola
+        cuando llega la respuesta. Recargar la página alcanza.
+      */
+      const { error } = await supabase.auth.refreshSession()
+      if (!vivo || error) return
+
+      const { data: fresco } = await supabase.auth.getClaims()
+      if (!vivo) return
+      aplicar(fresco?.claims as Claims | undefined)
     })()
+
+    return () => { vivo = false }
   }, [])
 
   // Solo se muestran las mini-apps que además tienen su tarjeta definida en el

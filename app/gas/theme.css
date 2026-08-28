@@ -1,0 +1,93 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Gas · tema propio, en claro.
+
+   Todo cuelga de #gas-root. No toca app/globals.css ni el tema del Hub: el Hub
+   es oscuro y Gas pinta su propio canvas claro encima
+   (ver documentos/arquitectura/mini-apps.md).
+
+   Papel cálido, tinta casi negra y ámbar de combustible. El ámbar tiene dos
+   valores a propósito: el quemado es el único que se apoya sobre claro sin
+   perder contraste, y el brillante queda para rellenos y puntos, donde no hay
+   que leer nada encima.
+
+   Los colores de los autos —rojo y plomo— no están acá: son datos, y viven en
+   el dibujo (components/car-art.tsx).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* El Hub pinta `html, body` en #0a0a0a. Ese negro asoma en iOS detrás de la
+   barra de estado y en el rebote del scroll, y en esta mini-app no hay ningún
+   negro de fondo. `:has(#gas-root)` limita la regla a cuando Gas está montada,
+   así el tema del Hub y el de las demás mini-apps quedan intactos. */
+html:has(#gas-root),
+body:has(#gas-root) {
+  background-color: #F2F1ED;
+  /* Evita que el rebote de iOS descubra el fondo del documento. */
+  overscroll-behavior-y: none;
+}
+
+#gas-root {
+  /* ── Superficies ── */
+  --gas-canvas:       #F2F1ED;
+  --gas-surface:      #FFFFFF;
+  --gas-surface-alto: #F7F6F2;
+  --gas-hairline:     #E5E3DC;
+  --gas-hairline-2:   #D2CFC5;
+
+  /* ── Tinta ── */
+  --gas-ink:        #17181C;
+  --gas-ink-2:      #6A6E76;
+  --gas-ink-3:      #9DA1A9;
+  --gas-ink-invert: #FFFFFF;
+
+  /* ── Acento: ámbar de combustible ── */
+  --gas-accent:        #B45309;  /* texto y bordes: el único legible sobre claro */
+  --gas-accent-fuerte: #F59E0B;  /* rellenos y puntos */
+  --gas-accent-tint:   #FEF5DC;
+  --gas-accent-line:   #F3D9A0;
+
+  /* ── La acción principal ──
+     El naranja de Claude. Es el único botón de este color en toda la app: si
+     hubiera dos, ninguno llamaría la atención. */
+  --gas-cta:       #D97757;
+  --gas-cta-press: #C4613F;
+
+  /* ── Signo del dinero ── */
+  --gas-bueno:      #15803D;
+  --gas-bueno-tint: #DCF5E4;
+  --gas-malo:       #B42318;
+  --gas-malo-tint:  #FEE7E5;
+  --gas-malo-line:  #F7CFCB;
+
+  background-color: var(--gas-canvas);
+  color: var(--gas-ink);
+  /* Space Grotesk trae cifras de ancho parejo; sin esto, el saldo bailotea
+     mientras se tipea y las columnas del historial no alinean. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── El comprobante ─────────────────────────────────────────────────────────
+   El borde inferior dentado se dibuja con un SVG aparte (ver ui.tsx): un
+   `mask-composite` habría sido más corto, pero el soporte en Safari de iOS
+   —que es donde esto se va a usar— no es parejo. */
+/* Sin `rotate`: la inclinación buscaba el efecto de sello, pero durante la
+   entrada se leía como un formulario torcido. Queda la caída con escala, que
+   da el golpe sin desalinear nada. */
+@keyframes gas-sello {
+  from { opacity: 0; transform: translateY(-14px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gas-velo {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+.gas-sello { animation: gas-sello 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.gas-velo  { animation: gas-velo 180ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gas-sello, .gas-velo { animation-duration: 1ms; }
+}
+
+/* Oculta la barra de scroll del carrusel sin perder el gesto. */
+.gas-sin-barra { scrollbar-width: none; }
+.gas-sin-barra::-webkit-scrollbar { display: none; }
