@@ -28,8 +28,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(datos.title, {
       body: datos.body,
-      icon: '/finanzas/icon-192',
-      badge: '/finanzas/icon-192',
+      icon: '/finanzas/icon-192.png',
+      badge: '/finanzas/icon-192.png',
       // Sin `tag`, dos avisos distintos se apilan; con uno fijo, el segundo
       // reemplazaría al primero. La URL es un buen término medio: dos avisos
       // de la misma pantalla se colapsan, dos de pantallas distintas no.

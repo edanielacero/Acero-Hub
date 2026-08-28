@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGas } from '../components/data'
+import { GasLink } from '../router'
 import { AutoDibujo } from '../components/car-art'
+import { MarcaGas } from '../components/marca'
 import { Boton } from '../components/ui'
 import { ComprobanteCarga, ComprobanteCierre, ComprobanteCorreccion, ComprobanteDetalle, ComprobanteInicio, ComprobantePromedio, ComprobanteResumen } from '../components/sheets'
 import { esCompartido, historial, kmDisponibles, kmRecorridos, miParte, saldo as calcSaldo, viajeEnCurso } from '@/lib/gas/calc'
@@ -36,7 +38,13 @@ export function HomeScreen() {
   const [activo, setActivo] = useState(0)
   const [compacto, setCompacto] = useState(false)
   const [altoExpandido, setAltoExpandido] = useState<number | null>(null)
+  const [altoTitulo, setAltoTitulo] = useState(0)
+  // Un plegado "forzado" es el que dejó al contenido más corto que la pantalla:
+  // el navegador lleva el scroll a cero y no hay que confundir eso con que el
+  // usuario haya vuelto arriba por su cuenta.
+  const [plegadoForzado, setPlegadoForzado] = useState(false)
   const listaRef = useRef<HTMLDivElement>(null)
+  const tituloRef = useRef<HTMLElement>(null)
   const [mes, setMes] = useState<string>('todo')
   const [tipo, setTipo] = useState<FiltroTipo>('todo')
   const [popup, setPopup] = useState<Popup>(null)
@@ -70,31 +78,105 @@ export function HomeScreen() {
 
   /*
     El plegado es un interruptor con transición de CSS, y NO una altura atada
-    punto a punto al scroll. La razón es geométrica: al plegarse, el encabezado
-    le devuelve su alto a la lista, así que el máximo scrolleable se achica. Con
-    la altura atada al scroll eso se realimenta —scrolleás, se pliega, el
-    navegador recorta el scroll, se despliega— y la sección tiembla. Como
-    interruptor, el cambio ocurre una vez y la histéresis (40 para plegar, 8
-    para volver) impide que se dispare de ida y vuelta.
-
-    El `sobra` es la otra mitad de la garantía: solo se pliega si DESPUÉS de
-    plegarse todavía queda scroll de sobra. Con tres movimientos en la lista,
-    plegar dejaría el contenido más corto que la ventana y el navegador tiraría
-    el scroll a cero — que es justamente el caso que haría temblar todo.
+    punto a punto al scroll: si el alto siguiera al scroll, plegarse achica el
+    máximo scrolleable, el navegador recorta la posición, se despliega, y la
+    pantalla tiembla. Como interruptor el cambio ocurre una vez, y la histéresis
+    (se pliega cuando el título ya casi se fue, se despliega solo al volver
+    arriba del todo) impide que se dispare de ida y vuelta.
   */
-  const alScrollearLista = () => {
+  /*
+    El plegado ocurre SIEMPRE que se scrollea, tenga la lista los movimientos
+    que tenga. Lo que cambia según el largo de la lista es cómo se vuelve atrás.
+
+    Con la lista larga, plegar deja scroll de sobra: volver arriba del todo
+    despliega la tarjeta sola, como uno espera.
+
+    Con la lista corta, plegar libera ~300px y el contenido pasa a entrar entero
+    en la pantalla: ya no queda scroll y el navegador lleva la posición a cero.
+    Si eso desplegara la tarjeta, el plegado no llegaría a verse nunca — y
+    rellenar el final con espacio en blanco para evitarlo fue peor, porque al
+    terminar el scroll los movimientos se iban para arriba y abajo quedaba un
+    vacío. Así que ese plegado se marca como forzado y NO se deshace solo: se
+    deshace tirando hacia abajo, que es el gesto con el que uno pide ver lo que
+    quedó arriba.
+  */
+  const UMBRAL_PLEGAR = 36
+  const UMBRAL_DESPLEGAR = 6
+
+  const alScrollear = () => {
     const el = listaRef.current
     if (!el || altoExpandido === null) return
 
-    const gana = altoExpandido - ALTO_COMPACTO
-    const sobra = el.scrollHeight - el.clientHeight
-
     if (!compacto) {
-      if (el.scrollTop > 40 && sobra > gana + 40) setCompacto(true)
-    } else if (el.scrollTop < 8) {
+      if (el.scrollTop <= UMBRAL_PLEGAR) return
+
+      const gana = altoExpandido - ALTO_COMPACTO
+      const sobraTrasPlegar = el.scrollHeight - el.clientHeight - gana
+      const forzado = sobraTrasPlegar < UMBRAL_DESPLEGAR
+
+      /*
+        Con el plegado forzado, el contenido pasa a entrar entero y el navegador
+        termina llevando el scroll a cero por su cuenta — pero lo hace unos
+        cuadros después, ya empezada la animación. Filmado: el contenido subía a
+        42 y volvía a 0 en el cuadro siguiente, y ese ida y vuelta es lo que se
+        siente como un rebote. Asentarlo acá mismo lo convierte en un solo
+        movimiento.
+      */
+      if (forzado) el.scrollTop = Math.max(0, sobraTrasPlegar)
+
+      setPlegadoForzado(forzado)
+      setCompacto(true)
+    } else if (!plegadoForzado && el.scrollTop < UMBRAL_DESPLEGAR) {
       setCompacto(false)
     }
   }
+
+  /*
+    Desplegar tirando hacia abajo estando arriba del todo.
+
+    Es la única salida cuando el plegado fue forzado: ahí no queda scroll, así
+    que no hay evento de scroll que avise. Se escucha el gesto en crudo —el
+    dedo en el teléfono, la rueda en el escritorio— y alcanza con la intención,
+    sin necesidad de que la pantalla se llegue a mover.
+  */
+  useEffect(() => {
+    const el = listaRef.current
+    if (!el || !compacto) return
+
+    let desdeY = 0
+    const arribaDelTodo = () => el.scrollTop <= 2
+    const desplegar = () => { setPlegadoForzado(false); setCompacto(false) }
+
+    const alTocar = (e: TouchEvent) => { desdeY = e.touches[0]?.clientY ?? 0 }
+    const alArrastrar = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0
+      if (arribaDelTodo() && y - desdeY > 24) desplegar()
+    }
+    const alRodar = (e: WheelEvent) => {
+      if (arribaDelTodo() && e.deltaY < -4) desplegar()
+    }
+
+    el.addEventListener('touchstart', alTocar, { passive: true })
+    el.addEventListener('touchmove', alArrastrar, { passive: true })
+    el.addEventListener('wheel', alRodar, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', alTocar)
+      el.removeEventListener('touchmove', alArrastrar)
+      el.removeEventListener('wheel', alRodar)
+    }
+  }, [compacto])
+
+  // El alto del título define cuándo plegar: el momento natural es cuando
+  // termina de irse y el carrusel llega arriba.
+  useEffect(() => {
+    const el = tituloRef.current
+    if (!el) return
+    const medir = () => setAltoTitulo(el.offsetHeight)
+    medir()
+    const obs = new ResizeObserver(medir)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [estado])
 
   if (estado === 'cargando') return <Esqueleto />
   if (estado === 'error') return <Fallo />
@@ -103,10 +185,42 @@ export function HomeScreen() {
   const abierto = popup ? autoDe(popup.autoId) : undefined
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-md flex-col">
+    /*
+      UN SOLO contenedor con scroll para toda la pantalla, y no una lista con
+      scroll propio debajo de un encabezado fijo. La diferencia se siente: así
+      el gesto funciona en cualquier parte —también arrastrando sobre el auto—,
+      que es como uno espera que se comporte una pantalla.
 
-      {/* ── Sección superior: fija ─────────────────────────────────────────── */}
-      <section className="shrink-0 pt-[max(1.25rem,env(safe-area-inset-top))]">
+      El encabezado (carrusel + filtros) va `sticky top-0`: queda clavado arriba
+      desde el primer pixel y los movimientos pasan por debajo. Cuando el
+      carrusel se pliega, el bloque pegajoso ocupa menos y la lista gana ese
+      alto sin que nada más cambie de lugar.
+    */
+    <div
+      ref={listaRef}
+      onScroll={alScrollear}
+      className="gas-sin-ancla h-full overflow-y-auto overscroll-contain"
+    >
+      <div className="mx-auto w-full max-w-md">
+
+      {/* ── Título: se va con el scroll, como el "Today" del App Store ─────── */}
+      <header
+        ref={tituloRef}
+        className="flex items-center justify-between px-5 pt-[max(0.5rem,env(safe-area-inset-top))] pb-4"
+      >
+        <h1 className="text-[34px] font-bold leading-none tracking-[-0.035em] text-[var(--gas-ink)]">
+          Gasolina
+        </h1>
+        {/* La marca de la mini-app. Lleva de vuelta al Hub: es la única salida
+            desde que se quitó el botón, y acá no ocupa nada. */}
+        <GasLink href="/" aria-label="Volver al Hub" className="shrink-0">
+          <MarcaGas size={44} />
+        </GasLink>
+      </header>
+
+      {/* ── Pegajoso: el carrusel y los filtros ───────────────────────────── */}
+      <div className="sticky top-0 z-30 bg-[var(--gas-canvas)]">
+      <section className="pt-1">
         <Carrusel onActivo={setActivo}>
           {autos.map((a, i) => (
             <Tarjeta
@@ -126,18 +240,16 @@ export function HomeScreen() {
         </Carrusel>
       </section>
 
-      {/* ── Filtros: fijos ─────────────────────────────────────────────────── */}
-      <section className="shrink-0 border-t border-[var(--gas-hairline)] bg-[var(--gas-surface)]/60 px-5 py-3">
+      {/* Opaco a propósito: es lo que hace que los movimientos desaparezcan
+          por debajo en vez de transparentarse contra el encabezado. */}
+      <section className="border-t border-[var(--gas-hairline)] bg-[var(--gas-surface-alto)] px-5 py-3">
         <Meses meses={meses} activo={mesActivo} onElegir={setMes} />
         <Tipos activo={tipo} onElegir={setTipo} />
       </section>
+      </div>
 
-      {/* ── Historial: lo único que scrollea ───────────────────────────────── */}
-      <div
-        ref={listaRef}
-        onScroll={alScrollearLista}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4"
-      >
+      {/* ── Historial ──────────────────────────────────────────────────────── */}
+      <div className="px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
         {filas.length === 0 ? (
           <p className="py-16 text-center text-[13.5px] leading-relaxed text-[var(--gas-ink-3)]">
             {propios.length === 0
@@ -156,6 +268,8 @@ export function HomeScreen() {
             ))}
           </ul>
         )}
+      </div>
+
       </div>
 
       {/* ── Comprobantes ───────────────────────────────────────────────────── */}
@@ -324,32 +438,77 @@ function Tarjeta({ auto, movimientos, compacto, altoExpandido, onMedir, onCargar
   const debe = saldo < 0
 
   const expandidaRef = useRef<HTMLDivElement>(null)
+  const cajaRef = useRef<HTMLDivElement>(null)
+  const [ancho, setAncho] = useState(0)
 
   // El alto de la forma expandida depende del ancho de la tarjeta (la foto
-  // tiene proporción fija), así que se mide en vez de calcularse, y se vuelve a
-  // medir si la ventana cambia de tamaño.
+  // tiene proporción fija), así que se mide en vez de calcularse.
   useEffect(() => {
     if (!onMedir) return
     const el = expandidaRef.current
     if (!el) return
-
     const medir = () => onMedir(el.offsetHeight)
     medir()
-
-    const observador = new ResizeObserver(medir)
-    observador.observe(el)
-    return () => observador.disconnect()
+    const obs = new ResizeObserver(medir)
+    obs.observe(el)
+    return () => obs.disconnect()
   }, [onMedir])
+
+  // El ancho de la tarjeta: de él sale cuánto tiene que encoger la foto.
+  useEffect(() => {
+    const el = cajaRef.current
+    if (!el) return
+    const medir = () => setAncho(el.offsetWidth)
+    medir()
+    const obs = new ResizeObserver(medir)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  /*
+    LA FOTO ES EL MISMO ELEMENTO EN LOS DOS ESTADOS.
+
+    Antes había dos tarjetas superpuestas cruzándose en opacidad, y eso se leía
+    como "una se va y aparece otra", no como una transición. Ahora el auto se
+    dibuja UNA sola vez, encima de las dos formas, y viaja de su lugar grande al
+    chico encogiendo. Va con `transform`, que corre en el compositor y no
+    dispara relayout en cada cuadro.
+
+    Las dos formas siguen cruzándose por debajo, pero como el auto es lo que
+    manda visualmente, el conjunto se lee como una sola cosa que se transforma.
+
+    Los números salen de las clases de cada forma, y por eso viven juntos acá:
+    la expandida tiene `px-5 pt-4` → esquina en (20,16); la compacta `px-3.5` y
+    la foto centrada en su alto.
+  */
+  const FOTO_COMPACTA = 70
+  const anchoFotoExpandida = Math.max(1, ancho - 40)
+  const escalaFoto = ancho > 0 ? FOTO_COMPACTA / anchoFotoExpandida : 1
+  const altoFotoCompacta = FOTO_COMPACTA / 2.15
+  const dx = 14 - 20
+  const dy = (ALTO_COMPACTO - altoFotoCompacta) / 2 - 16
+
+  const CURVA = 'cubic-bezier(0.32,0.72,0,1)'
 
   return (
     <div
-      className="relative overflow-hidden transition-[height] duration-[320ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
-      style={{ height: compacto ? ALTO_COMPACTO : (altoExpandido ?? undefined) }}
+      ref={cajaRef}
+      className="relative overflow-hidden transition-[height] duration-[420ms]"
+      style={{
+        height: compacto ? ALTO_COMPACTO : (altoExpandido ?? undefined),
+        transitionTimingFunction: CURVA,
+      }}
     >
       {/* ── Forma compacta ── */}
       <div
-        className="absolute inset-x-0 top-0 transition-opacity duration-200"
-        style={{ opacity: compacto ? 1 : 0, pointerEvents: compacto ? 'auto' : 'none' }}
+        className="absolute inset-x-0 top-0 transition-opacity duration-[220ms] ease-out"
+        style={{
+          opacity: compacto ? 1 : 0,
+          // Entra recién cuando la expandida ya se fue, para que no se
+          // superpongan las dos en el medio de la transición.
+          transitionDelay: compacto ? '120ms' : '0ms',
+          pointerEvents: compacto ? 'auto' : 'none',
+        }}
         aria-hidden={!compacto}
       >
         <TarjetaCompacta
@@ -366,8 +525,16 @@ function Tarjeta({ auto, movimientos, compacto, altoExpandido, onMedir, onCargar
       {/* ── Forma expandida ── */}
       <div
         ref={expandidaRef}
-        className="absolute inset-x-0 top-0 transition-opacity duration-200"
-        style={{ opacity: compacto ? 0 : 1, pointerEvents: compacto ? 'none' : 'auto' }}
+        className="absolute inset-x-0 top-0 transition-[opacity,transform] duration-[220ms] ease-out"
+        style={{
+          opacity: compacto ? 0 : 1,
+          // Se recoge un poco al irse en vez de quedar guillotinada por el
+          // `overflow-hidden` mientras el contenedor se achica.
+          transform: compacto ? 'scale(0.96)' : 'scale(1)',
+          transformOrigin: 'top center',
+          transitionDelay: compacto ? '0ms' : '120ms',
+          pointerEvents: compacto ? 'none' : 'auto',
+        }}
         aria-hidden={compacto}
       >
         <TarjetaExpandida
@@ -381,6 +548,21 @@ function Tarjeta({ auto, movimientos, compacto, altoExpandido, onMedir, onCargar
           onFinalizar={onFinalizar}
           onPromedio={onPromedio}
         />
+      </div>
+
+      {/* ── El auto: uno solo, encima de las dos formas ── */}
+      <div
+        className="pointer-events-none absolute transition-transform duration-[420ms]"
+        style={{
+          left: 20,
+          top: 16,
+          width: anchoFotoExpandida,
+          transformOrigin: 'top left',
+          transform: compacto ? `translate(${dx}px, ${dy}px) scale(${escalaFoto})` : 'none',
+          transitionTimingFunction: CURVA,
+        }}
+      >
+        <AutoDibujo color={auto.color} className="w-full" />
       </div>
     </div>
   )
@@ -404,7 +586,8 @@ function TarjetaCompacta({ auto, saldo, km, enCurso, debe, onIniciar, onFinaliza
       className="flex items-center gap-3 rounded-2xl border border-[var(--gas-hairline)] bg-[var(--gas-surface)] px-3.5 shadow-[0_1px_2px_rgba(23,24,28,0.04)]"
       style={{ height: ALTO_COMPACTO }}
     >
-      <AutoDibujo color={auto.color} className="w-[70px] shrink-0" />
+      {/* Hueco: el auto lo dibuja la capa de arriba, que es la que viaja. */}
+      <div className="aspect-[2.15/1] w-[70px] shrink-0" aria-hidden />
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14px] font-bold tracking-[-0.01em] text-[var(--gas-ink)]">
@@ -445,8 +628,9 @@ function TarjetaExpandida({ auto, saldo, km, enCurso, debe, onCargar, onIniciar,
 }) {
   return (
     <section className="flex flex-col overflow-hidden rounded-2xl border border-[var(--gas-hairline)] bg-[var(--gas-surface)] shadow-[0_1px_2px_rgba(23,24,28,0.04)]">
+      {/* Mismo hueco que arriba: reserva el alto para que la tarjeta mida bien. */}
       <div className="px-5 pt-4">
-        <AutoDibujo color={auto.color} className="h-auto w-full" />
+        <div className="aspect-[2.15/1] w-full" aria-hidden />
       </div>
 
       <div className="flex items-baseline justify-between px-5 pb-4">
@@ -491,8 +675,8 @@ function TarjetaExpandida({ auto, saldo, km, enCurso, debe, onCargar, onIniciar,
             <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--gas-accent-fuerte)]" />
             <strong className="font-bold">En curso</strong>
             <span className="truncate">
-              {fmtOdometro(enCurso.kmInicial)} km ·{' '}
-              {enCurso.personas === 1 ? 'solo' : `${enCurso.personas} personas`}
+              {fmtOdometro(enCurso.kmInicial)} km
+              {enCurso.personas > 1 && ` · ${enCurso.personas} personas`}
             </span>
           </p>
         ) : (
@@ -602,7 +786,10 @@ function FilaMovimiento({ mov, saldo, onAbrir }: {
         <p className="mt-1 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
         {mov.tipo === 'viaje' && !abierto && (
           <p className="mt-1 text-[11.5px] text-[var(--gas-ink-2)]">
-            {fmtKm(kmRecorridos(mov) ?? 0)} · {esCompartido(mov) ? `compartido entre ${mov.personas}` : 'fuiste solo'}
+            {/* Ir solo es lo normal y no se menciona: el reparto solo se
+                nombra cuando efectivamente hubo con quién repartir. */}
+            {fmtKm(kmRecorridos(mov) ?? 0)}
+            {esCompartido(mov) && ` · Compartido entre ${mov.personas}`}
           </p>
         )}
         {mov.nota && (

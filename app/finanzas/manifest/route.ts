@@ -19,18 +19,26 @@ export function GET() {
       start_url: '/finanzas',
       scope: '/finanzas',
       display: 'standalone',
-      // El celeste del ícono, para que la pantalla de arranque no destelle en
-      // otro color antes de que cargue la app.
-      background_color: '#EEF5FC',
+      // El verde del borde del ícono, para que la pantalla de arranque no
+      // destelle en otro color antes de que cargue la app. Al coincidir con el
+      // borde, el ícono no recorta contra el fondo: se funde con él.
+      background_color: '#1B7448',
       theme_color: '#F3F4F6',
       lang: 'es',
+      // Los PNG son estáticos, de `public/finanzas/`. Antes se generaban al
+      // vuelo con ImageResponse desde un `icon-mark.tsx`, que servía cuando la
+      // marca eran tres barras y un círculo; el ícono de ahora es una
+      // ilustración y no se dibuja con cuatro paths. Se rehacen con
+      // `documentos/design/finanzas-icon-build.js` a partir del original.
       icons: [
-        { src: '/finanzas/icon-180', sizes: '180x180', type: 'image/png', purpose: 'any' },
-        { src: '/finanzas/icon-192', sizes: '192x192', type: 'image/png', purpose: 'any' },
-        { src: '/finanzas/icon-512', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: '/finanzas/icon-180.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
+        { src: '/finanzas/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: '/finanzas/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
         // `maskable` deja que Android recorte el ícono a la forma del sistema.
-        // El dibujo va centrado con margen suficiente para aguantar el recorte.
-        { src: '/finanzas/icon-512', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        // Va en un archivo aparte y no en el mismo 512: el dibujo llega hasta
+        // el borde, así que un recorte a círculo se comería los chips de las
+        // esquinas. Ese va al 78% sobre campo verde para aguantar el recorte.
+        { src: '/finanzas/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
     },
     { headers: { 'Content-Type': 'application/manifest+json' } },

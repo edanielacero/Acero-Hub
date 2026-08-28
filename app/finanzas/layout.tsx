@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     // iOS no lee los íconos del manifest: necesita `apple-touch-icon`. Sin
     // esto, agregar la app a la pantalla de inicio le saca una captura borrosa
     // a la página en vez de usar un ícono.
-    apple: [{ url: '/finanzas/icon-180', sizes: '180x180', type: 'image/png' }],
+    apple: [{ url: '/finanzas/icon-180.png', sizes: '180x180', type: 'image/png' }],
   },
 }
 

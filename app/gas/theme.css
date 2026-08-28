@@ -88,6 +88,18 @@ body:has(#gas-root) {
   .gas-sello, .gas-velo { animation-duration: 1ms; }
 }
 
+/*
+  Chrome ancla el scroll a un elemento del contenido y corrige la posición
+  cuando el layout cambia. Con un encabezado `sticky` —que por definición no se
+  mueve con el scroll— esa corrección cancela el gesto: al scrollear, el
+  contenedor volvía solo a cero en cuatro cuadros (medido: 60 → 51 → 38 → 16 →
+  0) y el plegado nunca llegaba a dispararse.
+
+  Se apaga en el CONTENEDOR de scroll, que es donde el anclaje vive; ponerlo
+  solo en el encabezado no alcanza, también verificado.
+*/
+.gas-sin-ancla { overflow-anchor: none; }
+
 /* Oculta la barra de scroll del carrusel sin perder el gesto. */
 .gas-sin-barra { scrollbar-width: none; }
 .gas-sin-barra::-webkit-scrollbar { display: none; }

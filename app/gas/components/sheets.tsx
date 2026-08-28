@@ -285,9 +285,12 @@ export function ComprobanteResumen({ auto, viaje, saldoNuevo, onCerrar }: {
         <p className="mt-2 text-[46px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
           {fmtBs(mio)}
         </p>
-        <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
-          {compartido ? `Dividido entre ${viaje.personas} personas` : 'Fuiste solo'}
-        </p>
+        {/* Sin línea cuando fue solo: no hay reparto del que hablar. */}
+        {compartido && (
+          <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
+            Dividido entre {viaje.personas} personas
+          </p>
+        )}
       </div>
 
       <Corte />
@@ -611,9 +614,11 @@ export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
             <p className="mt-2 text-[42px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
               {fmtBs(miParte(mov) ?? 0)}
             </p>
-            <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
-              {esCompartido(mov) ? `Dividido entre ${mov.personas} personas` : 'Fuiste solo'}
-            </p>
+            {esCompartido(mov) && (
+              <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
+                Dividido entre {mov.personas} personas
+              </p>
+            )}
           </>
         )}
       </div>
@@ -629,7 +634,7 @@ export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
               : `${fmtOdometro(mov.kmInicial)} → ${fmtOdometro(mov.kmFinal ?? 0)}`}
           />
           {!abierto && <Renglon etiqueta="Recorrido" valor={fmtKm(kmRecorridos(mov) ?? 0)} fuerte />}
-          <Renglon etiqueta="En el auto" valor={`${mov.personas} ${mov.personas === 1 ? 'persona' : 'personas'}`} />
+          {esCompartido(mov) && <Renglon etiqueta="En el auto" valor={`${mov.personas} personas`} />}
           {!abierto && <Renglon etiqueta="Costo del viaje" valor={fmtBs(costoTotal(mov) ?? 0)} />}
           <Renglon etiqueta="Promedio de entonces" valor={`${fmtBs(mov.bsPorKm)}/km`} />
         </>
