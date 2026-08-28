@@ -29,7 +29,11 @@ export function AutoDibujo({ color, className = '' }: { color: ColorAuto; classN
   const foto = FOTOS[color]
 
   return (
-    <div className={`flex aspect-[2.15/1] w-full items-end justify-center ${className}`}>
+    // El ANCHO lo pone quien la usa, no este componente: la tarjeta expandida la
+    // quiere a todo lo ancho y la compacta en 70px. Con un `w-full` fijo acá,
+    // las dos clases competían y ganaba la del componente — la tarjeta plegada
+    // salía siendo una foto gigante.
+    <div className={`flex aspect-[2.15/1] items-end justify-center ${className}`}>
       {/* `<img>` y no next/image a propósito: son dos archivos estáticos de
           menos de 80 KB que se muestran siempre, así que el optimizador no
           compra nada y sí agrega una request. */}

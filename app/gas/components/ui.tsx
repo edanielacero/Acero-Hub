@@ -42,12 +42,18 @@ export function Comprobante({ rotulo, titulo, onCerrar, children }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-5" onClick={onCerrar}>
       <div className="gas-velo absolute inset-0 bg-[#17181C]/55 backdrop-blur-[3px]" />
 
-      <div className="gas-sello relative w-full max-w-[340px]" onClick={e => e.stopPropagation()}>
+      {/* `max-h-full overflow-y-auto`: el comprobante de corrección con un error
+          arriba y la confirmación de borrado abajo no entra en una pantalla
+          chica, y sin scroll el botón quedaba fuera de alcance. */}
+      <div
+        className="gas-sello gas-sin-barra relative max-h-full w-full max-w-[360px] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="rounded-t-[14px] overflow-hidden shadow-[0_24px_60px_-12px_rgba(23,24,28,0.45)]">
 
           {/* Cabezal impreso */}
-          <div className="flex items-center justify-between bg-[var(--gas-ink)] px-4 py-2.5">
-            <span className="text-[9.5px] font-bold uppercase tracking-[0.22em] text-white/70">
+          <div className="flex items-center justify-between bg-[var(--gas-ink)] px-5 py-3">
+            <span className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-white/70">
               {rotulo}
             </span>
             <button
@@ -62,8 +68,8 @@ export function Comprobante({ rotulo, titulo, onCerrar, children }: {
           </div>
 
           {/* Cuerpo */}
-          <div className="bg-[var(--gas-surface)] px-5 pb-5 pt-4">
-            <h2 className="mb-4 text-[19px] font-bold leading-tight tracking-[-0.02em] text-[var(--gas-ink)]">
+          <div className="bg-[var(--gas-surface)] px-6 pb-6 pt-5">
+            <h2 className="mb-5 text-[21px] font-bold leading-tight tracking-[-0.02em] text-[var(--gas-ink)]">
               {titulo}
             </h2>
             {children}
@@ -111,11 +117,11 @@ export function Renglon({ etiqueta, valor, fuerte, tono }: {
 
   return (
     <div className="flex items-baseline justify-between gap-3 py-1">
-      <span className="text-[12px] text-[var(--gas-ink-2)]">{etiqueta}</span>
+      <span className="text-[13px] text-[var(--gas-ink-2)]">{etiqueta}</span>
       {/* Los puntos suspensivos que unen etiqueta y valor, como en un ticket. */}
       <span className="mx-1 flex-1 border-b border-dotted border-[var(--gas-hairline-2)]" />
       <span
-        className={`shrink-0 tabular-nums ${fuerte ? 'text-[15px] font-bold' : 'text-[13px] font-semibold'}`}
+        className={`shrink-0 tabular-nums ${fuerte ? 'text-[16.5px] font-bold' : 'text-[14px] font-semibold'}`}
         style={{ color }}
       >
         {valor}
@@ -144,11 +150,12 @@ const TONOS: Record<Tono, string> = {
  * padding desde el llamador no es confiable. Y el modificador `!` tampoco
  * servía: en Tailwind v4 va como sufijo (`px-3!`), no como prefijo.
  */
-type Tamano = 'normal' | 'chico'
+type Tamano = 'grande' | 'normal' | 'chico'
 
 const TAMANOS: Record<Tamano, string> = {
-  normal: 'px-4 py-3 text-[13px]',
-  chico:  'px-3 py-2 text-[12px]',
+  grande: 'px-5 py-3.5 text-[15px]',
+  normal: 'px-4 py-3 text-[14px]',
+  chico:  'px-3.5 py-2.5 text-[13px]',
 }
 
 export function Boton({ tono = 'lleno', tamano = 'normal', className = '', children, ...rest }: {
@@ -179,19 +186,19 @@ export function Campo({ etiqueta, sufijo, ayuda, ...rest }: {
 } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[9.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
+      <span className="mb-2 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
         {etiqueta}
       </span>
       <div className="flex items-baseline gap-2 border-b-2 border-[var(--gas-ink)] pb-1.5 focus-within:border-[var(--gas-accent)]">
         <input
           inputMode="decimal"
           autoComplete="off"
-          className="w-full bg-transparent text-[30px] font-bold tabular-nums tracking-[-0.02em] text-[var(--gas-ink)] outline-none placeholder:text-[var(--gas-hairline-2)]"
+          className="w-full bg-transparent text-[34px] font-bold tabular-nums tracking-[-0.02em] text-[var(--gas-ink)] outline-none placeholder:text-[var(--gas-hairline-2)]"
           {...rest}
         />
-        {sufijo && <span className="shrink-0 text-[13px] font-bold text-[var(--gas-ink-3)]">{sufijo}</span>}
+        {sufijo && <span className="shrink-0 text-[14px] font-bold text-[var(--gas-ink-3)]">{sufijo}</span>}
       </div>
-      {ayuda && <p className="mt-2 text-[11px] leading-relaxed text-[var(--gas-ink-2)]">{ayuda}</p>}
+      {ayuda && <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--gas-ink-2)]">{ayuda}</p>}
     </label>
   )
 }
@@ -207,14 +214,14 @@ export function CampoNota({ etiqueta, ...rest }: {
 } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[9.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
+      <span className="mb-2 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
         {etiqueta}
       </span>
       <input
         type="text"
         autoComplete="off"
         maxLength={200}
-        className="w-full rounded-lg border border-[var(--gas-hairline)] bg-[var(--gas-surface-alto)] px-3 py-2.5 text-[13px] text-[var(--gas-ink)] outline-none transition-colors placeholder:text-[var(--gas-ink-3)] focus:border-[var(--gas-ink)]"
+        className="w-full rounded-xl border border-[var(--gas-hairline)] bg-[var(--gas-surface-alto)] px-3.5 py-3 text-[14px] text-[var(--gas-ink)] outline-none transition-colors placeholder:text-[var(--gas-ink-3)] focus:border-[var(--gas-ink)]"
         {...rest}
       />
     </label>
@@ -225,7 +232,7 @@ export function CampoNota({ etiqueta, ...rest }: {
 export function Aviso({ children }: { children: ReactNode }) {
   return (
     <p
-      className="mt-3 rounded-lg px-3 py-2 text-[11.5px] leading-relaxed"
+      className="mt-3 rounded-lg px-3.5 py-2.5 text-[12.5px] leading-relaxed"
       style={{ backgroundColor: 'var(--gas-malo-tint)', color: 'var(--gas-malo)' }}
     >
       {children}

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Aviso, Boton, Campo, CampoNota, Comprobante, Corte, Renglon } from './ui'
 import { useGas } from './data'
 import { fmtBs, fmtFechaHora, fmtKm, fmtOdometro, numeroDeInput, paraInput, parseNumeroInput } from '@/lib/gas/format'
-import { costoTotal, esCompartido, miParte, round2 } from '@/lib/gas/calc'
+import { costoTotal, esCompartido, kmRecorridos, miParte, round2 } from '@/lib/gas/calc'
 import type { Auto, Movimiento, Viaje } from '@/lib/gas/types'
 
 /* ─── Cargar saldo ─────────────────────────────────────────────────────────── */
@@ -54,7 +54,7 @@ export function ComprobanteCarga({ auto, saldo, onCerrar }: {
       />
 
       {saldo < 0 && (
-        <p className="mt-3 text-[11px] leading-relaxed text-[var(--gas-ink-2)]">
+        <p className="mt-3 text-[12px] leading-relaxed text-[var(--gas-ink-2)]">
           El saldo está en rojo: lo que cargues primero cubre los {fmtBs(Math.abs(saldo))} que debés.
         </p>
       )}
@@ -112,14 +112,14 @@ export function ComprobanteInicio({ auto, ultimoKm, onCerrar }: {
       />
 
       <div className="mt-5">
-        <span className="mb-2 block text-[9.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
+        <span className="mb-2.5 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
           Cuántos van en el auto
         </span>
         <div className="flex items-center gap-2">
           <Paso etiqueta="Uno menos" onClick={() => setPersonas(p => Math.max(1, p - 1))} disabled={personas <= 1}>−</Paso>
           <div className="flex-1 text-center">
-            <p className="text-[26px] font-bold leading-none tabular-nums text-[var(--gas-ink)]">{personas}</p>
-            <p className="mt-1 text-[10px] text-[var(--gas-ink-3)]">
+            <p className="text-[30px] font-bold leading-none tabular-nums text-[var(--gas-ink)]">{personas}</p>
+            <p className="mt-1 text-[11px] text-[var(--gas-ink-3)]">
               {personas === 1 ? 'vas solo' : 'contándote a vos'}
             </p>
           </div>
@@ -140,7 +140,7 @@ function Paso({ etiqueta, children, ...rest }: { etiqueta: string } & React.Butt
   return (
     <button
       aria-label={etiqueta}
-      className="h-11 w-11 shrink-0 rounded-xl border border-[var(--gas-hairline)] bg-[var(--gas-surface-alto)] text-[19px] font-bold text-[var(--gas-ink-2)] transition-colors hover:text-[var(--gas-ink)] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+      className="h-12 w-12 shrink-0 rounded-xl border border-[var(--gas-hairline)] bg-[var(--gas-surface-alto)] text-[21px] font-bold text-[var(--gas-ink-2)] transition-colors hover:text-[var(--gas-ink)] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
       {...rest}
     >
       {children}
@@ -235,7 +235,7 @@ export function ComprobanteCierre({ auto, viaje, onCerrar, onCerrado }: {
       ) : (
         <button
           onClick={() => setConfirmandoCancelar(true)}
-          className="mt-3 w-full text-center text-[10.5px] text-[var(--gas-ink-3)] transition-colors hover:text-[var(--gas-malo)] cursor-pointer"
+          className="mt-3.5 w-full text-center text-[11.5px] text-[var(--gas-ink-3)] transition-colors hover:text-[var(--gas-malo)] cursor-pointer"
         >
           Lo inicié sin querer, descartar este viaje
         </button>
@@ -279,13 +279,13 @@ export function ComprobanteResumen({ auto, viaje, saldoNuevo, onCerrar }: {
   return (
     <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Viaje terminado" onCerrar={onCerrar}>
       <div className="py-1 text-center">
-        <p className="text-[9.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
           Te costó
         </p>
-        <p className="mt-1.5 text-[42px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
+        <p className="mt-2 text-[46px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
           {fmtBs(mio)}
         </p>
-        <p className="mt-2 text-[12px] text-[var(--gas-ink-2)]">
+        <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
           {compartido ? `Dividido entre ${viaje.personas} personas` : 'Fuiste solo'}
         </p>
       </div>
@@ -306,7 +306,7 @@ export function ComprobanteResumen({ auto, viaje, saldoNuevo, onCerrar }: {
       />
 
       {saldoNuevo < 0 && (
-        <p className="mt-2 text-[11px] leading-relaxed text-[var(--gas-malo)]">
+        <p className="mt-2.5 text-[12px] leading-relaxed text-[var(--gas-malo)]">
           Quedaste debiendo {fmtBs(Math.abs(saldoNuevo))}. Se descuenta de la próxima carga.
         </p>
       )}
@@ -399,10 +399,10 @@ export function ComprobanteCorreccion({ auto, mov, onCerrar }: {
   return (
     <Comprobante
       rotulo={`Gas · ${auto.nombre}`}
-      titulo={esCarga ? 'Corregir carga' : abierto ? 'Corregir viaje en curso' : 'Corregir viaje'}
+      titulo={esCarga ? 'Corregir gasolina' : abierto ? 'Corregir viaje en curso' : 'Corregir viaje'}
       onCerrar={onCerrar}
     >
-      <p className="-mt-2 mb-4 text-[10.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
+      <p className="-mt-3 mb-5 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
 
       {esCarga ? (
         <Campo
@@ -437,14 +437,14 @@ export function ComprobanteCorreccion({ auto, mov, onCerrar }: {
           )}
 
           <div className="mt-5">
-            <span className="mb-2 block text-[9.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
+            <span className="mb-2.5 block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
               Cuántos iban en el auto
             </span>
             <div className="flex items-center gap-2">
               <Paso etiqueta="Uno menos" onClick={() => setPersonas(p => Math.max(1, p - 1))} disabled={personas <= 1}>−</Paso>
               <div className="flex-1 text-center">
-                <p className="text-[26px] font-bold leading-none tabular-nums text-[var(--gas-ink)]">{personas}</p>
-                <p className="mt-1 text-[10px] text-[var(--gas-ink-3)]">
+                <p className="text-[30px] font-bold leading-none tabular-nums text-[var(--gas-ink)]">{personas}</p>
+                <p className="mt-1 text-[11px] text-[var(--gas-ink-3)]">
                   {personas === 1 ? 'ibas solo' : 'contándote a vos'}
                 </p>
               </div>
@@ -491,7 +491,7 @@ export function ComprobanteCorreccion({ auto, mov, onCerrar }: {
       ) : (
         <button
           onClick={() => setConfirmandoBorrar(true)}
-          className="mt-3 w-full text-center text-[10.5px] text-[var(--gas-ink-3)] transition-colors hover:text-[var(--gas-malo)] cursor-pointer"
+          className="mt-3.5 w-full text-center text-[11.5px] text-[var(--gas-ink-3)] transition-colors hover:text-[var(--gas-malo)] cursor-pointer"
         >
           Borrar este movimiento del historial
         </button>
@@ -549,6 +549,108 @@ export function ComprobantePromedio({ auto, onCerrar }: { auto: Auto; onCerrar: 
       <Boton className="mt-5 w-full" disabled={!valido || enviando} onClick={guardar}>
         {enviando ? 'Guardando…' : 'Guardar promedio'}
       </Boton>
+    </Comprobante>
+  )
+}
+
+/* ─── Detalle de un movimiento ─────────────────────────────────────────────── */
+
+/**
+ * Lo que se abre al tocar un renglón del historial.
+ *
+ * Es de SOLO LECTURA a propósito: tocar para mirar es lo que uno hace mil
+ * veces, y editar es lo excepcional. Antes el toque abría el editor directo, lo
+ * que dejaba los campos de kilometraje a un dedazo de cambiarse sin querer.
+ * Para editar hay que pedirlo con el botón.
+ */
+export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
+  auto: Auto
+  mov: Movimiento
+  /** El saldo en que quedó el auto después de este movimiento. */
+  saldo: number
+  onEditar: () => void
+  onCerrar: () => void
+}) {
+  const esCarga = mov.tipo === 'carga'
+  const abierto = mov.tipo === 'viaje' && mov.kmFinal === null
+
+  return (
+    <Comprobante
+      rotulo={`Gas · ${auto.nombre}`}
+      titulo={esCarga ? 'Gasolina pagada' : abierto ? 'Viaje en curso' : 'Viaje'}
+      onCerrar={onCerrar}
+    >
+      <p className="-mt-3 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
+
+      {/* La cifra grande: lo que el movimiento significa de un vistazo. */}
+      <div className="py-4 text-center">
+        {esCarga ? (
+          <>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
+              Cargaste
+            </p>
+            <p className="mt-2 text-[42px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-bueno)]">
+              +{fmtBs(mov.monto)}
+            </p>
+          </>
+        ) : abierto ? (
+          <>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
+              Saliste con
+            </p>
+            <p className="mt-2 text-[38px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
+              {fmtOdometro(mov.kmInicial)} km
+            </p>
+            <p className="mt-2.5 text-[13px] text-[var(--gas-accent)]">Todavía no terminó</p>
+          </>
+        ) : (
+          <>
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
+              Te costó
+            </p>
+            <p className="mt-2 text-[42px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
+              {fmtBs(miParte(mov) ?? 0)}
+            </p>
+            <p className="mt-2.5 text-[13px] text-[var(--gas-ink-2)]">
+              {esCompartido(mov) ? `Dividido entre ${mov.personas} personas` : 'Fuiste solo'}
+            </p>
+          </>
+        )}
+      </div>
+
+      <Corte />
+
+      {mov.tipo === 'viaje' && (
+        <>
+          <Renglon
+            etiqueta="Odómetro"
+            valor={abierto
+              ? `${fmtOdometro(mov.kmInicial)} → …`
+              : `${fmtOdometro(mov.kmInicial)} → ${fmtOdometro(mov.kmFinal ?? 0)}`}
+          />
+          {!abierto && <Renglon etiqueta="Recorrido" valor={fmtKm(kmRecorridos(mov) ?? 0)} fuerte />}
+          <Renglon etiqueta="En el auto" valor={`${mov.personas} ${mov.personas === 1 ? 'persona' : 'personas'}`} />
+          {!abierto && <Renglon etiqueta="Costo del viaje" valor={fmtBs(costoTotal(mov) ?? 0)} />}
+          <Renglon etiqueta="Promedio de entonces" valor={`${fmtBs(mov.bsPorKm)}/km`} />
+        </>
+      )}
+
+      <Corte />
+
+      <Renglon
+        etiqueta="Saldo después"
+        valor={fmtBs(saldo)}
+        fuerte
+        tono={saldo < 0 ? 'malo' : undefined}
+      />
+
+      {mov.nota && (
+        <p className="mt-5 rounded-xl bg-[var(--gas-surface-alto)] px-3.5 py-3 text-[13.5px] italic leading-relaxed text-[var(--gas-ink-2)]">
+          {mov.nota}
+        </p>
+      )}
+
+      <Boton className="mt-5 w-full" onClick={onEditar}>Editar</Boton>
     </Comprobante>
   )
 }
