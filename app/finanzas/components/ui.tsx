@@ -121,6 +121,66 @@ export function Btn({
 
 /* ─── Campos ───────────────────────────────────────────────────────────────── */
 
+/**
+ * Interruptor de encendido/apagado.
+ *
+ * Reemplaza al `<input type="checkbox">` nativo: una casilla dice "elegí de
+ * esta lista" y un interruptor dice "esto está prendido o apagado", que es lo
+ * que pasa con una notificación. Además el nativo se pinta distinto en cada
+ * navegador y en iOS ignora medio estilo.
+ *
+ * Es un `role="switch"` de verdad, no un div con onClick: así lo anuncian los
+ * lectores de pantalla y responde a la barra espaciadora como se espera.
+ */
+export function Toggle({ checked, onChange, label, disabled = false }: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  /** Para lectores de pantalla cuando el texto visible está en otro elemento. */
+  label?: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative shrink-0 w-[46px] h-[28px] rounded-full transition-colors duration-200 outline-none
+        focus-visible:ring-2 focus-visible:ring-[var(--fz-accent)] focus-visible:ring-offset-2
+        disabled:opacity-40 disabled:pointer-events-none
+        ${checked ? 'bg-[var(--fz-accent)]' : 'bg-[var(--fz-hairline)]'}`}
+    >
+      <span
+        aria-hidden
+        className={`absolute top-[3px] left-[3px] w-[22px] h-[22px] rounded-full bg-white
+          shadow-[0_1px_3px_rgba(16,24,40,0.25)] transition-transform duration-200
+          ${checked ? 'translate-x-[18px]' : 'translate-x-0'}`}
+      />
+    </button>
+  )
+}
+
+/**
+ * Campo de hora.
+ *
+ * Existe aparte de `TextField` porque `input[type=time]` no se comporta como un
+ * campo de texto: el control nativo trae su propio relleno interno y alinea el
+ * valor a su manera, así que dos puestos uno al lado del otro salían corridos
+ * entre sí. Se centra el valor y se le saca la apariencia nativa, que es lo que
+ * los vuelve a alinear en cualquier navegador.
+ */
+export function TimeField(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      type="time"
+      className={`${fieldClass} h-12 text-center fz-num [appearance:none] [&::-webkit-calendar-picker-indicator]:hidden ${props.className ?? ''}`}
+    />
+  )
+}
+
 export function Label({ children }: { children: ReactNode }) {
   return <span className="block text-[13px] font-medium text-[var(--fz-ink-2)] mb-1.5">{children}</span>
 }

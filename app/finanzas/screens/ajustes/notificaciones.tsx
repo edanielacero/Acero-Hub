@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { IconBellOff, IconDeviceMobile, IconShare2 } from '@tabler/icons-react'
 import { usePush } from '../../components/push-setup'
-import { Btn, ErrorNote, Label, Panel, TextField } from '../../components/ui'
+import { Btn, ErrorNote, Label, Panel, TimeField, Toggle } from '../../components/ui'
 import { SettingsHeader, SettingsPage } from './shared'
 
 interface Prefs {
@@ -28,7 +28,6 @@ const TIPOS: { key: keyof Prefs; label: string }[] = [
 export function AjustesNotificacionesScreen() {
   const push = usePush()
   const [prefs, setPrefs] = useState<Prefs | null>(null)
-  const [devices, setDevices] = useState(0)
   const [error, setError] = useState('')
 
   const cargar = useCallback(async (endpoint: string | null) => {
@@ -37,7 +36,6 @@ export function AjustesNotificacionesScreen() {
     if (!res.ok) return setError('No se pudieron cargar las preferencias')
     const d = await res.json()
     setPrefs(d.prefs)
-    setDevices(d.devices)
   }, [])
 
   useEffect(() => {
@@ -74,74 +72,78 @@ export function AjustesNotificacionesScreen() {
     <SettingsPage>
       <SettingsHeader title="Notificaciones" />
 
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {push.error && <ErrorNote>{push.error}</ErrorNote>}
+      {/* `SettingsPage` no separa a sus hijos: cada pantalla arma su propia
+          columna. Sin esto los paneles quedaban pegados uno contra el otro. */}
+      <div className="flex flex-col gap-4">
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {push.error && <ErrorNote>{push.error}</ErrorNote>}
 
-      <Panel>
-        <Estado push={push} devices={devices} onActivar={activar} />
-      </Panel>
+        <Panel>
+          <Estado push={push} onActivar={activar} />
+        </Panel>
 
-      {activo && prefs && (
-        <>
-          <Panel>
-            <SeccionTitulo
-              titulo="De qué avisarte"
-              nota="Te llegan cuando pasan, no una vez al día."
-            />
-
-            <div className="flex flex-col">
-              {TIPOS.map(t => (
-                <label
-                  key={t.key}
-                  className="flex items-center justify-between gap-3 py-3.5 border-b border-[var(--fz-hairline)] last:border-0 cursor-pointer"
-                >
-                  <span className="min-w-0 text-[15px] font-semibold truncate">{t.label}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(prefs[t.key])}
-                    onChange={e => void guardar({ [t.key]: e.target.checked } as Partial<Prefs>)}
-                    className="w-[18px] h-[18px] accent-[var(--fz-accent)] shrink-0"
-                  />
-                </label>
-              ))}
-            </div>
-          </Panel>
-
-          {prefs.recordar_anotar && (
+        {activo && prefs && (
+          <>
             <Panel>
               <SeccionTitulo
-                titulo="A qué hora recordarte"
-                nota="Dos por día. Llegan aunque ya hayas anotado algo."
+                titulo="De qué avisarte"
+                nota="Te llegan cuando pasan, no una vez al día."
               />
-              <div className="flex gap-3">
-                <div className="flex-1 min-w-0">
-                  <Label>Mediodía</Label>
-                  <TextField
-                    type="time"
-                    value={prefs.recordar_mediodia.slice(0, 5)}
-                    onChange={e => void guardar({ recordar_mediodia: e.target.value })}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <Label>Noche</Label>
-                  <TextField
-                    type="time"
-                    value={prefs.recordar_noche.slice(0, 5)}
-                    onChange={e => void guardar({ recordar_noche: e.target.value })}
-                  />
-                </div>
+
+              <div className="flex flex-col">
+                {TIPOS.map(t => (
+                  <div
+                    key={t.key}
+                    className="flex items-center justify-between gap-4 py-3 border-b border-[var(--fz-hairline)] last:border-0 last:pb-0 first:pt-0"
+                  >
+                    <span className="min-w-0 text-[15px] font-semibold truncate">{t.label}</span>
+                    <Toggle
+                      checked={Boolean(prefs[t.key])}
+                      label={t.label}
+                      onChange={v => void guardar({ [t.key]: v } as Partial<Prefs>)}
+                    />
+                  </div>
+                ))}
               </div>
             </Panel>
-          )}
 
-          <Panel>
-            <SeccionTitulo
-              titulo="Perfiles"
-              nota="Cada perfil decide por su cuenta si genera avisos. Ese interruptor está en Ajustes → Perfiles."
-            />
-          </Panel>
-        </>
-      )}
+            {prefs.recordar_anotar && (
+              <Panel>
+                <SeccionTitulo
+                  titulo="A qué hora recordarte"
+                  nota="Dos por día. Llegan aunque ya hayas anotado algo."
+                />
+                {/* Grilla y no flex: dos columnas exactamente iguales. Con
+                    `flex-1` cada campo se dimensionaba por su propio contenido
+                    y quedaban de anchos distintos. */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <Label>Mediodía</Label>
+                    <TimeField
+                      value={prefs.recordar_mediodia.slice(0, 5)}
+                      onChange={e => void guardar({ recordar_mediodia: e.target.value })}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <Label>Noche</Label>
+                    <TimeField
+                      value={prefs.recordar_noche.slice(0, 5)}
+                      onChange={e => void guardar({ recordar_noche: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            <Panel>
+              <SeccionTitulo
+                titulo="Perfiles"
+                nota="Cada perfil decide por su cuenta si genera avisos. Ese interruptor está en Ajustes → Perfiles."
+              />
+            </Panel>
+          </>
+        )}
+      </div>
     </SettingsPage>
   )
 }
@@ -159,9 +161,8 @@ function SeccionTitulo({ titulo, nota }: { titulo: string; nota: string }) {
 
 /* ─── El estado de ESTE dispositivo ────────────────────────────────────────── */
 
-function Estado({ push, devices, onActivar }: {
+function Estado({ push, onActivar }: {
   push: ReturnType<typeof usePush>
-  devices: number
   onActivar: () => void
 }) {
   if (push.estado === 'cargando') {
@@ -212,7 +213,7 @@ function Estado({ push, devices, onActivar }: {
       <Bloque
         icono={<IconDeviceMobile size={20} stroke={1.8} />}
         titulo="Activadas en este dispositivo"
-        nota={devices === 1 ? 'Es el único que tenés conectado' : `Tenés ${devices} dispositivos conectados`}
+        nota="Te van a llegar aunque tengas la app cerrada."
         acento
       >
         <Btn variant="ghost" onClick={() => void push.desactivar()} disabled={push.ocupado}>
@@ -226,10 +227,7 @@ function Estado({ push, devices, onActivar }: {
     <Bloque
       icono={<IconDeviceMobile size={20} stroke={1.8} />}
       titulo="Notificaciones apagadas"
-      nota={
-        'Te avisamos cuando venza un fijo, te pases del presupuesto o quede un mes sin cerrar.'
-        + (devices > 0 ? ` Ya las tenés en ${devices === 1 ? 'otro dispositivo' : `otros ${devices} dispositivos`}.` : '')
-      }
+      nota="Te avisamos cuando venza un fijo, te pases del presupuesto o quede un mes sin cerrar."
     >
       <Btn onClick={onActivar} disabled={push.ocupado}>
         {push.ocupado ? 'Activando…' : 'Activar en este dispositivo'}
