@@ -58,7 +58,13 @@ Deno.serve(async (req) => {
   if (rechazo) return rechazo
 
   const inicio = Date.now()
-  const resumen = { usuarios: 0, evaluados: 0, nuevos: 0, enviados: 0, muertas: 0 }
+  const resumen = {
+    usuarios: 0, evaluados: 0, nuevos: 0, enviados: 0, muertas: 0,
+    // Los usuarios cuya evaluación falló. Va en la respuesta y no solo al
+    // log: el cron no mira los logs, y un fallo silencioso acá significa
+    // notificaciones que nunca llegan sin que nada lo diga.
+    fallaron: [] as { userId: string; error: string }[],
+  }
 
   try {
 
@@ -78,6 +84,11 @@ Deno.serve(async (req) => {
   for (const [userId, subs] of porUsuario) {
     resumen.usuarios++
 
+    // Cada usuario en su propio try: sin esto, un solo perfil con datos que
+    // hacen fallar un cálculo tumbaba la corrida entera y NADIE recibía nada.
+    // Es exactamente lo que pasó con el bug de `loadBudgets`, pero el alcance
+    // era peor de lo necesario: bastaba un usuario roto para callar a todos.
+    try {
     const prefs = await leerPrefs(userId)
     const pendientes = await evaluarUsuario(userId, prefs)
     resumen.evaluados += pendientes.length
@@ -109,6 +120,20 @@ Deno.serve(async (req) => {
         body: n.body,
         url: n.url,
       })
+    }
+
+    // Cuándo fue la última vez que este dispositivo recibió algo de verdad. Es
+    // el dato que dice si un teléfono sigue escuchando o quedó mudo sin que su
+    // suscripción llegara a devolver 410.
+    if (resumen.enviados > 0) {
+      await supabase
+        .from('fin_push_subscriptions')
+        .update({ last_ok_at: new Date().toISOString() })
+        .in('id', subs.map(x => x.id))
+    }
+    } catch (err) {
+      console.error(`usuario ${userId}:`, err)
+      resumen.fallaron.push({ userId, error: String((err as Error)?.message ?? err) })
     }
   }
 
@@ -144,6 +169,10 @@ async function evaluarUsuario(userId: string, prefs: Prefs): Promise<Pendiente[]
     // Los dos niveles se combinan con Y: el tipo tiene que estar encendido para
     // el usuario, Y el perfil tiene que notificar.
     if (!p.notify || p.archived) continue
+
+    // Y cada perfil en el suyo: que la empresa tenga un dato raro no debería
+    // dejarte sin los avisos de tu perfil personal.
+    try {
 
     const scope = { userId, profileId: p.id }
     const hoy = hoyEnZona(prefs.timezone)
@@ -191,6 +220,9 @@ async function evaluarUsuario(userId: string, prefs: Prefs): Promise<Pendiente[]
         // avisos distintos, no uno repetido.
         dedupeKey: `${p.id}:${a.dedupeKey}`,
       })
+    }
+    } catch (err) {
+      console.error(`perfil ${p.name}:`, err)
     }
   }
 

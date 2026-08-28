@@ -22,23 +22,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Suscripción incompleta' }, { status: 400 })
   }
 
+  const userAgent = request.headers.get('user-agent')?.slice(0, 300) ?? null
+
   // `upsert` por endpoint: volver a activar en el mismo navegador devuelve el
-  // MISMO endpoint, así que sin esto cada visita a Ajustes sumaría una fila y
-  // llegarían avisos repetidos al mismo teléfono.
+  // MISMO endpoint, así que sin esto cada visita a Ajustes sumaría una fila.
   const { error } = await supabase
     .from('fin_push_subscriptions')
     .upsert(
-      {
-        user_id: userId,
-        endpoint,
-        p256dh,
-        auth,
-        user_agent: request.headers.get('user-agent')?.slice(0, 300) ?? null,
-      },
+      { user_id: userId, endpoint, p256dh, auth, user_agent: userAgent },
       { onConflict: 'endpoint' },
     )
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  // Y se limpian los endpoints viejos del MISMO dispositivo.
+  //
+  // El upsert por endpoint no alcanza: reinstalar la PWA hace que Safari genere
+  // un endpoint NUEVO sin invalidar el anterior, y Apple sigue aceptando los
+  // dos. El resultado es cada aviso llegando duplicado al mismo teléfono, para
+  // siempre — no se cura solo, porque ninguno devuelve 410.
+  //
+  // El user agent es la señal disponible para reconocer al mismo aparato. Es
+  // una heurística: dos iPhones idénticos del mismo dueño se pisarían entre
+  // sí, y el que pierda deja de recibir hasta que vuelva a activar. Preferible
+  // a la alternativa, que es recibir todo por duplicado sin salida.
+  if (userAgent) {
+    await supabase
+      .from('fin_push_subscriptions')
+      .delete()
+      .eq('user_id', userId)
+      .eq('user_agent', userAgent)
+      .neq('endpoint', endpoint)
+  }
+
   return NextResponse.json({ ok: true })
 }
 

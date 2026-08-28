@@ -2188,6 +2188,15 @@ section('SPRINT 9 · recordatorio de anotar')
   ok('antes de la hora, no', !tocaRecordatorio('13:59', '14:00'))
   ok('una hora después, no', !tocaRecordatorio('15:00', '14:00'))
 
+  // La ventana tiene que cruzar la medianoche. Con una resta simple, un
+  // recordatorio a las 23:50 no se disparaba nunca: la corrida de las 23:45
+  // daba −5 y la de las 00:00 daba −1430, porque el reloj vuelve a cero.
+  ok('23:50 se dispara en la corrida de las 00:00', tocaRecordatorio('00:00', '23:50'))
+  ok('y no en la de las 23:45', !tocaRecordatorio('23:45', '23:50'))
+  ok('23:58 se dispara a las 00:00', tocaRecordatorio('00:00', '23:58'))
+  ok('00:05 no dispara un recordatorio de las 23:50', !tocaRecordatorio('00:05', '23:50'))
+  ok('el mediodía sigue sin verse afectado', !tocaRecordatorio('00:00', '14:00'))
+
   const a = avisoDeAnotar('2026-08-27', 'mediodia')
   const b = avisoDeAnotar('2026-08-27', 'noche')
   const c = avisoDeAnotar('2026-08-28', 'mediodia')

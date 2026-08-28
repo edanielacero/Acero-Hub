@@ -240,8 +240,15 @@ export function tocaRecordatorio(
     const [hh, mm] = h.slice(0, 5).split(':').map(Number)
     return hh * 60 + mm
   }
-  const d = min(horaLocal) - min(configurada)
-  return d >= 0 && d < ventanaMin
+
+  // El módulo de 1440 es lo que hace que la ventana cruce la medianoche.
+  //
+  // Con una resta simple, un recordatorio puesto a las 23:50 no se disparaba
+  // NUNCA: la corrida de las 23:45 daba −5 y la de las 00:00 daba −1430,
+  // porque el reloj volvía a cero. Cualquier hora entre 23:46 y 23:59 quedaba
+  // en un agujero silencioso.
+  const d = (min(horaLocal) - min(configurada) + 1440) % 1440
+  return d < ventanaMin
 }
 
 export function avisoDeAnotar(fechaLocal: string, momento: Momento): Notif {
