@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useGas } from '../components/data'
-import { GasLink } from '../router'
 import { AutoDibujo } from '../components/car-art'
 import { MarcaGas } from '../components/marca'
 import { Boton } from '../components/ui'
@@ -211,11 +210,9 @@ export function HomeScreen() {
         <h1 className="text-[34px] font-bold leading-none tracking-[-0.035em] text-[var(--gas-ink)]">
           Gasolina
         </h1>
-        {/* La marca de la mini-app. Lleva de vuelta al Hub: es la única salida
-            desde que se quitó el botón, y acá no ocupa nada. */}
-        <GasLink href="/" aria-label="Volver al Hub" className="shrink-0">
-          <MarcaGas size={44} />
-        </GasLink>
+        {/* Decorativa: la marca de la mini-app y nada más. No lleva a ningún
+            lado a propósito — para volver al Hub está el gesto de atrás. */}
+        <MarcaGas size={44} />
       </header>
 
       {/* ── Pegajoso: el carrusel y los filtros ───────────────────────────── */}
