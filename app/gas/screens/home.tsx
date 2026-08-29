@@ -580,7 +580,11 @@ function TarjetaCompacta({ auto, saldo, km, enCurso, debe, onIniciar, onFinaliza
 }) {
   return (
     <section
-      className="flex items-center gap-3 rounded-2xl border border-[var(--gas-hairline)] bg-[var(--gas-surface)] px-3.5 shadow-[0_1px_2px_rgba(23,24,28,0.04)]"
+      className={`flex items-center gap-3 rounded-2xl border px-3.5 transition-colors duration-300 ${
+        enCurso
+          ? 'border-[var(--gas-accent-line)] bg-[var(--gas-accent-tint)] shadow-[0_0_0_2px_var(--gas-accent-line)]'
+          : 'border-[var(--gas-hairline)] bg-[var(--gas-surface)] shadow-[0_1px_2px_rgba(23,24,28,0.04)]'
+      }`}
       style={{ height: ALTO_COMPACTO }}
     >
       {/* Hueco: el auto lo dibuja la capa de arriba, que es la que viaja. */}
@@ -591,9 +595,11 @@ function TarjetaCompacta({ auto, saldo, km, enCurso, debe, onIniciar, onFinaliza
           {auto.nombre}
         </p>
         {enCurso ? (
-          <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-[var(--gas-accent)]">
-            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--gas-accent-fuerte)]" />
-            <span className="truncate font-semibold">En curso</span>
+          <p className="mt-1 flex items-center gap-1.5 truncate">
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--gas-accent)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-white">
+              <span className="h-1 w-1 animate-pulse rounded-full bg-white" />
+              En uso
+            </span>
           </p>
         ) : (
           <p
@@ -606,12 +612,12 @@ function TarjetaCompacta({ auto, saldo, km, enCurso, debe, onIniciar, onFinaliza
       </div>
 
       <Boton
-        tono="naranja"
+        tono={enCurso ? 'activo' : 'naranja'}
         tamano="chico"
         className="shrink-0"
         onClick={enCurso ? onFinalizar : onIniciar}
       >
-        {enCurso ? 'Finalizar' : 'Iniciar'}
+        {enCurso ? 'Dejar de usar' : 'Usar auto'}
       </Boton>
     </section>
   )
@@ -624,7 +630,18 @@ function TarjetaExpandida({ auto, saldo, km, enCurso, debe, onCargar, onIniciar,
   onPromedio: () => void
 }) {
   return (
-    <section className="flex flex-col overflow-hidden rounded-2xl border border-[var(--gas-hairline)] bg-[var(--gas-surface)] shadow-[0_1px_2px_rgba(23,24,28,0.04)]">
+    /*
+      Con el auto en uso NO cambia solo un renglón: cambia la tarjeta entera —
+      fondo ámbar, borde ámbar y un anillo alrededor. Una línea de texto se
+      pasa por alto; una tarjeta de otro color, no.
+    */
+    <section
+      className={`flex flex-col overflow-hidden rounded-2xl border transition-colors duration-300 ${
+        enCurso
+          ? 'border-[var(--gas-accent-line)] bg-[var(--gas-accent-tint)] shadow-[0_0_0_2px_var(--gas-accent-line),0_2px_10px_-2px_rgba(180,83,9,0.25)]'
+          : 'border-[var(--gas-hairline)] bg-[var(--gas-surface)] shadow-[0_1px_2px_rgba(23,24,28,0.04)]'
+      }`}
+    >
       {/* Mismo hueco que arriba: reserva el alto para que la tarjeta mida bien. */}
       <div className="px-5 pt-4">
         <div className="aspect-[2.15/1] w-full" aria-hidden />
@@ -643,42 +660,47 @@ function TarjetaExpandida({ auto, saldo, km, enCurso, debe, onCargar, onIniciar,
         </button>
       </div>
 
-      <div className="border-t border-[var(--gas-hairline)] px-5 py-4">
+      <div className={`border-t px-5 py-4 ${enCurso ? 'border-[var(--gas-accent-line)]' : 'border-[var(--gas-hairline)]'}`}>
+        {/*
+          El botón de cargar es un cuadrado con el surtidor, no una etiqueta.
+
+          Con "Cargar gasolina" escrito entero medía 126px y al saldo le
+          quedaban 128: "Bs 487,05" se partía en dos renglones. Así ocupa 44 y
+          al saldo le sobran 200, sin mover nada de lugar. La etiqueta no se
+          pierde — es el título del comprobante que abre.
+        */}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--gas-ink-3)]">
               Saldo
             </span>
-            {/* Fluido y no fijo en 30px: en un iPhone SE la tarjeta es 40px más
-                angosta y "Bs 317,52" al lado del botón se partía en dos
-                renglones. Baja a ~28 en pantallas chicas y no se nota. */}
             <p
-              className="mt-1 text-[clamp(26px,7.4vw,30px)] font-bold leading-none tabular-nums tracking-[-0.02em]"
+              className="mt-1 text-[30px] font-bold leading-none tabular-nums tracking-[-0.02em]"
               style={{ color: debe ? 'var(--gas-malo)' : 'var(--gas-ink)' }}
             >
               {fmtBs(saldo)}
             </p>
           </div>
-          <Boton tamano="chico" className="shrink-0" onClick={onCargar}>
-            Cargar saldo
-          </Boton>
+
+          <BotonCargar onClick={onCargar} />
         </div>
 
-        {/* Un solo renglón, siempre: o los km que quedan, o el viaje en curso.
-            Antes el "en curso" era una franja aparte que sumaba alto, y la
-            tarjeta sin viaje quedaba con un hueco para emparejarlas. */}
+        {/* El estado va a todo el ancho, debajo: al lado del botón, "En uso ·
+            88.400 km · 3 personas" se cortaba. */}
         {enCurso ? (
-          <p className="mt-1.5 flex items-center gap-2 truncate text-[13px] text-[var(--gas-accent)]">
-            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--gas-accent-fuerte)]" />
-            <strong className="font-bold">En curso</strong>
-            <span className="truncate">
+          <p className="mt-2.5 flex items-center gap-2 truncate text-[13px] text-[var(--gas-accent)]">
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--gas-accent)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+              En uso
+            </span>
+            <span className="truncate font-semibold">
               {fmtOdometro(enCurso.kmInicial)} km
               {enCurso.personas > 1 && ` · ${enCurso.personas} personas`}
             </span>
           </p>
         ) : (
           <p
-            className="mt-1.5 text-[14px] font-semibold tabular-nums"
+            className="mt-2 text-[14px] font-semibold tabular-nums"
             style={{ color: debe ? 'var(--gas-malo)' : 'var(--gas-ink-2)' }}
           >
             {km} km
@@ -688,12 +710,33 @@ function TarjetaExpandida({ auto, saldo, km, enCurso, debe, onCargar, onIniciar,
 
       {/* `mt-auto` empuja la acción al pie: el sobrante de la tarjeta más baja
           queda acá arriba en vez de dejar las dos de distinto alto. */}
-      <div className="mt-auto border-t border-[var(--gas-hairline)] p-4">
-        <Boton tono="naranja" tamano="grande" className="w-full" onClick={enCurso ? onFinalizar : onIniciar}>
-          {enCurso ? 'Finalizar viaje' : 'Iniciar viaje'}
+      <div className={`mt-auto border-t p-4 ${enCurso ? 'border-[var(--gas-accent-line)]' : 'border-[var(--gas-hairline)]'}`}>
+        <Boton tono={enCurso ? 'activo' : 'naranja'} tamano="grande" className="w-full" onClick={enCurso ? onFinalizar : onIniciar}>
+          {enCurso ? 'Dejar de usar auto' : 'Usar auto'}
         </Boton>
       </div>
     </section>
+  )
+}
+
+/** El surtidor: cargar gasolina, sin gastar el ancho de una etiqueta. */
+function BotonCargar({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Cargar gasolina"
+      title="Cargar gasolina"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--gas-ink)] text-white transition-colors hover:bg-[#2A2C33] cursor-pointer"
+    >
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        {/* Surtidor: cuerpo, visor, base y manguera. El mismo glifo que la
+            tarjeta de Gas en el Hub. */}
+        <rect x="3" y="3" width="10" height="18" rx="2" />
+        <line x1="2" y1="21" x2="14" y2="21" />
+        <rect x="6" y="6.5" width="4" height="3.5" rx="0.6" opacity="0.55" />
+        <path d="M13 9h3.2a1.8 1.8 0 0 1 1.8 1.8v6a1.5 1.5 0 0 0 3 0v-5.6L18.4 9" />
+      </svg>
+    </button>
   )
 }
 
@@ -778,7 +821,7 @@ function FilaMovimiento({ mov, saldo, onAbrir }: {
       >
       <div className="min-w-0">
         <p className="text-[14px] font-bold text-[var(--gas-ink)]">
-          {carga ? 'Gasolina pagada' : abierto ? 'Viaje en curso' : 'Viaje'}
+          {carga ? 'Gasolina pagada' : abierto ? 'Usando el auto' : 'Uso de auto'}
         </p>
         <p className="mt-1 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
         {mov.tipo === 'viaje' && !abierto && (

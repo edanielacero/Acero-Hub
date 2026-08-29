@@ -132,12 +132,14 @@ export function Renglon({ etiqueta, valor, fuerte, tono }: {
 
 /* ─── Controles ────────────────────────────────────────────────────────────── */
 
-type Tono = 'lleno' | 'naranja' | 'suave' | 'fantasma' | 'peligro'
+type Tono = 'lleno' | 'naranja' | 'activo' | 'suave' | 'fantasma' | 'peligro'
 
 const TONOS: Record<Tono, string> = {
   lleno:    'bg-[var(--gas-ink)] text-[var(--gas-ink-invert)] hover:bg-[#2A2C33]',
-  // Reservado para iniciar y finalizar viaje, que es LA acción de la app.
+  // Reservado para empezar a usar el auto, que es LA acción de la app.
   naranja:  'bg-[var(--gas-cta)] text-white hover:bg-[var(--gas-cta-press)]',
+  // El auto en uso: ámbar quemado, el mismo del estado activo de la tarjeta.
+  activo:   'bg-[var(--gas-accent)] text-white hover:brightness-110',
   suave:    'bg-[var(--gas-accent-tint)] text-[var(--gas-accent)] border border-[var(--gas-accent-line)] hover:brightness-97',
   fantasma: 'bg-[var(--gas-surface-alto)] text-[var(--gas-ink-2)] border border-[var(--gas-hairline)] hover:text-[var(--gas-ink)]',
   peligro:  'bg-[var(--gas-malo-tint)] text-[var(--gas-malo)] border border-[var(--gas-malo-line)]',

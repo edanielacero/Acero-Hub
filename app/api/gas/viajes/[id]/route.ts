@@ -21,9 +21,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .eq('tipo', 'viaje')
     .single()
 
-  if (!viaje) return NextResponse.json({ error: 'Ese viaje no existe' }, { status: 404 })
+  if (!viaje) return NextResponse.json({ error: 'Ese uso no existe' }, { status: 404 })
   if (viaje.km_final !== null) {
-    return NextResponse.json({ error: 'Ese viaje ya está cerrado' }, { status: 409 })
+    return NextResponse.json({ error: 'Ese uso ya está cerrado' }, { status: 409 })
   }
   if (kmFinal < Number(viaje.km_inicial)) {
     return NextResponse.json(
@@ -47,7 +47,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  if (!data) return NextResponse.json({ error: 'Ese viaje ya está cerrado' }, { status: 409 })
+  if (!data) return NextResponse.json({ error: 'Ese uso ya está cerrado' }, { status: 409 })
 
   return NextResponse.json({ movimiento: mapMovimiento(data) })
 }
@@ -73,7 +73,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  if (!data) return NextResponse.json({ error: 'No hay un viaje en curso para cancelar' }, { status: 404 })
+  if (!data) return NextResponse.json({ error: 'No hay un uso en curso para cancelar' }, { status: 404 })
 
   return NextResponse.json({ success: true })
 }

@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   // 23505 = el índice parcial de "un solo viaje abierto por auto". Pasa si se
   // abrió un viaje desde otro dispositivo, o con dos toques muy seguidos.
   if (error?.code === '23505') {
-    return NextResponse.json({ error: 'Ese auto ya tiene un viaje en curso' }, { status: 409 })
+    return NextResponse.json({ error: 'Ese auto ya está en uso' }, { status: 409 })
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 

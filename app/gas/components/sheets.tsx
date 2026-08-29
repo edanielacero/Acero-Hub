@@ -7,7 +7,7 @@ import { fmtBs, fmtFechaHora, fmtKm, fmtOdometro, numeroDeInput, paraInput, pars
 import { costoTotal, esCompartido, kmRecorridos, miParte, round2 } from '@/lib/gas/calc'
 import type { Auto, Movimiento, Viaje } from '@/lib/gas/types'
 
-/* ─── Cargar saldo ─────────────────────────────────────────────────────────── */
+/* ─── Cargar gasolina ─────────────────────────────────────────────────────────── */
 
 export function ComprobanteCarga({ auto, saldo, onCerrar }: {
   auto: Auto
@@ -33,7 +33,7 @@ export function ComprobanteCarga({ auto, saldo, onCerrar }: {
   }
 
   return (
-    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Cargar saldo" onCerrar={onCerrar}>
+    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Cargar gasolina" onCerrar={onCerrar}>
       <Campo
         etiqueta="Cuánto cargaste"
         sufijo="Bs"
@@ -62,13 +62,13 @@ export function ComprobanteCarga({ auto, saldo, onCerrar }: {
       {error && <Aviso>{error}</Aviso>}
 
       <Boton className="mt-4 w-full" disabled={!valido || enviando} onClick={confirmar}>
-        {enviando ? 'Cargando…' : 'Cargar saldo'}
+        {enviando ? 'Cargando…' : 'Cargar gasolina'}
       </Boton>
     </Comprobante>
   )
 }
 
-/* ─── Iniciar viaje ────────────────────────────────────────────────────────── */
+/* ─── Usar auto ────────────────────────────────────────────────────────── */
 
 const MAX_PERSONAS = 12
 
@@ -100,7 +100,7 @@ export function ComprobanteInicio({ auto, ultimoKm, onCerrar }: {
   }
 
   return (
-    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Iniciar viaje" onCerrar={onCerrar}>
+    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Usar auto" onCerrar={onCerrar}>
       <Campo
         etiqueta="Kilometraje inicial"
         sufijo="km"
@@ -108,7 +108,7 @@ export function ComprobanteInicio({ auto, ultimoKm, onCerrar }: {
         value={km}
         autoFocus={ultimoKm === null}
         onChange={e => setKm(parseNumeroInput(e.target.value, 1))}
-        ayuda={ultimoKm !== null && <>El viaje anterior terminó en {fmtOdometro(ultimoKm)} km</>}
+        ayuda={ultimoKm !== null && <>El uso anterior terminó en {fmtOdometro(ultimoKm)} km</>}
       />
 
       <div className="mt-5">
@@ -130,7 +130,7 @@ export function ComprobanteInicio({ auto, ultimoKm, onCerrar }: {
       {error && <Aviso>{error}</Aviso>}
 
       <Boton tono="naranja" className="mt-5 w-full" disabled={!valido || enviando} onClick={confirmar}>
-        {enviando ? 'Iniciando…' : 'Iniciar viaje'}
+        {enviando ? 'Empezando…' : 'Usar auto'}
       </Boton>
     </Comprobante>
   )
@@ -148,7 +148,7 @@ function Paso({ etiqueta, children, ...rest }: { etiqueta: string } & React.Butt
   )
 }
 
-/* ─── Finalizar viaje ──────────────────────────────────────────────────────── */
+/* ─── Dejar de usar auto ──────────────────────────────────────────────────────── */
 
 export function ComprobanteCierre({ auto, viaje, onCerrar, onCerrado }: {
   auto: Auto
@@ -189,7 +189,7 @@ export function ComprobanteCierre({ auto, viaje, onCerrar, onCerrado }: {
   }
 
   return (
-    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Finalizar viaje" onCerrar={onCerrar}>
+    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Dejar de usar auto" onCerrar={onCerrar}>
       <Campo
         etiqueta="Kilometraje final"
         sufijo="km"
@@ -217,7 +217,7 @@ export function ComprobanteCierre({ auto, viaje, onCerrar, onCerrado }: {
       {error && <Aviso>{error}</Aviso>}
 
       <Boton tono="naranja" className="mt-4 w-full" disabled={!valido || enviando} onClick={confirmar}>
-        {enviando ? 'Cerrando…' : 'Finalizar viaje'}
+        {enviando ? 'Cerrando…' : 'Dejar de usar auto'}
       </Boton>
 
       {/* Salida para el viaje que se abrió sin querer. Solo borra viajes EN
@@ -237,7 +237,7 @@ export function ComprobanteCierre({ auto, viaje, onCerrar, onCerrado }: {
           onClick={() => setConfirmandoCancelar(true)}
           className="mt-3.5 w-full text-center text-[11.5px] text-[var(--gas-ink-3)] transition-colors hover:text-[var(--gas-malo)] cursor-pointer"
         >
-          Lo inicié sin querer, descartar este viaje
+          Lo marqué sin querer, descartar este uso
         </button>
       )}
     </Comprobante>
@@ -277,7 +277,7 @@ export function ComprobanteResumen({ auto, viaje, saldoNuevo, onCerrar }: {
   }
 
   return (
-    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Viaje terminado" onCerrar={onCerrar}>
+    <Comprobante rotulo={`Gas · ${auto.nombre}`} titulo="Uso terminado" onCerrar={onCerrar}>
       <div className="py-1 text-center">
         <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-[var(--gas-ink-3)]">
           Te costó
@@ -297,7 +297,7 @@ export function ComprobanteResumen({ auto, viaje, saldoNuevo, onCerrar }: {
 
       <Renglon etiqueta="Recorrido" valor={fmtKm(km)} fuerte />
       <Renglon etiqueta="Odómetro" valor={`${fmtOdometro(viaje.kmInicial)} → ${fmtOdometro(viaje.kmFinal ?? 0)}`} />
-      <Renglon etiqueta={`Costo del viaje · ${fmtBs(viaje.bsPorKm)}/km`} valor={fmtBs(costoTotal(viaje) ?? 0)} />
+      <Renglon etiqueta={`Costo del uso · ${fmtBs(viaje.bsPorKm)}/km`} valor={fmtBs(costoTotal(viaje) ?? 0)} />
 
       <Corte />
 
@@ -402,7 +402,7 @@ export function ComprobanteCorreccion({ auto, mov, onCerrar }: {
   return (
     <Comprobante
       rotulo={`Gas · ${auto.nombre}`}
-      titulo={esCarga ? 'Corregir gasolina' : abierto ? 'Corregir viaje en curso' : 'Corregir viaje'}
+      titulo={esCarga ? 'Corregir gasolina' : abierto ? 'Corregir uso en curso' : 'Corregir uso de auto'}
       onCerrar={onCerrar}
     >
       <p className="-mt-3 mb-5 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
@@ -580,7 +580,7 @@ export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
   return (
     <Comprobante
       rotulo={`Gas · ${auto.nombre}`}
-      titulo={esCarga ? 'Gasolina pagada' : abierto ? 'Viaje en curso' : 'Viaje'}
+      titulo={esCarga ? 'Gasolina pagada' : abierto ? 'Usando el auto' : 'Uso de auto'}
       onCerrar={onCerrar}
     >
       <p className="-mt-3 text-[11.5px] text-[var(--gas-ink-3)]">{fmtFechaHora(mov.ocurridoEn)}</p>
@@ -604,7 +604,7 @@ export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
             <p className="mt-2 text-[38px] font-bold leading-none tabular-nums tracking-[-0.03em] text-[var(--gas-ink)]">
               {fmtOdometro(mov.kmInicial)} km
             </p>
-            <p className="mt-2.5 text-[13px] text-[var(--gas-accent)]">Todavía no terminó</p>
+            <p className="mt-2.5 text-[13px] text-[var(--gas-accent)]">Todavía lo estás usando</p>
           </>
         ) : (
           <>
@@ -635,7 +635,7 @@ export function ComprobanteDetalle({ auto, mov, saldo, onEditar, onCerrar }: {
           />
           {!abierto && <Renglon etiqueta="Recorrido" valor={fmtKm(kmRecorridos(mov) ?? 0)} fuerte />}
           {esCompartido(mov) && <Renglon etiqueta="En el auto" valor={`${mov.personas} personas`} />}
-          {!abierto && <Renglon etiqueta="Costo del viaje" valor={fmtBs(costoTotal(mov) ?? 0)} />}
+          {!abierto && <Renglon etiqueta="Costo del uso" valor={fmtBs(costoTotal(mov) ?? 0)} />}
           <Renglon etiqueta="Promedio de entonces" valor={`${fmtBs(mov.bsPorKm)}/km`} />
         </>
       )}
