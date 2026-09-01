@@ -316,12 +316,23 @@ export interface Recurring {
   to_account_id: string | null
 }
 
-/** Un fijo que aporta a un ahorro en vez de gastar. Estrecha el tipo para que
-    quien lo consume no tenga que chequear los dos campos por separado. */
-export type SavingsRecurring = Recurring & { savings_goal_id: string; to_account_id: string }
+/** Un fijo que aporta a un ahorro en vez de gastar. `to_account_id` es
+    opcional: sin cuenta destino, la plata se aparta en la misma cuenta de
+    donde sale. */
+export type SavingsRecurring = Recurring & { savings_goal_id: string }
 
-export function isSavingsRecurring(r: Pick<Recurring, 'savings_goal_id' | 'to_account_id'>): boolean {
-  return !!r.savings_goal_id && !!r.to_account_id
+/**
+ * Lo único que hace de un fijo un fijo de ahorro es apuntar a un ahorro.
+ *
+ * Antes exigía también `to_account_id`, y quedó desalineada del esquema
+ * cuando la migración 20260826000000 hizo opcional la cuenta destino
+ * ("Cuenta destino opcional en la plantilla del fijo"). Con la cuenta en
+ * null, un fijo de ahorro real daba `false`: la pantalla de Ahorros no lo
+ * reconocía y seguía ofreciendo el botón "Ahorrar" en paralelo al fijo, que
+ * es justo el doble camino que hay que evitar.
+ */
+export function isSavingsRecurring(r: Pick<Recurring, 'savings_goal_id'>): boolean {
+  return !!r.savings_goal_id
 }
 
 /** Una parte del reparto por defecto. `amount` null = parte pareja. */
@@ -698,8 +709,6 @@ export interface BudgetHistoryEntry {
   carried_out: boolean | null
   /** Ya tiene fila en `fin_budget_closures` — o sea, ya se respondió. */
   closed: boolean
-  /** Es el mes en curso: los números todavía se están moviendo. */
-  current: boolean
 }
 
 export interface BudgetLineHistory {
@@ -710,7 +719,7 @@ export interface BudgetLineHistory {
   input_currency: Currency
   /** La línea está archivada: su historial sigue, su presente no. */
   archived: boolean
-  /** Del mes más reciente al más viejo. */
+  /** Del mes más reciente al más viejo. Nunca incluye el mes en curso. */
   entries: BudgetHistoryEntry[]
 }
 
@@ -723,7 +732,6 @@ export interface BudgetHistoryPayload {
     budgeted_usd: number
     spent_usd: number
     result_usd: number
-    current: boolean
   }[]
 }
 

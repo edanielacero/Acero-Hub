@@ -164,12 +164,22 @@ export function HomeScreen() {
   // Pasarse del tope manda por sobre eso en los dos modos — es el aviso más
   // importante que puede dar esta card, y no tendría sentido que el modo se
   // lo tape.
+  // Lo reservado en fijos se agrega al final en los tres casos: es la
+  // explicación de por qué el disponible arranca más abajo que el tope, y sin
+  // ella el hero mostraba el mismo número que Presupuesto pero sin el motivo.
+  // Va como `extra` y no pegado al texto: el color de la nota es semántico
+  // —rojo si te pasaste— y lo reservado en fijos no es una alarma. Pintarlo
+  // del mismo rojo diría que hay algo mal con tus fijos, y no lo hay.
+  const budgetReserved = general && general.committed_usd > 0
+    ? `${formatUSD(general.committed_usd)} reservados para Gastos Fijos`
+    : undefined
+
   const budgetNote = general && !hidden && !loading
     ? budgetLeft < 0
-      ? { text: `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`, color: 'var(--fz-out)' }
+      ? { text: `Te pasaste por ${formatUSD(Math.abs(budgetLeft))}`, color: 'var(--fz-out)', extra: budgetReserved }
       : budgetMode === 'disponible'
-        ? { text: `Gastaste ${formatUSD(general.spent_usd)}`, color: 'var(--fz-ink-3)' }
-        : { text: `Te quedan ${formatUSD(budgetLeft)}`, color: 'var(--fz-in)' }
+        ? { text: `Gastaste ${formatUSD(general.spent_usd)}`, color: 'var(--fz-ink-3)', extra: budgetReserved }
+        : { text: `Te quedan ${formatUSD(budgetLeft)}`, color: 'var(--fz-in)', extra: budgetReserved }
     : undefined
 
   const presupuestoCard = (
@@ -630,7 +640,7 @@ function BudgetTile({ line, hidden, mode, icon, onClick }: {
         </p>
 
         <div className="mt-2">
-          <BudgetBar view={view} size="xs" tick={false} reserved={false} />
+          <BudgetBar view={view} size="xs" tick={false} />
         </div>
       </div>
     </button>
@@ -729,7 +739,9 @@ function HeroCard({ label, unit, value, of, note, foot, bar }: {
   /** El "de $X" que acompaña al número grande — mismo tratamiento que la
       pantalla de Presupuesto: alineado a la base, chico y tenue. */
   of?: string
-  note?: { text: string; color: string }
+  /** `extra` va en el gris del hero y no en el color de la nota: acompaña al
+      dato principal sin heredar su semántica. */
+  note?: { text: string; color: string; extra?: string }
   foot: ReactNode
   /** Misma barra que la pantalla de Presupuesto — el mismo `<BudgetBar>` con
       lo que resolvió `budgetBarView`, solo que en su variante para fondo
@@ -769,6 +781,7 @@ function HeroCard({ label, unit, value, of, note, foot, bar }: {
       {note && (
         <p className="relative mt-2 text-[13px] font-semibold fz-num" style={{ color: note.color }}>
           {note.text}
+          {note.extra && <span className="font-medium text-white/50"> · {note.extra}</span>}
         </p>
       )}
 

@@ -83,7 +83,7 @@ export function PresupuestoHistorialScreen() {
         <IconChevronLeft size={16} stroke={2.2} />
         Presupuesto
       </FzLink>
-      <PageHeader title="Historial" subtitle="Mes a mes de cada presupuesto" />
+      <PageHeader title="Historial" subtitle="Meses cerrados, uno por uno" />
 
       <div className="flex flex-col gap-4">
         <ErrorNote>{error}</ErrorNote>
@@ -99,7 +99,7 @@ export function PresupuestoHistorialScreen() {
             <EmptyState
               icon={IconChartHistogram}
               title="Todavía no hay historial"
-              description="Cuando pase el primer mes con un presupuesto cargado, acá vas a ver cuánto presupuestaste, cuánto gastaste y cuánto sobró."
+              description="Acá aparecen los meses que ya terminaron: cuánto presupuestaste, cuánto gastaste y cuánto sobró o te pasaste. El mes en curso lo ves en Presupuesto."
             />
           </Panel>
         ) : (
@@ -129,13 +129,7 @@ export function PresupuestoHistorialScreen() {
               return (
                 <div key={mes.period}>
                   <SectionTitle
-                    action={
-                      mes.current ? (
-                        <span className="text-[12px] font-semibold text-[var(--fz-ink-3)]">En curso</span>
-                      ) : hidden ? null : (
-                        <Resultado value={mes.result_usd} currency="USD" />
-                      )
-                    }
+                    action={hidden ? null : <Resultado value={mes.result_usd} currency="USD" />}
                   >
                     {monthLabel(mes.period.slice(0, 7))}
                   </SectionTitle>
@@ -160,7 +154,7 @@ export function PresupuestoHistorialScreen() {
                                   <span className="ml-1.5 text-[12px] font-medium text-[var(--fz-ink-3)]">archivado</span>
                                 )}
                               </p>
-                              {!hidden && !entry.current && <Resultado value={entry.result} currency={cur} />}
+                              {!hidden && <Resultado value={entry.result} currency={cur} />}
                             </div>
 
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-[var(--fz-ink-3)] fz-num">
@@ -175,11 +169,11 @@ export function PresupuestoHistorialScreen() {
                               )}
                             </div>
 
-                            {!entry.current && <Cierre
+                            <Cierre
                               entry={entry}
                               busy={undoing === key}
                               onChange={carried => cambiarCierre(line.line_id, entry.period, carried)}
-                            />}
+                            />
                           </div>
                         )
                       })}

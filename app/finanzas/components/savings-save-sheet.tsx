@@ -330,20 +330,10 @@ function ReservaDelPresupuesto({ reservedUsd, savableUsd, freeUsd }: {
       }`}
     >
       <p className={`text-[13px] ${bloqueado ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
-        {bloqueado ? (
-          <>
-            Todavía no puedes ahorrar: tus presupuestos de este mes reservan{' '}
-            <span className="font-bold fz-num">{formatUSD(reservedUsd)}</span> y tienes{' '}
-            <span className="font-bold fz-num">{formatUSD(freeUsd)}</span> libres. Primero se
-            presupuesta, después se ahorra.
-          </>
-        ) : (
-          <>
-            Puedes apartar hasta <span className="font-bold fz-num">{formatUSD(savableUsd)}</span>.
-            Tus presupuestos reservan <span className="font-bold fz-num">{formatUSD(reservedUsd)}</span>{' '}
-            de los {formatUSD(freeUsd)} que tienes libres.
-          </>
-        )}
+        Puedes ahorrar hasta <span className="font-bold fz-num">{formatUSD(savableUsd)}</span>. De
+        tus <span className="fz-num">{formatUSD(freeUsd)}</span> libres,{' '}
+        <span className="fz-num">{formatUSD(reservedUsd)}</span> están comprometidos con tus
+        presupuestos y gastos fijos de este mes — los puedes gastar, pero no ahorrar.
       </p>
     </div>
   )

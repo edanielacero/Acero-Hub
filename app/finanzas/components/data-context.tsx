@@ -112,7 +112,8 @@ const EMPTY_BUDGETS: BudgetsPayload = {
 
 const EMPTY_SAVINGS: SavingsGoalsPayload = {
   goals: [], pending_period: null, pending_surplus_usd: 0, available_funds: [],
-  budget_reserved_usd: 0, free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
+  budget_reserved_usd: 0, reserved_in_budgets_usd: 0, reserved_in_recurring_usd: 0,
+  free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
 }
 
 const EMPTY: TxResult = {

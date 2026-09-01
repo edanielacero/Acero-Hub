@@ -1273,7 +1273,10 @@ export async function loadBudgetHistory(
     let period = periodStart(line.created_on)
     if (period < earliest) period = earliest
 
-    while (period <= currentPeriod) {
+    // Hasta el mes ANTERIOR, no hasta el vigente: el mes en curso todavía se
+    // está moviendo y su "sobró/se pasó" no es un resultado, es una foto a
+    // mitad de camino. Para eso está la pantalla de Presupuesto.
+    while (period < currentPeriod) {
       const effective = montoEfectivo(periods, extensions, line.id, period, line.input_currency)
       // Ese mes la línea todavía no tenía monto: no hay nada que contar.
       if (effective == null) { period = nextPeriod(period); continue }
@@ -1303,7 +1306,6 @@ export async function loadBudgetHistory(
         result_usd,
         carried_out: closure ? closure.carried : null,
         closed: !!closure,
-        current: period === currentPeriod,
       })
 
       const acc = monthTotals.get(period) ?? { budgeted_usd: 0, spent_usd: 0, result_usd: 0 }
@@ -1333,7 +1335,6 @@ export async function loadBudgetHistory(
       budgeted_usd: round2(t.budgeted_usd),
       spent_usd: round2(t.spent_usd),
       result_usd: round2(t.result_usd),
-      current: period === currentPeriod,
     }))
 
   // Una línea sin ningún mes con monto no aporta nada a la lista.
@@ -1470,6 +1471,10 @@ export interface SavingsGoalsPayload {
    * Incluye los fijos pendientes, que también tienen que salir de la cuenta.
    */
   budget_reserved_usd: number
+  /** De esa reserva, cuánto son presupuestos y cuánto fijos sin presupuesto.
+      Sin el desglose, el total no cuadraba con la pantalla de Presupuesto. */
+  reserved_in_budgets_usd: number
+  reserved_in_recurring_usd: number
   /** La plata libre de todas las cuentas, sumada en USD. */
   free_usd: number
   /** `free_usd − budget_reserved_usd`, nunca negativo: el tope de lo apartable. */
@@ -1526,7 +1531,8 @@ export async function loadSavingsGoals(
   if (goals.length === 0) {
     return {
       goals: [], pending_period, pending_surplus_usd: 0, available_funds: [],
-      budget_reserved_usd: 0, free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
+      budget_reserved_usd: 0, reserved_in_budgets_usd: 0, reserved_in_recurring_usd: 0,
+      free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
     }
   }
 
@@ -1603,7 +1609,8 @@ export async function loadSavingsGoals(
   if (!pending_period) {
     return {
       goals: withBalance, pending_period, pending_surplus_usd: 0, available_funds: [],
-      budget_reserved_usd: 0, free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
+      budget_reserved_usd: 0, reserved_in_budgets_usd: 0, reserved_in_recurring_usd: 0,
+      free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
     }
   }
 
@@ -1622,7 +1629,7 @@ export async function loadSavingsGoals(
   const budgets = precomputed?.budgets
     ?? await loadBudgets(supabase, scope, today, { rates, recurring: recurringSummary })
 
-  const budget_reserved_usd = budgetReservedUsd(
+  const reserva = budgetReservedUsd(
     budgets.categories,
     recurringSummary.recurring.map(r => ({
       category_id: r.category_id,
@@ -1632,6 +1639,7 @@ export async function loadSavingsGoals(
     })),
   )
 
+  const budget_reserved_usd = reserva.total_usd
   const budget_pending_closures = budgets.pending_closures.length
 
   return {
@@ -1640,6 +1648,8 @@ export async function loadSavingsGoals(
     pending_surplus_usd,
     available_funds,
     budget_reserved_usd,
+    reserved_in_budgets_usd: reserva.in_budgets_usd,
+    reserved_in_recurring_usd: reserva.in_recurring_usd,
     free_usd,
     // Con cierres sin responder el tope es cero: no es que no te sobre, es
     // que todavía no se sabe cuánto reserva el presupuesto.

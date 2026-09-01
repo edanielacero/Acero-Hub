@@ -2151,21 +2151,21 @@ async function run() {
       const hist = await json(await api('/budgets/history'))
       const linea = hist.lines.find(l => l.line_id === pastLine.id)
       ok('la línea aparece en el historial', !!linea)
-      ok('con el mes pasado y el mes en curso', linea.entries.length >= 2)
 
       const pasado = linea.entries.find(e => e.period === prevMonth)
       eq('el mes pasado presupuestó 40', Number(pasado.budgeted_usd), 40)
       eq('no se gastó nada, así que sobraron 40', Number(pasado.result_usd), 40)
       eq('y quedó marcado como cerrado llevándolo', pasado.carried_out, true)
-      eq('no es el mes en curso', pasado.current, false)
 
-      const actual = linea.entries.find(e => e.period === thisMonth)
-      eq('el mes en curso viene marcado como tal', actual.current, true)
-      eq('y arranca con los 40 que llegaron del anterior', Number(actual.carried_in_usd), 40)
-      eq('todavía sin cerrar', actual.closed, false)
+      // El mes en curso NO va: todavía se está moviendo, y su "sobró/se pasó"
+      // sería una foto a mitad de camino. Para eso está /presupuesto.
+      ok('el mes en curso no aparece en el historial',
+         !linea.entries.some(e => e.period === thisMonth))
+      ok('ni en los totales por mes',
+         !hist.months.some(m => m.period === thisMonth))
 
       ok('los meses vienen del más reciente al más viejo',
-         hist.months.length >= 2 && hist.months[0].period > hist.months[1].period)
+         hist.months.every((m, i) => i === 0 || hist.months[i - 1].period > m.period))
       ok('el total del mes pasado suma al menos los 40 de Transporte',
          Number(hist.months.find(m => m.period === prevMonth).budgeted_usd) >= 40)
     }

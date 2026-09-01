@@ -17,6 +17,7 @@ import {
   avisoDeAnotar, tocaRecordatorio, diasEntre, mesLargo, UMBRALES,
 } from './.fin/notifications.mjs'
 import { budgetReservedUsd, savableUsd } from './.fin/savings.mjs'
+import { isSavingsRecurring } from './.fin/types.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import {
   surplusUsd, pendingSavingsPeriod, canSaveForPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
@@ -2377,20 +2378,26 @@ section('SPRINT 10 · el presupuesto reserva antes que el ahorro')
   ]
 
   eq('el sobre entero: lo que queda MÁS los fijos que igual tienen que salir',
-     budgetReservedUsd(lineas, []), 470)
+     budgetReservedUsd(lineas, []).total_usd, 470)
   eq('los fijos sin línea se suman aparte; los que ya están en un sobre no se repiten',
-     budgetReservedUsd(lineas, fijos), 553)
+     budgetReservedUsd(lineas, fijos).total_usd, 553)
+  // El desglose existe porque el total no cuadra con lo que muestra
+  // Presupuesto: la diferencia son justo los fijos sin presupuesto.
+  eq('el desglose separa presupuestos de fijos sueltos',
+     budgetReservedUsd(lineas, fijos).in_budgets_usd, 470)
+  eq('y los fijos sueltos son la diferencia contra el total de Presupuesto',
+     budgetReservedUsd(lineas, fijos).in_recurring_usd, 83)
 
   // Pasarse de un presupuesto no libera plata para ahorrar.
   const pasado = [{ available_usd: -80, committed_usd: 0, category_ids: ['comida'] }]
   eq('un sobre excedido cuenta como cero, nunca como negativo',
-     budgetReservedUsd(pasado, []), 0)
+     budgetReservedUsd(pasado, []).total_usd, 0)
   eq('y no le come la reserva a los demás',
-     budgetReservedUsd([...pasado, { available_usd: 100, committed_usd: 0, category_ids: ['x'] }], []), 100)
+     budgetReservedUsd([...pasado, { available_usd: 100, committed_usd: 0, category_ids: ['x'] }], []).total_usd, 100)
 
-  eq('sin presupuestos ni fijos no se reserva nada', budgetReservedUsd([], []), 0)
+  eq('sin presupuestos ni fijos no se reserva nada', budgetReservedUsd([], []).total_usd, 0)
   eq('una línea sin monto cargado no reserva',
-     budgetReservedUsd([{ available_usd: null, committed_usd: 0, category_ids: ['y'] }], []), 0)
+     budgetReservedUsd([{ available_usd: null, committed_usd: 0, category_ids: ['y'] }], []).total_usd, 0)
 
   // El tope de lo que se puede apartar.
   eq('con más plata que reserva, se puede ahorrar la diferencia', savableUsd(800, 553), 247)
@@ -2403,6 +2410,21 @@ section('SPRINT 10 · el presupuesto reserva antes que el ahorro')
      savableUsd(600, 553) - savableUsd(400, 553), 47)
   eq('y una vez cubierta la reserva, cada dólar que entra es ahorrable',
      savableUsd(800, 553) - savableUsd(600, 553), 200)
+}
+
+
+section('Fijo de ahorro · reconocerlo no depende de la cuenta destino')
+{
+  // La migración 20260826000000 hizo opcional `to_account_id`: sin cuenta
+  // destino, la plata se aparta en la misma cuenta de donde sale. La función
+  // seguía exigiéndola, así que un fijo de ahorro real daba `false` y la
+  // pantalla de Ahorros le seguía ofreciendo el botón "Ahorrar" en paralelo.
+  ok('con cuenta destino es fijo de ahorro',
+     isSavingsRecurring({ savings_goal_id: 'g1', to_account_id: 'a1' }))
+  ok('y SIN cuenta destino también — apartar en la misma cuenta es válido',
+     isSavingsRecurring({ savings_goal_id: 'g1', to_account_id: null }))
+  ok('un fijo común no lo es',
+     !isSavingsRecurring({ savings_goal_id: null, to_account_id: null }))
 }
 
 process.exit(summary() === 0 ? 0 : 1)

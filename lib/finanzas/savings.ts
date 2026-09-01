@@ -501,22 +501,34 @@ export interface PendingRecurring {
  * excedido en Comida no libera plata para ahorrar, solo significa que ese
  * sobre ya está vacío.
  */
+export interface BudgetReserve {
+  /** Lo que suman los presupuestos — el mismo número que muestra esa pantalla. */
+  in_budgets_usd: number
+  /**
+   * Los fijos que ninguna línea de presupuesto mira. Van aparte y no sumados
+   * en silencio: sin desglosarlos, la reserva no cuadraba con el total que
+   * muestra Presupuesto y no había forma de saber de dónde salía la diferencia.
+   */
+  in_recurring_usd: number
+  total_usd: number
+}
+
 export function budgetReservedUsd(
   lines: BudgetEnvelope[],
   recurring: PendingRecurring[],
-): number {
-  const delPresupuesto = lines.reduce(
-    (s, l) => s + Math.max(0, (l.available_usd ?? 0) + l.committed_usd), 0)
+): BudgetReserve {
+  const in_budgets_usd = round2(lines.reduce(
+    (s, l) => s + Math.max(0, (l.available_usd ?? 0) + l.committed_usd), 0))
 
   // Los fijos que ninguna línea mira también necesitan efectivo, y ahí nadie
   // los reservó todavía.
   const cubiertas = new Set(lines.flatMap(l => l.category_ids))
-  const fijosSueltos = recurring
+  const in_recurring_usd = round2(recurring
     .filter(r => r.active && (r.status === 'pendiente' || r.status === 'vencido'))
     .filter(r => r.category_id == null || !cubiertas.has(r.category_id))
-    .reduce((s, r) => s + r.amountUsd, 0)
+    .reduce((s, r) => s + r.amountUsd, 0))
 
-  return round2(delPresupuesto + fijosSueltos)
+  return { in_budgets_usd, in_recurring_usd, total_usd: round2(in_budgets_usd + in_recurring_usd) }
 }
 
 /**

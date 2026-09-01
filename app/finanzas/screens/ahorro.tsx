@@ -1,11 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconArrowsLeftRight, IconCheck, IconLock, IconMinus, IconPigMoney, IconPencil, IconPlus, IconSparkles, IconTrash } from '@tabler/icons-react'
+import { IconArrowsLeftRight, IconCheck, IconLock, IconMinus, IconPigMoney, IconPencil, IconPlus, IconRepeat, IconSparkles, IconTrash } from '@tabler/icons-react'
 import type { AccountWithBalance, RateMap, SavingsGoalWithBalance } from '@/lib/finanzas/types'
 import { ALLOCATION_TYPE_LABEL, canSaveForPeriod, monthsSince, proposeAllocation } from '@/lib/finanzas/savings'
 import { formatAmount, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
-import { CURRENCY_META } from '@/lib/finanzas/types'
+import type { SavingsGoalsPayload } from '@/lib/finanzas/load'
+import { CURRENCY_META, isSavingsRecurring } from '@/lib/finanzas/types'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
@@ -21,7 +22,7 @@ import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '.
 import { fzFetch } from '../components/fz-fetch'
 
 export function AhorroScreen() {
-  const { savings, accounts, hidden, rates, loading, reload } = useFinanzas()
+  const { savings, accounts, recurring, hidden, rates, loading, reload } = useFinanzas()
   const [adding, setAdding] = useState(false)
   const [viewing, setViewing] = useState<SavingsGoalWithBalance | null>(null)
   const [editingGoal, setEditingGoal] = useState<SavingsGoalWithBalance | null>(null)
@@ -33,16 +34,37 @@ export function AhorroScreen() {
   const hasAnything = savings.goals.length > 0
 
   /**
+   * Los ahorros que se alimentan con un fijo (`fin_recurring.savings_goal_id`)
+   * NO se reparten a mano: su plata entra al registrar ese fijo en Gastos
+   * Fijos, y ese es el único camino.
+   *
+   * Con los dos caminos abiertos, ahorrar desde acá dejaba el fijo figurando
+   * como pendiente de pago —cada uno miraba su propio estado sin ver el del
+   * otro— y la misma plata se podía apartar dos veces.
+   */
+  const conFijo = useMemo(
+    () => new Set(recurring.recurring
+      .filter(r => r.active && isSavingsRecurring(r))
+      .map(r => r.savings_goal_id!)),
+    [recurring.recurring],
+  )
+
+  /**
    * Cuánto le toca a cada plan del mes pendiente, y cuáles todavía no se
    * guardaron. Se reusa `proposeAllocation` —la misma regla que aplicaba el
    * reparto global— para que lo que dice la card sea exactamente lo que el
    * plan pidió, y no un segundo cálculo que pueda desincronizarse.
+   *
+   * Los que se alimentan con un fijo quedan afuera del reparto: ya tienen su
+   * propia fuente, y dejarlos adentro les reservaba una parte del sobrante
+   * que después nadie iba a usar — plata que les faltaba a los demás.
    */
   const acordado = useMemo(() => {
     if (!savings.pending_period) return new Map<string, number>()
-    const { proposal } = proposeAllocation(savings.goals, savings.pending_surplus_usd, rates)
+    const aRepartir = savings.goals.filter(g => !conFijo.has(g.id))
+    const { proposal } = proposeAllocation(aRepartir, savings.pending_surplus_usd, rates)
     return new Map(proposal.map(l => [l.goal_id, l.amount]))
-  }, [savings.goals, savings.pending_period, savings.pending_surplus_usd, rates])
+  }, [savings.goals, conFijo, savings.pending_period, savings.pending_surplus_usd, rates])
 
   /**
    * Por qué no se puede ahorrar todavía, si es que no se puede. Se calcula
@@ -52,11 +74,11 @@ export function AhorroScreen() {
   const bloqueoDeAhorro = savings.budget_pending_closures > 0
     ? 'Primero cierra el mes pasado'
     : savings.budget_reserved_usd > 0 && savings.savable_usd <= 0
-      ? `Tu presupuesto reserva ${formatUSD(savings.budget_reserved_usd)}`
+      ? 'Este mes no te sobra para ahorrar'
       : null
 
   const pendientes = savings.pending_period
-    ? savings.goals.filter(g => canSaveForPeriod(g, savings.pending_period!))
+    ? savings.goals.filter(g => !conFijo.has(g.id) && canSaveForPeriod(g, savings.pending_period!))
     : []
 
   async function confirmDelete() {
@@ -114,12 +136,11 @@ export function AhorroScreen() {
           </Panel>
         )}
 
-        {savings.budget_pending_closures === 0 && savings.budget_reserved_usd > 0 && savings.savable_usd > 0 && (
-          <p className="text-[12.5px] text-[var(--fz-ink-3)] px-1">
-            Puedes apartar hasta <span className="font-semibold fz-num">{formatUSD(savings.savable_usd)}</span> —
-            tus presupuestos reservan {formatUSD(savings.budget_reserved_usd)} de los{' '}
-            {formatUSD(savings.free_usd)} que tienes libres.
-          </p>
+        {/* Solo mientras quede algo por ahorrar. Con el mes ya repartido, un
+            "puedes ahorrar $343" no ofrece nada: no hay botón que lo use. */}
+        {savings.budget_pending_closures === 0 && savings.budget_reserved_usd > 0
+          && savings.pending_period && pendientes.length > 0 && (
+          <CuantoPuedoAhorrar savings={savings} />
         )}
 
         {savings.budget_pending_closures === 0 && savings.pending_period && pendientes.length > 0 && (
@@ -158,6 +179,7 @@ export function AhorroScreen() {
                   goal={g} hidden={hidden} rates={rates}
                   pendingPeriod={savings.pending_period}
                   acordado={acordado.get(g.id) ?? null}
+                  seAlimentaConFijo={conFijo.has(g.id)}
                   bloqueo={bloqueoDeAhorro}
                   onSave={() => setAhorrando(g)}
                   onView={() => setViewing(g)}
@@ -240,12 +262,15 @@ function repartoLabel(goal: SavingsGoalWithBalance): string {
  * Card de un ahorro: si tiene meta, barra de progreso contra ella; si no,
  * solo el saldo acumulado — no hay nada contra qué medir el relleno.
  */
-function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, bloqueo, onSave, onView, onEdit, onMove, onDelete }: {
+function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, seAlimentaConFijo, bloqueo, onSave, onView, onEdit, onMove, onDelete }: {
   goal: SavingsGoalWithBalance
   hidden: boolean
   rates: RateMap
   pendingPeriod: string | null
   acordado: number | null
+  /** Este ahorro se alimenta con un fijo: no lleva botón, se registra en
+      Gastos Fijos. Un solo camino, y así los dos estados no se contradicen. */
+  seAlimentaConFijo: boolean
   /** Por qué no se puede ahorrar todavía, o `null` si sí se puede. El botón
       queda deshabilitado y esto es lo que se lee en su lugar. */
   bloqueo: string | null
@@ -259,7 +284,7 @@ function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, bloqueo, onSav
   const hasTarget = goal.target_amount != null
   const fillPct = hasTarget ? Math.min(100, Math.round((goal.balance / goal.target_amount!) * 100)) : 0
   // Un plan creado en agosto no tiene por qué ofrecer organizar julio.
-  const puedeAhorrar = !!pendingPeriod && canSaveForPeriod(goal, pendingPeriod)
+  const puedeAhorrar = !seAlimentaConFijo && !!pendingPeriod && canSaveForPeriod(goal, pendingPeriod)
 
   return (
     <Panel className="relative">
@@ -315,6 +340,17 @@ function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, bloqueo, onSav
       {/* El reparto ya no es un trámite mensual global: cada plan tiene su
           propio botón y su propia decisión. Desaparece en cuanto ese mes se
           guardó, y vuelve cuando termina el siguiente. */}
+      {seAlimentaConFijo && (
+        <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)]">
+          <FzLink
+            href="/finanzas/fijos"
+            className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--fz-accent)]"
+          >
+            <IconRepeat size={15} stroke={1.8} /> Se llena desde Gastos Fijos
+          </FzLink>
+        </div>
+      )}
+
       {puedeAhorrar && (
         <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)] flex items-center justify-between gap-3">
           <span className="text-[12.5px] text-[var(--fz-ink-3)] min-w-0 truncate">
@@ -471,5 +507,55 @@ function MesesAhorrados({ goal }: { goal: SavingsGoalWithBalance }) {
         })}
       </div>
     </div>
+  )
+}
+
+/**
+ * Cuánto se puede ahorrar, y por qué no es todo el saldo.
+ *
+ * La versión anterior decía "tus presupuestos reservan $928 de los $1.272 que
+ * tienes libres" y se leía como que esos $928 quedaban bloqueados. No lo
+ * están: la reserva NO frena un gasto —el presupuesto existe para gastarse—
+ * solo frena ahorrar. Decirlo explícito es la mitad del componente.
+ *
+ * El desglose tampoco es adorno: el total nunca cuadraba con la suma que
+ * muestra Presupuesto, porque incluye los fijos que no tienen presupuesto
+ * asignado, y no había manera de descubrir de dónde salía la diferencia.
+ */
+function CuantoPuedoAhorrar({ savings }: { savings: SavingsGoalsPayload }) {
+  const sinMargen = savings.savable_usd <= 0
+
+  return (
+    <Panel className="flex flex-col gap-2">
+      <div>
+        <p className="text-[11px] font-bold text-[var(--fz-ink-3)] uppercase tracking-[0.08em]">
+          Puedes ahorrar
+        </p>
+        <p className={`text-[24px] font-bold fz-num tracking-[-0.02em] leading-none ${sinMargen ? 'text-[var(--fz-out-text)]' : ''}`}>
+          {formatUSD(savings.savable_usd)}
+        </p>
+      </div>
+
+      <p className="text-[13px] text-[var(--fz-ink-2)]">
+        Tienes <span className="font-semibold fz-num">{formatUSD(savings.free_usd)}</span> libres, y{' '}
+        <span className="font-semibold fz-num">{formatUSD(savings.budget_reserved_usd)}</span> ya están
+        comprometidos este mes.{' '}
+        <strong>Esa plata la puedes gastar con normalidad</strong> — lo único que no puedes hacer
+        todavía es ahorrarla.
+      </p>
+
+      <div className="text-[12.5px] text-[var(--fz-ink-3)] fz-num border-t border-[var(--fz-hairline)] pt-2">
+        <div className="flex justify-between gap-3">
+          <span>Tus presupuestos</span>
+          <span>{formatUSD(savings.reserved_in_budgets_usd)}</span>
+        </div>
+        {savings.reserved_in_recurring_usd > 0 && (
+          <div className="flex justify-between gap-3 mt-0.5">
+            <span>Gastos fijos sin presupuesto</span>
+            <span>{formatUSD(savings.reserved_in_recurring_usd)}</span>
+          </div>
+        )}
+      </div>
+    </Panel>
   )
 }

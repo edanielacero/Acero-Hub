@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useState } from 'react'
-import { IconArrowsExchange, IconChartLine, IconPencil, IconReceiptRefund, IconRotateClockwise2, IconTrash, IconUsersGroup } from '@tabler/icons-react'
+import { IconArrowsExchange, IconChartLine, IconPencil, IconPigMoney, IconReceiptRefund, IconRotateClockwise2, IconTrash, IconUsersGroup } from '@tabler/icons-react'
 import { CURRENCY_META, type AccountWithBalance, type Category, type Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { displayRate, formatAmount, formatUSD } from '@/lib/finanzas/money'
@@ -49,7 +49,7 @@ interface TxRowProps {
  * atajo directo a Editar/Eliminar para quien ya sabe lo que quiere hacer.
  */
 export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
-  const { reload, hidden } = useFinanzas()
+  const { reload, hidden, savings } = useFinanzas()
   const [showDetail, setShowDetail] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -84,15 +84,30 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   // distinguir de un vistazo, en el historial mezclado de Movimientos, cuáles
   // salidas son recurrentes y cuáles no (feedback del usuario).
   const esFijo = !isTransfer && !!tx.recurring_id
+  // Guardar en un ahorro es una transferencia con `savings_goal_id` (Sprint 7):
+  // sin distinguirla, un aporte de Airtm a Airtm se leía como "Airtm → Airtm ·
+  // Transferencia", que no dice nada de lo que pasó. Un traslado sí conserva
+  // el par de cuentas en el título: ahí el punto ES que la plata cambió de
+  // lugar sin dejar de estar guardada.
+  const esAhorro = isTransfer && !!tx.savings_goal_id
+  const ahorro = esAhorro ? savings.goals.find(g => g.id === tx.savings_goal_id) : undefined
+  const esTraslado = esAhorro && tx.savings_flow === 'traslado'
+  const flujoDeAhorro = tx.savings_flow === 'retiro' ? 'retiro'
+    : tx.savings_flow === 'traslado' ? 'traslado'
+    : 'aporte'
   const deudas = tx.debts ?? []
   const generoDeudas = deudas.length > 0
 
-  const title = isTransfer
+  const title = esAhorro && !esTraslado
+    ? (ahorro?.name ?? 'Ahorro')
+    : isTransfer
     ? `${account?.name ?? 'Cuenta'} → ${toAccount?.name ?? 'Cuenta'}`
     : esPasanaku
       ? (tx.description || 'Pasanaku')
       : (tx.description || category?.name || 'Sin categoría')
-  const subtitle = isTransfer
+  const subtitle = esAhorro
+    ? ['Ahorro', flujoDeAhorro, esTraslado ? ahorro?.name : account?.name].filter(Boolean).join(' · ')
+    : isTransfer
     ? (tx.description || 'Transferencia')
     : esPasanaku
       ? [tx.type === 'ingreso' ? 'Pasanaku · recepción' : 'Pasanaku · aporte', account?.name].filter(Boolean).join(' · ')
@@ -104,7 +119,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
             ? ['Gasto Fijo', category?.name, account?.name].filter(Boolean).join(' · ')
             : [category?.name, account?.name].filter(Boolean).join(' · ')
 
-  const label = isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
+  const label = esAhorro ? 'Ahorro' : isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
   // Solo existe en una transferencia entre monedas distintas, y sale de los dos
   // lados ya congelados — nunca de la tasa de hoy.
   const fee = transferFeeUsd(tx)
@@ -138,7 +153,9 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         onClick={() => setShowDetail(true)}
         className="flex-1 min-w-0 flex items-center gap-3 py-2.5 text-left rounded-[var(--fz-r-field)] transition-colors hover:bg-[var(--fz-surface-sunk)] active:scale-[0.99]"
       >
-        {isTransfer ? (
+        {esAhorro ? (
+          <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
+        ) : isTransfer ? (
           <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
         ) : esPasanaku ? (
           <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
@@ -195,7 +212,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         open={showDetail}
         onClose={() => setShowDetail(false)}
         title={
-          isTransfer ? 'Transferencia'
+          esAhorro ? (esTraslado ? 'Traslado de ahorro' : tx.savings_flow === 'retiro' ? 'Retiro de ahorro' : 'Aporte a ahorro')
+            : isTransfer ? 'Transferencia'
             : esPasanaku ? (tx.type === 'ingreso' ? 'Recepción de pasanaku' : 'Aporte de pasanaku')
             : isReembolso ? 'Reembolso'
             : tx.type === 'ingreso' ? 'Ingreso' : 'Gasto'
@@ -205,9 +223,11 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       >
         <DeletePreview
           icon={
-            isTransfer
-              ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
-              : esPasanaku
+            esAhorro
+              ? <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
+              : isTransfer
+                ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+                : esPasanaku
                 ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
                 : isInversion
                   ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>
@@ -224,6 +244,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           {!isTransfer && !esPasanaku && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
           <DetailField label={isTransfer ? 'De' : 'Cuenta'} value={account?.name} />
           {isTransfer && <DetailField label="A" value={toAccount?.name} />}
+          {esAhorro && <DetailField label="Ahorro" value={ahorro?.name ?? '—'} />}
           {/* Cuánto salió, cuánto llegó y qué se comió el camino. Los dos
               montos van en SU moneda —es lo que de verdad se movió— y la
               comisión en USD, que es la única unidad en la que restar dos
@@ -282,9 +303,11 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       >
         <DeletePreview
           icon={
-            isTransfer
-              ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
-              : esPasanaku
+            esAhorro
+              ? <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
+              : isTransfer
+                ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+                : esPasanaku
                 ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
                 : isInversion
                   ? <IconChip><IconChartLine size={18} stroke={1.8} /></IconChip>

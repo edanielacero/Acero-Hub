@@ -130,8 +130,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (montoUsd > savings.savable_usd) {
     return NextResponse.json({
       error: savings.savable_usd <= 0
-        ? `Tus presupuestos de este mes reservan ${formatUSD(savings.budget_reserved_usd)} y todavía no los cubres. Primero presupuesta, después ahorra.`
-        : `Puedes apartar hasta ${formatUSD(savings.savable_usd)}: tus presupuestos reservan ${formatUSD(savings.budget_reserved_usd)}.`,
+        ? `Este mes no te sobra para ahorrar: ${formatUSD(savings.budget_reserved_usd)} de tus ${formatUSD(savings.free_usd)} libres ya están comprometidos con presupuestos y gastos fijos. Los puedes gastar, pero no ahorrar.`
+        : `Puedes ahorrar hasta ${formatUSD(savings.savable_usd)}: los otros ${formatUSD(savings.budget_reserved_usd)} están comprometidos con tus presupuestos y gastos fijos de este mes.`,
       savable_usd: savings.savable_usd,
       budget_reserved_usd: savings.budget_reserved_usd,
     }, { status: 400 })
