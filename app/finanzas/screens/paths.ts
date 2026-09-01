@@ -14,6 +14,7 @@ export const SCREEN_PATHS = [
   '/finanzas/deudas',
   '/finanzas/pasanaku',
   '/finanzas/presupuesto',
+  '/finanzas/presupuesto/historial',
   '/finanzas/ahorro',
   '/finanzas/mas',
   '/finanzas/ajustes',

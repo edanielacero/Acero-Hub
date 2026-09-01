@@ -672,6 +672,58 @@ export interface BudgetsPayload {
   categories_without_line: { id: string; name: string }[]
 }
 
+/* ─── Historial de presupuestos ───────────────────────────────────────────
+   Mes a mes de cada línea: cuánto se presupuestó, cuánto se gastó y cuánto
+   sobró o se pasó. Se calcula igual que el período vigente (§4.3 del spec),
+   solo que para cada mes de la vida de la línea — nunca desde el `amount`
+   congelado del cierre, que solo existe para los meses ya respondidos. */
+
+export interface BudgetHistoryEntry {
+  period: string
+  /** Lo presupuestado ese mes: el monto del período más sus ampliaciones. */
+  budgeted: number
+  budgeted_usd: number
+  /** Lo que entró del mes anterior por decisión de cierre. Puede ser negativo. */
+  carried_in: number
+  carried_in_usd: number
+  spent: number
+  spent_usd: number
+  /** Presupuestado + lo que entró − gastado. Positivo sobró, negativo se pasó. */
+  result: number
+  result_usd: number
+  /** Qué se decidió al cerrarlo; `null` si todavía no se cerró. */
+  carried_out: boolean | null
+  /** Ya tiene fila en `fin_budget_closures` — o sea, ya se respondió. */
+  closed: boolean
+  /** Es el mes en curso: los números todavía se están moviendo. */
+  current: boolean
+}
+
+export interface BudgetLineHistory {
+  line_id: string
+  name: string | null
+  category_ids: string[]
+  category_names: string[]
+  input_currency: Currency
+  /** La línea está archivada: su historial sigue, su presente no. */
+  archived: boolean
+  /** Del mes más reciente al más viejo. */
+  entries: BudgetHistoryEntry[]
+}
+
+export interface BudgetHistoryPayload {
+  lines: BudgetLineHistory[]
+  /** El agregado de todas las líneas por mes, en USD — la única unidad en la
+      que se pueden sumar líneas de distinta moneda. */
+  months: {
+    period: string
+    budgeted_usd: number
+    spent_usd: number
+    result_usd: number
+    current: boolean
+  }[]
+}
+
 export interface BudgetLineInput {
   category_ids: string[]
   name?: string | null

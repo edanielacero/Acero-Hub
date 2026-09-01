@@ -464,3 +464,69 @@ function acumularPorCuenta(
   for (const [id, valor] of porCuenta) porCuenta.set(id, Math.max(0, valor))
   return porCuenta
 }
+
+/* ─── El presupuesto reserva antes que el ahorro ────────────────────────────
+   Ver documentos/finanzas/sprint_10_presupuesto_antes_que_ahorro.md.
+
+   Hasta acá la asimetría era que el ahorro se hacía cumplir (`assertBalance`
+   pone un piso y un gasto común no puede bajar de ahí) y el presupuesto no
+   reservaba nada. Repartir todo el sobrante a ahorros dejaba sin saldo un
+   gasto que estaba perfectamente dentro del presupuesto.
+
+   La corrección es asimétrica a propósito: la reserva del presupuesto NO
+   frena un gasto —existe justamente para gastarse— pero sí frena que esa
+   plata se guarde y quede bajo llave. */
+
+export interface BudgetEnvelope {
+  /** Lo que queda por gastar, ya neto de los fijos pendientes. */
+  available_usd: number | null
+  /** Los fijos de esas categorías que todavía no se pagaron. */
+  committed_usd: number
+  category_ids: string[]
+}
+
+export interface PendingRecurring {
+  category_id: string | null
+  active: boolean
+  status: string
+  amountUsd: number
+}
+
+/**
+ * Cuánta plata tiene que quedar en las cuentas para cubrir lo que ya está
+ * comprometido este mes.
+ *
+ * Por línea se reserva `available + committed`, o sea lo que queda del sobre
+ * entero: los fijos también tienen que salir de la cuenta, así que sumarlos
+ * de vuelta no es contarlos dos veces — `available` ya los había restado.
+ *
+ * Una línea pasada de tope se cuenta como 0 y no como negativo: haberse
+ * excedido en Comida no libera plata para ahorrar, solo significa que ese
+ * sobre ya está vacío.
+ */
+export function budgetReservedUsd(
+  lines: BudgetEnvelope[],
+  recurring: PendingRecurring[],
+): number {
+  const delPresupuesto = lines.reduce(
+    (s, l) => s + Math.max(0, (l.available_usd ?? 0) + l.committed_usd), 0)
+
+  // Los fijos que ninguna línea mira también necesitan efectivo, y ahí nadie
+  // los reservó todavía.
+  const cubiertas = new Set(lines.flatMap(l => l.category_ids))
+  const fijosSueltos = recurring
+    .filter(r => r.active && (r.status === 'pendiente' || r.status === 'vencido'))
+    .filter(r => r.category_id == null || !cubiertas.has(r.category_id))
+    .reduce((s, r) => s + r.amountUsd, 0)
+
+  return round2(delPresupuesto + fijosSueltos)
+}
+
+/**
+ * Cuánto se puede apartar a ahorros: la plata libre de todas las cuentas
+ * menos lo que el presupuesto reserva. Nunca negativo — "estás pasado" se
+ * responde con `budgetReservedUsd` contra `freeUsd`, no con un tope raro.
+ */
+export function savableUsd(freeUsd: number, reservedUsd: number): number {
+  return round2(Math.max(0, freeUsd - reservedUsd))
+}

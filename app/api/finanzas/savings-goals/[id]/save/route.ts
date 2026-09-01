@@ -1,7 +1,7 @@
 import { requireProfile } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { ensureRates } from '@/lib/finanzas/rates'
-import { crossCurrencySuggestion, formatAmount, num, roundFor } from '@/lib/finanzas/money'
+import { crossCurrencySuggestion, formatAmount, formatUSD, num, round2, roundFor, toUsd } from '@/lib/finanzas/money'
 import { mapAccount } from '@/lib/finanzas/accounts'
 import { freezeConversion, isValidDate, todayISO } from '@/lib/finanzas/transactions'
 import { assertSavingsGoal, loadSavingsGoals } from '@/lib/finanzas/load'
@@ -106,6 +106,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       error: disponible <= 0
         ? `${from.name} no tiene plata libre para ahorrar`
         : `${from.name} tiene ${formatAmount(disponible, from.currency)} libres`,
+    }, { status: 400 })
+  }
+
+  // Antes que cualquier tope: si quedan meses sin cerrar, todavía no se sabe
+  // cuánto reserva el presupuesto —los carries no están aplicados— así que el
+  // número contra el que se compararía estaría corto. Se responde primero.
+  if (savings.budget_pending_closures > 0) {
+    const n = savings.budget_pending_closures
+    return NextResponse.json({
+      error: `Primero cierra ${n === 1 ? 'el presupuesto que quedó pendiente' : `los ${n} presupuestos que quedaron pendientes`} del mes pasado: hasta decidir qué pasa con lo que sobró, no se sabe cuánto reserva este mes.`,
+      budget_pending_closures: n,
+    }, { status: 400 })
+  }
+
+  // Primero se presupuesta, después se ahorra. El tope de arriba mira UNA
+  // cuenta; este mira el total contra lo que el presupuesto del mes reserva,
+  // que es un número global y no vive en ninguna cuenta en particular.
+  //
+  // Se valida en el server y no solo en el sheet porque es la regla, no una
+  // ayuda visual: sin esto, cualquier cliente viejo podría saltearla.
+  const montoUsd = round2(toUsd(amount, from.currency as Currency, rates))
+  if (montoUsd > savings.savable_usd) {
+    return NextResponse.json({
+      error: savings.savable_usd <= 0
+        ? `Tus presupuestos de este mes reservan ${formatUSD(savings.budget_reserved_usd)} y todavía no los cubres. Primero presupuesta, después ahorra.`
+        : `Puedes apartar hasta ${formatUSD(savings.savable_usd)}: tus presupuestos reservan ${formatUSD(savings.budget_reserved_usd)}.`,
+      savable_usd: savings.savable_usd,
+      budget_reserved_usd: savings.budget_reserved_usd,
     }, { status: 400 })
   }
 

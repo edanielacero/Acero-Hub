@@ -131,3 +131,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   return NextResponse.json({ closure: data }, { status: 201 })
 }
+
+/**
+ * Cambia de opinión sobre un mes ya cerrado: el sobrante que se había llevado
+ * al mes siguiente deja de llevarse (o al revés).
+ *
+ * Solo se toca `carried`. El `amount`/`amount_usd` congelado NO se recalcula:
+ * es el disponible que ese mes tuvo de verdad —un hecho, no una decisión— y
+ * volver a calcularlo hoy le metería los movimientos que se hayan cargado
+ * después. Poner `carried` en `false` devuelve el mes siguiente exactamente al
+ * presupuesto que tenía antes, porque `carriedInto` deja de sumar esa fila.
+ */
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, userId, profileId } = await requireProfile(request)
+  if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+
+  const { id } = await params
+  const body = await request.json().catch(() => null)
+  if (!body) return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
+
+  if (!isValidPeriod(body.period)) return NextResponse.json({ error: 'Período inválido' }, { status: 400 })
+  if (typeof body.carried !== 'boolean') return NextResponse.json({ error: 'Falta decir si se lleva o no' }, { status: 400 })
+
+  const { data, error } = await supabase
+    .from('fin_budget_closures')
+    .update({ carried: body.carried })
+    .eq('profile_id', profileId).eq('line_id', id).eq('period', body.period)
+    .select('id, line_id, period, carried, amount, amount_usd')
+    .maybeSingle()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (!data) return NextResponse.json({ error: 'Ese mes todavía no está cerrado' }, { status: 404 })
+
+  return NextResponse.json({ closure: data })
+}

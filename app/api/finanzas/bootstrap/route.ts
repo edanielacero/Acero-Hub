@@ -65,19 +65,21 @@ export async function GET(request: Request) {
     loadRecurring(supabase, scope, today),
   ])
 
-  const [categories, people, shared, plans, pasanaku, budgets, savings, months, month, recent] = await Promise.all([
+  // Presupuesto va primero y no dentro del Promise.all grande: `loadSavingsGoals`
+  // lo necesita para saber cuánto reserva el presupuesto antes de dejar
+  // ahorrar. Es una consulta que ya se hacía igual, solo cambia de ola.
+  const budgets = await loadBudgets(supabase, scope, today, { rates: accounts.rates, recurring })
+
+  const [categories, people, shared, plans, pasanaku, savings, months, month, recent] = await Promise.all([
     loadCategories(supabase, scope),
     loadPeople(supabase, scope),
     loadShared(supabase, scope, range),
     loadDebtPlans(supabase, scope),
     loadPasanaku(supabase, scope),
-    // El quick-add necesita esto para poder bloquear un gasto que se pasa del
-    // presupuesto en CUALQUIER pantalla, no solo en /presupuesto — por eso va
-    // acá desde el día uno y no se difiere (Decisiones Técnicas §2.1).
-    loadBudgets(supabase, scope, today, { rates: accounts.rates, recurring }),
-    // Mismo motivo que budgets: el quick-add necesita la lista de ahorros
-    // para el picker de "a qué ahorro corresponde" en cualquier pantalla.
-    loadSavingsGoals(supabase, scope, today, { rates: accounts.rates }),
+    // El quick-add necesita la lista de ahorros para el picker de "a qué
+    // ahorro corresponde" en cualquier pantalla, así que viaja acá desde el
+    // día uno igual que Presupuesto (Decisiones Técnicas §2.1).
+    loadSavingsGoals(supabase, scope, today, { rates: accounts.rates, budgets, recurring }),
     loadAvailableMonths(supabase, scope),
     loadTransactions(supabase, scope, { from: range.from, to: range.to, limit: monthLimit }),
     loadTransactions(supabase, scope, { limit: recentLimit }),

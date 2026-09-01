@@ -16,6 +16,7 @@ import {
   avisosDeFijos, avisosDePresupuesto, avisosDeAhorro, avisosDeDeudas,
   avisoDeAnotar, tocaRecordatorio, diasEntre, mesLargo, UMBRALES,
 } from './.fin/notifications.mjs'
+import { budgetReservedUsd, savableUsd } from './.fin/savings.mjs'
 import { readSessionClaims } from './.fin/session-claims.mjs'
 import {
   surplusUsd, pendingSavingsPeriod, canSaveForPeriod, goalReached, computeGoalBalancesUsd, computeSavingsByAccountUsd,
@@ -1688,44 +1689,75 @@ section('SPRINT 6 (revisión) · budgetBarView — "gastado" vs "disponible"')
 {
   // 40 de 100 gastados, día 10 de 30 — mismo escenario para los dos modos,
   // solo cambia cómo se lee.
-  const base = { spentUsd: 40, availableUsd: 60, capacityUsd: 100, spent: 40, available: 60, day: 10, days: 30 }
+  const base = {
+    spentUsd: 40, availableUsd: 60, capacityUsd: 100, committedUsd: 0,
+    spent: 40, available: 60, day: 10, days: 30,
+  }
+  const avanceDelMes = Math.round((10 / 30) * 10000) / 100
 
   const gastado = budgetBarView({ mode: 'gastado', ...base })
   eq('gastado: el número grande es lo gastado', gastado.value, 40)
   eq('la barra se llena con lo gastado', gastado.fillPct, 40)
-  eq('el tick marca el avance del mes tal cual', gastado.tickPct, Math.round((10 / 30) * 10000) / 100)
+  eq('el tick marca el avance del mes tal cual', gastado.tickPct, avanceDelMes)
   eq('lejos del tope: sin alerta', gastado.danger, false)
 
   const disponible = budgetBarView({ mode: 'disponible', ...base })
   eq('disponible: el número grande es lo que queda', disponible.value, 60)
   eq('la barra arranca llena y se descuenta lo gastado', disponible.fillPct, 60)
-  eq('el tick se invierte: cuánto debería quedar, no cuánto se gastó',
-     disponible.tickPct, Math.round((100 - (10 / 30) * 100) * 100) / 100)
+  // Antes acá el tick era `100 - avance`, o sea del lado contrario: a fin de
+  // mes terminaba pegado al borde izquierdo, cuando lo que tiene que señalar
+  // es que el presupuesto se está por acabar. Ahora es la MISMA marca en los
+  // dos modos: la fracción del mes que ya pasó, avanzando hacia el tope.
+  eq('el tick es el mismo avance del mes que en modo gastado',
+     disponible.tickPct, avanceDelMes)
   eq('con 60% disponible, todavía no es alerta', disponible.danger, false)
 
   // Ya pasado del tope: alerta en los dos modos, y el disponible da negativo.
   const pasado = budgetBarView({
-    mode: 'gastado', spentUsd: 120, availableUsd: -20, capacityUsd: 100, spent: 120, available: -20, day: 30, days: 30,
+    mode: 'gastado', spentUsd: 120, availableUsd: -20, capacityUsd: 100, committedUsd: 0, spent: 120, available: -20, day: 30, days: 30,
   })
   ok('pasado el tope, alerta en modo gastado', pasado.danger)
   eq('la barra no pasa de 100%', pasado.fillPct, 100)
 
   const pasadoDisp = budgetBarView({
-    mode: 'disponible', spentUsd: 120, availableUsd: -20, capacityUsd: 100, spent: 120, available: -20, day: 30, days: 30,
+    mode: 'disponible', spentUsd: 120, availableUsd: -20, capacityUsd: 100, committedUsd: 0, spent: 120, available: -20, day: 30, days: 30,
   })
   ok('pasado el tope, alerta también en modo disponible', pasadoDisp.danger)
   eq('la barra no baja de 0%', pasadoDisp.fillPct, 0)
   eq('el valor grande sí muestra el negativo', pasadoDisp.value, -20)
 
   // Casi sin nada disponible (pero no pasado): alerta solo en modo disponible.
-  const pocoDisponible = { spentUsd: 88, availableUsd: 12, capacityUsd: 100, spent: 88, available: 12, day: 20, days: 30 }
+  const pocoDisponible = { spentUsd: 88, availableUsd: 12, capacityUsd: 100, committedUsd: 0, spent: 88, available: 12, day: 20, days: 30 }
   ok('en modo gastado, 88% todavía no es 85%... es más, así que sí alerta',
      budgetBarView({ mode: 'gastado', ...pocoDisponible }).danger)
   ok('en modo disponible, con solo 12% libre, también alerta',
      budgetBarView({ mode: 'disponible', ...pocoDisponible }).danger)
 
+  // El tramo reservado: los fijos del mes que todavía no se pagaron. Va
+  // pegado a la derecha del relleno y el número grande YA los descontó.
+  const conFijos = {
+    spentUsd: 20, availableUsd: 50, capacityUsd: 100, committedUsd: 30,
+    spent: 20, available: 50, day: 10, days: 30,
+  }
+  const gFijos = budgetBarView({ mode: 'gastado', ...conFijos })
+  eq('gastado: el relleno es lo gastado', gFijos.fillPct, 20)
+  eq('y el reservado son los fijos pendientes, a su derecha', gFijos.reservedPct, 30)
+
+  const dFijos = budgetBarView({ mode: 'disponible', ...conFijos })
+  eq('disponible: el relleno es lo que queda, con los fijos ya descontados', dFijos.fillPct, 50)
+  eq('y el reservado sigue siendo los mismos fijos', dFijos.reservedPct, 30)
+  ok('relleno + reservado nunca desbordan la barra', dFijos.fillPct + dFijos.reservedPct <= 100)
+
+  // Pasado el tope no queda barra donde dibujar el reservado: se recorta en
+  // vez de estirarse fuera del carril.
+  const sinLugar = budgetBarView({
+    mode: 'gastado', spentUsd: 100, availableUsd: -30, capacityUsd: 100, committedUsd: 30,
+    spent: 100, available: -30, day: 28, days: 30,
+  })
+  eq('con la barra llena, el reservado se recorta a cero', sinLugar.reservedPct, 0)
+
   eq('sin tope cargado, todo en cero sin romper',
-     budgetBarView({ mode: 'gastado', spentUsd: 0, availableUsd: 0, capacityUsd: 0, spent: 0, available: 0, day: 5, days: 30 }).fillPct, 0)
+     budgetBarView({ mode: 'gastado', spentUsd: 0, availableUsd: 0, capacityUsd: 0, committedUsd: 0, spent: 0, available: 0, day: 5, days: 30 }).fillPct, 0)
 }
 
 section('SPRINT 6 · needsClosure — la ausencia de fila es la pregunta pendiente')
@@ -2326,6 +2358,51 @@ section('SPRINT 8 · ninguna llamada del cliente se salta el perfil')
 
   ok('todo pasa por fzFetch; las excepciones están enumeradas', sobrantes.length === 0,
      sobrantes.join('  ·  '))
+}
+
+
+
+section('SPRINT 10 · el presupuesto reserva antes que el ahorro')
+{
+  // Dos sobres: Comida con $300 libres y $120 de fijos sin pagar; Software
+  // con $20 libres y $30 de fijos.
+  const lineas = [
+    { available_usd: 300, committed_usd: 120, category_ids: ['comida'] },
+    { available_usd: 20,  committed_usd: 30,  category_ids: ['software'] },
+  ]
+  const fijos = [
+    { category_id: 'comida',   active: true, status: 'pendiente', amountUsd: 120 },
+    { category_id: 'software', active: true, status: 'pendiente', amountUsd: 30 },
+    { category_id: 'contador', active: true, status: 'pendiente', amountUsd: 83 },
+  ]
+
+  eq('el sobre entero: lo que queda MÁS los fijos que igual tienen que salir',
+     budgetReservedUsd(lineas, []), 470)
+  eq('los fijos sin línea se suman aparte; los que ya están en un sobre no se repiten',
+     budgetReservedUsd(lineas, fijos), 553)
+
+  // Pasarse de un presupuesto no libera plata para ahorrar.
+  const pasado = [{ available_usd: -80, committed_usd: 0, category_ids: ['comida'] }]
+  eq('un sobre excedido cuenta como cero, nunca como negativo',
+     budgetReservedUsd(pasado, []), 0)
+  eq('y no le come la reserva a los demás',
+     budgetReservedUsd([...pasado, { available_usd: 100, committed_usd: 0, category_ids: ['x'] }], []), 100)
+
+  eq('sin presupuestos ni fijos no se reserva nada', budgetReservedUsd([], []), 0)
+  eq('una línea sin monto cargado no reserva',
+     budgetReservedUsd([{ available_usd: null, committed_usd: 0, category_ids: ['y'] }], []), 0)
+
+  // El tope de lo que se puede apartar.
+  eq('con más plata que reserva, se puede ahorrar la diferencia', savableUsd(800, 553), 247)
+  eq('con justo lo reservado, no se puede ahorrar nada', savableUsd(553, 553), 0)
+  eq('y estando corto tampoco: el tope nunca es negativo', savableUsd(400, 553), 0)
+
+  // La propiedad que hace que no haga falta declarar ingresos: la reserva se
+  // queda quieta y lo apartable crece solo a medida que entra plata.
+  eq('cobrar $200 habilita exactamente $200 más para ahorrar',
+     savableUsd(600, 553) - savableUsd(400, 553), 47)
+  eq('y una vez cubierta la reserva, cada dólar que entra es ahorrable',
+     savableUsd(800, 553) - savableUsd(600, 553), 200)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

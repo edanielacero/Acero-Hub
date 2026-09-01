@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import type { SavingsGoalWithBalance } from '@/lib/finanzas/types'
-import { amountFromInput, decimalsFor, formatAmount, parseDecimalInput, roundFor } from '@/lib/finanzas/money'
+import { amountFromInput, decimalsFor, formatAmount, formatUSD, parseDecimalInput, roundFor, toUsd } from '@/lib/finanzas/money'
 import { useFinanzas } from './data-context'
 import { CurrencyIcon } from './currency-icon'
 import { Btn, ErrorNote, Label, TextField } from './ui'
@@ -48,7 +48,7 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
   // incomparable con el mes siguiente, cuando el mismo 25% dé otra cosa. Se
   // dicen las dos cosas: el % que se pactó y cuánto es ese % este mes.
   const esPorcentaje = goal.allocation_type === 'percent' && goal.allocation_value != null
-  const { accounts, savings, reload } = useFinanzas()
+  const { accounts, savings, rates, reload } = useFinanzas()
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -100,6 +100,13 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
 
   const value = amountFromInput(amount, { decimals })
   const excede = !!origen && Number.isFinite(value) && value > origen.disponible
+  // Primero se presupuesta, después se ahorra: el tope global es la plata
+  // libre menos lo que el presupuesto del mes reserva.
+  const valueUsd = Number.isFinite(value) ? toUsd(value, cur, rates) : 0
+  // El botón "Ahorrar" de la card ya está deshabilitado cuando no se puede
+  // ahorrar, así que acá no hace falta el bloqueo entero: lo que queda es el
+  // tope, que sí se puede exceder escribiendo un monto de más.
+  const excedeTope = savings.budget_reserved_usd > 0 && valueUsd > savings.savable_usd
   // Guardar en otra cuenta es válido, pero la moneda tiene que coincidir o el
   // monto que llega deja de ser el que se acordó.
   const destinos = accounts.filter(a => !a.archived && !a.is_investment && a.currency === cur)
@@ -109,6 +116,9 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
     if (!fromId) return setError('Elige de qué cuenta sale')
     if (!Number.isFinite(value) || value <= 0) return setError('El monto debe ser mayor a cero')
     if (excede) return setError(`${origen!.cuenta.name} tiene ${formatAmount(origen!.disponible, cur)} libres`)
+    if (excedeTope) {
+      return setError(`Puedes apartar hasta ${formatUSD(savings.savable_usd)}: tus presupuestos reservan ${formatUSD(savings.budget_reserved_usd)}`)
+    }
 
     setSaving(true)
     const res = await fzFetch(`/api/finanzas/savings-goals/${goal.id}/save`, {
@@ -162,6 +172,14 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
                 {formatAmount(sugerido, cur)}
               </span>
             </div>
+          )}
+
+          {savings.budget_reserved_usd > 0 && (
+            <ReservaDelPresupuesto
+              reservedUsd={savings.budget_reserved_usd}
+              savableUsd={savings.savable_usd}
+              freeUsd={savings.free_usd}
+            />
           )}
 
           {origenes.length === 0 ? (
@@ -284,6 +302,49 @@ export function SavingsSaveSheet({ goal, period, sugerido, onClose, onSaved }: {
           </Btn>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Por qué el monto puede estar topeado: el presupuesto del mes reserva plata
+ * antes de que se pueda ahorrar.
+ *
+ * Es la mitad que faltaba de una simetría: el ahorro siempre se hizo cumplir
+ * (`assertBalance` no deja que un gasto toque lo apartado), pero el
+ * presupuesto no reservaba nada, así que repartir todo dejaba sin saldo un
+ * gasto perfectamente presupuestado.
+ *
+ * No hace falta declarar ingresos para que esto funcione: la reserva se queda
+ * quieta y lo apartable crece solo a medida que entra plata en el mes.
+ */
+function ReservaDelPresupuesto({ reservedUsd, savableUsd, freeUsd }: {
+  reservedUsd: number; savableUsd: number; freeUsd: number
+}) {
+  const bloqueado = savableUsd <= 0
+
+  return (
+    <div
+      className={`px-3.5 py-3 rounded-[var(--fz-r-field)] ${
+        bloqueado ? 'bg-[var(--fz-out-tint)]' : 'bg-[var(--fz-surface-sunk)]'
+      }`}
+    >
+      <p className={`text-[13px] ${bloqueado ? 'text-[var(--fz-out-text)]' : 'text-[var(--fz-ink-2)]'}`}>
+        {bloqueado ? (
+          <>
+            Todavía no puedes ahorrar: tus presupuestos de este mes reservan{' '}
+            <span className="font-bold fz-num">{formatUSD(reservedUsd)}</span> y tienes{' '}
+            <span className="font-bold fz-num">{formatUSD(freeUsd)}</span> libres. Primero se
+            presupuesta, después se ahorra.
+          </>
+        ) : (
+          <>
+            Puedes apartar hasta <span className="font-bold fz-num">{formatUSD(savableUsd)}</span>.
+            Tus presupuestos reservan <span className="font-bold fz-num">{formatUSD(reservedUsd)}</span>{' '}
+            de los {formatUSD(freeUsd)} que tienes libres.
+          </>
+        )}
+      </p>
     </div>
   )
 }

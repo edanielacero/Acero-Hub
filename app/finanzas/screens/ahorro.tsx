@@ -1,10 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { IconArrowsLeftRight, IconCheck, IconMinus, IconPigMoney, IconPencil, IconPlus, IconSparkles, IconTrash } from '@tabler/icons-react'
+import { IconArrowsLeftRight, IconCheck, IconLock, IconMinus, IconPigMoney, IconPencil, IconPlus, IconSparkles, IconTrash } from '@tabler/icons-react'
 import type { AccountWithBalance, RateMap, SavingsGoalWithBalance } from '@/lib/finanzas/types'
 import { ALLOCATION_TYPE_LABEL, canSaveForPeriod, monthsSince, proposeAllocation } from '@/lib/finanzas/savings'
-import { formatAmount, fromUsd, HIDDEN } from '@/lib/finanzas/money'
+import { formatAmount, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import { CURRENCY_META } from '@/lib/finanzas/types'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
@@ -16,6 +16,7 @@ import { SavingsSaveSheet, periodLabel } from '../components/savings-save-sheet'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
 import { PageHeader } from '../components/tx-row'
+import { FzLink } from '../components/router'
 import { Btn, EmptyState, formatDayLabel, Panel, RowMenu, SectionTitle } from '../components/ui'
 import { fzFetch } from '../components/fz-fetch'
 
@@ -42,6 +43,17 @@ export function AhorroScreen() {
     const { proposal } = proposeAllocation(savings.goals, savings.pending_surplus_usd, rates)
     return new Map(proposal.map(l => [l.goal_id, l.amount]))
   }, [savings.goals, savings.pending_period, savings.pending_surplus_usd, rates])
+
+  /**
+   * Por qué no se puede ahorrar todavía, si es que no se puede. Se calcula
+   * acá y no en cada card: es una condición de la cuenta entera, no de un
+   * plan, y así los ocho botones dicen exactamente lo mismo.
+   */
+  const bloqueoDeAhorro = savings.budget_pending_closures > 0
+    ? 'Primero cierra el mes pasado'
+    : savings.budget_reserved_usd > 0 && savings.savable_usd <= 0
+      ? `Tu presupuesto reserva ${formatUSD(savings.budget_reserved_usd)}`
+      : null
 
   const pendientes = savings.pending_period
     ? savings.goals.filter(g => canSaveForPeriod(g, savings.pending_period!))
@@ -76,7 +88,41 @@ export function AhorroScreen() {
             un triángulo de advertencia: parecía que algo había fallado, cuando
             en realidad es la mejor noticia del mes. Y ya no lleva botón — el
             reparto se hace plan por plan, en la card de cada uno. */}
-        {savings.pending_period && pendientes.length > 0 && (
+        {/* Primero se presupuesta, después se ahorra. Va ARRIBA de la
+            invitación a repartir: si no se puede ahorrar todavía, es lo
+            primero que hay que saber, antes de que la card de un plan te
+            invite a hacerlo. */}
+        {/* El orden completo: cerrar el mes pasado → queda definido este mes →
+            recién ahí ahorrar. Cada aviso reemplaza al siguiente. */}
+        {savings.budget_pending_closures > 0 && (
+          <Panel className="flex items-center gap-3 border-[color-mix(in_srgb,var(--fz-out)_22%,transparent)] bg-[var(--fz-out-tint)]">
+            <span className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-out)] text-white shrink-0">
+              <IconLock size={18} stroke={1.8} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold text-[var(--fz-out-text)]">
+                Primero cierra el mes pasado
+              </p>
+              <p className="text-[12.5px] text-[var(--fz-ink-2)]">
+                Te {savings.budget_pending_closures === 1 ? 'queda 1 presupuesto' : `quedan ${savings.budget_pending_closures} presupuestos`} sin
+                decidir qué pasa con lo que sobró. Hasta entonces no se sabe cuánto reserva este mes.{' '}
+                <FzLink href="/finanzas/presupuesto" className="font-semibold text-[var(--fz-out-text)] underline">
+                  Ir a Presupuesto
+                </FzLink>
+              </p>
+            </div>
+          </Panel>
+        )}
+
+        {savings.budget_pending_closures === 0 && savings.budget_reserved_usd > 0 && savings.savable_usd > 0 && (
+          <p className="text-[12.5px] text-[var(--fz-ink-3)] px-1">
+            Puedes apartar hasta <span className="font-semibold fz-num">{formatUSD(savings.savable_usd)}</span> —
+            tus presupuestos reservan {formatUSD(savings.budget_reserved_usd)} de los{' '}
+            {formatUSD(savings.free_usd)} que tienes libres.
+          </p>
+        )}
+
+        {savings.budget_pending_closures === 0 && savings.pending_period && pendientes.length > 0 && (
           <Panel className="flex items-center gap-3 border-[color-mix(in_srgb,var(--fz-save)_22%,transparent)] bg-[var(--fz-save-tint)]">
             <span className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-save)] text-white shrink-0">
               <IconSparkles size={18} stroke={1.8} />
@@ -112,6 +158,7 @@ export function AhorroScreen() {
                   goal={g} hidden={hidden} rates={rates}
                   pendingPeriod={savings.pending_period}
                   acordado={acordado.get(g.id) ?? null}
+                  bloqueo={bloqueoDeAhorro}
                   onSave={() => setAhorrando(g)}
                   onView={() => setViewing(g)}
                   onEdit={() => setEditingGoal(g)}
@@ -193,12 +240,15 @@ function repartoLabel(goal: SavingsGoalWithBalance): string {
  * Card de un ahorro: si tiene meta, barra de progreso contra ella; si no,
  * solo el saldo acumulado — no hay nada contra qué medir el relleno.
  */
-function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, onSave, onView, onEdit, onMove, onDelete }: {
+function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, bloqueo, onSave, onView, onEdit, onMove, onDelete }: {
   goal: SavingsGoalWithBalance
   hidden: boolean
   rates: RateMap
   pendingPeriod: string | null
   acordado: number | null
+  /** Por qué no se puede ahorrar todavía, o `null` si sí se puede. El botón
+      queda deshabilitado y esto es lo que se lee en su lugar. */
+  bloqueo: string | null
   onSave: () => void
   onView: () => void
   onEdit: () => void
@@ -268,16 +318,19 @@ function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, onSave, onView
       {puedeAhorrar && (
         <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)] flex items-center justify-between gap-3">
           <span className="text-[12.5px] text-[var(--fz-ink-3)] min-w-0 truncate">
-            {acordado != null && acordado > 0
+            {/* Con el botón apagado, el texto de al lado deja de ser "cuánto
+                acordaste" y pasa a ser POR QUÉ no se puede: un botón muerto
+                sin explicación al lado se lee como que la app se rompió. */}
+            {bloqueo ?? (acordado != null && acordado > 0
               // Un plan por % acordó una proporción, no un monto: se dicen las
               // dos cosas para que el número no aparezca de la nada.
               ? goal.allocation_type === 'percent' && goal.allocation_value != null
                 ? <><span className="font-semibold text-[var(--fz-ink-2)] fz-num">{goal.allocation_value}%</span>{' '}
                     = <span className="font-semibold text-[var(--fz-ink-2)] fz-num">{formatAmount(acordado, cur)}</span></>
                 : <>Acordaste <span className="font-semibold text-[var(--fz-ink-2)] fz-num">{formatAmount(acordado, cur)}</span></>
-              : `Lo que dejó ${periodLabel(pendingPeriod!)}`}
+              : `Lo que dejó ${periodLabel(pendingPeriod!)}`)}
           </span>
-          <Btn size="sm" variant="save" onClick={onSave}>Ahorrar</Btn>
+          <Btn size="sm" variant="save" onClick={onSave} disabled={!!bloqueo}>Ahorrar</Btn>
         </div>
       )}
     </Panel>

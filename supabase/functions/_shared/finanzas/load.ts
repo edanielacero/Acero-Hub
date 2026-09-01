@@ -15,12 +15,13 @@ import { currentRound, expectedTurnDate, nextAporteDue } from './pasanaku.ts'
 import { availableFrom, consumesBalance, freezeConversion, gastoUsd, ingresoUsd, isInvestmentAdjustment, monthRange, todayISO } from './transactions.ts'
 import {
   carriedInto, comprometido, dayOfPeriod, disponible, effectiveFromFor, gastoRealCategoria,
-  montoEfectivo, needsClosure, periodRange, periodStart, resolvePeriod,
+  montoEfectivo, needsClosure, nextPeriod, periodRange, periodStart, previousPeriod, resolvePeriod,
   type BudgetDebtShare, type BudgetTx, type CommittedRecurring,
 } from './budgets.ts'
-import { computeGoalBalancesByAccountUsd, computeGoalBalancesUsd, computeSavingsByAccount, computeSavingsByAccountUsd, goalReached, pendingSavingsPeriod, proposeAllocation, type GoalTaggedTx } from './savings.ts'
+import { budgetReservedUsd, computeGoalBalancesByAccountUsd, computeGoalBalancesUsd, computeSavingsByAccount, computeSavingsByAccountUsd, goalReached, pendingSavingsPeriod, proposeAllocation, savableUsd, type GoalTaggedTx } from './savings.ts'
 import type {
-  Account, AccountWithBalance, AllocationType, BudgetGeneralProgress, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
+  Account, AccountWithBalance, AllocationType, BudgetGeneralProgress, BudgetHistoryEntry, BudgetHistoryPayload,
+  BudgetLineHistory, BudgetLineProgress, BudgetsPayload, Category, Currency, PersonWithDebt,
   Person, PendingClosure, RateMap, Recurring, RecurringSplit, RecurringSummary,
   RecurringWithState, SharedSummary, Debt, DebtPlan, DebtPlanWithCuotas,
   DebtWithContext, Pasanaku, PasanakuAporte, PasanakuCobro, PasanakuHistorico, PasanakuWithState,
@@ -1136,6 +1137,212 @@ export async function loadBudgets(
   }
 }
 
+/* ─── Historial mes a mes ──────────────────────────────────────────────────
+   `loadBudgets` responde "¿cómo voy este mes?"; esto responde "¿cómo me fue
+   los meses anteriores?". Va en su propia ruta y NO en `/bootstrap`: es una
+   pantalla que se abre a propósito, y meter dos años de meses en el arranque
+   de la app sería pagar en cada apertura algo que casi nunca se mira. */
+
+/** Cuántos meses hacia atrás arma el historial. Mismo tope que `needsClosure`:
+    si hace dos años que no se mira, el problema no es el largo de la lista. */
+const HISTORY_MAX_MONTHS = 24
+
+export async function loadBudgetHistory(
+  supabase: SupabaseClient,
+  scope: Scope,
+  today: string,
+): Promise<BudgetHistoryPayload> {
+  const currentPeriod = periodStart(today)
+
+  const [{ data: lineRows }, { data: catRows }] = await Promise.all([
+    // A diferencia de `loadBudgets`, acá NO se filtra por `archived`: archivar
+    // una línea deja de pedirle cierres (§4.10 del spec), pero lo que ya pasó
+    // pasó — borrarlo del historial sería perder los meses que sí se vivieron.
+    supabase.from('fin_budget_lines').select(BUDGET_LINE_COLS).eq('profile_id', scope.profileId),
+    supabase.from('fin_categories').select('id, name').eq('profile_id', scope.profileId),
+  ])
+
+  const lineIds = (lineRows ?? []).map(r => r.id as string)
+  if (lineIds.length === 0) return { lines: [], months: [] }
+
+  const nameById = new Map((catRows ?? []).map(c => [c.id as string, c.name as string]))
+
+  const [{ data: periodRows }, { data: closureRows }, { data: lineCatRows }] = await Promise.all([
+    supabase.from('fin_budget_periods').select(BUDGET_PERIOD_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+    supabase.from('fin_budget_closures').select(BUDGET_CLOSURE_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+    supabase.from('fin_budget_line_categories').select(BUDGET_LINE_CATEGORY_COLS).eq('profile_id', scope.profileId).in('line_id', lineIds),
+  ])
+
+  const periods = (periodRows ?? []).map(p => ({
+    id: p.id as string, line_id: p.line_id as string, period: p.period as string,
+    amount: num(p.amount), amount_usd: num(p.amount_usd), exchange_rate: num(p.exchange_rate),
+  }))
+  const closures = (closureRows ?? []).map(c => ({
+    line_id: c.line_id as string, period: c.period as string, carried: c.carried as boolean,
+    amount: num(c.amount), amount_usd: num(c.amount_usd),
+  }))
+
+  const periodIds = periods.map(p => p.id)
+  const { data: extensionRows } = periodIds.length > 0
+    ? await supabase.from('fin_budget_extensions').select(BUDGET_EXTENSION_COLS).eq('profile_id', scope.profileId).in('period_id', periodIds)
+    : { data: [] as { period_id: string; amount: number; amount_usd: number }[] }
+  const extensions = (extensionRows ?? []).map(e => ({
+    period_id: e.period_id as string, amount: num(e.amount), amount_usd: num(e.amount_usd),
+  }))
+
+  const categoryIdsByLine = new Map<string, string[]>()
+  for (const r of lineCatRows ?? []) {
+    const list = categoryIdsByLine.get(r.line_id as string)
+    if (list) list.push(r.category_id as string)
+    else categoryIdsByLine.set(r.line_id as string, [r.category_id as string])
+  }
+  for (const ids of categoryIdsByLine.values()) {
+    ids.sort((a, b) => (nameById.get(a) ?? '').localeCompare(nameById.get(b) ?? ''))
+  }
+
+  const lines = (lineRows ?? []).map(r => ({
+    id: r.id as string,
+    category_ids: categoryIdsByLine.get(r.id as string) ?? [],
+    name: r.name as string | null,
+    input_currency: r.input_currency as Currency,
+    retroactive: r.retroactive as boolean,
+    created_on: r.created_on as string,
+    archived: r.archived as boolean,
+  }))
+
+  // El piso del historial: el mes en que nació la línea más vieja, o
+  // HISTORY_MAX_MONTHS atrás si eso queda todavía más lejos.
+  let floor = currentPeriod
+  for (let i = 0; i < HISTORY_MAX_MONTHS; i++) floor = previousPeriod(floor)
+  let earliest = currentPeriod
+  for (const line of lines) {
+    const start = periodStart(line.created_on)
+    if (start < earliest) earliest = start
+  }
+  if (earliest < floor) earliest = floor
+
+  // Un solo viaje de gasto/deudas para todo el rango, igual que `loadBudgets`.
+  const { from: rangeFrom } = periodRange(earliest)
+  const { to: rangeTo } = periodRange(currentPeriod)
+
+  const [{ data: txRows }, { data: debtRows }] = await Promise.all([
+    supabase
+      .from('fin_transactions')
+      .select('id, category_id, amount, currency, amount_usd, flow_type, date')
+      .eq('profile_id', scope.profileId).eq('type', 'gasto')
+      .gte('date', rangeFrom).lte('date', rangeTo),
+    supabase
+      .from('fin_debts')
+      .select('amount, currency, amount_usd, principal_usd, waived_at, transaction:fin_transactions!fin_debts_transaction_id_fkey(id)')
+      .eq('profile_id', scope.profileId),
+  ])
+
+  const txs: BudgetTx[] = (txRows ?? [])
+    .filter(t => t.flow_type !== 'movimiento')
+    .map(t => ({
+      id: t.id as string, category_id: t.category_id as string | null,
+      amount: num(t.amount), currency: t.currency as string,
+      amount_usd: num(t.amount_usd), date: t.date as string,
+    }))
+
+  const debtRowsTyped = (debtRows ?? []) as unknown as {
+    amount: unknown; currency: string; amount_usd: unknown; principal_usd: unknown
+    waived_at: string | null; transaction: { id: string } | null
+  }[]
+  const debts: BudgetDebtShare[] = debtRowsTyped
+    .filter(d => d.transaction)
+    .map(d => ({
+      transaction_id: d.transaction!.id,
+      amount: num(d.amount), currency: d.currency,
+      amount_usd: num(d.amount_usd), principal_usd: num(d.principal_usd),
+      waived_at: d.waived_at,
+    }))
+
+  function rateFor(lineId: string, period: string): number {
+    const own = periods.find(p => p.line_id === lineId && p.period === period)
+    if (own) return own.exchange_rate
+    const prior = periods
+      .filter(p => p.line_id === lineId && p.period < period)
+      .sort((a, b) => (a.period < b.period ? 1 : -1))[0]
+    return prior ? prior.exchange_rate : 1
+  }
+
+  // Los totales por mes se acumulan mientras se recorre cada línea: son la
+  // suma en USD de lo mismo que ya se calculó, no un segundo cálculo.
+  const monthTotals = new Map<string, { budgeted_usd: number; spent_usd: number; result_usd: number }>()
+
+  const out: BudgetLineHistory[] = lines.map(line => {
+    const entries: BudgetHistoryEntry[] = []
+    let period = periodStart(line.created_on)
+    if (period < earliest) period = earliest
+
+    while (period <= currentPeriod) {
+      const effective = montoEfectivo(periods, extensions, line.id, period, line.input_currency)
+      // Ese mes la línea todavía no tenía monto: no hay nada que contar.
+      if (effective == null) { period = nextPeriod(period); continue }
+
+      const { to } = periodRange(period)
+      const from = effectiveFromFor(line, period)
+      const rate = rateFor(line.id, period)
+      const carried = carriedInto(closures, line.id, period)
+      const spent = gastoRealCategoria(txs, debts, line.category_ids, from, to, line.input_currency, rate)
+      const closure = closures.find(c => c.line_id === line.id && c.period === period)
+
+      const budgeted_usd = round2(effective.amountUsd)
+      const spent_usd = round2(spent.amountUsd)
+      const result_usd = round2(budgeted_usd + carried.amountUsd - spent_usd)
+
+      entries.push({
+        period,
+        budgeted: effective.amount,
+        budgeted_usd,
+        carried_in: carried.amount,
+        carried_in_usd: carried.amountUsd,
+        spent: spent.amount,
+        spent_usd,
+        // El nativo se arma con los montos exactos, no reconvirtiendo el USD
+        // — mismo criterio que `progressFor`.
+        result: roundFor(effective.amount + carried.amount - spent.amount, line.input_currency),
+        result_usd,
+        carried_out: closure ? closure.carried : null,
+        closed: !!closure,
+        current: period === currentPeriod,
+      })
+
+      const acc = monthTotals.get(period) ?? { budgeted_usd: 0, spent_usd: 0, result_usd: 0 }
+      acc.budgeted_usd += budgeted_usd
+      acc.spent_usd += spent_usd
+      acc.result_usd += result_usd
+      monthTotals.set(period, acc)
+
+      period = nextPeriod(period)
+    }
+
+    return {
+      line_id: line.id,
+      name: line.name,
+      category_ids: line.category_ids,
+      category_names: line.category_ids.map(id => nameById.get(id) ?? ''),
+      input_currency: line.input_currency,
+      archived: line.archived,
+      entries: entries.reverse(),
+    }
+  })
+
+  const months = [...monthTotals.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([period, t]) => ({
+      period,
+      budgeted_usd: round2(t.budgeted_usd),
+      spent_usd: round2(t.spent_usd),
+      result_usd: round2(t.result_usd),
+      current: period === currentPeriod,
+    }))
+
+  // Una línea sin ningún mes con monto no aporta nada a la lista.
+  return { lines: out.filter(l => l.entries.length > 0), months }
+}
+
 /**
  * Si el quick-add bloqueó un gasto por presupuesto y el usuario eligió
  * "Ampliar", registra la ampliación de ESE mes — materializando antes la fila
@@ -1260,6 +1467,26 @@ export interface SavingsGoalsPayload {
    * pedir a secas "de qué cuenta sale".
    */
   available_funds: { account_id: string; available: number; currency: Currency }[]
+  /**
+   * Lo que el presupuesto del mes en curso reserva. No se puede apartar a
+   * ahorros hasta cubrirlo: primero se presupuesta, después se ahorra.
+   * Incluye los fijos pendientes, que también tienen que salir de la cuenta.
+   */
+  budget_reserved_usd: number
+  /** La plata libre de todas las cuentas, sumada en USD. */
+  free_usd: number
+  /** `free_usd − budget_reserved_usd`, nunca negativo: el tope de lo apartable. */
+  savable_usd: number
+  /**
+   * Cuántos presupuestos-mes siguen sin la pregunta de cierre respondida.
+   *
+   * Mientras haya alguno, NO se puede ahorrar — y no es una regla de estilo:
+   * hasta que se decide si el sobrante de cada uno pasa al mes siguiente, los
+   * sobres del mes en curso no tienen su carry aplicado y `budget_reserved_usd`
+   * sale corto. Ahorrar contra un número que todavía puede crecer es
+   * exactamente el problema que este tope vino a resolver.
+   */
+  budget_pending_closures: number
 }
 
 /**
@@ -1272,7 +1499,7 @@ export async function loadSavingsGoals(
   supabase: SupabaseClient,
   scope: Scope,
   today: string,
-  precomputed?: { rates: RateMap },
+  precomputed?: { rates: RateMap; budgets?: BudgetsPayload; recurring?: RecurringSummary },
 ): Promise<SavingsGoalsPayload> {
   const [{ data: goalRows }, ratesResult] = await Promise.all([
     supabase.from('fin_savings_goals').select(SAVINGS_GOAL_COLS).eq('profile_id', scope.profileId).order('sort_order').order('created_at'),
@@ -1300,7 +1527,10 @@ export async function loadSavingsGoals(
   const pending_period = pendingSavingsPeriod(goals, today)
 
   if (goals.length === 0) {
-    return { goals: [], pending_period, pending_surplus_usd: 0, available_funds: [] }
+    return {
+      goals: [], pending_period, pending_surplus_usd: 0, available_funds: [],
+      budget_reserved_usd: 0, free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
+    }
   }
 
   const goalIds = goals.map(g => g.id)
@@ -1374,7 +1604,10 @@ export async function loadSavingsGoals(
   // el sheet de "Ahorrar" de cada plan, así que viajan con los ahorros en vez
   // de costar un viaje aparte por cada card que se abre.
   if (!pending_period) {
-    return { goals: withBalance, pending_period, pending_surplus_usd: 0, available_funds: [] }
+    return {
+      goals: withBalance, pending_period, pending_surplus_usd: 0, available_funds: [],
+      budget_reserved_usd: 0, free_usd: 0, savable_usd: 0, budget_pending_closures: 0,
+    }
   }
 
   const [pending_surplus_usd, { accounts }] = await Promise.all([
@@ -1382,11 +1615,39 @@ export async function loadSavingsGoals(
     loadAccounts(supabase, scope),
   ])
 
+  const available_funds = availableFundsByAccount(accounts)
+  const free_usd = round2(available_funds.reduce((s, f) => s + toUsd(f.available, f.currency, rates), 0))
+
+  // El presupuesto reserva ANTES que el ahorro. Si el llamador ya los tenía
+  // (el bootstrap los pide en el mismo viaje) se reusan; si no, se piden acá
+  // — que nadie pueda saltarse la regla por olvidarse de pasarlos.
+  const recurringSummary = precomputed?.recurring ?? await loadRecurring(supabase, scope, today)
+  const budgets = precomputed?.budgets
+    ?? await loadBudgets(supabase, scope, today, { rates, recurring: recurringSummary })
+
+  const budget_reserved_usd = budgetReservedUsd(
+    budgets.categories,
+    recurringSummary.recurring.map(r => ({
+      category_id: r.category_id,
+      active: r.active,
+      status: r.status,
+      amountUsd: toUsd(r.amount, r.currency, rates),
+    })),
+  )
+
+  const budget_pending_closures = budgets.pending_closures.length
+
   return {
     goals: withBalance,
     pending_period,
     pending_surplus_usd,
-    available_funds: availableFundsByAccount(accounts),
+    available_funds,
+    budget_reserved_usd,
+    free_usd,
+    // Con cierres sin responder el tope es cero: no es que no te sobre, es
+    // que todavía no se sabe cuánto reserva el presupuesto.
+    savable_usd: budget_pending_closures > 0 ? 0 : savableUsd(free_usd, budget_reserved_usd),
+    budget_pending_closures,
   }
 }
 

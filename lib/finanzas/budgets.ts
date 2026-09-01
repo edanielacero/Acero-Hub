@@ -328,9 +328,24 @@ export type BudgetViewMode = 'gastado' | 'disponible'
 export interface BudgetBarView {
   /** El número grande a mostrar: gastado o disponible, según el modo. */
   value: number
-  /** Relleno de la barra, 0–100. */
+  /** Relleno de la barra, 0–100. Siempre desde la izquierda. */
   fillPct: number
-  /** Dónde va la marca de "deberías estar acá hoy", en la misma escala que `fillPct`. */
+  /**
+   * El tramo "reservado": los fijos de la categoría que este mes todavía no
+   * se pagaron. Va pegado a la derecha del relleno (o sea, arranca en
+   * `fillPct`) y nunca lo desborda — plata que ya está comprometida aunque el
+   * movimiento no exista todavía.
+   *
+   * Existe porque el número grande YA descuenta esos fijos: sin dibujarlos,
+   * un presupuesto recién empezado mostraba menos disponible que lo
+   * presupuestado y nada explicaba la diferencia.
+   */
+  reservedPct: number
+  /**
+   * Dónde va la marca del día: la fracción del mes ya transcurrida. Es la
+   * misma posición en los dos modos, avanzando hacia el tope a medida que
+   * pasa el mes.
+   */
   tickPct: number
   /** Ya se pasó del tope — mismo criterio en los dos modos. */
   over: boolean
@@ -344,34 +359,47 @@ export interface BudgetBarView {
  * categoría, o el hero de la Home), ya resueltos según el modo elegido —
  * así la UI solo pinta, no decide.
  *
- * En "gastado" la barra arranca vacía y se llena a medida que gastás (el
- * tope de siempre). En "disponible" arranca LLENA — representa la plata que
- * todavía tenés — y se va vaciando a medida que gastás; por eso ahí la marca
- * del día también se invierte: si vas al ritmo esperado, tiene que quedar
- * exactamente lo que la marca señala, no lo que ya se gastó.
+ * En "gastado" la barra arranca vacía y se llena a medida que gastás (el tope
+ * de siempre). En "disponible" arranca LLENA —representa la plata que todavía
+ * tenés— y se va vaciando a medida que gastás. En los dos casos el relleno se
+ * dibuja desde la izquierda.
+ *
+ * El tick es EL MISMO en los dos modos: la fracción del mes ya transcurrida,
+ * avanzando hacia el tope. Antes en "disponible" se invertía (`100 - dayPct`)
+ * y quedaba del lado contrario: a fin de mes la marca aparecía pegada al
+ * borde izquierdo, cuando lo que tiene que señalar es que el presupuesto se
+ * está acabando.
  */
 export function budgetBarView(params: {
   mode: BudgetViewMode
   spentUsd: number
   availableUsd: number
   capacityUsd: number
+  /** Fijos de la categoría todavía sin pagar — el tramo reservado. */
+  committedUsd: number
   spent: number
   available: number
   day: number
   days: number
 }): BudgetBarView {
-  const { mode, spentUsd, availableUsd, capacityUsd, spent, available, day, days } = params
+  const { mode, spentUsd, availableUsd, capacityUsd, committedUsd, spent, available, day, days } = params
   const dayPct = days > 0 ? (day / days) * 100 : 0
   const over = capacityUsd > 0 && spentUsd > capacityUsd
   const clamp = (n: number) => Math.min(100, Math.max(0, n))
+  const pctOf = (n: number) => clamp(capacityUsd > 0 ? (n / capacityUsd) * 100 : 0)
+
+  const tickPct = round2(clamp(dayPct))
+  // El reservado se recorta contra lo que quede de barra: con el tope ya
+  // pasado no hay lugar donde dibujarlo, y estirarlo lo sacaría del carril.
+  const reserved = (fillPct: number) => round2(Math.min(pctOf(committedUsd), 100 - fillPct))
 
   if (mode === 'disponible') {
-    const fillPct = round2(clamp(capacityUsd > 0 ? (availableUsd / capacityUsd) * 100 : 0))
-    return { value: available, fillPct, tickPct: round2(clamp(100 - dayPct)), over, danger: over || fillPct <= 15 }
+    const fillPct = round2(pctOf(availableUsd))
+    return { value: available, fillPct, reservedPct: reserved(fillPct), tickPct, over, danger: over || fillPct <= 15 }
   }
 
-  const fillPct = round2(clamp(capacityUsd > 0 ? (spentUsd / capacityUsd) * 100 : 0))
-  return { value: spent, fillPct, tickPct: round2(clamp(dayPct)), over, danger: over || fillPct >= 85 }
+  const fillPct = round2(pctOf(spentUsd))
+  return { value: spent, fillPct, reservedPct: reserved(fillPct), tickPct, over, danger: over || fillPct >= 85 }
 }
 
 /* ─── Cierres pendientes ────────────────────────────────────────────────── */

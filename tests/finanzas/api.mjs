@@ -2120,6 +2120,56 @@ async function run() {
          afterClose.categories.find(c => c.line_id === pastLine.id).carried_usd, 40)
     }
 
+    section('PATCH /budgets/[id]/close — deshacer el "llevar al próximo mes"')
+    {
+      eq('un mes que no está cerrado no se puede deshacer',
+         (await api(`/budgets/${pastLine.id}/close`, {
+           method: 'PATCH', body: JSON.stringify({ period: thisMonth, carried: false }),
+         })).status, 404)
+
+      eq('deshace el carry del mes pasado',
+         (await api(`/budgets/${pastLine.id}/close`, {
+           method: 'PATCH', body: JSON.stringify({ period: prevMonth, carried: false }),
+         })).status, 200)
+
+      const undone = await json(await api('/budgets'))
+      eq('el mes en curso vuelve a su presupuesto original',
+         undone.categories.find(c => c.line_id === pastLine.id).carried_usd, 0)
+      ok('y el mes pasado sigue cerrado — deshacer no reabre la pregunta',
+         !undone.pending_closures.some(p => p.line_id === pastLine.id))
+
+      eq('y se puede volver a llevar',
+         (await api(`/budgets/${pastLine.id}/close`, {
+           method: 'PATCH', body: JSON.stringify({ period: prevMonth, carried: true }),
+         })).status, 200)
+      eq('el carry está de vuelta',
+         (await json(await api('/budgets'))).categories.find(c => c.line_id === pastLine.id).carried_usd, 40)
+    }
+
+    section('GET /budgets/history — el mes a mes de cada presupuesto')
+    {
+      const hist = await json(await api('/budgets/history'))
+      const linea = hist.lines.find(l => l.line_id === pastLine.id)
+      ok('la línea aparece en el historial', !!linea)
+      ok('con el mes pasado y el mes en curso', linea.entries.length >= 2)
+
+      const pasado = linea.entries.find(e => e.period === prevMonth)
+      eq('el mes pasado presupuestó 40', Number(pasado.budgeted_usd), 40)
+      eq('no se gastó nada, así que sobraron 40', Number(pasado.result_usd), 40)
+      eq('y quedó marcado como cerrado llevándolo', pasado.carried_out, true)
+      eq('no es el mes en curso', pasado.current, false)
+
+      const actual = linea.entries.find(e => e.period === thisMonth)
+      eq('el mes en curso viene marcado como tal', actual.current, true)
+      eq('y arranca con los 40 que llegaron del anterior', Number(actual.carried_in_usd), 40)
+      eq('todavía sin cerrar', actual.closed, false)
+
+      ok('los meses vienen del más reciente al más viejo',
+         hist.months.length >= 2 && hist.months[0].period > hist.months[1].period)
+      ok('el total del mes pasado suma al menos los 40 de Transporte',
+         Number(hist.months.find(m => m.period === prevMonth).budgeted_usd) >= 40)
+    }
+
     section('DELETE /budgets/[id] y PATCH archived')
     {
       eq('borra la línea de Comida — configuración, sin 409 posible',

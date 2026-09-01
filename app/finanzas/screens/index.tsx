@@ -9,6 +9,7 @@ import { FijosScreen } from './fijos'
 import { DeudasScreen } from './deudas'
 import { PasanakuScreen } from './pasanaku'
 import { PresupuestoScreen } from './presupuesto'
+import { PresupuestoHistorialScreen } from './presupuesto-historial'
 import { AhorroScreen } from './ahorro'
 import { MasScreen } from './mas'
 import {
@@ -42,6 +43,7 @@ const SCREENS: Record<ScreenPath, () => React.ReactNode> = {
   '/finanzas/deudas': DeudasScreen,
   '/finanzas/pasanaku': PasanakuScreen,
   '/finanzas/presupuesto': PresupuestoScreen,
+  '/finanzas/presupuesto/historial': PresupuestoHistorialScreen,
   '/finanzas/ahorro': AhorroScreen,
   '/finanzas/mas': MasScreen,
   '/finanzas/ajustes': AjustesScreen,

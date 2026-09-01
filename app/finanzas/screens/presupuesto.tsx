@@ -1,9 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { IconAlertTriangle, IconChartPie, IconListSearch, IconPencil, IconPlus, IconTrash } from '@tabler/icons-react'
+import {
+  IconAlertTriangle, IconArrowBackUp, IconChartHistogram, IconChartPie, IconListSearch,
+  IconPencil, IconPlus, IconTrash,
+} from '@tabler/icons-react'
 import type { BudgetGeneralProgress, BudgetLineProgress, Currency, RateMap } from '@/lib/finanzas/types'
-import { budgetBarView, type BudgetViewMode } from '@/lib/finanzas/budgets'
+import { budgetBarView, periodStart, previousPeriod, type BudgetViewMode } from '@/lib/finanzas/budgets'
 import { formatAmount, formatBOB, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import { todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
@@ -14,10 +17,11 @@ import { BudgetClosureSheet } from '../components/budget-closure-sheet'
 import { BudgetLineSheet } from '../components/budget-line-sheet'
 import { DeleteConfirmSheet, DeletePreview } from '../components/delete-confirm'
 import { DetailField, DetailSheet } from '../components/detail-sheet'
-import { useFzRouter } from '../components/router'
+import { FzLink, useFzRouter } from '../components/router'
 import { PageHeader } from '../components/tx-row'
 import { Btn, EmptyState, Panel, RowMenu, SectionTitle } from '../components/ui'
 import { fzFetch } from '../components/fz-fetch'
+import { BudgetBar } from '../components/budget-bar'
 
 export function PresupuestoScreen() {
   const { budgets, categories, rates, hidden, loading, reload } = useFinanzas()
@@ -29,6 +33,7 @@ export function PresupuestoScreen() {
   const [deleting, setDeleting] = useState<BudgetLineProgress | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [closureOpen, setClosureOpen] = useState(false)
+  const [undoingCarry, setUndoingCarry] = useState(false)
 
   const hasAnything = budgets.categories.length > 0
   const pendingCount = budgets.pending_closures.length
@@ -42,6 +47,26 @@ export function PresupuestoScreen() {
     await reload()
     setConfirmingDelete(false)
     setDeleting(null)
+  }
+
+  /**
+   * Deshace el "llevar al próximo mes" del cierre anterior: el mes pasado
+   * sigue cerrado y con su sobrante congelado, pero deja de sumarse acá, así
+   * que este mes vuelve a su presupuesto original.
+   *
+   * El período que se toca es el ANTERIOR al vigente — es de donde sale el
+   * carry que se está viendo (`carriedInto` mira un solo salto atrás).
+   */
+  async function deshacerCarry(line: BudgetLineProgress) {
+    setUndoingCarry(true)
+    const res = await fzFetch(`/api/finanzas/budgets/${line.line_id}/close`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period: previousPeriod(periodStart(todayISO())), carried: false }),
+    })
+    if (res.ok) await reload()
+    setUndoingCarry(false)
+    setViewing(null)
   }
 
   /**
@@ -64,7 +89,20 @@ export function PresupuestoScreen() {
       <PageHeader
         title="Presupuesto"
         subtitle="Cuánto te queda por categoría, y en general"
-        action={<HideToggle />}
+        action={
+          <>
+            {/* Mismo tamaño y forma que el ojo: los dos son atajos de la
+                cabecera, no acciones del contenido. */}
+            <FzLink
+              href="/finanzas/presupuesto/historial"
+              aria-label="Historial de presupuestos"
+              className="grid place-items-center w-9 h-9 rounded-full bg-[var(--fz-surface-sunk)] text-[var(--fz-ink-2)] hover:text-[var(--fz-ink)] transition-colors"
+            >
+              <IconChartHistogram size={18} stroke={1.8} />
+            </FzLink>
+            <HideToggle />
+          </>
+        }
       />
 
       <div className="flex flex-col gap-4">
@@ -72,7 +110,9 @@ export function PresupuestoScreen() {
           <Panel className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-[14px] font-semibold text-[var(--fz-out-text)]">
               <IconAlertTriangle size={18} stroke={2} />
-              Tienes {pendingCount} {pendingCount === 1 ? 'mes' : 'meses'} por cerrar
+              {/* Cuenta presupuestos-mes, no meses: tres líneas con agosto sin
+                  responder son tres preguntas, no tres meses. */}
+              Tienes {pendingCount} {pendingCount === 1 ? 'presupuesto' : 'presupuestos'} por cerrar
             </span>
             <Btn size="sm" onClick={() => setClosureOpen(true)}>Revisar</Btn>
           </Panel>
@@ -141,7 +181,13 @@ export function PresupuestoScreen() {
         onEdit={() => { const l = viewing!; setViewing(null); setEditingLine(l) }}
         onDelete={() => { const l = viewing!; setViewing(null); setDeleting(l) }}
       >
-        {viewing && <BudgetDetail line={viewing} hidden={hidden} rates={rates} icon={iconFor(viewing.category_ids[0])} />}
+        {viewing && (
+          <BudgetDetail
+            line={viewing} hidden={hidden} rates={rates} icon={iconFor(viewing.category_ids[0])}
+            undoingCarry={undoingCarry}
+            onUndoCarry={() => deshacerCarry(viewing)}
+          />
+        )}
       </DetailSheet>
 
       <DeleteConfirmSheet
@@ -180,6 +226,7 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
   const capacity = general.amount_usd + general.extended_usd + general.carried_usd
   const view = budgetBarView({
     mode, spentUsd: general.spent_usd, availableUsd: general.available_usd, capacityUsd: capacity,
+    committedUsd: general.committed_usd,
     spent: general.spent_usd, available: general.available_usd,
     day: general.day_of_period, days: general.days_in_period,
   })
@@ -207,19 +254,17 @@ function GeneralBudgetCard({ general, hidden, rates, mode }: {
         )}
       </div>
 
-      <div className="relative h-3 rounded-full bg-[var(--fz-hairline)] overflow-hidden">
-        <div
-          className="absolute inset-y-0 left-0 rounded-full"
-          style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
-        />
-        <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
-      </div>
+      <BudgetBar view={view} />
 
       {/* En modo "disponible" el número grande es lo que queda, no lo gastado
-          — sin esto no había ningún lugar que dijera el acumulado real. */}
-      {mode === 'disponible' && !hidden && (
+          — sin esto no había ningún lugar que dijera el acumulado real. El
+          reservado va al lado porque es la otra mitad de la explicación: el
+          disponible ya lo descontó, y el tramo tenue de la barra es ese. */}
+      {!hidden && (mode === 'disponible' || general.committed_usd > 0) && (
         <p className="text-[13px] text-[var(--fz-ink-3)]">
-          Llevas gastado {formatUSD(general.spent_usd)}
+          {mode === 'disponible' && `Llevas gastado ${formatUSD(general.spent_usd)}`}
+          {mode === 'disponible' && general.committed_usd > 0 && ' · '}
+          {general.committed_usd > 0 && `${formatUSD(general.committed_usd)} reservados para Gastos Fijos`}
         </p>
       )}
     </Panel>
@@ -252,6 +297,7 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
   const capacity = (line.amount ?? 0) + line.extended + line.carried
   const view = budgetBarView({
     mode, spentUsd: line.spent_usd, availableUsd: line.available_usd ?? 0, capacityUsd,
+    committedUsd: line.committed_usd,
     spent: line.spent, available: line.available ?? 0,
     day: line.day_of_period, days: line.days_in_period,
   })
@@ -290,17 +336,13 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
           </div>
         </div>
 
-        <div className="relative h-2 rounded-full bg-[var(--fz-hairline)] overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full"
-            style={{ width: `${view.fillPct}%`, background: view.danger ? 'var(--fz-out)' : 'var(--fz-accent)' }}
-          />
-          <div className="absolute inset-y-0 w-[2px] bg-[var(--fz-ink-3)]" style={{ left: `${view.tickPct}%` }} aria-hidden />
-        </div>
+        <BudgetBar view={view} size="sm" />
 
-        {mode === 'disponible' && !hidden && (
+        {!hidden && (mode === 'disponible' || line.committed > 0) && (
           <p className="text-[12px] text-[var(--fz-ink-3)]">
-            Llevas gastado {formatAmount(line.spent, cur)}
+            {mode === 'disponible' && `Llevas gastado ${formatAmount(line.spent, cur)}`}
+            {mode === 'disponible' && line.committed > 0 && ' · '}
+            {line.committed > 0 && `${formatAmount(line.committed, cur)} reservados para Gastos Fijos`}
           </p>
         )}
       </button>
@@ -327,11 +369,14 @@ function BudgetLineCard({ line, hidden, mode, icon, onView, onEdit, onDelete, on
  * cambio de HOY — por eso va junto a la tasa que se usó, para que se lea como
  * lo que es: una conversión del momento, no un segundo registro.
  */
-function BudgetDetail({ line, hidden, rates, icon }: {
+function BudgetDetail({ line, hidden, rates, icon, undoingCarry, onUndoCarry }: {
   line: BudgetLineProgress
   hidden: boolean
   rates: RateMap
   icon: string | null
+  undoingCarry: boolean
+  /** Devuelve el mes a su presupuesto original, sin lo que vino del anterior. */
+  onUndoCarry: () => void
 }) {
   const cur = line.input_currency
   const fmt = (n: number) => formatAmount(n, cur)
@@ -372,6 +417,20 @@ function BudgetDetail({ line, hidden, rates, icon }: {
           label={line.carried >= 0 ? 'Llevado del mes pasado' : 'Restado del mes pasado'}
           value={!hidden && line.carried !== 0 ? fmt(Math.abs(line.carried)) : null}
         />
+        {/* Cambiar de idea sobre el mes pasado sin tener que ir a buscarlo:
+            es acá donde se ve el efecto, así que es acá donde se deshace. */}
+        {line.carried !== 0 && (
+          <div className="flex items-center justify-between gap-3 py-2 border-b border-[var(--fz-hairline)] last:border-0">
+            <span className="text-[13px] text-[var(--fz-ink-2)]">
+              {line.carried >= 0
+                ? 'Ese sobrante no tiene por qué quedarse'
+                : 'Ese sobregasto no tiene por qué quedarse'}
+            </span>
+            <Btn size="sm" variant="ghost" onClick={onUndoCarry} disabled={undoingCarry}>
+              <IconArrowBackUp size={15} stroke={2} /> Deshacer
+            </Btn>
+          </div>
+        )}
         {hasAdjustment && (
           <DetailField label="Tope total del mes" value={hidden ? null : fmt(capacity)} />
         )}

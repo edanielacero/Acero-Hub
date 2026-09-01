@@ -29,6 +29,8 @@ export function AjustesPresupuestoScreen() {
       <Panel>
         <p className="text-[13px] text-[var(--fz-ink-2)] mb-4">
           Cómo mostrar el progreso — aplica igual en Presupuesto y en la Home.
+          En los dos casos la marca de la barra es la misma: por dónde va el
+          mes, según el día en que estás.
         </p>
 
         <div className="flex flex-col gap-2" role="radiogroup" aria-label="Cómo ver el presupuesto">

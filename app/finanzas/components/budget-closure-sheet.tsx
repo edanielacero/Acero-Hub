@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconX } from '@tabler/icons-react'
 import { formatAmount } from '@/lib/finanzas/money'
 import { monthLabel } from '@/lib/finanzas/transactions'
+import { nextPeriod } from '@/lib/finanzas/budgets'
 import { useFinanzas } from './data-context'
 import { Btn, ErrorNote } from './ui'
 import { fzFetch } from './fz-fetch'
@@ -14,12 +15,17 @@ import { fzFetch } from './fz-fetch'
  * borrador — acá se decide mes a mes si el sobrante o el sobregasto se lleva
  * al siguiente período o no.
  *
- * `queue` se captura al abrir: la lista de pendientes se achica con cada
- * `reload()` de este mismo sheet, y leerla en vivo desincronizaría el índice.
+ * `queue` captura al abrir solo la IDENTIDAD de cada pregunta (línea +
+ * período): la lista de pendientes se achica con cada `reload()` de este
+ * mismo sheet, y leerla en vivo desincronizaría el índice. El monto, en
+ * cambio, se lee siempre en vivo — responder "llevar al próximo mes" cambia
+ * el disponible del mes siguiente, que muchas veces es la pregunta que sigue
+ * en esta misma cola; con el número congelado al abrir, la segunda pantalla
+ * mostraba un sobrante que ya no era el que el server iba a congelar.
  */
 export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { budgets, reload } = useFinanzas()
-  const [queue] = useState(() => budgets.pending_closures)
+  const [queue] = useState(() => budgets.pending_closures.map(c => ({ line_id: c.line_id, period: c.period })))
   const [index, setIndex] = useState(0)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -40,23 +46,36 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
   }, [onClose])
 
   const finished = queue.length === 0 || index >= queue.length
+  const ref = finished ? null : queue[index]
+  const current = ref
+    ? budgets.pending_closures.find(c => c.line_id === ref.line_id && c.period === ref.period) ?? null
+    : null
 
   useEffect(() => {
     if (finished) onDone()
   }, [finished, onDone])
 
-  if (finished) return null
+  // Ya no está pendiente (se respondió en otra pestaña, o la línea se
+  // archivó): la pregunta desaparece sola en vez de quedar trabada.
+  useEffect(() => {
+    if (!finished && !current) setIndex(i => i + 1)
+  }, [finished, current])
 
-  const current = queue[index]
+  if (finished || !current) return null
+
+  const { line_id, period } = current
   const sobra = current.amount_usd >= 0
+  const proximo = nextPeriod(period)
 
-  async function responder(carried: boolean) {
+  // Arrow y no `function`: la declaración se hoistea y TypeScript pierde ahí
+  // el estrechamiento de `current` que dejó el guard de arriba.
+  const responder = async (carried: boolean) => {
     setSaving(true)
     setError('')
-    const res = await fzFetch(`/api/finanzas/budgets/${current.line_id}/close`, {
+    const res = await fzFetch(`/api/finanzas/budgets/${line_id}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ period: current.period, carried }),
+      body: JSON.stringify({ period, carried }),
     })
     setSaving(false)
 
@@ -101,6 +120,16 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
             {sobra ? '.' : ' de lo que tenías presupuestado.'}
           </p>
 
+          {/* La decisión es solo si pasa o no al mes siguiente. Lo que no pasa
+              NO se va a Ahorros —esa es otra pantalla, con sus propios
+              movimientos—: el mes que viene simplemente arranca con su monto
+              de siempre. */}
+          <p className="text-[13px] text-[var(--fz-ink-2)]">
+            {sobra
+              ? `Si lo llevas, se suma al presupuesto de ${monthLabel(proximo.slice(0, 7)).toLowerCase()}. Si no, ese mes arranca con su monto de siempre.`
+              : `Si lo restas, se descuenta del presupuesto de ${monthLabel(proximo.slice(0, 7)).toLowerCase()}. Si no, ese mes arranca con su monto de siempre.`}
+          </p>
+
           <ErrorNote>{error}</ErrorNote>
 
           <div className="flex flex-col gap-2">
@@ -108,7 +137,7 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
               {sobra ? 'Llevar al próximo mes' : 'Restar al próximo mes'}
             </Btn>
             <Btn variant="ghost" onClick={() => responder(false)} disabled={saving} full>
-              {sobra ? 'Que quede como ahorro' : 'Que no afecte nada'}
+              {sobra ? 'No pasarlo al próximo mes' : 'No restarlo al próximo mes'}
             </Btn>
           </div>
 
