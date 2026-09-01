@@ -40,8 +40,11 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   const [amount, setAmount] = useState(String(recurring.amount))
   const [accountId, setAccountId] = useState(recurring.account_id ?? '')
   // Fijo de ahorro: la cuenta de destino se elige ACÁ, no en la plantilla —
-  // igual que la de origen. La plantilla solo guarda la última usada.
-  const [toAccountId, setToAccountId] = useState(recurring.to_account_id ?? '')
+  // igual que la de origen. La plantilla solo guarda la última usada, y sin
+  // ella el default es la misma cuenta de origen: apartar dentro de la misma
+  // cuenta es el caso normal (la plata ya está ahí, solo pasa a estar
+  // apartada), no una excepción.
+  const [toAccountId, setToAccountId] = useState(recurring.to_account_id ?? recurring.account_id ?? '')
   const [date, setDate] = useState(recurring.due)
   const [updateTemplate, setUpdateTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -121,7 +124,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   async function submit() {
     setError('')
     if (!accountId) return setError('Elige de qué cuenta sale')
-    if (esAhorro && !toAccountId) return setError('Elige a qué cuenta de ahorro entra')
+
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
     if (excede) {
       return setError(`${account!.name} tiene ${formatAmount(disponible, account!.currency)} disponibles`)
@@ -134,7 +137,7 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
       body: JSON.stringify({
         amount: value,
         account_id: accountId,
-        ...(esAhorro ? { to_account_id: toAccountId } : {}),
+        ...(esAhorro ? { to_account_id: toAccountId || accountId } : {}),
         date,
         update_template: updateTemplate,
       }),
@@ -256,7 +259,15 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
                   {filtradas.map(a => (
                     <button
-                      key={a.id} type="button" onClick={() => setAccountId(a.id)}
+                      key={a.id}
+                      type="button"
+                      onClick={() => {
+                        // El destino sigue al origen mientras no se lo toque a
+                        // mano, igual que en el sheet de Ahorrar: apartar en la
+                        // misma cuenta es lo normal.
+                        if (toAccountId === accountId) setToAccountId(a.id)
+                        setAccountId(a.id)
+                      }}
                       aria-pressed={a.id === accountId}
                       className={`shrink-0 inline-flex items-center gap-2 h-10 px-3.5 rounded-[var(--fz-r-pill)] text-[14px] font-semibold whitespace-nowrap transition-colors ${
                         a.id === accountId
@@ -302,6 +313,9 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
           {esAhorro && (
             <div>
               <Label>Entra a{ahorro ? ` "${ahorro.name}"` : ''}, en la cuenta</Label>
+              <p className="text-[12px] text-[var(--fz-ink-3)] mb-2">
+                La misma cuenta de origen es lo normal: la plata no se mueve, solo queda apartada.
+              </p>
               {cuentasAhorro.length === 0 ? (
                 <p className="text-[13px] text-[var(--fz-out-text)]">
                   Todavía no tienes cuentas. Crea una en Cuentas.

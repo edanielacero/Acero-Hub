@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { IconArrowsLeftRight, IconCheck, IconLock, IconMinus, IconPigMoney, IconPencil, IconPlus, IconRepeat, IconSparkles, IconTrash } from '@tabler/icons-react'
-import type { AccountWithBalance, RateMap, SavingsGoalWithBalance } from '@/lib/finanzas/types'
+import type { AccountWithBalance, RateMap, RecurringWithState, SavingsGoalWithBalance } from '@/lib/finanzas/types'
 import { ALLOCATION_TYPE_LABEL, canSaveForPeriod, monthsSince, proposeAllocation } from '@/lib/finanzas/savings'
 import { formatAmount, formatUSD, fromUsd, HIDDEN } from '@/lib/finanzas/money'
 import type { SavingsGoalsPayload } from '@/lib/finanzas/load'
@@ -43,9 +43,9 @@ export function AhorroScreen() {
    * otro— y la misma plata se podía apartar dos veces.
    */
   const conFijo = useMemo(
-    () => new Set(recurring.recurring
+    () => new Map(recurring.recurring
       .filter(r => r.active && isSavingsRecurring(r))
-      .map(r => r.savings_goal_id!)),
+      .map(r => [r.savings_goal_id!, r])),
     [recurring.recurring],
   )
 
@@ -179,7 +179,7 @@ export function AhorroScreen() {
                   goal={g} hidden={hidden} rates={rates}
                   pendingPeriod={savings.pending_period}
                   acordado={acordado.get(g.id) ?? null}
-                  seAlimentaConFijo={conFijo.has(g.id)}
+                  fijo={conFijo.get(g.id) ?? null}
                   bloqueo={bloqueoDeAhorro}
                   onSave={() => setAhorrando(g)}
                   onView={() => setViewing(g)}
@@ -262,15 +262,16 @@ function repartoLabel(goal: SavingsGoalWithBalance): string {
  * Card de un ahorro: si tiene meta, barra de progreso contra ella; si no,
  * solo el saldo acumulado — no hay nada contra qué medir el relleno.
  */
-function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, seAlimentaConFijo, bloqueo, onSave, onView, onEdit, onMove, onDelete }: {
+function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, fijo, bloqueo, onSave, onView, onEdit, onMove, onDelete }: {
   goal: SavingsGoalWithBalance
   hidden: boolean
   rates: RateMap
   pendingPeriod: string | null
   acordado: number | null
-  /** Este ahorro se alimenta con un fijo: no lleva botón, se registra en
-      Gastos Fijos. Un solo camino, y así los dos estados no se contradicen. */
-  seAlimentaConFijo: boolean
+  /** El fijo que alimenta este ahorro, si lo tiene: no lleva botón propio, se
+      registra en Gastos Fijos. Un solo camino, y así los dos estados no se
+      contradicen. Su `status` decide si todavía queda algo por hacer. */
+  fijo: RecurringWithState | null
   /** Por qué no se puede ahorrar todavía, o `null` si sí se puede. El botón
       queda deshabilitado y esto es lo que se lee en su lugar. */
   bloqueo: string | null
@@ -284,7 +285,7 @@ function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, seAlimentaConF
   const hasTarget = goal.target_amount != null
   const fillPct = hasTarget ? Math.min(100, Math.round((goal.balance / goal.target_amount!) * 100)) : 0
   // Un plan creado en agosto no tiene por qué ofrecer organizar julio.
-  const puedeAhorrar = !seAlimentaConFijo && !!pendingPeriod && canSaveForPeriod(goal, pendingPeriod)
+  const puedeAhorrar = !fijo && !!pendingPeriod && canSaveForPeriod(goal, pendingPeriod)
 
   return (
     <Panel className="relative">
@@ -340,14 +341,25 @@ function GoalCard({ goal, hidden, rates, pendingPeriod, acordado, seAlimentaConF
       {/* El reparto ya no es un trámite mensual global: cada plan tiene su
           propio botón y su propia decisión. Desaparece en cuanto ese mes se
           guardó, y vuelve cuando termina el siguiente. */}
-      {seAlimentaConFijo && (
+      {fijo && (
         <div className="mt-3 pt-3 border-t border-[var(--fz-hairline)]">
-          <FzLink
-            href="/finanzas/fijos"
-            className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--fz-accent)]"
-          >
-            <IconRepeat size={15} stroke={1.8} /> Se llena desde Gastos Fijos
-          </FzLink>
+          {/* Con el fijo ya registrado no queda nada que hacer este mes, así
+              que deja de ser un enlace: invitar a ir a Gastos Fijos ahí solo
+              podía terminar en un segundo aporte del mismo mes. La línea se
+              queda igual —sin ella la card no diría de dónde sale su plata—
+              pero como dato, no como acción. */}
+          {fijo.status === 'registrado' ? (
+            <p className="flex items-center gap-1.5 text-[13px] text-[var(--fz-ink-3)]">
+              <IconCheck size={15} stroke={2.2} /> Ya se ahorró este mes desde Gastos Fijos
+            </p>
+          ) : (
+            <FzLink
+              href="/finanzas/fijos"
+              className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--fz-accent)]"
+            >
+              <IconRepeat size={15} stroke={1.8} /> Se llena desde Gastos Fijos
+            </FzLink>
+          )}
         </div>
       )}
 

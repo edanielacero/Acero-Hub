@@ -114,14 +114,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const tipo: TxType = esAhorro ? 'transferencia' : 'gasto'
 
   // La cuenta de ahorro se elige al REGISTRAR, igual que la de origen: la
-  // plantilla solo guarda la última usada como default. Sin ninguna de las
-  // dos, se pide — no se adivina.
+  // plantilla solo guarda la última usada como default.
+  //
+  // Sin ninguna de las dos, el default es la MISMA cuenta de origen — mismo
+  // criterio que `POST /savings-goals/[id]/save`: la plata ya está ahí, solo
+  // pasa a estar apartada. La migración 20260826000000 hizo opcional
+  // `to_account_id` justo para esto; exigirlo acá dejaba un fijo de ahorro
+  // perfectamente válido sin forma de registrarse.
   const toAccountId = esAhorro
-    ? (typeof body.to_account_id === 'string' && body.to_account_id ? body.to_account_id : base.to_account_id)
+    ? (typeof body.to_account_id === 'string' && body.to_account_id ? body.to_account_id : (base.to_account_id ?? accountId))
     : null
-  if (esAhorro && !toAccountId) {
-    return NextResponse.json({ error: 'Elige a qué cuenta de ahorro entra' }, { status: 400 })
-  }
 
   // Registrar un fijo crea un movimiento NUEVO, así que aplica la misma regla
   // que `POST /transactions`: un ahorro archivado no se puede elegir de cero
@@ -159,9 +161,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .from('fin_accounts').select(ACCOUNT_COLS).eq('profile_id', profileId).eq('id', toAccountId!).maybeSingle()
     if (!destinoRow) return NextResponse.json({ error: 'La cuenta de ahorro no existe' }, { status: 400 })
     const cuentaDestino = mapAccount(destinoRow)
-    if (cuentaDestino.id === accountId) {
-      return NextResponse.json({ error: 'El origen y el destino no pueden ser la misma cuenta' }, { status: 400 })
-    }
+    // Origen y destino iguales SÍ es válido acá, al revés que en una
+    // transferencia común: apartar un ahorro dentro de la misma cuenta no
+    // mueve la plata de lugar, la etiqueta. Es el caso más frecuente, y el
+    // que la pantalla de Ahorros ya usaba de default.
     destino = { id: cuentaDestino.id, currency: cuentaDestino.currency as Currency }
   }
 
