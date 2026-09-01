@@ -64,8 +64,20 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
   if (finished || !current) return null
 
   const { line_id, period } = current
-  const sobra = current.amount_usd >= 0
+  /**
+   * El signo sale del monto NATIVO, que es el que se muestra — no del USD.
+   *
+   * Los dos pueden discrepar y no es un error de redondeo cualquiera: cada
+   * gasto congela su propia tasa, así que 310,52 Bs gastados contra 300 Bs
+   * presupuestados pueden dar exactamente $0 de diferencia en USD. Con el
+   * signo tomado del USD, ese sobregasto de 10,52 Bs se anunciaba como
+   * "te sobraron 10,52 Bs" — el número correcto con la palabra al revés.
+   */
+  const resultado = current.amount
+  const sobra = resultado > 0
+  const exacto = resultado === 0
   const proximo = nextPeriod(period)
+  const mesQueViene = monthLabel(proximo.slice(0, 7)).toLowerCase()
 
   // Arrow y no `function`: la declaración se hoistea y TypeScript pierde ahí
   // el estrechamiento de `current` que dejó el guard de arriba.
@@ -113,11 +125,17 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
 
         <div className="px-5 pb-6 flex flex-col gap-4">
           <p className="text-[15px]">
-            {sobra ? 'Te sobraron ' : 'Te pasaste '}
-            <strong className={sobra ? 'text-[var(--fz-in-text)]' : 'text-[var(--fz-out-text)]'}>
-              {formatAmount(Math.abs(current.amount), current.input_currency)}
-            </strong>
-            {sobra ? '.' : ' de lo que tenías presupuestado.'}
+            {exacto ? (
+              <>Gastaste <strong>exactamente</strong> lo que tenías presupuestado.</>
+            ) : (
+              <>
+                {sobra ? 'Te sobraron ' : 'Te pasaste por '}
+                <strong className={sobra ? 'text-[var(--fz-in-text)]' : 'text-[var(--fz-out-text)]'}>
+                  {formatAmount(Math.abs(resultado), current.input_currency)}
+                </strong>
+                {sobra ? '.' : ' de lo que tenías presupuestado.'}
+              </>
+            )}
           </p>
 
           {/* La decisión es solo si pasa o no al mes siguiente. Lo que no pasa
@@ -125,20 +143,30 @@ export function BudgetClosureSheet({ onClose, onDone }: { onClose: () => void; o
               movimientos—: el mes que viene simplemente arranca con su monto
               de siempre. */}
           <p className="text-[13px] text-[var(--fz-ink-2)]">
-            {sobra
-              ? `Si lo llevas, se suma al presupuesto de ${monthLabel(proximo.slice(0, 7)).toLowerCase()}. Si no, ese mes arranca con su monto de siempre.`
-              : `Si lo restas, se descuenta del presupuesto de ${monthLabel(proximo.slice(0, 7)).toLowerCase()}. Si no, ese mes arranca con su monto de siempre.`}
+            {exacto
+              ? `No hay nada que pasar: ${mesQueViene} arranca con su monto de siempre.`
+              : sobra
+                ? `Si lo llevas, se suma al presupuesto de ${mesQueViene}. Si no, ese mes arranca con su monto de siempre.`
+                : `Si lo restas, se descuenta del presupuesto de ${mesQueViene}. Si no, ese mes arranca con su monto de siempre.`}
           </p>
 
           <ErrorNote>{error}</ErrorNote>
 
           <div className="flex flex-col gap-2">
-            <Btn onClick={() => responder(true)} disabled={saving} full>
-              {sobra ? 'Llevar al próximo mes' : 'Restar al próximo mes'}
-            </Btn>
-            <Btn variant="ghost" onClick={() => responder(false)} disabled={saving} full>
-              {sobra ? 'No pasarlo al próximo mes' : 'No restarlo al próximo mes'}
-            </Btn>
+            {/* Cerrado justo no tiene dos caminos: cualquiera de los dos deja
+                el mes que viene igual. Una sola opción, sin pregunta falsa. */}
+            {exacto ? (
+              <Btn onClick={() => responder(false)} disabled={saving} full>Listo</Btn>
+            ) : (
+              <>
+                <Btn onClick={() => responder(true)} disabled={saving} full>
+                  {sobra ? 'Llevar al próximo mes' : 'Restar del próximo mes'}
+                </Btn>
+                <Btn variant="ghost" onClick={() => responder(false)} disabled={saving} full>
+                  Mantener el presupuesto de siempre
+                </Btn>
+              </>
+            )}
           </div>
 
           <p className="text-center text-[12px] text-[var(--fz-ink-3)]">{index + 1} de {queue.length}</p>
