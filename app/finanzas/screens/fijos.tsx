@@ -231,12 +231,12 @@ export function FijosScreen() {
  * lo que se ve acá es lo que se va a generar al pagarlo.
  */
 function RepartoDetalle({ recurring, hidden }: { recurring: RecurringWithState; hidden: boolean }) {
-  const { people } = useFinanzas()
+  const { people, rates } = useFinanzas()
   const cur = recurring.currency
 
   const partes = useMemo(
-    () => resolveSplits(recurring.splits, recurring.amount, cur),
-    [recurring.splits, recurring.amount, cur],
+    () => resolveSplits(recurring.splits, recurring.amount, cur, cur, rates),
+    [recurring.splits, recurring.amount, cur, rates],
   )
   const { mine, kind } = shareBreakdown(recurring.amount, partes, cur)
   const nombreDe = (id: string) => people.find(p => p.id === id)?.name ?? 'Persona'

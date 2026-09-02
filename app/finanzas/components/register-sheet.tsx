@@ -104,9 +104,9 @@ export function RegisterSheet({ recurring, onClose, onDone }: {
   // El reparto se calcula con el monto de ESTE mes, no con el de la plantilla.
   const partes = useMemo(
     () => (Number.isFinite(value) && value > 0
-      ? resolveSplits(recurring.splits, value, cur)
+      ? resolveSplits(recurring.splits, value, cur, recurring.currency, rates)
       : []),
-    [recurring.splits, value, cur],
+    [recurring.splits, value, cur, recurring.currency, rates],
   )
   const { mine, kind } = shareBreakdown(Number.isFinite(value) ? value : 0, partes, cur)
   const nombreDe = (id: string) => people.find(p => p.id === id)?.name ?? 'Persona'

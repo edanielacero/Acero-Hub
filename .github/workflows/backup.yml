@@ -1,0 +1,77 @@
+name: Backup mensual de la base
+
+# El plan free de Supabase no da backups descargables, así que lo hacemos acá.
+#
+# Corre el día 1 de cada mes a las 06:00 UTC (02:00 en Bolivia), y también a
+# mano desde la pestaña Actions cuando haga falta.
+#
+# ⚠️  ESTE REPO ES PÚBLICO. Los artifacts de un repo público los puede bajar
+#     cualquiera, y este dump incluye `auth.users` (con hashes de contraseña) y
+#     todas las finanzas. Por eso el .sql NUNCA se sube tal cual: se cifra con
+#     GPG y solo se guarda el .gpg. Sin BACKUP_PASSPHRASE es ruido.
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # El dump lo tiene que hacer un pg_dump de la MISMA major que el
+      # servidor (Postgres 17): uno más viejo se niega a volcar una base más
+      # nueva. El que trae el runner puede quedarse atrás, así que se instala
+      # el 17 desde el repo oficial de PostgreSQL.
+      - name: Instalar pg_dump 17
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          pg_dump --version
+
+      # Todo: esquema + datos + `auth.users` + storage. `--no-owner` y
+      # `--no-privileges` porque los roles los administra Supabase y volcarlos
+      # solo estorba al restaurar.
+      - name: Volcar la base
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          test -n "$DB_URL" || { echo "Falta el secret SUPABASE_DB_URL"; exit 1; }
+          pg_dump "$DB_URL" \
+            --clean --if-exists \
+            --no-owner --no-privileges \
+            --quote-all-identifiers \
+            -f acero-hub.sql
+          echo "Tamaño: $(du -h acero-hub.sql | cut -f1)"
+          # Una red mínima: un dump que no menciona auth.users no es el dump
+          # que pedimos, y es mejor fallar que guardar algo incompleto.
+          grep -q "auth.users\|\"auth\".\"users\"" acero-hub.sql \
+            || { echo "El dump no incluye auth.users"; exit 1; }
+
+      - name: Cifrar
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          test -n "$PASSPHRASE" || { echo "Falta el secret BACKUP_PASSPHRASE"; exit 1; }
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$PASSPHRASE" \
+            --output acero-hub.sql.gpg acero-hub.sql
+          # El .sql en claro no sobrevive al job ni por accidente.
+          shred -u acero-hub.sql
+          ls -lh acero-hub.sql.gpg
+
+      - name: Guardar
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: acero-hub.sql.gpg
+          # El tope de un repo público. Bajate uno cada tanto si querés
+          # historia más larga que eso.
+          retention-days: 90

@@ -1,6 +1,6 @@
 import type { Currency, Frequency, Person, RateMap, RecurringSplit, Recurring, RecurringStatus, RecurringWithState } from './types'
 import { daysBetween, evenSplit, normalizeName } from './splits'
-import { round2, roundFor, toUsd } from './money'
+import { crossCurrencySuggestion, round2, roundFor, toUsd } from './money'
 
 /** Último día del mes, para no proponer un 31 de febrero. */
 function lastDayOf(year: number, month1: number): number {
@@ -185,28 +185,41 @@ function diffDays(fromISO: string, toISO: string): number {
  *
  * Las partes con monto fijo mandan tal cual: son las que te dejan cobrar un
  * poco por encima del costo, o invitar vos una parte.
+ *
+ * Un monto fijo se guarda en la moneda DE LA PLANTILLA (`templateCurrency`),
+ * independiente de con qué cuenta termines pagando cada mes (§ RegisterSheet:
+ * "a veces pagás Spotify en USD desde una cuenta en Bs"). Si `currency` — la
+ * de ESTE pago — es otra, hay que convertir antes de sumar o restar: sin
+ * esto, pagar en otra moneda dejaba la parte de cada uno con el número crudo
+ * de la plantilla puesto en la moneda equivocada, en vez de lo que de verdad
+ * le corresponde al tipo de cambio de hoy.
  */
 export function resolveSplits(
   templateSplits: Pick<RecurringSplit, 'person_id' | 'amount'>[],
   amount: number,
   currency: Currency,
+  templateCurrency: Currency,
+  rates: RateMap,
 ): { person_id: string; amount: number }[] {
   if (templateSplits.length === 0) return []
+
+  const convert = (n: number) =>
+    templateCurrency === currency ? n : (crossCurrencySuggestion(n, templateCurrency, currency, rates) ?? n)
 
   const fijos = templateSplits.filter(s => s.amount != null)
   const parejos = templateSplits.filter(s => s.amount == null)
 
   if (parejos.length === 0) {
-    return templateSplits.map(s => ({ person_id: s.person_id, amount: roundFor(s.amount!, currency) }))
+    return templateSplits.map(s => ({ person_id: s.person_id, amount: roundFor(convert(s.amount!), currency) }))
   }
 
   // Lo que ya está comprometido en partes fijas sale del reparto antes de
   // dividir; el resto se reparte entre los parejos y vos.
-  const comprometido = fijos.reduce((n, s) => n + (s.amount ?? 0), 0)
+  const comprometido = fijos.reduce((n, s) => n + convert(s.amount ?? 0), 0)
   const aRepartir = Math.max(amount - comprometido, 0)
   const { shares } = evenSplit(aRepartir, parejos.length + 1, currency)
 
-  const out = fijos.map(s => ({ person_id: s.person_id, amount: roundFor(s.amount!, currency) }))
+  const out = fijos.map(s => ({ person_id: s.person_id, amount: roundFor(convert(s.amount!), currency) }))
   parejos.forEach((s, i) => out.push({ person_id: s.person_id, amount: shares[i] ?? 0 }))
   return out.filter(s => s.amount > 0)
 }

@@ -1137,24 +1137,46 @@ section('SPRINT 3 · el reparto se recalcula con el precio de cada mes')
 {
   const parejo = [{ person_id: 'a', amount: null }, { person_id: 'b', amount: null }, { person_id: 'c', amount: null }]
 
-  const agosto = resolveSplits(parejo, 11.99, 'USD')
+  const agosto = resolveSplits(parejo, 11.99, 'USD', 'USD', {})
   eq('Spotify a $11.99 entre 4', agosto.map(s => s.amount), [2.99, 2.99, 2.99])
 
   // Sube el precio y el reparto se ajusta SOLO: con montos congelados en la
   // plantilla les seguirías cobrando de menos sin enterarte.
-  const septiembre = resolveSplits(parejo, 12.99, 'USD')
+  const septiembre = resolveSplits(parejo, 12.99, 'USD', 'USD', {})
   eq('a $12.99 les toca más, sin tocar nada', septiembre.map(s => s.amount), [3.24, 3.24, 3.24])
 
   // Montos fijos mandan tal cual: son los que te dejan cobrar de más.
   const fijos = [{ person_id: 'a', amount: 4.5 }, { person_id: 'b', amount: 4.5 }]
-  eq('los montos fijos no se recalculan', resolveSplits(fijos, 11.99, 'USD').map(s => s.amount), [4.5, 4.5])
+  eq('los montos fijos no se recalculan', resolveSplits(fijos, 11.99, 'USD', 'USD', {}).map(s => s.amount), [4.5, 4.5])
 
   // Mezcla: lo comprometido sale antes de dividir el resto.
   const mixto = [{ person_id: 'a', amount: 5 }, { person_id: 'b', amount: null }]
-  const m = resolveSplits(mixto, 11, 'USD')
+  const m = resolveSplits(mixto, 11, 'USD', 'USD', {})
   eq('el fijo se respeta y el resto se divide', m.map(s => s.amount), [5, 3])
 
-  eq('sin reparto no devuelve nada', resolveSplits([], 11.99, 'USD'), [])
+  eq('sin reparto no devuelve nada', resolveSplits([], 11.99, 'USD', 'USD', {}), [])
+}
+
+section('SPRINT 3 · el reparto convierte cuando el pago no es en la moneda del fijo')
+{
+  // Spotify vive en USD, pero este mes lo pagaste desde una cuenta en Bs (§
+  // RegisterSheet: "a veces pagás Spotify en USD desde una cuenta en Bs"). La
+  // parte fija tiene que salir convertida a Bs con la tasa de hoy, no como el
+  // número crudo de la plantilla puesto en la moneda equivocada.
+  const rates = { BOB: 7 }
+  const fijoUsd = [{ person_id: 'a', amount: 6 }]
+  const enBob = resolveSplits(fijoUsd, 70, 'BOB', 'USD', rates)
+  eq('6 USD fijos se convierten a 42 Bs al tipo de cambio de hoy', enBob.map(s => s.amount), [42])
+
+  // Mismo caso pero con reparto parejo: lo comprometido también se convierte
+  // antes de restarlo del total, así el resto se divide en la moneda correcta.
+  const mixtoUsd = [{ person_id: 'a', amount: 6 }, { person_id: 'b', amount: null }]
+  const mixtoEnBob = resolveSplits(mixtoUsd, 70, 'BOB', 'USD', rates)
+  eq('el fijo convertido sale del reparto antes de dividir el resto', mixtoEnBob.map(s => s.amount), [42, 14])
+
+  // Misma moneda: no hay nada que convertir, se comporta como siempre.
+  const sinConvertir = resolveSplits(fijoUsd, 70, 'USD', 'USD', rates)
+  eq('sin cambio de moneda no convierte nada', sinConvertir.map(s => s.amount), [6])
 }
 
 section('SPRINT 3 · orden y progreso de la lista')
@@ -2065,7 +2087,7 @@ section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
   // sheet de registrar, así que lo que se ve en el detalle es exactamente lo
   // que se va a generar al pagarlo.
   const conUno = [{ person_id: 'a', amount: null }]
-  const partesUno = resolveSplits(conUno, 60, 'USD')
+  const partesUno = resolveSplits(conUno, 60, 'USD', 'USD', {})
   eq('60 entre vos y una persona: 30 cada uno', partesUno.map(p => p.amount), [30])
   eq('y tu parte son los otros 30', shareBreakdown(60, partesUno, 'USD').mine, 30)
 
@@ -2073,13 +2095,13 @@ section('Fijos · el desglose que muestra el detalle (partes + tu parte)')
   // "el que paga se come los centavos" (§ evenSplit), la única que mantiene
   // Σ partes ≤ monto.
   const conDos = [{ person_id: 'a', amount: null }, { person_id: 'b', amount: null }]
-  const partesDos = resolveSplits(conDos, 11.99, 'USD')
+  const partesDos = resolveSplits(conDos, 11.99, 'USD', 'USD', {})
   eq('11,99 entre tres: a ellos 3,99 cada uno', partesDos.map(p => p.amount), [3.99, 3.99])
   eq('y el centavo que sobra lo pagás vos', shareBreakdown(11.99, partesDos, 'USD').mine, 4.01)
 
   // Reparto que se pasa del gasto: tu parte queda negativa y se llama ganancia.
   const cobrasDeMas = [{ person_id: 'a', amount: 40 }, { person_id: 'b', amount: 40 }]
-  const bd = shareBreakdown(60, resolveSplits(cobrasDeMas, 60, 'USD'), 'USD')
+  const bd = shareBreakdown(60, resolveSplits(cobrasDeMas, 60, 'USD', 'USD', {}), 'USD')
   eq('repartir 80 sobre un gasto de 60 es ganancia', bd.kind, 'ganas')
   eq('de 20', Math.abs(bd.mine), 20)
 }

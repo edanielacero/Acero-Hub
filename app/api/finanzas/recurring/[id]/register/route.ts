@@ -40,7 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [{ data: plantilla }, { data: templateSplits }] = await Promise.all([
     supabase
       .from('fin_recurring')
-      .select('id, name, icon, amount, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id')
+      .select('id, name, icon, amount, currency, account_id, category_id, frequency, day_of_month, month_of_year, active, note, starts_on, savings_goal_id, to_account_id')
       .eq('id', id).eq('profile_id', profileId).maybeSingle(),
     supabase
       .from('fin_recurring_splits')
@@ -229,6 +229,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     })) as RecurringSplit[],
     amount,
     currency,
+    base.currency as Currency,
+    rates,
   )
 
   // Si repartiste más de lo que pagaste, el excedente es ganancia — y esa se

@@ -12,3 +12,6 @@ out/
 # Los run.mjs lo borran al terminar; queda si la corrida se interrumpe.
 tests/finanzas/.fin/
 tests/gas/.gas/
+
+# Volcados de la base (datos reales, nunca al repo).
+backups/
