@@ -5,7 +5,7 @@ import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
 import { planTotal, equalInstallments, installmentDate, generateEqualPlan, planCerrado, planRollup } from './.fin/plans.mjs'
-import { addMonthsClamped, aportePendiente, canAportar, currentAporteDue, currentRound, expectedTurnDate, nextAporteDue, pasanakuRounds, roundsOf, validatePasanaku } from './.fin/pasanaku.mjs'
+import { addMonthsClamped, aportePendiente, currentAporteDue, currentRound, expectedTurnDate, nextAporteDue, pasanakuRounds, roundsOf, validatePasanaku } from './.fin/pasanaku.mjs'
 import {
   periodStart, periodRange, nextPeriod, previousPeriod, resolvePeriod, montoEfectivo, effectiveFromFor,
   gastoRealCategoria, comprometido, carriedInto, disponible, dayOfPeriod, needsClosure,
@@ -1432,33 +1432,14 @@ section('SPRINT 5 (revisión) · pasanakuRounds — la tabla de meses del ciclo'
      ['2026-11', '2026-12', '2027-01'])
 }
 
-section('SPRINT 5 (revisión) · canAportar — el botón bloqueado hasta el día del aporte')
+section('SPRINT 5 (revisión) · currentAporteDue — el día del aporte del mes corriente')
 {
-  const p = { start_date: '2026-05-10', total_slots: 4, my_slot: 2 }
-  const rondas = (aportes = []) => pasanakuRounds(p, aportes)
-  // Mayo y junio ya aportados: sin atrasos que destraben el botón por su cuenta.
-  const alDia = rondas([{ date: '2026-05-10', amount: 300 }, { date: '2026-06-10', amount: 300 }])
-
   eq('el día del aporte del mes corriente, sin saltar al siguiente',
      currentAporteDue('2026-05-10', '2026-07-25'), '2026-07-10')
   eq('antes de arrancar el pasanaku, el día es el arranque mismo',
      currentAporteDue('2026-05-10', '2026-04-01'), '2026-05-10')
   eq('topa el 31 contra febrero, igual que nextAporteDue',
      currentAporteDue('2026-01-31', '2026-02-20'), '2026-02-28')
-
-  eq('al día y todavía no llegó el día del mes: bloqueado',
-     canAportar('2026-05-10', alDia, '2026-07-03'), false)
-  eq('el día justo: habilitado', canAportar('2026-05-10', alDia, '2026-07-10'), true)
-  eq('pasado el día: sigue habilitado', canAportar('2026-05-10', alDia, '2026-07-21'), true)
-  eq('antes de que arranque el pasanaku: bloqueado',
-     canAportar('2026-09-10', pasanakuRounds({ ...p, start_date: '2026-09-10' }, []), '2026-08-26'), false)
-
-  // La excepción: un mes atrasado destraba el botón aunque el día de este mes
-  // no haya llegado — si no, la deuda quedaba trabada hasta el mes siguiente.
-  eq('con junio sin aportar, el 3 de julio ya se puede',
-     canAportar('2026-05-10', rondas([{ date: '2026-05-10', amount: 300 }]), '2026-07-03'), true)
-  eq('el mes corriente sin aportar NO cuenta como atraso antes de su día',
-     canAportar('2026-05-10', alDia, '2026-07-09'), false)
 }
 
 section('SPRINT 5 (revisión) · aportePendiente — el aviso de la Home')

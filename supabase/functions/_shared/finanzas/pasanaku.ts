@@ -63,26 +63,12 @@ export function currentAporteDue(startDate: string, todayISO: string): string {
 }
 
 /**
- * ¿Se puede aportar hoy? Sí desde el día en que cae el aporte del mes — antes
- * de esa fecha todavía no hay nada que registrar, y el botón "Aportar" queda
- * bloqueado (pedido del usuario, 2026-08-26).
- *
- * La excepción son los meses atrasados: si arrastrás una ronda anterior sin
- * aportar, se puede aportar en cualquier momento. Sin esto, alguien que se
- * saltó un mes quedaba con la deuda trabada hasta que cayera el día del mes
- * siguiente — justo al revés de lo que hace falta.
- */
-export function canAportar(startDate: string, rounds: PasanakuRound[], todayISO: string): boolean {
-  if (todayISO >= currentAporteDue(startDate, todayISO)) return true
-  const mesHoy = todayISO.slice(0, 7)
-  return rounds.some(r => !r.paid && r.period < mesHoy)
-}
-
-/**
- * ¿Falta un aporte AHORA mismo? Distinto de `canAportar`, que solo dice si el
- * botón está habilitado (lo está también cuando ya aportaste este mes): acá
- * además tiene que faltar de verdad un aporte — el del mes corriente, una vez
- * que llegó su día, o el de cualquier mes anterior sin marcar.
+ * ¿Falta un aporte AHORA mismo? El del mes corriente, una vez que llegó su
+ * día, o el de cualquier mes anterior sin marcar. El botón "Aportar" ya no
+ * tiene esta restricción — se puede cargar cualquier día, en cualquier mes
+ * (pedido del usuario, 2026-09-08: adelantar el pago antes de que caiga el
+ * vencimiento no debería estar bloqueado) — esta función es solo para decidir
+ * si mostrar el aviso.
  *
  * Es lo que decide si la Home muestra el aviso del pasanaku, así que se
  * apaga solo: en cuanto el aporte queda registrado, deja de haber pendiente.

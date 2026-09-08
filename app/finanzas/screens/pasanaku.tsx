@@ -7,7 +7,7 @@ import {
 } from '@tabler/icons-react'
 import type { PasanakuCobro, PasanakuHistorico, PasanakuWithState } from '@/lib/finanzas/types'
 import { formatAmount, HIDDEN } from '@/lib/finanzas/money'
-import { canAportar, roundsOf } from '@/lib/finanzas/pasanaku'
+import { roundsOf } from '@/lib/finanzas/pasanaku'
 import { monthLabel, todayISO } from '@/lib/finanzas/transactions'
 import { HideToggle } from '../components/amount'
 import { useFinanzas } from '../components/data-context'
@@ -295,9 +295,6 @@ function Card({ p, accountName, hidden, hoy, onView, onEdit, onAportar, onCobrar
   // los demás. Sigue siendo la principal hasta que cobraste a todos, no solo
   // durante ese mes — a los que se atrasan les seguís cobrando después.
   const toCobrar = tuTurnoLlego && !p.received
-  // Antes del día del aporte no hay nada que registrar: el botón queda
-  // bloqueado hasta esa fecha (o hasta que aparezca un mes atrasado).
-  const puedeAportar = useMemo(() => canAportar(p.start_date, roundsOf(p), hoy), [p, hoy])
   const pct = p.collection_target > 0 ? Math.min(100, Math.round((p.collected_amount / p.collection_target) * 100)) : 0
   // Ronda actual (por calendario, ver currentRound) sobre tu puesto — cuánto
   // falta para que te toque. Se topa en my_slot: una vez que la ronda te
@@ -372,21 +369,20 @@ function Card({ p, accountName, hidden, hoy, onView, onEdit, onAportar, onCobrar
           seguís poniendo igual que cualquier otro mes (por eso
           `collection_target` es la parte de los OTROS, §4.8) y las rondas que
           vienen después de tu turno también son tuyas. Si desapareciera, esos
-          meses quedarían imposibles de registrar. */}
+          meses quedarían imposibles de registrar.
+
+          Sin bloqueo por fecha: se puede aportar cualquier día, no solo desde
+          que cae el vencimiento del mes — el sheet de aportar deja elegir la
+          fecha, y `pasanakuRounds` ya asigna cada aporte al mes de ESA fecha,
+          no al día en que se cargó. Bloquear el botón hasta el día del mes
+          solo estorbaba a quien quiere adelantar el pago. */}
       <Btn
         variant={toCobrar ? 'soft' : 'primary'}
-        onClick={onAportar} disabled={!puedeAportar} full
+        onClick={onAportar} full
         className={toCobrar ? 'mt-2' : 'mt-3.5'}
       >
         Aportar
       </Btn>
-      {/* El porqué del bloqueo, pegado al botón: "Próximo aporte" está arriba
-          de todo y a esta altura ya no se ve como la razón de nada. */}
-      {!puedeAportar && (
-        <p className="mt-1.5 text-center text-[12px] text-[var(--fz-ink-3)]">
-          Se habilita el {formatDayLabel(p.next_aporte_due, hoy)}
-        </p>
-      )}
 
       {tuTurnoLlego && (
         <div className="mt-3.5 pt-3.5 border-t border-[var(--fz-hairline)]">
