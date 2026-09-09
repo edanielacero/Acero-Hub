@@ -3809,6 +3809,76 @@ async function run() {
 
     await api(`/profiles/${def.id}`, { method: 'PATCH', body: JSON.stringify({ notify: true }) })
   }
+
+  let tpOrigen = null, tpDestino = null, tpCuentaOrigen = null, tpCuentaDestino = null
+  section('Transferencia entre perfiles · crea dos movimientos vinculados')
+  {
+    tpOrigen = (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'TP Origen' }) }))).profile
+    tpDestino = (await json(await api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'TP Destino' }) }))).profile
+
+    tpCuentaOrigen = (await json(await api(`/accounts?profile=${tpOrigen.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Caja origen', currency: 'USD', initial_balance: 100 }),
+    }))).account
+    tpCuentaDestino = (await json(await api(`/accounts?profile=${tpDestino.id}`, {
+      method: 'POST', body: JSON.stringify({ name: 'Caja destino', currency: 'USD', initial_balance: 0 }),
+    }))).account
+
+    eq('el mismo perfil como destino se rechaza', (await api(`/transactions/transfer-profile?profile=${tpOrigen.id}`, {
+      method: 'POST', body: JSON.stringify({
+        account_id: tpCuentaOrigen.id, to_profile_id: tpOrigen.id, to_account_id: tpCuentaOrigen.id, amount: 10, date: '2026-09-08',
+      }),
+    })).status, 400)
+
+    const res = await api(`/transactions/transfer-profile?profile=${tpOrigen.id}`, {
+      method: 'POST', body: JSON.stringify({
+        account_id: tpCuentaOrigen.id, to_profile_id: tpDestino.id, to_account_id: tpCuentaDestino.id,
+        amount: 40, date: '2026-09-08', description: 'Aporte a la empresa',
+      }),
+    })
+    eq('la crea', res.status, 201)
+    const filaA = (await json(res)).transaction
+    eq('sale como transferencia', filaA.type, 'transferencia')
+    ok('sin cuenta destino local (no puede cruzar el FK)', filaA.to_account_id === null)
+    ok('queda vinculada a la fila que entra', !!filaA.linked_tx_id)
+    eq('y apunta al perfil destino', filaA.linked_profile_id, tpDestino.id)
+
+    const bootOrigen = await json(await api(`/bootstrap?profile=${tpOrigen.id}`))
+    const bootDestino = await json(await api(`/bootstrap?profile=${tpDestino.id}`))
+    eq('baja el saldo de origen', bootOrigen.accounts.find(a => a.id === tpCuentaOrigen.id).balance, 60)
+    eq('sube el saldo de destino', bootDestino.accounts.find(a => a.id === tpCuentaDestino.id).balance, 40)
+
+    // Sube el saldo pero no es plata que ganaste: mismo criterio que un
+    // reembolso (ingresoUsd). Sin esto, "enviarte plata a vos mismo" entre
+    // perfiles inflaría el reporte de ingresos del que recibe.
+    eq('no cuenta como ingreso real en el perfil que recibe', bootDestino.tx.month.total_ingreso_usd, 0)
+    eq('ni como gasto en el que envía (es transferencia)', bootOrigen.tx.month.total_gasto_usd, 0)
+
+    const filaB = bootDestino.tx.recent.transactions.find(t => t.id === filaA.linked_tx_id)
+    ok('la fila que entra existe en el otro perfil', !!filaB)
+    eq('como ingreso + movimiento', `${filaB.type}/${filaB.flow_type}`, 'ingreso/movimiento')
+    eq('vinculada de vuelta a la que salió', filaB.linked_tx_id, filaA.id)
+    eq('y al perfil de origen', filaB.linked_profile_id, tpOrigen.id)
+
+    eq('ninguna de las dos patas se puede editar',
+       (await api(`/transactions/${filaA.id}?profile=${tpOrigen.id}`, {
+         method: 'PATCH', body: JSON.stringify({ amount: 999 }),
+       })).status, 400)
+    eq('tampoco la que recibe',
+       (await api(`/transactions/${filaB.id}?profile=${tpDestino.id}`, {
+         method: 'PATCH', body: JSON.stringify({ amount: 999 }),
+       })).status, 400)
+
+    // Borrar cualquiera de las dos patas borra el par completo — nunca deja
+    // una huérfana (§ on delete restrict de linked_tx_id).
+    eq('se borra desde el lado que envía', (await api(`/transactions/${filaA.id}?profile=${tpOrigen.id}`, { method: 'DELETE' })).status, 200)
+
+    const origenTrasBorrar = await json(await api(`/bootstrap?profile=${tpOrigen.id}`))
+    const destinoTrasBorrar = await json(await api(`/bootstrap?profile=${tpDestino.id}`))
+    ok('desaparece del origen', !origenTrasBorrar.tx.recent.transactions.some(t => t.id === filaA.id))
+    ok('y también del destino', !destinoTrasBorrar.tx.recent.transactions.some(t => t.id === filaB.id))
+    eq('el saldo de origen vuelve a su valor inicial', origenTrasBorrar.accounts.find(a => a.id === tpCuentaOrigen.id).balance, 100)
+    eq('y el de destino también', destinoTrasBorrar.accounts.find(a => a.id === tpCuentaDestino.id).balance, 0)
+  }
 }
 
 await setup()

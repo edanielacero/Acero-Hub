@@ -1,6 +1,6 @@
 import { computeBalances, withBalances, totalUsd } from './.fin/accounts.mjs'
 import { toUsd, fromUsd, round2, roundFor, usdPerUnit, freezeRate, displayRate, formatSigned, formatUSD, formatBOB, formatAmount, parseDecimalInput, amountFromInput, num, decimalsFor, crossCurrencySuggestion } from './.fin/money.mjs'
-import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, valueUpdateDelta, isValidDate, transferFeeUsd } from './.fin/transactions.mjs'
+import { freezeConversion, validateInput, monthRange, todayISO, groupByDay, gastoUsd, ingresoUsd, lastMonths, availableFrom, consumesBalance, flowTypeFor, flowTypeOnEdit, isInvestmentAdjustment, isInterProfileTransfer, valueUpdateDelta, isValidDate, transferFeeUsd } from './.fin/transactions.mjs'
 import { fetchQuotes, quotesAreStale, QUOTE_PAIRS, PAIRS_FOR_CURRENCY } from './.fin/quotes.mjs'
 import { evenSplit, floorTo, myShare, shareBreakdown, debtState, isOpen, freezeDebtUsd, gastoBrutoUsd, repartidoUsd, gastoRealUsd, porCobrarUsd, daysBetween, groupByPerson, normalizeName, debtsNeedingAttention } from './.fin/splits.mjs'
 import { periodOf, statusOf, resolveSplits, sortRecurring, progress, validateTemplateSplits, pendingPeriods, fieldsFromDate, dateFromFields, needsAttentionSoon } from './.fin/recurring.mjs'
@@ -580,6 +580,13 @@ section('FEATURE 11.1 · isInvestmentAdjustment — a qué sheet manda "Editar" 
      isInvestmentAdjustment({ type: 'transferencia', flow_type: 'movimiento' }, broker), false)
 
   eq('sin cuenta (no cargó todavía) → no', isInvestmentAdjustment({ type: 'gasto', flow_type: 'movimiento' }, undefined), false)
+}
+
+section('Transferencia entre perfiles · isInterProfileTransfer')
+{
+  eq('con linked_tx_id → sí', isInterProfileTransfer({ linked_tx_id: 'abc' }), true)
+  eq('sin linked_tx_id (null) → no', isInterProfileTransfer({ linked_tx_id: null }), false)
+  eq('sin linked_tx_id (undefined) → no', isInterProfileTransfer({ linked_tx_id: undefined }), false)
 }
 
 section('FEATURE 11.1 · valueUpdateDelta — "Actualizar valor" (§7.2)')

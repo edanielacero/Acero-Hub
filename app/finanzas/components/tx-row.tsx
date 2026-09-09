@@ -5,7 +5,7 @@ import { IconArrowsExchange, IconChartLine, IconPencil, IconPigMoney, IconReceip
 import { CURRENCY_META, type AccountWithBalance, type Category, type Transaction } from '@/lib/finanzas/types'
 import { shareBreakdown } from '@/lib/finanzas/splits'
 import { displayRate, formatAmount, formatUSD } from '@/lib/finanzas/money'
-import { isInvestmentAdjustment, todayISO, transferFeeUsd } from '@/lib/finanzas/transactions'
+import { isInterProfileTransfer, isInvestmentAdjustment, todayISO, transferFeeUsd } from '@/lib/finanzas/transactions'
 import { SignedAmount } from './amount'
 import { CategoryIcon } from './category-icon'
 import { useFinanzas } from './data-context'
@@ -49,7 +49,7 @@ interface TxRowProps {
  * atajo directo a Editar/Eliminar para quien ya sabe lo que quiere hacer.
  */
 export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
-  const { reload, hidden, savings } = useFinanzas()
+  const { reload, hidden, savings, profiles } = useFinanzas()
   const [showDetail, setShowDetail] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -60,6 +60,14 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   const category = categories.find(c => c.id === tx.category_id)
 
   const isTransfer = tx.type === 'transferencia'
+  // Una pata de transferencia entre perfiles (§ transfer-profile): la que
+  // sale es `transferencia` (isTransfer ya la cubre), la que entra es
+  // `ingreso` + `movimiento` — misma forma que un reembolso, por eso
+  // `isReembolso` más abajo la excluye explícitamente. No se edita nunca
+  // (`editable` más abajo la bloquea) — se borra entera desde cualquiera de
+  // las dos patas.
+  const isInterProfile = isInterProfileTransfer(tx)
+  const otherProfile = profiles.find(p => p.id === tx.linked_profile_id)
   // `flow_type = 'movimiento'` en un gasto/ingreso tiene DOS causas posibles y
   // hay que poder distinguirlas en la lista: la cuenta es de inversión (el
   // mercado lo movió), o es un reembolso/cobro de deuda (`/debts/settle`, que
@@ -79,7 +87,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
   const esPasanaku = !isTransfer && !!tx.pasanaku_id
   // Un reembolso es un ingreso que no es un ingreso: sube el saldo pero no es
   // plata que ganaste. Se distingue de un sueldo por el chip, no por el color.
-  const isReembolso = !isTransfer && !isInversion && !esPasanaku && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
+  const isReembolso = !isTransfer && !isInversion && !esPasanaku && !isInterProfile && tx.type === 'ingreso' && tx.flow_type === 'movimiento'
   // Vino de un fijo (§ Registrar en Fijos): marcarlo en el texto es lo que deja
   // distinguir de un vistazo, en el historial mezclado de Movimientos, cuáles
   // salidas son recurrentes y cuáles no (feedback del usuario).
@@ -100,6 +108,10 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
 
   const title = esAhorro && !esTraslado
     ? (ahorro?.name ?? 'Ahorro')
+    : isInterProfile
+      ? (tx.type === 'transferencia'
+          ? `${account?.name ?? 'Cuenta'} → ${otherProfile?.name ?? 'Otro perfil'}`
+          : `${otherProfile?.name ?? 'Otro perfil'} → ${account?.name ?? 'Cuenta'}`)
     : isTransfer
     ? `${account?.name ?? 'Cuenta'} → ${toAccount?.name ?? 'Cuenta'}`
     : esPasanaku
@@ -107,6 +119,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       : (tx.description || category?.name || 'Sin categoría')
   const subtitle = esAhorro
     ? ['Ahorro', flujoDeAhorro, esTraslado ? ahorro?.name : account?.name].filter(Boolean).join(' · ')
+    : isInterProfile
+      ? (tx.description || 'Transferencia entre perfiles')
     : isTransfer
     ? (tx.description || 'Transferencia')
     : esPasanaku
@@ -119,7 +133,15 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
             ? ['Gasto Fijo', category?.name, account?.name].filter(Boolean).join(' · ')
             : [category?.name, account?.name].filter(Boolean).join(' · ')
 
-  const label = esAhorro ? 'Ahorro' : isTransfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')
+  const label = esAhorro ? 'Ahorro' : isTransfer || isInterProfile ? 'Transferencia' : (category?.name ?? 'Sin categoría')
+  /** Mismo ícono para una transferencia común y para las dos patas de una
+      entre perfiles — conceptualmente es lo mismo, aunque la pata que entra
+      sea, técnicamente, un `ingreso`. */
+  const transferIcon = <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+  // No se edita nunca (§ isInterProfileTransfer): "Editar" desaparece del ⋮ y
+  // del sheet de resumen, sin depender de que cada pantalla que use <TxRow>
+  // se acuerde de no ofrecerlo.
+  const editable = isInterProfile ? undefined : onClick
   // Solo existe en una transferencia entre monedas distintas, y sale de los dos
   // lados ya congelados — nunca de la tasa de hoy.
   const fee = transferFeeUsd(tx)
@@ -155,8 +177,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
       >
         {esAhorro ? (
           <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
-        ) : isTransfer ? (
-          <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+        ) : isTransfer || isInterProfile ? (
+          transferIcon
         ) : esPasanaku ? (
           <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
         ) : isInversion ? (
@@ -203,7 +225,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
 
       <RowMenu
         items={[
-          { label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => onClick?.() },
+          ...(editable ? [{ label: 'Editar', icon: <IconPencil size={16} stroke={1.8} />, onClick: () => editable() }] : []),
           { label: 'Eliminar', icon: <IconTrash size={16} stroke={1.8} />, onClick: () => setConfirmDelete(true), danger: true },
         ]}
       />
@@ -213,20 +235,21 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         onClose={() => setShowDetail(false)}
         title={
           esAhorro ? (esTraslado ? 'Traslado de ahorro' : tx.savings_flow === 'retiro' ? 'Retiro de ahorro' : 'Aporte a ahorro')
+            : isInterProfile ? 'Transferencia entre perfiles'
             : isTransfer ? 'Transferencia'
             : esPasanaku ? (tx.type === 'ingreso' ? 'Recepción de pasanaku' : 'Aporte de pasanaku')
             : isReembolso ? 'Reembolso'
             : tx.type === 'ingreso' ? 'Ingreso' : 'Gasto'
         }
-        onEdit={onClick ? () => { setShowDetail(false); onClick() } : undefined}
+        onEdit={editable ? () => { setShowDetail(false); editable() } : undefined}
         onDelete={() => { setShowDetail(false); setConfirmDelete(true) }}
       >
         <DeletePreview
           icon={
             esAhorro
               ? <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
-              : isTransfer
-                ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+              : isTransfer || isInterProfile
+                ? transferIcon
                 : esPasanaku
                 ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
                 : isInversion
@@ -241,9 +264,14 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         />
         <div>
           <DetailField label="Fecha" value={formatDayLabel(tx.date, todayISO())} />
-          {!isTransfer && !esPasanaku && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
+          {!isTransfer && !esPasanaku && !isInterProfile && <DetailField label="Categoría" value={category?.name ?? 'Sin categoría'} />}
           <DetailField label={isTransfer ? 'De' : 'Cuenta'} value={account?.name} />
-          {isTransfer && <DetailField label="A" value={toAccount?.name} />}
+          {isTransfer && (
+            <DetailField label="A" value={isInterProfile ? (otherProfile?.name ?? 'Otro perfil') : toAccount?.name} />
+          )}
+          {isInterProfile && !isTransfer && (
+            <DetailField label="De" value={otherProfile?.name ?? 'Otro perfil'} />
+          )}
           {esAhorro && <DetailField label="Ahorro" value={ahorro?.name ?? '—'} />}
           {/* Cuánto salió, cuánto llegó y qué se comió el camino. Los dos
               montos van en SU moneda —es lo que de verdad se movió— y la
@@ -297,7 +325,7 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={remove}
-        title="Eliminar movimiento"
+        title={isInterProfile ? 'Eliminar transferencia entre perfiles' : 'Eliminar movimiento'}
         confirming={removing}
         error={deleteError}
       >
@@ -305,8 +333,8 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           icon={
             esAhorro
               ? <IconChip><IconPigMoney size={18} stroke={1.8} /></IconChip>
-              : isTransfer
-                ? <IconChip><IconArrowsExchange size={18} stroke={1.8} /></IconChip>
+              : isTransfer || isInterProfile
+                ? transferIcon
                 : esPasanaku
                 ? <IconChip><IconRotateClockwise2 size={18} stroke={1.8} /></IconChip>
                 : isInversion
@@ -319,6 +347,14 @@ export function TxRow({ tx, accounts, categories, onClick }: TxRowProps) {
           subtitle={subtitle}
           amount={<SignedAmount value={tx.amount} currency={tx.currency} type={tx.type} />}
         />
+        {/* Borra las dos patas — la de este perfil y la del otro — juntas. El
+            server las borra en un mismo statement (§ transfer-profile), así
+            que no hay forma de que quede una huérfana. */}
+        {isInterProfile && (
+          <p className="mt-2 text-[12px] text-[var(--fz-ink-3)]">
+            Se borra también el movimiento espejo en {otherProfile?.name ?? 'el otro perfil'}.
+          </p>
+        )}
       </DeleteConfirmSheet>
     </div>
   )

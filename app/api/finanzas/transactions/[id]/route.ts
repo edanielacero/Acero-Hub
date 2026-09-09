@@ -10,7 +10,7 @@ import { DEBT_COLS } from '@/lib/finanzas/shared'
 import type { Account, Currency, TransactionInput, TxType } from '@/lib/finanzas/types'
 
 const TX_COLS =
-  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_flow, savings_reason'
+  'id, type, flow_type, date, account_id, to_account_id, category_id, amount, currency, to_amount, exchange_rate, amount_usd, to_amount_usd, to_exchange_rate, description, savings_goal_id, savings_flow, savings_reason, linked_tx_id, linked_profile_id'
 
 const ACCOUNT_COLS = 'id, name, currency, initial_balance, initial_balance_date, sort_order, archived, is_investment'
 
@@ -67,6 +67,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   ])
 
   if (!current) return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 })
+
+  // Una pata de transferencia entre perfiles no se edita: el monto de las dos
+  // filas (una por perfil) quedaría desincronizado. Si cambió, se borra (borra
+  // las dos) y se vuelve a cargar.
+  if (current.linked_tx_id) {
+    return NextResponse.json(
+      { error: 'Esta transferencia entre perfiles no se puede editar. Bórrala si el monto cambió.' },
+      { status: 400 },
+    )
+  }
 
   const accountsById = new Map<string, Account>(
     (accountRows ?? []).map(r => {
@@ -324,7 +334,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!userId || !profileId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { id } = await params
-  const splits = await readDebts(supabase, profileId, id)
+
+  const [{ data: current }, splits] = await Promise.all([
+    supabase.from('fin_transactions').select('id, linked_tx_id').eq('id', id).eq('profile_id', profileId).maybeSingle(),
+    readDebts(supabase, profileId, id),
+  ])
+
+  // Antes esto se descubría recién en el delete final (0 filas afectadas).
+  // Cortarlo acá, antes de tocar deudas, evita el caso raro de borrar splits
+  // de un id que después resulta no ser de este perfil.
+  if (!current) return NextResponse.json({ error: 'Ese movimiento no existe' }, { status: 404 })
 
   // Un split cobrado cuyo gasto padre desaparece dejaría un ingreso en la
   // cuenta sin nada que lo explique. El `on delete restrict` de la base lo
@@ -347,20 +366,25 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (splitError) return NextResponse.json({ error: splitError.message }, { status: 400 })
   }
 
+  // Una transferencia entre perfiles borra sus dos patas juntas: la vinculada
+  // vive en OTRO perfil (nunca tiene deudas, así que el bloque de arriba no
+  // aplica), y su FK `linked_tx_id` es `on delete restrict` — borrar una sola
+  // fallaría porque la otra todavía la referencia. Postgres chequea los FKs
+  // al FINAL del statement, así que un solo `delete ... where id in (a, b)`
+  // saca a las dos sin violar nada. `linked_tx_id` salió de nuestra propia
+  // fila (ya confirmada del perfil activo arriba), nunca de lo que mandó el
+  // cliente, así que alcanza con filtrar por user_id para la pata vinculada.
+  const ids = current.linked_tx_id ? [id, current.linked_tx_id] : [id]
   const { data: borradas, error } = await supabase
     .from('fin_transactions')
     .delete()
-    .eq('id', id)
-    .eq('profile_id', profileId)
+    .in('id', ids)
+    .eq('user_id', userId)
     .select('id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-
-  // Sin filas afectadas: el id no es de este perfil (o no existe). Antes
-  // esto devolvía 200 y la pantalla decía "borrado" sobre algo que seguía
-  // ahí — así se vio el bug de las categorías en un perfil nuevo.
-  if ((borradas ?? []).length === 0) {
-    return NextResponse.json({ error: 'Ese movimiento no existe' }, { status: 404 })
+  if ((borradas ?? []).length !== ids.length) {
+    return NextResponse.json({ error: 'No se pudo borrar la transferencia completa' }, { status: 409 })
   }
   return NextResponse.json({ ok: true })
 }

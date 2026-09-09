@@ -156,6 +156,15 @@ export interface Transaction extends BalanceMovement {
   savings_reason?: SavingsReason | null
   /** Reparto del gasto entre personas. Vacío en un gasto normal. */
   debts?: Debt[]
+  /** La otra pata de una transferencia entre perfiles (§ transfer-profile).
+      `null` en cualquier movimiento normal — incluida una transferencia
+      común, que resuelve sus dos lados con `to_account_id` porque los dos
+      viven en el mismo perfil. */
+  linked_tx_id?: string | null
+  /** El perfil DEL OTRO LADO de esa transferencia. Vive acá para poder
+      mostrar "→ Acros Software" sin tener que cargar las cuentas de ese
+      perfil. */
+  linked_profile_id?: string | null
 }
 
 /* ─── Compartidos (Sprint 2) ────────────────────────────────────────────── */

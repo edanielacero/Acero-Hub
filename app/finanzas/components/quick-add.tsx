@@ -68,6 +68,13 @@ export function QuickAdd() {
   const [accountSearch, setAccountSearch] = useState('')
   const [categorySearch, setCategorySearch] = useState('')
   const [toAccountSearch, setToAccountSearch] = useState('')
+  // Enviar a otro perfil (§ transfer-profile): el destino deja de ser una
+  // cuenta propia y pasa a ser una cuenta de OTRO de tus perfiles. Es de ida
+  // solamente — no existe la operación inversa "traer" desde acá.
+  const [otroPerfil, setOtroPerfil] = useState(false)
+  const [destProfileId, setDestProfileId] = useState('')
+  const [destAccounts, setDestAccounts] = useState<AccountWithBalance[]>([])
+  const [destLoading, setDestLoading] = useState(false)
   const [categoryId, setCategoryId] = useState('')
   const [date, setDate] = useState(todayISO())
   const [description, setDescription] = useState('')
@@ -107,6 +114,11 @@ export function QuickAdd() {
     // detecta como cambio.
     setExtendBudget(false)
     setExtensionAmount('')
+    // Nunca sobrevive a un reabrir: una transferencia entre perfiles no se
+    // edita (§ isInterProfileTransfer), así que `editing` acá nunca es una.
+    setOtroPerfil(false)
+    setDestProfileId('')
+    setDestAccounts([])
     if (editing) {
       setType(editing.type)
       setAmount(String(editing.amount))
@@ -203,10 +215,37 @@ export function QuickAdd() {
     setExtensionAmount('')
   }, [categoryId, type, date])
 
+  // Salir de Transferencia apaga el modo "otro perfil": no tiene sentido en
+  // gasto/ingreso, y dejarlo prendido de fondo confundiría si se vuelve a
+  // Transferencia más tarde en la misma sesión del sheet.
+  useEffect(() => {
+    if (type === 'transferencia') return
+    setOtroPerfil(false)
+    setDestProfileId('')
+    setDestAccounts([])
+  }, [type])
+
+  // Elegir perfil destino pide sus cuentas — no están en `accounts` (eso es
+  // siempre el perfil ACTIVO, ver data-context.tsx). El `?profile=` explícito
+  // le gana al perfil activo en `withProfile()` (fz-fetch.ts), así que esto no
+  // toca ni lee el perfil en el que se está parado.
+  useEffect(() => {
+    if (!otroPerfil || !destProfileId) { setDestAccounts([]); return }
+    let cancelado = false
+    setDestLoading(true)
+    setToAccountId('')
+    fzFetch(`/api/finanzas/accounts?profile=${destProfileId}`)
+      .then(res => (res.ok ? res.json() : { accounts: [] }))
+      .then(data => { if (!cancelado) setDestAccounts(Array.isArray(data.accounts) ? data.accounts : []) })
+      .catch(() => { if (!cancelado) setDestAccounts([]) })
+      .finally(() => { if (!cancelado) setDestLoading(false) })
+    return () => { cancelado = true }
+  }, [otroPerfil, destProfileId])
+
   const hoy = todayISO()
 
   const from = active.find(a => a.id === accountId)
-  const to = active.find(a => a.id === toAccountId)
+  const to = otroPerfil ? destAccounts.find(a => a.id === toAccountId) : active.find(a => a.id === toAccountId)
   const crossCurrency = type === 'transferencia' && !!from && !!to && from.currency !== to.currency
   // Toda transferencia con origen y destino elegidos pregunta cuánto llegó:
   // entre monedas distintas es obligatorio (nadie puede adivinar la tasa real
@@ -427,12 +466,10 @@ export function QuickAdd() {
       : pool
     return withSelected.filter(a => a.name.toLowerCase().includes(accountSearch.trim().toLowerCase()))
   }, [active, nonInvestment, type, accountId, accountSearch])
-  const toAccountOptions = useMemo(
-    () => active
-      .filter(a => a.id !== accountId)
-      .filter(a => a.name.toLowerCase().includes(toAccountSearch.trim().toLowerCase())),
-    [active, accountId, toAccountSearch],
-  )
+  const toAccountOptions = useMemo(() => {
+    const pool = otroPerfil ? destAccounts.filter(a => !a.archived) : active.filter(a => a.id !== accountId)
+    return pool.filter(a => a.name.toLowerCase().includes(toAccountSearch.trim().toLowerCase()))
+  }, [otroPerfil, destAccounts, active, accountId, toAccountSearch])
 
 
   if (!open) return null
@@ -455,12 +492,50 @@ export function QuickAdd() {
     const value = amountFromInput(amount, { decimals: fromDecimals })
     if (!Number.isFinite(value) || value <= 0) return setError('Pon un monto mayor a cero')
     if (!accountId) return setError('Elige una cuenta')
+    if (type === 'transferencia' && otroPerfil && !destProfileId) return setError('Elige a qué perfil')
     if (type === 'transferencia' && !toAccountId) return setError('Elige la cuenta destino')
     if (limita && value > disponible) {
       return setError(
         `${from!.name} tiene ${formatAmount(disponible, from!.currency)} disponibles`,
       )
     }
+
+    // Enviar a otro perfil es un endpoint aparte: crea DOS movimientos
+    // vinculados (uno por perfil, § transfer-profile), no uno solo con
+    // `to_account_id` — ese campo no puede cruzar perfiles. El resto del
+    // formulario (monto, cuenta origen, fecha, descripción, conversión
+    // cruzada) se comparte tal cual con la transferencia normal.
+    if (type === 'transferencia' && otroPerfil) {
+      if (crossCurrency && (!Number.isFinite(recibido) || recibido <= 0)) {
+        return setError(`Indica cuánto llegó realmente a ${to?.name}`)
+      }
+      if (!crossCurrency && Number.isFinite(recibido) && recibido > value) {
+        return setError('En la misma moneda no puede llegar más de lo que salió')
+      }
+
+      setSaving(true)
+      const res = await fzFetch('/api/finanzas/transactions/transfer-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: accountId,
+          to_profile_id: destProfileId,
+          to_account_id: toAccountId,
+          amount: value,
+          to_amount: Number.isFinite(recibido) && recibido > 0 ? recibido : null,
+          date,
+          description: description.trim() || null,
+        }),
+      })
+      setSaving(false)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(data.error ?? 'No se pudo registrar la transferencia')
+
+      window.localStorage.setItem(LAST_ACCOUNT_KEY, accountId)
+      await reload()
+      return close()
+    }
+
     if (budgetLine && budgetExceeded) {
       if (!extendBudget) {
         return setError(
@@ -690,24 +765,69 @@ export function QuickAdd() {
 
           {type === 'transferencia' ? (
             <>
+              {/* Solo con 2+ perfiles: con uno solo no hay a quién enviarle.
+                  Es de ida solamente — el otro perfil recibe pasivamente, y si
+                  quiere mandar de vuelta hace su propio envío desde el suyo. */}
+              {profiles.length > 1 && !editing && (
+                <button
+                  type="button" onClick={() => setOtroPerfil(v => !v)} aria-pressed={otroPerfil}
+                  className="flex items-center gap-3 h-11 px-3.5 rounded-[var(--fz-r-field)] bg-[var(--fz-surface-sunk)] border border-[var(--fz-hairline)] text-left"
+                >
+                  <span
+                    aria-hidden
+                    className={`grid place-items-center w-5 h-5 rounded-[6px] border-2 text-white transition-colors ${
+                      otroPerfil ? 'bg-[var(--fz-accent)] border-[var(--fz-accent)]' : 'border-[var(--fz-ink-3)]'
+                    }`}
+                  >
+                    {otroPerfil && '✓'}
+                  </span>
+                  <span className="text-[15px] font-semibold flex-1">Enviar a otro perfil</span>
+                </button>
+              )}
+
+              {otroPerfil && (
+                <div>
+                  <Label>A qué perfil</Label>
+                  <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                    {profiles.filter(p => p.id !== profileId && !p.archived).map(p => (
+                      <ChipButton
+                        key={p.id}
+                        label={p.name}
+                        icon={<ProfileDot accent={p.accent} size={9} />}
+                        selected={p.id === destProfileId}
+                        onClick={() => setDestProfileId(p.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <Label>Hacia</Label>
-                {active.length > 4 && (
+                {toAccountOptions.length > 4 && (
                   <div className="mb-2">
                     <SearchField value={toAccountSearch} onChange={setToAccountSearch} placeholder="Buscar cuenta…" />
                   </div>
                 )}
                 <div className="fz-scroll-x flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-                  {toAccountOptions.map(a => (
-                    <AccountCard
-                      key={a.id}
-                      account={a}
-                      selected={a.id === toAccountId}
-                      onClick={() => setToAccountId(a.id)}
-                    />
-                  ))}
-                  {toAccountOptions.length === 0 && (
-                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+                  {otroPerfil && !destProfileId ? (
+                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Elige primero a qué perfil.</p>
+                  ) : otroPerfil && destLoading ? (
+                    <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Cargando cuentas…</p>
+                  ) : (
+                    <>
+                      {toAccountOptions.map(a => (
+                        <AccountCard
+                          key={a.id}
+                          account={a}
+                          selected={a.id === toAccountId}
+                          onClick={() => setToAccountId(a.id)}
+                        />
+                      ))}
+                      {toAccountOptions.length === 0 && (
+                        <p className="text-[13px] text-[var(--fz-ink-3)] py-2">Ninguna cuenta coincide.</p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -217,6 +217,20 @@ export function isInvestmentAdjustment(
 }
 
 /**
+ * Si un movimiento es una pata de una transferencia entre perfiles (§
+ * transfer-profile): la que sale (`transferencia`) o la que entra (`ingreso`,
+ * `flow_type: 'movimiento'` — el mismo mecanismo que un reembolso, pero acá
+ * `linked_tx_id` desambigua sin pelearse con `isInvestmentAdjustment`).
+ *
+ * No se puede editar (el monto de las dos patas quedaría desincronizado) ni
+ * abrir en el QuickAdd genérico: la UI la manda a un sheet de solo lectura
+ * con la única acción de borrar las dos patas juntas.
+ */
+export function isInterProfileTransfer(tx: Pick<Transaction, 'linked_tx_id'>): boolean {
+  return tx.linked_tx_id != null
+}
+
+/**
  * El `gasto`/`ingreso` que le corresponde a "Actualizar valor" (§7.2): dado
  * el saldo actual de la cuenta y lo que se tipeó como valor de hoy, resuelve
  * la diferencia con signo. `null` si el valor no cambió — no hay nada que
