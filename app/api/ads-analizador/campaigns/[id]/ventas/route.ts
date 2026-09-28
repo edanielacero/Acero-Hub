@@ -5,9 +5,9 @@ import { validarFecha, validarVenta } from '@/lib/ads-analizador/validar'
 
 type Ctx = { params: Promise<{ id: string }> }
 
-async function campanaExiste(supabase: Awaited<ReturnType<typeof requireUser>>['supabase'], id: string) {
-  const { data } = await supabase.from('ads_campaigns').select('id').eq('id', id).maybeSingle()
-  return !!data
+async function tipoDeCampana(supabase: Awaited<ReturnType<typeof requireUser>>['supabase'], id: string) {
+  const { data } = await supabase.from('ads_campaigns').select('tipo_conversion').eq('id', id).maybeSingle()
+  return (data?.tipo_conversion as string | undefined) ?? null
 }
 
 /**
@@ -15,17 +15,21 @@ async function campanaExiste(supabase: Awaited<ReturnType<typeof requireUser>>['
  * a cargar el mismo día reemplaza el número, no suma otra fila. La fecha puede
  * ser cualquier día pasado — se carga tarde a menudo.
  *
- * En WhatsApp es LA venta del día. En compras es una corrección: pisa lo que
- * trajo Stripe (o Meta) solo ese día — ver `ventasPorDia` en lib/ads-analizador/load.ts.
+ * En WhatsApp es LA venta del día. En compras es una corrección: la cantidad
+ * pisa lo que trajo Stripe (o Meta) ese día y el neto es lo depositado después
+ * de comisiones — ver `ventasPorDia` en lib/ads-analizador/load.ts.
  */
 async function guardar(request: Request, { params }: Ctx) {
   const { id } = await params
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  if (!(await campanaExiste(supabase, id))) return NextResponse.json({ error: 'Esa campaña no existe' }, { status: 404 })
+  const tipo = await tipoDeCampana(supabase, id)
+  if (!tipo) return NextResponse.json({ error: 'Esa campaña no existe' }, { status: 404 })
 
   const body = await request.json().catch(() => null)
-  const v = validarVenta(body, hoyServidor())
+  // En WhatsApp la cantidad es la venta; en compras cantidad y neto corrigen
+  // cada uno lo suyo (ver validarVenta).
+  const v = validarVenta(body, hoyServidor(), tipo === 'venta_manual')
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
 
   const { data, error } = await supabase
@@ -52,7 +56,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   const { id } = await params
   const { supabase, userId } = await requireUser()
   if (!userId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  if (!(await campanaExiste(supabase, id))) return NextResponse.json({ error: 'Esa campaña no existe' }, { status: 404 })
+  if (!(await tipoDeCampana(supabase, id))) return NextResponse.json({ error: 'Esa campaña no existe' }, { status: 404 })
 
   const fecha = validarFecha(new URL(request.url).searchParams.get('fecha'), hoyServidor())
   if (!fecha) return NextResponse.json({ error: 'Fecha inválida' }, { status: 400 })

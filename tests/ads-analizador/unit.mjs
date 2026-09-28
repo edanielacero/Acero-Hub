@@ -344,6 +344,11 @@ section('VALIDACIÓN')
   ok('venta con decimales rechazada', !validarVenta({ fecha: '2026-09-28', cantidad: 1.5 }, '2026-09-28').ok)
   ok('venta negativa rechazada', !validarVenta({ fecha: '2026-09-28', cantidad: -1 }, '2026-09-28').ok)
   ok('venta en cero aceptada (día sin ventas)', validarVenta({ fecha: '2026-09-28', cantidad: 0 }, '2026-09-28').ok)
+  eq('compras: solo neto con coma', validarVenta({ fecha: '2026-09-28', neto: '123,45' }, '2026-09-28', false).valor, { fecha: '2026-09-28', cantidad: null, neto: 123.45, nota: null })
+  ok('compras: ni cantidad ni neto → error', !validarVenta({ fecha: '2026-09-28' }, '2026-09-28', false).ok)
+  ok('compras: neto negativo → error', !validarVenta({ fecha: '2026-09-28', neto: -1 }, '2026-09-28', false).ok)
+  ok('WhatsApp: sin cantidad → error aunque venga neto', !validarVenta({ fecha: '2026-09-28', neto: 10 }, '2026-09-28', true).ok)
+  eq('WhatsApp: el neto se ignora', validarVenta({ fecha: '2026-09-28', cantidad: 2, neto: 10 }, '2026-09-28', true).valor?.neto, null)
   const { validarCambio } = await import('./.ads/validar.mjs')
   eq('cambio sin fecha = ahora', validarCambio({ tipo: 'creativo' }, '2026-09-28').valor?.fecha, null)
   eq('cambio con fecha pasada', validarCambio({ tipo: 'creativo', fecha: '2026-09-20' }, '2026-09-28').valor?.fecha, '2026-09-20')
@@ -439,7 +444,7 @@ section('FUENTE DE VENTAS · Stripe sin datos usa Meta')
 
 section('VENTAS POR DÍA · correcciones y profit')
 {
-  const { ventasPorDia, calcularTotales, profit } = await import('./.ads/load.mjs')
+  const { ventasPorDia, calcularTotales, netoDia } = await import('./.ads/load.mjs')
   const stripe = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL', moneda: 'USD', tipoConversion: 'compra_stripe',
     precioVenta: 24, margenVenta: 12, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
@@ -448,17 +453,29 @@ section('VENTAS POR DÍA · correcciones y profit')
   const pago = f => ({ fecha: f, comprasExitosas: 2, montoTotal: 48, pagosFallidos: 0, pagosIncompletos: 0, tresDsSolicitados: 0, tresDsExitosos: 0, declineReasons: null })
   const metricas = [met('2026-09-26'), met('2026-09-27')]
   const pagos = [pago('2026-09-26'), pago('2026-09-27')]
-  const correccion = [{ fecha: '2026-09-27', cantidad: 5, nota: null }]
+  const correccion = [{ fecha: '2026-09-27', cantidad: 5, neto: null, nota: null }]
 
   const m = ventasPorDia(stripe, metricas, correccion, pagos)
-  eq('día sin corregir: Stripe', m.get('2026-09-26'), { fecha: '2026-09-26', ventas: 2, ingreso: 48, origen: 'stripe' })
-  eq('día corregido: pisa a Stripe, facturación = ventas × precio', m.get('2026-09-27'), { fecha: '2026-09-27', ventas: 5, ingreso: 120, origen: 'editada' })
+  eq('día sin corregir: Stripe', m.get('2026-09-26'), { fecha: '2026-09-26', ventas: 2, ingreso: 48, origen: 'stripe', neto: null })
+  eq('día corregido: pisa a Stripe, facturación = ventas × precio', m.get('2026-09-27'), { fecha: '2026-09-27', ventas: 5, ingreso: 120, origen: 'editada', neto: null })
   const t = calcularTotales(stripe, metricas, correccion, pagos)
   eq('totales suman la corrección', [t.conversiones, t.ingreso], [7, 168])
-  eq('profit = facturación × margen/precio − inversión', t.profit, 168 * 0.5 - 40)
+  eq('sin neto cargado: profit = facturación × margen/precio − inversión', t.profit, 168 * 0.5 - 40)
   const sinStripe = ventasPorDia(stripe, metricas, correccion, [])
   eq('sin Stripe, la corrección también pisa a Meta', [sinStripe.get('2026-09-26').origen, sinStripe.get('2026-09-27').origen], ['meta', 'editada'])
-  eq('profit negativo cuando no cubre la inversión', profit(stripe, 24, 20), -8)
+  eq('neto estimado de un día sin carga', netoDia(stripe, m.get('2026-09-26')), 24)
+
+  // Neto real cargado desde Stripe: pisa la estimación, las ventas siguen en automático.
+  const soloNeto = [{ fecha: '2026-09-26', cantidad: null, neto: 45.3, nota: null }]
+  const mn = ventasPorDia(stripe, metricas, soloNeto, pagos)
+  eq('solo neto: ventas siguen de Stripe', [mn.get('2026-09-26').ventas, mn.get('2026-09-26').origen], [2, 'stripe'])
+  eq('solo neto: la facturación sigue siendo la bruta', mn.get('2026-09-26').ingreso, 48)
+  eq('solo neto: netoDia usa el real', netoDia(stripe, mn.get('2026-09-26')), 45.3)
+  const tn = calcularTotales(stripe, metricas, soloNeto, pagos)
+  eq('totales: neto real + estimado del otro día', tn.neto, 45.3 + 24)
+  eq('totales: profit = neto − inversión', Math.round(tn.profit * 100) / 100, Math.round((45.3 + 24 - 40) * 100) / 100)
+  eq('cuenta los días con neto real', tn.diasConNetoManual, 1)
+  eq('un día sin venta no suma neto', netoDia(stripe, undefined), 0)
 }
 
 section('SYNC AL ABRIR · cuándo hace falta')

@@ -9,7 +9,7 @@ export const CAMPANA_COLS =
   'id, meta_campaign_id, meta_ad_account_id, nombre, moneda, tipo_conversion, precio_venta, margen_venta, roas_objetivo, activo, ultima_sync, created_at'
 export const METRICA_COLS =
   'campaign_id, fecha, gasto, alcance, impresiones, frecuencia, cpm, clics_enlace, cpc_enlace, ctr_enlace, resultados, costo_por_resultado, landing_page_views, pagos_iniciados'
-export const VENTA_COLS = 'campaign_id, fecha, cantidad, nota'
+export const VENTA_COLS = 'campaign_id, fecha, cantidad, neto, nota'
 export const PAGO_COLS =
   'campaign_id, fecha, compras_exitosas, monto_total, pagos_fallidos, pagos_incompletos, tres_ds_solicitados, tres_ds_exitosos, decline_reasons'
 export const CAMBIO_COLS = 'id, campaign_id, fecha, tipo, detalle'
@@ -55,7 +55,7 @@ export function mapMetrica(r: Row): MetricaDiaria {
 }
 
 export function mapVenta(r: Row): VentaManual {
-  return { fecha: r.fecha, cantidad: Number(r.cantidad), nota: r.nota ?? null }
+  return { fecha: r.fecha, cantidad: num(r.cantidad), neto: num(r.neto), nota: r.nota ?? null }
 }
 
 export function mapPago(r: Row): PagoStripeDia {
@@ -109,6 +109,8 @@ export interface VentaDia {
    * que venía de Stripe o de Meta. Pisa al automático solo ese día.
    */
   origen: 'manual' | 'stripe' | 'meta' | 'editada'
+  /** Neto cargado a mano (compras): lo depositado después de comisiones. */
+  neto: number | null
 }
 
 /**
@@ -127,24 +129,41 @@ export function ventasPorDia(
   const precio = campana.precioVenta
 
   if (fuente === 'manual') {
-    for (const v of ventas) out.set(v.fecha, { fecha: v.fecha, ventas: v.cantidad, ingreso: v.cantidad * precio, origen: 'manual' })
+    for (const v of ventas) {
+      if (v.cantidad == null) continue
+      out.set(v.fecha, { fecha: v.fecha, ventas: v.cantidad, ingreso: v.cantidad * precio, origen: 'manual', neto: null })
+    }
     return out
   }
   if (fuente === 'stripe') {
-    for (const p of pagos) out.set(p.fecha, { fecha: p.fecha, ventas: p.comprasExitosas, ingreso: p.montoTotal, origen: 'stripe' })
+    for (const p of pagos) out.set(p.fecha, { fecha: p.fecha, ventas: p.comprasExitosas, ingreso: p.montoTotal, origen: 'stripe', neto: null })
   } else {
-    for (const m of metricas) out.set(m.fecha, { fecha: m.fecha, ventas: m.resultados, ingreso: m.resultados * precio, origen: 'meta' })
+    for (const m of metricas) out.set(m.fecha, { fecha: m.fecha, ventas: m.resultados, ingreso: m.resultados * precio, origen: 'meta', neto: null })
   }
-  for (const v of ventas) out.set(v.fecha, { fecha: v.fecha, ventas: v.cantidad, ingreso: v.cantidad * precio, origen: 'editada' })
+  // Correcciones: cada campo pisa solo lo suyo. Un neto sin cantidad deja las
+  // ventas en automático.
+  for (const v of ventas) {
+    const base = out.get(v.fecha)
+    const corrige = v.cantidad != null
+    out.set(v.fecha, {
+      fecha: v.fecha,
+      ventas: corrige ? v.cantidad! : base?.ventas ?? 0,
+      ingreso: corrige ? v.cantidad! * precio : base?.ingreso ?? 0,
+      origen: corrige ? 'editada' : base?.origen ?? (fuente === 'stripe' ? 'stripe' : 'meta'),
+      neto: v.neto,
+    })
+  }
   return out
 }
 
 /**
- * Profit de un monto facturado: lo que queda después del costo del producto
- * (margen / precio) y de lo invertido en Meta.
+ * Lo que queda de un día después de comisiones: el neto cargado a mano si lo
+ * hay, o la facturación × (margen / precio). Productos digitales: no hay otro
+ * costo por venta, así que profit = neto − inversión.
  */
-export function profit(campana: Campana, ingreso: number, inversion: number): number {
-  return ingreso * (campana.margenVenta / campana.precioVenta) - inversion
+export function netoDia(campana: Campana, v: VentaDia | undefined): number {
+  if (!v) return 0
+  return v.neto ?? v.ingreso * (campana.margenVenta / campana.precioVenta)
 }
 
 /**
@@ -191,11 +210,14 @@ export function calcularTotales(
   const dias = [...ventasPorDia(campana, metricas, ventas, pagos, fuente).values()]
   const conversiones = s(dias.map(d => d.ventas))
   const ingreso = s(dias.map(d => d.ingreso))
+  const neto = s(dias.map(d => netoDia(campana, d)))
 
   return {
     gasto,
     ingreso,
-    profit: profit(campana, ingreso, gasto),
+    neto,
+    diasConNetoManual: dias.filter(d => d.neto != null).length,
+    profit: neto - gasto,
     conversiones,
     resultadosMeta: s(metricas.map(m => m.resultados)),
     // Suma de alcances diarios: cuenta dos veces a quien vio el anuncio dos días

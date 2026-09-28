@@ -131,15 +131,41 @@ export function validarFecha(raw: unknown, hoy: string): string | null {
   return s <= hoy ? s : null
 }
 
-export function validarVenta(body: any, hoy: string): Ok<{ fecha: string; cantidad: number; nota: string | null }> | Err {
+/**
+ * Una carga o corrección de un día.
+ *
+ * - WhatsApp (`requiereCantidad`): la cantidad es obligatoria, es la venta.
+ * - Compras: cantidad y neto son opcionales por separado, pero tiene que venir
+ *   al menos uno. `null` en uno de los dos lo deja en automático.
+ *
+ * El neto acepta coma decimal ("123,45"): el usuario está en Bolivia.
+ */
+export function validarVenta(body: any, hoy: string, requiereCantidad = true):
+  Ok<{ fecha: string; cantidad: number | null; neto: number | null; nota: string | null }> | Err {
   const fecha = validarFecha(body?.fecha, hoy)
   if (!fecha) return { ok: false, error: 'Fecha inválida (no puede ser futura).' }
-  const cantidad = Number(body?.cantidad)
-  if (!Number.isInteger(cantidad) || cantidad < 0 || cantidad > 100000) {
+
+  let cantidad: number | null = null
+  if (body?.cantidad != null && body.cantidad !== '') {
+    cantidad = Number(body.cantidad)
+    if (!Number.isInteger(cantidad) || cantidad < 0 || cantidad > 100000) {
+      return { ok: false, error: 'La cantidad tiene que ser un número entero, cero o más.' }
+    }
+  } else if (requiereCantidad) {
     return { ok: false, error: 'La cantidad tiene que ser un número entero, cero o más.' }
   }
+
+  let neto: number | null = null
+  if (!requiereCantidad && body?.neto != null && body.neto !== '') {
+    const n = typeof body.neto === 'string' ? Number(body.neto.replace(/\s/g, '').replace(',', '.')) : Number(body.neto)
+    if (!Number.isFinite(n) || n < 0 || n > 10_000_000) return { ok: false, error: 'El neto tiene que ser un monto, cero o más.' }
+    neto = Math.round(n * 100) / 100
+  }
+
+  if (cantidad == null && neto == null) return { ok: false, error: 'Carga las ventas o el neto recibido.' }
+
   const nota = typeof body?.nota === 'string' && body.nota.trim() ? body.nota.trim().slice(0, 500) : null
-  return { ok: true, valor: { fecha, cantidad, nota } }
+  return { ok: true, valor: { fecha, cantidad, neto, nota } }
 }
 
 /**

@@ -14,7 +14,7 @@ import {
   DIAS_VENTANA_DECISION, FRECUENCIA_FATIGA, MULTIPLICADOR_FOCO_ROJO_GASTO, MULTIPLICADOR_ROAS_OBJETIVO,
   RESULTADOS_MINIMOS_APRENDIZAJE, sumarDias,
 } from './calc'
-import { profit, ventasPorDia } from './load'
+import { netoDia, ventasPorDia } from './load'
 import type { Campana, CampanaConEstado, Cambio, EstadoCampana, MetricaDiaria, PagoStripeDia, Totales, VentaManual } from './types'
 
 /** Días de historial diario que viajan en el prompt de una campaña. */
@@ -45,7 +45,7 @@ ${reglas()}
 ## Cómo leer los datos
 - "resultados_meta" es el evento que optimiza Meta (compra, o conversación iniciada en campañas de WhatsApp). "ventas_reales" es la venta confirmada (Stripe o cargada a mano). No son lo mismo: en WhatsApp puede haber muchas conversaciones y pocas ventas.
 - "fuente_ventas" dice de dónde salen las ventas: "stripe" (cobros reales), "manual" (cargadas a mano, ingreso = ventas × precio) o "meta" (campaña de Stripe todavía sin datos de Stripe: se usan las compras que atribuye Meta, provisorio y menos confiable).
-- "profit" = facturación × (margen / precio) − gasto: lo que queda después del costo del producto y de Meta.
+- "neto" es lo que queda después de comisiones: el que depositó Stripe si lo cargué a mano ("neto_cargado_a_mano"), o facturación × (margen / precio) estimado. "profit" = neto − gasto (productos digitales, sin otro costo por venta).
 - Los montos están en la moneda de cada campaña. No sumes USD con BOB.
 - El sync trae hasta ayer; el día de hoy puede faltar.
 - "estado_app" es el veredicto que calculó mi herramienta con las reglas de arriba.`
@@ -80,6 +80,8 @@ function totalesJson(t: Totales) {
     dias_con_datos: t.dias,
     gasto: r2(t.gasto),
     facturacion: r2(t.ingreso),
+    neto: r2(t.neto),
+    dias_con_neto_cargado_a_mano: t.diasConNetoManual,
     profit: r2(t.profit),
     ventas_reales: t.conversiones,
     resultados_meta: t.resultadosMeta,
@@ -135,7 +137,9 @@ export function promptCampana(d: DatosCampanaPrompt): string {
         ventas_reales: v?.ventas ?? 0,
         ...(v?.origen === 'editada' ? { ventas_corregidas_a_mano: true } : {}),
         facturacion: r2(ingreso),
-        profit: r2(profit(c, ingreso, m.gasto)),
+        neto: r2(netoDia(c, v)),
+        ...(v?.neto != null ? { neto_cargado_a_mano: true } : {}),
+        profit: r2(netoDia(c, v) - m.gasto),
       }
     })
 

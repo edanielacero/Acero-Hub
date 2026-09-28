@@ -63,6 +63,16 @@
   al mediodía de Bolivia para que no se corra de día al pasar por UTC. Los
   cambios salieron del semáforo: el día con cambios muestra su ícono junto a la
   fecha, y tocarlo abre el detalle (con borrar). Siempre hay fila "Hoy".
+- **Neto real en campañas de Stripe (2026-09-28).** Las comisiones de Stripe
+  cambian por país de la tarjeta, así que el margen promedio no da un profit
+  exacto. Columna **Neto** en la tabla de compras: el lápiz permite cargar lo
+  que Stripe depositó después de comisiones (acepta coma decimal). Productos
+  digitales, así que profit del día = neto − inversión. Sin carga, el neto se
+  muestra estimado (≈ facturación × margen / precio). Cargar solo el neto no
+  marca las ventas como editadas. El ROAS y el semáforo siguen sobre la
+  facturación bruta, comparable con el equilibrio. Migración
+  `20260928010000_ads_analizador_neto_manual.sql`: columna `neto` y `cantidad`
+  opcional en `ads_ventas_manuales` (al menos uno de los dos).
 
 **Verificación:** `api.mjs` (ventas: upsert, retroactivas, validación, solo
 `venta_manual`; cambios: el semáforo pasa de verde a "esperar" y vuelve al

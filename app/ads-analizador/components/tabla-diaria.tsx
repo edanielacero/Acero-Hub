@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { IconArrowBackUp, IconCheck, IconFlag, IconPencil, IconX } from '@tabler/icons-react'
-import { fechaBolivia, fmtEntero, fmtFecha, fmtMoneda } from '@/lib/ads-analizador/format'
-import { profit, type VentaDia } from '@/lib/ads-analizador/load'
+import { fechaBolivia, fmtEntero, fmtFecha, fmtMoneda, numeroDeInput, paraInput, parseNumeroInput } from '@/lib/ads-analizador/format'
+import { netoDia, type VentaDia } from '@/lib/ads-analizador/load'
 import type { Cambio, Campana, MetricaDiaria, VentaManual } from '@/lib/ads-analizador/types'
 import { ETIQUETA, ICONO, ListaCambios, RegistrarCambio } from './cambios'
 import { json, mutar } from './data'
@@ -17,7 +17,11 @@ const pct = (a: number, b: number) => (b > 0 ? `${((a / b) * 100).toFixed(1)}%` 
  *   Conversaciones: Fecha · Inversión · Ventas · Facturación · Profit ·
  *                   Conversaciones · Costo/conv. · % conversión · Acciones
  *   Compras:        Fecha · Inversión · Clics · Landing · Checkout · Ventas ·
- *                   Costo/resultado · Facturación · Profit · % conversión · Acciones
+ *                   Costo/resultado · Facturación · Neto · Profit · % conversión · Acciones
+ *
+ * Neto (solo compras): lo que Stripe depositó después de comisiones, que
+ * cambian según el país de la tarjeta. Se carga con el lápiz; mientras no se
+ * cargue se muestra estimado (≈ facturación × margen / precio).
  *
  * Acciones, por fila: editar las ventas de ese día y registrar un cambio en
  * esa fecha. Fecha y Acciones quedan fijas a los costados al deslizar la tabla
@@ -55,6 +59,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
 
   const [editando, setEditando] = useState<string | null>(null)
   const [borrador, setBorrador] = useState('')
+  const [borradorNeto, setBorradorNeto] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
   const [registrandoEn, setRegistrandoEn] = useState<string | null>(null)
@@ -64,7 +69,9 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
 
   function empezar(fecha: string) {
     setEditando(fecha)
-    setBorrador(String(porDia.get(fecha)?.ventas ?? 0))
+    const v = porDia.get(fecha)
+    setBorrador(String(v?.ventas ?? 0))
+    setBorradorNeto(v?.neto != null ? paraInput(v.neto) : '')
     setErrorEdicion(null)
   }
   function cancelar() {
@@ -75,9 +82,28 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
     if (!editando) return
     const n = Number(borrador)
     if (borrador.trim() === '' || !Number.isInteger(n) || n < 0) return setErrorEdicion('Número entero, 0 o más')
+    const v = porDia.get(editando)
+
+    let cantidad: number | null = n
+    let neto: number | null = null
+    if (!manual) {
+      // En compras, si las ventas siguen en automático y no se tocaron, no se
+      // mandan: así cargar solo el neto no convierte las ventas en "editado".
+      if (v?.origen !== 'editada' && n === (v?.ventas ?? 0)) cantidad = null
+      if (borradorNeto.trim() !== '') {
+        neto = numeroDeInput(borradorNeto)
+        if (!Number.isFinite(neto) || neto < 0) return setErrorEdicion('El neto tiene que ser un monto, 0 o más')
+      }
+      // Nada que corregir: si había una corrección, se vuelve al automático.
+      if (cantidad == null && neto == null) {
+        if (v?.origen === 'editada' || v?.neto != null) return volverAlAutomatico()
+        return cancelar()
+      }
+    }
+
     setGuardando(true)
     // La nota se reenvía tal cual: sin ella, el upsert la borraría.
-    const r = await mutar(urlVentas, json('POST', { fecha: editando, cantidad: n, nota: notas.get(editando) ?? null }), () => null)
+    const r = await mutar(urlVentas, json('POST', { fecha: editando, cantidad, neto, nota: notas.get(editando) ?? null }), () => null)
     setGuardando(false)
     if (!r.ok) return setErrorEdicion(r.error)
     setEditando(null)
@@ -95,8 +121,8 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
 
   const m$ = (n: number) => fmtMoneda(n, campana.moneda)
   const nombreDia = (f: string) => (f === hoy ? 'hoy' : fmtFecha(f))
-  const th = 'whitespace-nowrap px-2 py-2 text-right font-medium'
-  const td = 'whitespace-nowrap px-2 py-1.5 text-right'
+  const th = 'whitespace-nowrap px-1.5 py-2 text-right font-medium'
+  const td = 'whitespace-nowrap px-1.5 py-1.5 text-right'
   // Fijas a los costados; el fondo tapa lo que se desliza por debajo.
   const fijaIzq = 'sticky left-0 z-[1] bg-white'
   const fijaDer = 'sticky right-0 z-[1] bg-white shadow-[-8px_0_8px_-8px_rgba(16,24,40,0.12)]'
@@ -126,6 +152,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                   <th className={th}>Ventas</th>
                   <th className={th}>Costo/result.</th>
                   <th className={th}>Facturación</th>
+                  <th className={th} title="Lo que depositó Stripe después de comisiones">Neto</th>
                   <th className={th}>Profit</th>
                   <th className={th}>% conv.</th>
                 </>
@@ -140,7 +167,8 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
               const n = v?.ventas ?? 0
               const ingreso = v?.ingreso ?? 0
               const inversion = m?.gasto ?? 0
-              const p = profit(campana, ingreso, inversion)
+              const neto = netoDia(campana, v)
+              const p = neto - inversion
               const cambiosDelDia = cambiosPorDia.get(fecha) ?? []
               const enEdicion = editando === fecha
               const celdaVentas = (
@@ -196,6 +224,19 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                       {celdaVentas}
                       <td className={`${td} text-[var(--ads-ink-2)]`}>{n > 0 ? m$(inversion / n) : '—'}</td>
                       <td className={td}>{m$(ingreso)}</td>
+                      <td className={td}>
+                        {enEdicion
+                          ? <CampoNeto fecha={fecha} valor={borradorNeto} prefijo={campana.moneda === 'BOB' ? 'Bs' : '$'}
+                              placeholder={paraInput(Math.round(neto * 100) / 100)} deshabilitado={guardando}
+                              onChange={t => { setBorradorNeto(t); setErrorEdicion(null) }}
+                              onEnter={() => void guardar()} onEscape={cancelar} />
+                          : v?.neto != null
+                            ? <span className="inline-flex items-center gap-1.5">
+                                <span className="rounded bg-[var(--ads-accent-tint)] px-1 text-[10px] font-medium text-[var(--ads-accent-press)]" title="Cargado a mano desde Stripe">real</span>
+                                {m$(neto)}
+                              </span>
+                            : <span className="text-[var(--ads-ink-3)]" title="Estimado: facturación × margen / precio">≈ {m$(neto)}</span>}
+                      </td>
                       <td className={`${td} font-medium`} style={{ color: p >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)' }}>{m$(p)}</td>
                       <td className={`${td} text-[var(--ads-ink-2)]`}>{pct(n, m?.landingPageViews ?? 0)}</td>
                     </>
@@ -209,7 +250,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                         <Accion etiqueta="Cancelar" onClick={cancelar} deshabilitado={guardando}>
                           <IconX size={16} />
                         </Accion>
-                        {!manual && v?.origen === 'editada' && (
+                        {!manual && (v?.origen === 'editada' || v?.neto != null) && (
                           <Accion etiqueta="Volver al dato automático" onClick={() => void volverAlAutomatico()} deshabilitado={guardando}>
                             <IconArrowBackUp size={16} />
                           </Accion>
@@ -310,6 +351,31 @@ function CampoVentas({ fecha, valor, error, deshabilitado, onChange, onEnter, on
         className="h-8 w-16 rounded-lg border border-[var(--ads-accent)] bg-white px-2 text-right text-base font-semibold outline-none ring-2 ring-[var(--ads-accent-tint)] sm:text-sm"
       />
       {error && <span className="text-[11px] font-normal text-[var(--ads-rojo)]">{error}</span>}
+    </span>
+  )
+}
+
+/** El neto recibido: acepta coma decimal. Enter guarda, Escape cancela. */
+function CampoNeto({ fecha, valor, prefijo, placeholder, deshabilitado, onChange, onEnter, onEscape }: {
+  fecha: string; valor: string; prefijo: string; placeholder: string; deshabilitado: boolean
+  onChange: (t: string) => void; onEnter: () => void; onEscape: () => void
+}) {
+  return (
+    <span className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--ads-accent)] bg-white px-2 ring-2 ring-[var(--ads-accent-tint)]">
+      <span className="text-xs text-[var(--ads-ink-3)]">{prefijo}</span>
+      <input
+        aria-label={`Neto recibido el ${fecha}`}
+        inputMode="decimal"
+        value={valor}
+        placeholder={placeholder}
+        disabled={deshabilitado}
+        onChange={e => onChange(parseNumeroInput(e.target.value))}
+        onKeyDown={e => {
+          if (e.key === 'Enter') onEnter()
+          if (e.key === 'Escape') onEscape()
+        }}
+        className="w-20 bg-transparent text-right text-base font-semibold outline-none placeholder:font-normal placeholder:text-[var(--ads-ink-3)] sm:text-sm"
+      />
     </span>
   )
 }

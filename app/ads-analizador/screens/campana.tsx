@@ -139,7 +139,13 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
   const kpis: { etiqueta: string; valor: string; detalle?: string; color?: string }[] = [
     { etiqueta: 'Inversión', valor: m$(t.gasto) },
     { etiqueta: 'Facturación', valor: m$(t.ingreso), detalle: fuente === 'meta' ? 'estimada (sin Stripe)' : estimado ? `${t.conversiones} × ${m$(c.precioVenta)}` : 'cobrado en Stripe' },
-    { etiqueta: 'Profit', valor: m$(t.profit), color: t.profit >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)', detalle: `margen ${m$(c.margenVenta)}/venta` },
+    {
+      etiqueta: 'Profit', valor: m$(t.profit), color: t.profit >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)',
+      // En compras el neto puede ser real (cargado desde Stripe) o estimado.
+      detalle: manual
+        ? `margen ${m$(c.margenVenta)}/venta`
+        : `neto ${m$(t.neto)} · ${t.diasConNetoManual > 0 ? `${t.diasConNetoManual} día${t.diasConNetoManual === 1 ? '' : 's'} real${t.diasConNetoManual === 1 ? '' : 'es'}` : 'estimado'}`,
+    },
     { etiqueta: nombreVenta, valor: fmtEntero(t.conversiones), detalle: fuente === 'meta' ? 'según Meta' : undefined },
     { etiqueta: `Costo por ${manual ? 'venta' : 'compra'}`, valor: t.costoPorConversion == null ? '—' : m$(t.costoPorConversion) },
     { etiqueta: paso.nombre, valor: fmtEntero(paso.n) },

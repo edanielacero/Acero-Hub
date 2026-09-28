@@ -42,9 +42,16 @@ export interface MetricaDiaria {
   pagosIniciados: number | null
 }
 
+/**
+ * Una fila de ads_ventas_manuales. En WhatsApp es la venta del día (`cantidad`
+ * siempre presente). En compras es una corrección: `cantidad` pisa las ventas
+ * automáticas y `neto` es lo que Stripe depositó después de comisiones; cada
+ * uno es opcional por separado.
+ */
 export interface VentaManual {
   fecha: string
-  cantidad: number
+  cantidad: number | null
+  neto: number | null
   nota: string | null
 }
 
@@ -145,7 +152,11 @@ export interface CampanaConEstado {
 export interface Totales {
   gasto: number
   ingreso: number
-  /** ingreso × (margen / precio) − gasto. */
+  /** Lo que queda después de comisiones: neto cargado a mano, o estimado. */
+  neto: number
+  /** Días del rango con el neto cargado a mano (el resto es estimado). */
+  diasConNetoManual: number
+  /** neto − gasto. */
   profit: number
   conversiones: number
   resultadosMeta: number
