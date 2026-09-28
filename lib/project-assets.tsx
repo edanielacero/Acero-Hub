@@ -192,6 +192,45 @@ const GasIcon = () => (
   </svg>
 )
 
+/* ─── Ads Analizador ───────────────────────────────────────────────────────
+   Azul de acento y los tres colores del semáforo, la identidad de la mini-app
+   (ver app/ads-analizador/theme.css). */
+
+const AdsBanner = () => (
+  <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg-ads" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#0E1630" />
+        <stop offset="100%" stopColor="#0A0F1F" />
+      </linearGradient>
+      <linearGradient id="line-ads" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stopColor="#6E8EF5" stopOpacity="0.2" />
+        <stop offset="100%" stopColor="#6E8EF5" stopOpacity="1" />
+      </linearGradient>
+    </defs>
+    <rect width="400" height="120" fill="url(#bg-ads)" />
+    {/* Zonas del medidor de ROAS: pierde plata, colchón bajo, sano */}
+    <rect x="40" y="88" width="90" height="6" rx="3" fill="#F04438" fillOpacity="0.55" />
+    <rect x="134" y="88" width="70" height="6" rx="3" fill="#F79009" fillOpacity="0.55" />
+    <rect x="208" y="88" width="152" height="6" rx="3" fill="#17B26A" fillOpacity="0.55" />
+    <circle cx="262" cy="91" r="7" fill="#17B26A" stroke="#0A0F1F" strokeWidth="3" />
+    <path d="M40,70 L90,62 L140,66 L190,48 L240,40 L290,30 L340,22" fill="none" stroke="url(#line-ads)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    {/* Semáforo */}
+    <circle cx="320" cy="50" r="5" fill="#F04438" fillOpacity="0.35" />
+    <circle cx="336" cy="50" r="5" fill="#F79009" fillOpacity="0.35" />
+    <circle cx="352" cy="50" r="5" fill="#17B26A" />
+    <text x="40" y="32" fill="#6E8EF5" fontSize="10" fontFamily="system-ui" fontWeight="700" opacity="0.8" letterSpacing="4">ROAS</text>
+  </svg>
+)
+
+const AdsIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 17l5-5 4 3 6-7" />
+    <path d="M14 8h4v4" />
+    <line x1="3" y1="21" x2="21" y2="21" opacity="0.5" />
+  </svg>
+)
+
 /**
  * Catálogo de mini-apps tal como se muestran en el Hub.
  *
@@ -225,5 +264,11 @@ export const PROJECT_ASSETS: Record<string, ProjectAssets> = {
     description: 'Próximamente',
     icon: <GasIcon />,
     banner: <GasBanner />,
+  },
+  'ads-analizador': {
+    name: 'Ads Analizador',
+    description: 'Semáforo de campañas de Meta Ads: cuándo esperar, cuándo escalar y cuándo frenar.',
+    icon: <AdsIcon />,
+    banner: <AdsBanner />,
   },
 }
