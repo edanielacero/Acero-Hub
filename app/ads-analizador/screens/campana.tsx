@@ -133,13 +133,19 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
 
   const kpis: { etiqueta: string; valor: string; detalle?: string; color?: string }[] = [
     { etiqueta: 'Inversión', valor: m$(t.gasto) },
-    { etiqueta: 'Facturación', valor: m$(t.ingreso), detalle: `${t.conversiones} × ${m$(c.precioVenta)}` },
+    {
+      // Lo que queda después de comisiones, antes de restar lo invertido en
+      // Meta. En compras puede ser real (cargado a mano) o estimado.
+      etiqueta: 'Ganancia neta', valor: m$(t.neto),
+      detalle: manual
+        ? `${t.conversiones} × ${m$(c.margenVenta)} de margen`
+        : t.diasConNetoManual > 0
+          ? `${t.diasConNetoManual} día${t.diasConNetoManual === 1 ? '' : 's'} real${t.diasConNetoManual === 1 ? '' : 'es'}, resto estimado`
+          : 'estimada con el margen',
+    },
     {
       etiqueta: 'Profit', valor: m$(t.profit), color: t.profit >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)',
-      // En compras el neto puede ser real (cargado a mano) o estimado.
-      detalle: manual
-        ? `margen ${m$(c.margenVenta)}/venta`
-        : `neto ${m$(t.neto)} · ${t.diasConNetoManual > 0 ? `${t.diasConNetoManual} día${t.diasConNetoManual === 1 ? '' : 's'} real${t.diasConNetoManual === 1 ? '' : 'es'}` : 'estimado'}`,
+      detalle: 'ganancia neta − inversión',
     },
     { etiqueta: nombreVenta, valor: fmtEntero(t.conversiones), detalle: manual ? undefined : 'según Meta' },
     { etiqueta: `Costo por ${manual ? 'venta' : 'compra'}`, valor: t.costoPorConversion == null ? '—' : m$(t.costoPorConversion) },
