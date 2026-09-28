@@ -39,10 +39,7 @@ export function HomeScreen() {
   }
 
   const fallidas = resultado?.resultados.filter(r => !r.ok) ?? []
-  // Sin clave de Stripe, el aviso saldría en cada apertura: el dashboard ya
-  // explica que las compras vienen de Meta. Solo se muestra si se pidió a mano.
-  const omitidas = (resultado?.omitidas ?? []).filter(o => manual || o.motivo !== 'stripe_sin_credenciales')
-  const hayAviso = fallidas.length > 0 || omitidas.length > 0
+  const hayAviso = fallidas.length > 0
 
   return (
     <>
@@ -80,7 +77,6 @@ export function HomeScreen() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span>
                     {fallidas.length > 0 && `${fallidas.length} campaña${fallidas.length > 1 ? 's' : ''} no se pudo sincronizar. `}
-                    {omitidas.length > 0 && 'Stripe no se sincronizó (ver detalle).'}
                   </span>
                   <button className="font-semibold underline" onClick={() => setVerDetalle(true)}>Ver detalle</button>
                 </div>
@@ -137,15 +133,6 @@ export function HomeScreen() {
 
       <Hoja abierta={verDetalle} onCerrar={() => setVerDetalle(false)} titulo="Detalle de la sincronización">
         <ul className="flex flex-col gap-3 text-sm">
-          {omitidas.map(o => (
-            <li key={o.motivo} className="rounded-xl bg-[var(--ads-amarillo-tint)] p-3 text-[var(--ads-amarillo)]">
-              {o.motivo === 'mas_de_una_campana_stripe_activa'
-                ? 'Hay más de una campaña de Stripe activa. Como Stripe no sabe de qué campaña viene cada pago, no se repartieron pagos a ninguna. Pausa las que no estén vendiendo.'
-                : o.motivo === 'stripe_sin_credenciales'
-                  ? 'Falta configurar la clave de Stripe (STRIPE_SECRET_KEY_ADS).'
-                  : o.motivo}
-            </li>
-          ))}
           {resultado?.resultados.map(r => (
             <li key={r.campaign_id} className="flex items-start justify-between gap-3 border-b border-[var(--ads-hairline)] pb-3 last:border-0">
               <span className="font-medium">{r.nombre ?? 'Campaña'}</span>

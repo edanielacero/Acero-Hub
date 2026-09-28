@@ -19,7 +19,7 @@ const pct = (a: number, b: number) => (b > 0 ? `${((a / b) * 100).toFixed(1)}%` 
  *   Compras:        Fecha · Inversión · Clics · Landing · Checkout · Ventas ·
  *                   Costo/resultado · Facturación · Neto · Profit · % conversión · Acciones
  *
- * Neto (solo compras): lo que Stripe depositó después de comisiones, que
+ * Neto (solo compras): lo que se recibió después de comisiones, que
  * cambian según el país de la tarjeta. Se carga con el lápiz; mientras no se
  * cargue se muestra estimado (≈ facturación × margen / precio).
  *
@@ -152,7 +152,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                   <th className={th}>Ventas</th>
                   <th className={th}>Costo/result.</th>
                   <th className={th}>Facturación</th>
-                  <th className={th} title="Lo que depositó Stripe después de comisiones">Neto</th>
+                  <th className={th} title="Lo que recibiste después de comisiones">Neto</th>
                   <th className={th}>Profit</th>
                   <th className={th}>% conv.</th>
                 </>
@@ -192,6 +192,14 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                   <td className={`${fijaIzq} ${enEdicion ? '!bg-[var(--ads-accent-tint)]' : ''} whitespace-nowrap py-1.5 pl-5 pr-2`}>
                     <span className="inline-flex items-center gap-1.5">
                       {fecha === hoy ? <span className="font-semibold">Hoy</span> : fmtFecha(fecha)}
+                      {fecha === hoy && m && (
+                        <span
+                          className="rounded bg-[var(--ads-amarillo-tint)] px-1 text-[10px] font-medium text-[var(--ads-amarillo)]"
+                          title="El día todavía no terminó: estos números van a cambiar. El semáforo no los usa."
+                        >
+                          en curso
+                        </span>
+                      )}
                       {cambiosDelDia.length > 0 && (
                         <button
                           type="button"
@@ -232,7 +240,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                               onEnter={() => void guardar()} onEscape={cancelar} />
                           : v?.neto != null
                             ? <span className="inline-flex items-center gap-1.5">
-                                <span className="rounded bg-[var(--ads-accent-tint)] px-1 text-[10px] font-medium text-[var(--ads-accent-press)]" title="Cargado a mano desde Stripe">real</span>
+                                <span className="rounded bg-[var(--ads-accent-tint)] px-1 text-[10px] font-medium text-[var(--ads-accent-press)]" title="Cargado a mano">real</span>
                                 {m$(neto)}
                               </span>
                             : <span className="text-[var(--ads-ink-3)]" title="Estimado: facturación × margen / precio">≈ {m$(neto)}</span>}

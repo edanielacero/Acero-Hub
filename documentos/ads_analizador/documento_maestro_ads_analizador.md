@@ -370,6 +370,15 @@ programar sin volver a decidir nada:
 falta configurar para tener datos reales de Meta y Stripe (tokens, secreto del
 cron, acceso) está en `pendientes_configuracion.md`.
 
+### Cambios de alcance posteriores (2026-09-28)
+
+- **Sin Stripe.** El usuario decidió no traer nada de Stripe por ahora. Las
+  campañas de compras usan las compras que reporta Meta (corregibles a mano) y
+  el neto después de comisiones se carga a mano. Lo de "Atribución Stripe →
+  campaña" y las variables de Stripe de más abajo quedan como historia.
+- **Sin cron.** La app sincroniza al abrirse si los datos tienen más de 6 horas.
+- **Hoy en curso.** El sync trae el día de hoy; el semáforo lo ignora.
+
 ### Agregado después: "Analizar con Claude" (2026-09-28)
 
 En vez de un agente de IA dentro de la app (que usaría la API de Claude, con

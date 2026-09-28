@@ -13,7 +13,6 @@ import type { Accion } from '@/lib/ads-analizador/types'
 import { BarrasDiarias } from '../components/barras-diarias'
 import { TipoChip } from '../components/campaign-card'
 import { useAds, useDetalle } from '../components/data'
-import { DeclineReasonsTable } from '../components/decline-reasons-table'
 import { EstadoBadges, explicacion } from '../components/estado-badges'
 import { FunnelChart } from '../components/funnel-chart'
 import { RoasMedidor } from '../components/roas-badge'
@@ -45,7 +44,7 @@ export function CampanaScreen() {
     <>
       <Barra
         titulo={detalle?.campana.nombre ?? 'Campaña'}
-        subtitulo={ads.sincronizando ? 'Actualizando con Meta…' : detalle && `${detalle.campana.moneda} · ${detalle.campana.tipoConversion === 'venta_manual' ? 'Venta por WhatsApp' : 'Compra por Stripe'}${detalle.campana.activo ? '' : ' · pausada'}`}
+        subtitulo={ads.sincronizando ? 'Actualizando con Meta…' : detalle && `${detalle.campana.moneda} · ${detalle.campana.tipoConversion === 'venta_manual' ? 'Venta por WhatsApp' : 'Compras en la web'}${detalle.campana.activo ? '' : ' · pausada'}`}
         atras={rutas.home}
         acciones={id && (
           <>
@@ -86,25 +85,22 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
   // "Todo" por defecto: así el semáforo coincide con el de la tarjeta del home.
   const [rango, setRango] = useState<Rango>('todo')
   const manual = c.tipoConversion === 'venta_manual'
-  const fuente = d.totales.fuenteVentas
 
   const desde = rango === 'todo' ? '0000-00-00' : sumarDias(d.hoy, -Number(rango))
   const enRango = useMemo(() => ({
     metricas: d.metricas.filter(m => m.fecha >= desde),
     ventas: d.ventas.filter(v => v.fecha >= desde),
-    pagos: d.pagos.filter(p => p.fecha >= desde),
   }), [d, desde])
 
   // El filtro manda sobre TODO, incluido el semáforo: se recalcula con las
-  // mismas reglas sobre el rango. La fuente de ventas sigue siendo la del
-  // historial completo (un rango sin días de Stripe no pasa a "Meta").
+  // mismas reglas sobre el rango.
   const { estado: e, totales: t } = useMemo(
-    () => armarEstado(c, enRango.metricas, enRango.ventas, enRango.pagos, d.cambios[0]?.fecha ?? null, d.hoy, fuente),
-    [c, enRango, d.cambios, d.hoy, fuente],
+    () => armarEstado(c, enRango.metricas, enRango.ventas, d.cambios[0]?.fecha ?? null, d.hoy),
+    [c, enRango, d.cambios, d.hoy],
   )
   const porDia = useMemo(
-    () => ventasPorDia(c, enRango.metricas, enRango.ventas, enRango.pagos, fuente),
-    [c, enRango, fuente],
+    () => ventasPorDia(c, enRango.metricas, enRango.ventas),
+    [c, enRango],
   )
 
   const est = estiloEstado(e)
@@ -114,7 +110,6 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
   const nombreVenta = manual ? 'Ventas' : 'Compras'
   const m$ = (n: number) => fmtMoneda(n, c.moneda)
   const dias = enRango.metricas.map(m => m.fecha)
-  const estimado = fuente !== 'stripe'
 
   const escalones = manual
     ? [
@@ -138,15 +133,15 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
 
   const kpis: { etiqueta: string; valor: string; detalle?: string; color?: string }[] = [
     { etiqueta: 'Inversión', valor: m$(t.gasto) },
-    { etiqueta: 'Facturación', valor: m$(t.ingreso), detalle: fuente === 'meta' ? 'estimada (sin Stripe)' : estimado ? `${t.conversiones} × ${m$(c.precioVenta)}` : 'cobrado en Stripe' },
+    { etiqueta: 'Facturación', valor: m$(t.ingreso), detalle: `${t.conversiones} × ${m$(c.precioVenta)}` },
     {
       etiqueta: 'Profit', valor: m$(t.profit), color: t.profit >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)',
-      // En compras el neto puede ser real (cargado desde Stripe) o estimado.
+      // En compras el neto puede ser real (cargado a mano) o estimado.
       detalle: manual
         ? `margen ${m$(c.margenVenta)}/venta`
         : `neto ${m$(t.neto)} · ${t.diasConNetoManual > 0 ? `${t.diasConNetoManual} día${t.diasConNetoManual === 1 ? '' : 's'} real${t.diasConNetoManual === 1 ? '' : 'es'}` : 'estimado'}`,
     },
-    { etiqueta: nombreVenta, valor: fmtEntero(t.conversiones), detalle: fuente === 'meta' ? 'según Meta' : undefined },
+    { etiqueta: nombreVenta, valor: fmtEntero(t.conversiones), detalle: manual ? undefined : 'según Meta' },
     { etiqueta: `Costo por ${manual ? 'venta' : 'compra'}`, valor: t.costoPorConversion == null ? '—' : m$(t.costoPorConversion) },
     { etiqueta: paso.nombre, valor: fmtEntero(paso.n) },
     { etiqueta: paso.costo, valor: paso.n > 0 ? m$(t.gasto / paso.n) : '—' },
@@ -196,12 +191,6 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
         </div>
       </Tarjeta>
 
-      {fuente === 'meta' && (
-        <Aviso tono="info">
-          Stripe todavía no tiene datos de esta campaña: las compras y la facturación salen de lo que reporta Meta.
-        </Aviso>
-      )}
-
       {/* ── Indicadores del rango ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {kpis.map(k => (
@@ -244,12 +233,6 @@ function Dashboard({ d, refrescar }: { d: DetalleCampana; refrescar: () => void 
         </Tarjeta>
       </div>
 
-      {!manual && fuente === 'stripe' && (
-        <Tarjeta className="p-5">
-          <h3 className="mb-4 font-semibold">Pagos en Stripe</h3>
-          <DeclineReasonsTable pagos={enRango.pagos} />
-        </Tarjeta>
-      )}
     </div>
   )
 }

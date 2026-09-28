@@ -288,13 +288,3 @@ export function puntoDebil(escalones: Escalon[]): { indice: number; caida: numbe
   }
   return peor
 }
-
-/** Suma de los `decline_reasons` de varios días, ordenada de mayor a menor. */
-export function sumarDeclines(dias: (Record<string, number> | null)[]): [string, number][] {
-  const total: Record<string, number> = {}
-  for (const d of dias) {
-    if (!d) continue
-    for (const [motivo, n] of Object.entries(d)) total[motivo] = (total[motivo] ?? 0) + Number(n)
-  }
-  return Object.entries(total).sort((a, b) => b[1] - a[1])
-}

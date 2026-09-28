@@ -38,6 +38,14 @@
   por apertura, mostrando lo guardado mientras tanto; el botón "Actualizar"
   sigue. La ruta ahora es solo `POST` con sesión de usuario y RLS. Las §4.5 y
   §4.6 de abajo quedan como historia.
+- **Sin Stripe (2026-09-28, decisión del usuario).** Se sacó `stripe-api.ts` y
+  toda la parte de Stripe del sync (rango propio, guard de "un solo checkout",
+  omisiones). Las campañas `compra_stripe` —en pantalla, "Compras web"— toman
+  las compras de Meta, corregibles a mano, y el neto se carga a mano. La tabla
+  `ads_pagos_stripe` quedó en la base sin uso, por si vuelve; el código está en
+  el historial de git. La §4.2 de abajo queda como historia.
+- **El sync trae hasta hoy** (día en curso incluido); el semáforo lo ignora y se
+  calcula con días completos. Ver `rangoSync` y `armarEstado`.
 
 **Verificación:** `unit` (mapeo de Insights con una respuesta real, agregación
 de Stripe con cambio de día en hora de Bolivia, rango de sync) y `api` (ruta y

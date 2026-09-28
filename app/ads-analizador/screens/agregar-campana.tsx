@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { IconBrandStripe, IconBrandWhatsapp, IconListSearch, IconLoader2, IconPencil } from '@tabler/icons-react'
+import { IconBrandWhatsapp, IconShoppingCart, IconListSearch, IconLoader2, IconPencil } from '@tabler/icons-react'
 import { MULTIPLICADOR_ROAS_OBJETIVO, roasEquilibrio } from '@/lib/ads-analizador/calc'
 import { fmtRoas, numeroDeInput, parseNumeroInput } from '@/lib/ads-analizador/format'
 import type { Moneda, TipoConversion } from '@/lib/ads-analizador/types'
-import { json, mutar, useAds } from '../components/data'
+import { mutar, useAds } from '../components/data'
 import { Aviso, Barra, Boton, Campo, Entrada, Pagina, Segmentado, Tarjeta } from '../components/ui'
 import { useAdsRouter } from '../router'
 import { rutas } from './paths'
@@ -144,7 +144,7 @@ export function AgregarCampanaScreen() {
 
             <Campo etiqueta="¿Dónde se cierra la venta?">
               <Segmentado nombre="Tipo de conversión" valor={tipo} onChange={setTipo} opciones={[
-                { valor: 'compra_stripe', etiqueta: <span className="inline-flex items-center gap-1.5"><IconBrandStripe size={16} />Stripe</span>, detalle: 'Las ventas llegan solas' },
+                { valor: 'compra_stripe', etiqueta: <span className="inline-flex items-center gap-1.5"><IconShoppingCart size={16} />Compras web</span>, detalle: 'Las compras las trae Meta' },
                 { valor: 'venta_manual', etiqueta: <span className="inline-flex items-center gap-1.5"><IconBrandWhatsapp size={16} />WhatsApp</span>, detalle: 'Cargas las ventas a mano' },
               ]} />
             </Campo>

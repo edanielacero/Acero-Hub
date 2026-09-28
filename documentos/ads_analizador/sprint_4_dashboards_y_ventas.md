@@ -73,6 +73,11 @@
   facturación bruta, comparable con el equilibrio. Migración
   `20260928010000_ads_analizador_neto_manual.sql`: columna `neto` y `cantidad`
   opcional en `ads_ventas_manuales` (al menos uno de los dos).
+- **Sin Stripe (2026-09-28).** Se quitó la tarjeta "Pagos en Stripe" (rechazos,
+  3D Secure) y el aviso de "Stripe sin datos". El tipo se muestra como
+  "Compras". El Neto sigue igual: lo recibido después de comisiones, a mano.
+- **Hoy en curso.** La fila "Hoy" trae datos de Meta y se marca "en curso"; los
+  indicadores la incluyen, el semáforo no.
 
 **Verificación:** `api.mjs` (ventas: upsert, retroactivas, validación, solo
 `venta_manual`; cambios: el semáforo pasa de verde a "esperar" y vuelve al

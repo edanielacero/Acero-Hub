@@ -51,7 +51,7 @@ export function validarAlta(body: any): Ok<CampanaInsert> | Err {
 
   if (!MONEDAS.includes(body?.moneda)) return { ok: false, error: 'La moneda tiene que ser USD o BOB.' }
   if (!TIPOS_CONVERSION.includes(body?.tipoConversion)) {
-    return { ok: false, error: 'Elige cómo se cierra la venta: Stripe o WhatsApp.' }
+    return { ok: false, error: 'Elige cómo se cierra la venta: compras web o WhatsApp.' }
   }
 
   const precio_venta = positivo(body?.precioVenta)

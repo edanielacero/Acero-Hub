@@ -16,8 +16,8 @@ async function tipoDeCampana(supabase: Awaited<ReturnType<typeof requireUser>>['
  * ser cualquier día pasado — se carga tarde a menudo.
  *
  * En WhatsApp es LA venta del día. En compras es una corrección: la cantidad
- * pisa lo que trajo Stripe (o Meta) ese día y el neto es lo depositado después
- * de comisiones — ver `ventasPorDia` en lib/ads-analizador/load.ts.
+ * pisa lo que trajo Meta ese día y el neto es lo recibido después de
+ * comisiones — ver `ventasPorDia` en lib/ads-analizador/load.ts.
  */
 async function guardar(request: Request, { params }: Ctx) {
   const { id } = await params

@@ -44,8 +44,8 @@ export interface MetricaDiaria {
 
 /**
  * Una fila de ads_ventas_manuales. En WhatsApp es la venta del día (`cantidad`
- * siempre presente). En compras es una corrección: `cantidad` pisa las ventas
- * automáticas y `neto` es lo que Stripe depositó después de comisiones; cada
+ * siempre presente). En compras es una corrección: `cantidad` pisa las compras
+ * que reporta Meta y `neto` es lo que se recibió después de comisiones; cada
  * uno es opcional por separado.
  */
 export interface VentaManual {
@@ -53,17 +53,6 @@ export interface VentaManual {
   cantidad: number | null
   neto: number | null
   nota: string | null
-}
-
-export interface PagoStripeDia {
-  fecha: string
-  comprasExitosas: number
-  montoTotal: number
-  pagosFallidos: number
-  pagosIncompletos: number
-  tresDsSolicitados: number
-  tresDsExitosos: number
-  declineReasons: Record<string, number> | null
 }
 
 export interface Cambio {
@@ -85,7 +74,7 @@ export interface FilaDiaria {
   gasto: number
   /** Evento optimizado de Meta — solo para la fase de aprendizaje. */
   resultadosMeta: number
-  /** Venta/compra confirmada ese día: Stripe o carga manual. */
+  /** Venta/compra del día: cargada a mano (WhatsApp) o la de Meta, corregible (compras). */
   conversionesReales: number
   frecuencia: number | null
   /**
@@ -168,9 +157,6 @@ export interface Totales {
   /** Gasto / conversión real. null sin conversiones. */
   costoPorConversion: number | null
   dias: number
-  /**
-   * De dónde salen las ventas. `meta` = campaña de Stripe que todavía no tiene
-   * ningún dato de Stripe: se usan las compras que reporta Meta, provisorio.
-   */
-  fuenteVentas: 'stripe' | 'manual' | 'meta'
+  /** De dónde salen las ventas: cargadas a mano (WhatsApp) o las compras de Meta. */
+  fuenteVentas: 'manual' | 'meta'
 }

@@ -70,7 +70,6 @@ export type EdicionCampana = Partial<{
 
 export interface ResultadoSync {
   procesadas: number
-  omitidas: { motivo: string; campanas: string[] }[]
   resultados: { campaign_id: string; nombre?: string; ok: boolean; error?: string; dias_sincronizados?: number }[]
 }
 

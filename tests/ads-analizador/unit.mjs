@@ -1,6 +1,6 @@
 import {
   calcularEstado, calcularCooldown, detectarFocoRojo, diferenciaDias, puntoDebil, roasEquilibrio,
-  roasObjetivo, sumarDeclines, sumarDias, ultimosNDias,
+  roasObjetivo, sumarDias, ultimosNDias,
 } from './.ads/calc.mjs'
 import { fmtMoneda, fmtPct, fmtRoas, hoyBolivia, numeroDeInput, parseNumeroInput } from './.ads/format.mjs'
 // El harness es infraestructura de tests, no dominio de Finanzas: se reusa tal cual.
@@ -222,10 +222,6 @@ section('FUNNEL · punto débil')
   eq('escalón en 0 no divide por cero', puntoDebil([{ etiqueta: 'a', valor: 0 }, { etiqueta: 'b', valor: 0 }]), null)
 }
 
-section('DECLINE REASONS')
-eq('suma por motivo y ordena', sumarDeclines([{ do_not_honor: 2, insufficient_funds: 1 }, null, { do_not_honor: 1 }]),
-  [['do_not_honor', 3], ['insufficient_funds', 1]])
-
 section('FORMATO · coma boliviana')
 {
   const tipear = t => { let v = ''; for (const k of t) v = parseNumeroInput(v + k); return v }
@@ -241,7 +237,6 @@ section('FORMATO · coma boliviana')
 
 // ═══ SPRINT 3 ═══════════════════════════════════════════════════════════════
 const { mapearInsight, mensajeDeError } = await import('./.ads/meta-api.mjs')
-const { agregarPorDia, rangoUnix, diaBoliviaDeUnix } = await import('./.ads/stripe-api.mjs')
 const { rangoSync, diasEntre } = await import('./.ads/sync.mjs')
 const { validarAlta, validarVenta, validarFecha, normalizarAdAccount } = await import('./.ads/validar.mjs')
 
@@ -288,46 +283,12 @@ section('META · mapeo de Insights (respuesta real de la Graph API)')
   ok('rate limit tiene mensaje propio', /limitó/.test(mensajeDeError({ error: { code: 17 } }, 400).message))
 }
 
-section('STRIPE · agregación por día')
-{
-  // 20 sep 2026 13:00 en Bolivia = 17:00 UTC.
-  const t = (fecha, hora = '13:00') => Math.floor(Date.parse(`${fecha}T${hora}:00-04:00`) / 1000)
-  const intents = [
-    { currency: 'usd', status: 'succeeded', amount: 2400, amount_received: 2400, created: t('2026-09-20') },
-    { currency: 'usd', status: 'succeeded', amount: 2400, amount_received: 2400, created: t('2026-09-20', '22:30'),
-      latest_charge: { payment_method_details: { card: { three_d_secure: { result: 'authenticated' } } } } },
-    { currency: 'usd', status: 'requires_payment_method', amount: 2400, created: t('2026-09-20'),
-      last_payment_error: { code: 'card_declined', decline_code: 'do_not_honor' } },
-    { currency: 'usd', status: 'requires_payment_method', amount: 2400, created: t('2026-09-21'),
-      last_payment_error: { code: 'card_declined', decline_code: 'insufficient_funds' } },
-    { currency: 'usd', status: 'requires_action', amount: 2400, created: t('2026-09-21'), next_action: { type: 'use_stripe_sdk' } },
-    { currency: 'usd', status: 'requires_payment_method', amount: 2400, created: t('2026-09-21') },
-    { currency: 'bob', status: 'succeeded', amount: 2500, amount_received: 2500, created: t('2026-09-21') },
-    // 23:30 del 21 en Bolivia es 22 en UTC: tiene que caer en el 21.
-    { currency: 'usd', status: 'succeeded', amount: 2400, amount_received: 2400, created: t('2026-09-21', '23:30') },
-  ]
-  const dias = agregarPorDia(intents, ['2026-09-20', '2026-09-21', '2026-09-22'], 'USD')
-  const [d20, d21, d22] = dias
-  eq('3 filas, una por día del rango', dias.length, 3)
-  eq('20: 2 compras', d20.compras_exitosas, 2)
-  eq('20: $48', d20.monto_total, 48)
-  eq('20: 1 fallido con su motivo', [d20.pagos_fallidos, d20.decline_reasons], [1, { do_not_honor: 1 }])
-  eq('20: 3DS pedido y aprobado', [d20.tres_ds_solicitados, d20.tres_ds_exitosos], [1, 1])
-  eq('21: la compra de las 23:30 de Bolivia cuenta el 21', d21.compras_exitosas, 1)
-  eq('21: 2 incompletos (3DS pendiente + abandonado)', d21.pagos_incompletos, 2)
-  eq('21: 3DS pedido sin aprobar', [d21.tres_ds_solicitados, d21.tres_ds_exitosos], [1, 0])
-  eq('21: ignora el pago en BOB de otra moneda', d21.monto_total, 24)
-  eq('22: día sin pagos se escribe en cero', [d22.compras_exitosas, d22.monto_total, d22.decline_reasons], [0, 0, null])
-  eq('unix → día de Bolivia', diaBoliviaDeUnix(Date.parse('2026-09-22T03:30:00Z') / 1000), '2026-09-21')
-  const r = rangoUnix('2026-09-20', '2026-09-21')
-  eq('rango unix de Bolivia', [r.gte, r.lte], [Date.parse('2026-09-20T04:00:00Z') / 1000, Date.parse('2026-09-22T03:59:59Z') / 1000])
-}
-
 section('SYNC · rango de días')
-eq('primera vez: 30 días hasta ayer', rangoSync(null, '2026-09-28'), { desde: '2026-08-29', hasta: '2026-09-27' })
-eq('con historial: re-trae los últimos 3', rangoSync('2026-09-27', '2026-09-28'), { desde: '2026-09-25', hasta: '2026-09-27' })
-eq('historial viejo: desde 2 días antes del último', rangoSync('2026-09-10', '2026-09-28'), { desde: '2026-09-08', hasta: '2026-09-27' })
-eq('nunca pide el día en curso', rangoSync('2026-09-28', '2026-09-28').hasta, '2026-09-27')
+eq('primera vez: 30 días, hoy incluido', rangoSync(null, '2026-09-28'), { desde: '2026-08-30', hasta: '2026-09-28' })
+eq('con historial: re-trae los últimos 3 y llega a hoy', rangoSync('2026-09-27', '2026-09-28'), { desde: '2026-09-25', hasta: '2026-09-28' })
+eq('si ayer se guardó hoy a medias, lo completa', rangoSync('2026-09-28', '2026-09-29'), { desde: '2026-09-26', hasta: '2026-09-29' })
+eq('historial viejo: desde 2 días antes del último', rangoSync('2026-09-10', '2026-09-28'), { desde: '2026-09-08', hasta: '2026-09-28' })
+eq('incluye el día en curso', rangoSync('2026-09-28', '2026-09-28').hasta, '2026-09-28')
 eq('días entre dos fechas', diasEntre('2026-09-29', '2026-10-01'), ['2026-09-29', '2026-09-30', '2026-10-01'])
 
 section('VALIDACIÓN')
@@ -370,15 +331,15 @@ section('PROMPT · una campaña')
     tipoConversion: 'compra_stripe', precioVenta: 24, margenVenta: 24, roasObjetivo: null, activo: true,
     ultimaSync: null, createdAt: '2026-08-01',
   }
-  const metricas = [], pagos = []
+  // 8 compras por día según Meta a $18,80 cada una (56 en 7 días: fuera de aprendizaje).
+  const metricas = []
   for (let i = 40; i >= 1; i--) {
     const fecha = sumarDias(HOY, -i)
-    metricas.push({ fecha, gasto: 112.8, alcance: 2400, impresiones: 3100, frecuencia: 1.3, cpm: 36, clicsEnlace: 92, cpcEnlace: 1.2, ctrEnlace: 2.97, resultados: 8, costoPorResultado: 14.1, landingPageViews: 64, pagosIniciados: 18 })
-    pagos.push({ fecha, comprasExitosas: 6, montoTotal: 144, pagosFallidos: 1, pagosIncompletos: 1, tresDsSolicitados: 2, tresDsExitosos: 1, declineReasons: { do_not_honor: 1 } })
+    metricas.push({ fecha, gasto: 150.4, alcance: 2400, impresiones: 3100, frecuencia: 1.3, cpm: 36, clicsEnlace: 92, cpcEnlace: 1.2, ctrEnlace: 2.97, resultados: 8, costoPorResultado: 18.8, landingPageViews: 64, pagosIniciados: 18 })
   }
   const cambios = [{ id: 'k', fecha: '2026-09-18T12:00:00Z', tipo: 'presupuesto', detalle: 'Subí de 100 a 115' }]
-  const base = armarEstado(campana, metricas, [], pagos, cambios[0].fecha, HOY)
-  const p = promptCampana({ ...base, metricas, ventas: [], pagos, cambios, hoy: HOY })
+  const base = armarEstado(campana, metricas, [], cambios[0].fecha, HOY)
+  const p = promptCampana({ ...base, metricas, ventas: [], cambios, hoy: HOY })
 
   ok('pide respuesta en español', /Responde en español/.test(p))
   ok('incluye las 7 reglas con los umbrales de calc.ts', /menos de 50 resultados/.test(p) && /≥ 3.5/.test(p) && /2.5× el margen/.test(p))
@@ -387,23 +348,22 @@ section('PROMPT · una campaña')
   ok('el bloque JSON se parsea', (() => { try { d = jsonDe(p); return true } catch { return false } })())
   eq(`manda solo los últimos ${DIAS_EN_PROMPT} días`, d[`ultimos_${DIAS_EN_PROMPT}_dias`].length, DIAS_EN_PROMPT)
   eq('el veredicto de la app viaja', d.estado_app.accion_sugerida, 'escalar_horizontal')
-  eq('ventas reales por día salen de Stripe', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ventas_reales, 6)
-  eq('facturación por día = lo cobrado', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].facturacion, 144)
-  eq('profit por día = cobrado × margen/precio − gasto', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].profit, 31.2)
-  eq('resumen de Stripe con motivos', d[`stripe_ultimos_${DIAS_EN_PROMPT}_dias`].motivos_de_rechazo, { do_not_honor: DIAS_EN_PROMPT })
+  eq('ventas por día salen de Meta', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ventas_reales, 8)
+  eq('facturación por día = compras × precio', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].facturacion, 192)
+  eq('profit por día = neto estimado − gasto', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].profit, 41.6)
+  ok('ya no manda nada de Stripe', !/stripe_ultimos|motivos_de_rechazo/.test(p))
   eq('los cambios viajan', d.cambios_registrados[0].detalle, 'Subí de 100 a 115')
   ok('sin NaN ni Infinity en el JSON', !/NaN|Infinity/.test(p))
   ok('no incluye ids internos ni de Meta', !/"id"|act_1|metaCampaignId/.test(p))
   ok('pesa poco (< 30 KB)', p.length < 30_000, `${p.length} caracteres`)
 
   const wa = { ...campana, tipoConversion: 'venta_manual', moneda: 'BOB', precioVenta: 25, margenVenta: 25 }
-  const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: 4, nota: null }))
-  const bw = armarEstado(wa, metricas, ventas, [], null, HOY)
-  const pw = promptCampana({ ...bw, metricas, ventas, pagos: [], cambios: [], hoy: HOY })
+  const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: 4, neto: null, nota: null }))
+  const bw = armarEstado(wa, metricas, ventas, null, HOY)
+  const pw = promptCampana({ ...bw, metricas, ventas, cambios: [], hoy: HOY })
   const dw = jsonDe(pw)
   eq('WhatsApp: facturación = ventas × precio', dw[`ultimos_${DIAS_EN_PROMPT}_dias`][0].facturacion, 100)
-  ok('WhatsApp: sin bloque de Stripe', !(`stripe_ultimos_${DIAS_EN_PROMPT}_dias` in dw))
-  ok('WhatsApp: avisa conversaciones vs ventas', /conversaciones y ventas/.test(pw))
+  ok('WhatsApp: avisa conversaciones vs ventas', /conversaciones y pocas ventas/.test(pw))
 }
 
 section('PROMPT · todas las campañas')
@@ -411,7 +371,7 @@ section('PROMPT · todas las campañas')
   const mk = (id, nombre, moneda) => armarEstado({
     id, metaCampaignId: id, metaAdAccountId: 'act_1', nombre, moneda, tipoConversion: 'venta_manual',
     precioVenta: 25, margenVenta: 25, roasObjetivo: 1.5, activo: true, ultimaSync: null, createdAt: '2026-08-01',
-  }, [], [], [], null, HOY)
+  }, [], [], null, HOY)
   const p = promptPortafolio([mk('a', 'Ebook', 'BOB'), mk('b', 'Curso', 'USD')], HOY)
   const d = jsonDe(p)
   eq('trae las dos campañas', d.campanas.map(c => c.nombre), ['Ebook', 'Curso'])
@@ -420,24 +380,22 @@ section('PROMPT · todas las campañas')
   eq('campaña sin datos: roas null, no NaN', d.campanas[0].estado_app.roas_actual, null)
 }
 
-section('FUENTE DE VENTAS · Stripe sin datos usa Meta')
+section('FUENTE DE VENTAS · compras = Meta, WhatsApp = a mano')
 {
   const { fuenteDeVentas } = await import('./.ads/load.mjs')
-  const stripe = {
+  const compras = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL', moneda: 'USD', tipoConversion: 'compra_stripe',
     precioVenta: 24, margenVenta: 24, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
   }
-  // Caso real del 2026-09-28: 4 días, 2 compras según Meta, Stripe sin conectar.
+  // Caso real del 2026-09-28: 4 días, 2 compras según Meta.
   const met = [['2026-09-24', 8.25, 0], ['2026-09-25', 11.1, 2], ['2026-09-26', 9.57, 0], ['2026-09-27', 9.02, 0]]
     .map(([fecha, gasto, resultados]) => ({ fecha, gasto, resultados, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null }))
-  const sinStripe = armarEstado(stripe, met, [], [], null, HOY)
-  eq('sin filas de Stripe → fuente meta', sinStripe.totales.fuenteVentas, 'meta')
-  eq('cuenta las 2 compras de Meta', sinStripe.totales.conversiones, 2)
-  eq('ingreso estimado = compras × precio', sinStripe.totales.ingreso, 48)
-  ok('ya no es un foco rojo falso', !sinStripe.estado.banderas.some(b => b.tipo === 'foco_rojo'), JSON.stringify(sinStripe.estado.banderas))
-  const pago = { fecha: '2026-09-25', comprasExitosas: 1, montoTotal: 24, pagosFallidos: 0, pagosIncompletos: 0, tresDsSolicitados: 0, tresDsExitosos: 0, declineReasons: null }
-  eq('con un día de Stripe, manda Stripe', fuenteDeVentas(stripe, [pago]), 'stripe')
-  eq('WhatsApp siempre manual', fuenteDeVentas({ ...stripe, tipoConversion: 'venta_manual' }, []), 'manual')
+  const r = armarEstado(compras, met, [], null, HOY)
+  eq('compras → fuente meta', r.totales.fuenteVentas, 'meta')
+  eq('cuenta las 2 compras de Meta', r.totales.conversiones, 2)
+  eq('facturación = compras × precio', r.totales.ingreso, 48)
+  ok('sin foco rojo falso', !r.estado.banderas.some(b => b.tipo === 'foco_rojo'), JSON.stringify(r.estado.banderas))
+  eq('WhatsApp siempre manual', fuenteDeVentas({ ...compras, tipoConversion: 'venta_manual' }), 'manual')
   const wa = calcularEstado(entrada({ precio: 25, margen: 25, tipo: 'venta_manual', metricas: dias(6, AYER, () => ({ gasto: 25, resultadosMeta: 12 })) }))
   ok('foco rojo de WhatsApp recuerda cargar ventas', /carga las ventas/.test(wa.mensaje), wa.mensaje)
 }
@@ -445,37 +403,33 @@ section('FUENTE DE VENTAS · Stripe sin datos usa Meta')
 section('VENTAS POR DÍA · correcciones y profit')
 {
   const { ventasPorDia, calcularTotales, netoDia } = await import('./.ads/load.mjs')
-  const stripe = {
+  const compras = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL', moneda: 'USD', tipoConversion: 'compra_stripe',
     precioVenta: 24, margenVenta: 12, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
   }
-  const met = f => ({ fecha: f, gasto: 20, resultados: 3, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: 50, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: 30, pagosIniciados: 5 })
-  const pago = f => ({ fecha: f, comprasExitosas: 2, montoTotal: 48, pagosFallidos: 0, pagosIncompletos: 0, tresDsSolicitados: 0, tresDsExitosos: 0, declineReasons: null })
+  const met = f => ({ fecha: f, gasto: 20, resultados: 2, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: 50, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: 30, pagosIniciados: 5 })
   const metricas = [met('2026-09-26'), met('2026-09-27')]
-  const pagos = [pago('2026-09-26'), pago('2026-09-27')]
   const correccion = [{ fecha: '2026-09-27', cantidad: 5, neto: null, nota: null }]
 
-  const m = ventasPorDia(stripe, metricas, correccion, pagos)
-  eq('día sin corregir: Stripe', m.get('2026-09-26'), { fecha: '2026-09-26', ventas: 2, ingreso: 48, origen: 'stripe', neto: null })
-  eq('día corregido: pisa a Stripe, facturación = ventas × precio', m.get('2026-09-27'), { fecha: '2026-09-27', ventas: 5, ingreso: 120, origen: 'editada', neto: null })
-  const t = calcularTotales(stripe, metricas, correccion, pagos)
+  const m = ventasPorDia(compras, metricas, correccion)
+  eq('día sin corregir: Meta', m.get('2026-09-26'), { fecha: '2026-09-26', ventas: 2, ingreso: 48, origen: 'meta', neto: null })
+  eq('día corregido: pisa a Meta, facturación = ventas × precio', m.get('2026-09-27'), { fecha: '2026-09-27', ventas: 5, ingreso: 120, origen: 'editada', neto: null })
+  const t = calcularTotales(compras, metricas, correccion)
   eq('totales suman la corrección', [t.conversiones, t.ingreso], [7, 168])
   eq('sin neto cargado: profit = facturación × margen/precio − inversión', t.profit, 168 * 0.5 - 40)
-  const sinStripe = ventasPorDia(stripe, metricas, correccion, [])
-  eq('sin Stripe, la corrección también pisa a Meta', [sinStripe.get('2026-09-26').origen, sinStripe.get('2026-09-27').origen], ['meta', 'editada'])
-  eq('neto estimado de un día sin carga', netoDia(stripe, m.get('2026-09-26')), 24)
+  eq('neto estimado de un día sin carga', netoDia(compras, m.get('2026-09-26')), 24)
 
-  // Neto real cargado desde Stripe: pisa la estimación, las ventas siguen en automático.
+  // Neto real cargado a mano: pisa la estimación, las ventas siguen en automático.
   const soloNeto = [{ fecha: '2026-09-26', cantidad: null, neto: 45.3, nota: null }]
-  const mn = ventasPorDia(stripe, metricas, soloNeto, pagos)
-  eq('solo neto: ventas siguen de Stripe', [mn.get('2026-09-26').ventas, mn.get('2026-09-26').origen], [2, 'stripe'])
+  const mn = ventasPorDia(compras, metricas, soloNeto)
+  eq('solo neto: ventas siguen de Meta', [mn.get('2026-09-26').ventas, mn.get('2026-09-26').origen], [2, 'meta'])
   eq('solo neto: la facturación sigue siendo la bruta', mn.get('2026-09-26').ingreso, 48)
-  eq('solo neto: netoDia usa el real', netoDia(stripe, mn.get('2026-09-26')), 45.3)
-  const tn = calcularTotales(stripe, metricas, soloNeto, pagos)
+  eq('solo neto: netoDia usa el real', netoDia(compras, mn.get('2026-09-26')), 45.3)
+  const tn = calcularTotales(compras, metricas, soloNeto)
   eq('totales: neto real + estimado del otro día', tn.neto, 45.3 + 24)
   eq('totales: profit = neto − inversión', Math.round(tn.profit * 100) / 100, Math.round((45.3 + 24 - 40) * 100) / 100)
   eq('cuenta los días con neto real', tn.diasConNetoManual, 1)
-  eq('un día sin venta no suma neto', netoDia(stripe, undefined), 0)
+  eq('un día sin venta no suma neto', netoDia(compras, undefined), 0)
 }
 
 section('SYNC AL ABRIR · cuándo hace falta')
@@ -488,6 +442,28 @@ section('SYNC AL ABRIR · cuándo hace falta')
   ok('sincronizada hace 7 h → sí', necesitaSincronizar([c(true, '2026-09-28T08:00:00Z')], ahora))
   ok('una pausada vieja no dispara nada', !necesitaSincronizar([c(false, null), c(true, '2026-09-28T14:00:00Z')], ahora))
   ok('sin campañas → no', !necesitaSincronizar([], ahora))
+}
+
+section('HOY EN CURSO · cuenta en los totales, no en el semáforo')
+{
+  const { armarEstado } = await import('./.ads/load.mjs')
+  const wa = {
+    id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Ebook', moneda: 'BOB', tipoConversion: 'venta_manual',
+    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+  }
+  const met = (fecha, gasto) => ({ fecha, gasto, resultados: 10, alcance: null, impresiones: null, frecuencia: 2, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null })
+  const metricas = [...Array(14)].map((_, i) => met(sumarDias(AYER, -i), 54.36))
+  const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: 4, neto: null, nota: null }))
+  // Hoy a media tarde: mucho gasto y todavía ninguna venta cargada.
+  const conHoy = [...metricas, met(HOY, 400)]
+  const r = armarEstado(wa, conHoy, ventas, null, HOY)
+  eq('el semáforo sigue verde', r.estado.color, 'verde')
+  ok('sin foco rojo por el día a medias', !r.estado.banderas.some(b => b.tipo === 'foco_rojo'))
+  eq('los totales sí suman el gasto de hoy', Math.round(r.totales.gasto * 100) / 100, Math.round((14 * 54.36 + 400) * 100) / 100)
+
+  const soloHoy = armarEstado(wa, [met(HOY, 30)], [], null, HOY)
+  eq('campaña que arrancó hoy: sin datos', soloHoy.estado.accion, 'sin_datos')
+  ok('y lo explica', /todavía está en curso/.test(soloHoy.estado.mensaje), soloHoy.estado.mensaje)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

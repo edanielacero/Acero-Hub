@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { calcularEstado } from './calc'
 import type {
-  Campana, CampanaConEstado, Cambio, FilaDiaria, MetricaDiaria, Moneda, PagoStripeDia,
+  Campana, CampanaConEstado, Cambio, FilaDiaria, MetricaDiaria, Moneda,
   TipoCambio, TipoConversion, Totales, VentaManual,
 } from './types'
 
@@ -10,8 +10,6 @@ export const CAMPANA_COLS =
 export const METRICA_COLS =
   'campaign_id, fecha, gasto, alcance, impresiones, frecuencia, cpm, clics_enlace, cpc_enlace, ctr_enlace, resultados, costo_por_resultado, landing_page_views, pagos_iniciados'
 export const VENTA_COLS = 'campaign_id, fecha, cantidad, neto, nota'
-export const PAGO_COLS =
-  'campaign_id, fecha, compras_exitosas, monto_total, pagos_fallidos, pagos_incompletos, tres_ds_solicitados, tres_ds_exitosos, decline_reasons'
 export const CAMBIO_COLS = 'id, campaign_id, fecha, tipo, detalle'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -58,19 +56,6 @@ export function mapVenta(r: Row): VentaManual {
   return { fecha: r.fecha, cantidad: num(r.cantidad), neto: num(r.neto), nota: r.nota ?? null }
 }
 
-export function mapPago(r: Row): PagoStripeDia {
-  return {
-    fecha: r.fecha,
-    comprasExitosas: Number(r.compras_exitosas),
-    montoTotal: Number(r.monto_total),
-    pagosFallidos: Number(r.pagos_fallidos),
-    pagosIncompletos: Number(r.pagos_incompletos),
-    tresDsSolicitados: Number(r.tres_ds_solicitados),
-    tresDsExitosos: Number(r.tres_ds_exitosos),
-    declineReasons: r.decline_reasons ?? null,
-  }
-}
-
 export function mapCambio(r: Row): Cambio {
   return { id: r.id, fecha: r.fecha, tipo: r.tipo as TipoCambio, detalle: r.detalle ?? null }
 }
@@ -87,29 +72,27 @@ export function hoyServidor(): string {
 }
 
 /**
- * De dónde salen las ventas de una campaña, mirando su historial COMPLETO.
+ * De dónde salen las ventas. WhatsApp: las carga el usuario. Compras: las que
+ * reporta Meta (evento de compra), corregibles a mano día por día.
  *
- * Una campaña de Stripe sin un solo día de Stripe (la clave todavía no está
- * configurada, o nunca sincronizó) no tiene cero ventas: tiene las que reporta
- * Meta. Tratarlas como cero pintaba un foco rojo falso. En cuanto aparece un
- * día de Stripe, Stripe manda.
+ * (Hubo una integración con la API de Stripe; se sacó el 2026-09-28 por
+ * decisión del usuario. La tabla ads_pagos_stripe quedó en la base, sin uso.)
  */
-export function fuenteDeVentas(campana: Campana, pagosHistoricos: PagoStripeDia[]): Totales['fuenteVentas'] {
-  if (campana.tipoConversion === 'venta_manual') return 'manual'
-  return pagosHistoricos.length > 0 ? 'stripe' : 'meta'
+export function fuenteDeVentas(campana: Campana): Totales['fuenteVentas'] {
+  return campana.tipoConversion === 'venta_manual' ? 'manual' : 'meta'
 }
 
 export interface VentaDia {
   fecha: string
   ventas: number
-  /** Facturación del día: lo cobrado en Stripe, o ventas × precio. */
+  /** Facturación del día: ventas × precio. */
   ingreso: number
   /**
    * `editada`: en una campaña de compras, el usuario corrigió a mano el número
-   * que venía de Stripe o de Meta. Pisa al automático solo ese día.
+   * que reportó Meta. Pisa al automático solo ese día.
    */
-  origen: 'manual' | 'stripe' | 'meta' | 'editada'
-  /** Neto cargado a mano (compras): lo depositado después de comisiones. */
+  origen: 'manual' | 'meta' | 'editada'
+  /** Neto cargado a mano (compras): lo recibido después de comisiones. */
   neto: number | null
 }
 
@@ -119,29 +102,22 @@ export interface VentaDia {
  * ventas por su cuenta, tarde o temprano dirían números distintos.
  *
  * En WhatsApp cada fila de ads_ventas_manuales ES la venta. En compras, una fila
- * ahí es una corrección que pisa a Stripe (o a Meta, sin Stripe) ese día.
+ * ahí es una corrección de ese día: la cantidad pisa a Meta y el neto es lo
+ * recibido después de comisiones; cada uno por separado.
  */
-export function ventasPorDia(
-  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], pagos: PagoStripeDia[],
-  fuente: Totales['fuenteVentas'] = fuenteDeVentas(campana, pagos),
-): Map<string, VentaDia> {
+export function ventasPorDia(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): Map<string, VentaDia> {
   const out = new Map<string, VentaDia>()
   const precio = campana.precioVenta
 
-  if (fuente === 'manual') {
+  if (fuenteDeVentas(campana) === 'manual') {
     for (const v of ventas) {
       if (v.cantidad == null) continue
       out.set(v.fecha, { fecha: v.fecha, ventas: v.cantidad, ingreso: v.cantidad * precio, origen: 'manual', neto: null })
     }
     return out
   }
-  if (fuente === 'stripe') {
-    for (const p of pagos) out.set(p.fecha, { fecha: p.fecha, ventas: p.comprasExitosas, ingreso: p.montoTotal, origen: 'stripe', neto: null })
-  } else {
-    for (const m of metricas) out.set(m.fecha, { fecha: m.fecha, ventas: m.resultados, ingreso: m.resultados * precio, origen: 'meta', neto: null })
-  }
-  // Correcciones: cada campo pisa solo lo suyo. Un neto sin cantidad deja las
-  // ventas en automático.
+
+  for (const m of metricas) out.set(m.fecha, { fecha: m.fecha, ventas: m.resultados, ingreso: m.resultados * precio, origen: 'meta', neto: null })
   for (const v of ventas) {
     const base = out.get(v.fecha)
     const corrige = v.cantidad != null
@@ -149,7 +125,7 @@ export function ventasPorDia(
       fecha: v.fecha,
       ventas: corrige ? v.cantidad! : base?.ventas ?? 0,
       ingreso: corrige ? v.cantidad! * precio : base?.ingreso ?? 0,
-      origen: corrige ? 'editada' : base?.origen ?? (fuente === 'stripe' ? 'stripe' : 'meta'),
+      origen: corrige ? 'editada' : 'meta',
       neto: v.neto,
     })
   }
@@ -170,11 +146,8 @@ export function netoDia(campana: Campana, v: VentaDia | undefined): number {
  * Las filas diarias que entiende calc.ts: métricas de Meta + la venta real del
  * día (Sprint 1 §4.1).
  */
-export function construirFilas(
-  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], pagos: PagoStripeDia[],
-  fuente: Totales['fuenteVentas'] = fuenteDeVentas(campana, pagos),
-): FilaDiaria[] {
-  const reales = ventasPorDia(campana, metricas, ventas, pagos, fuente)
+export function construirFilas(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): FilaDiaria[] {
+  const reales = ventasPorDia(campana, metricas, ventas)
 
   const filas = new Map<string, FilaDiaria>()
   for (const m of metricas) {
@@ -196,18 +169,10 @@ export function construirFilas(
   return [...filas.values()].sort((a, b) => a.fecha.localeCompare(b.fecha))
 }
 
-/**
- * `fuente` se pasa de afuera cuando se calculan totales de un RANGO: el rango
- * puede no tener días de Stripe aunque el historial sí, y no por eso tiene que
- * cambiar de fuente.
- */
-export function calcularTotales(
-  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], pagos: PagoStripeDia[],
-  fuente: Totales['fuenteVentas'] = fuenteDeVentas(campana, pagos),
-): Totales {
+export function calcularTotales(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): Totales {
   const s = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0)
   const gasto = s(metricas.map(m => m.gasto))
-  const dias = [...ventasPorDia(campana, metricas, ventas, pagos, fuente).values()]
+  const dias = [...ventasPorDia(campana, metricas, ventas).values()]
   const conversiones = s(dias.map(d => d.ventas))
   const ingreso = s(dias.map(d => d.ingreso))
   const neto = s(dias.map(d => netoDia(campana, d)))
@@ -230,36 +195,44 @@ export function calcularTotales(
     pagosIniciados: s(metricas.map(m => m.pagosIniciados)),
     costoPorConversion: conversiones > 0 ? gasto / conversiones : null,
     dias: metricas.length,
-    fuenteVentas: fuente,
+    fuenteVentas: fuenteDeVentas(campana),
   }
 }
 
-/**
- * El semáforo de una campaña. `fuente` se pasa cuando se calcula sobre un rango
- * (el dashboard con filtro de fechas), por la misma razón que en los totales.
- */
+/** El semáforo de una campaña, más sus totales. */
 export function armarEstado(
   campana: Campana,
   metricas: MetricaDiaria[],
   ventas: VentaManual[],
-  pagos: PagoStripeDia[],
   ultimoCambio: string | null,
   hoy: string,
-  fuente: Totales['fuenteVentas'] = fuenteDeVentas(campana, pagos),
 ): CampanaConEstado {
-  const totales = calcularTotales(campana, metricas, ventas, pagos, fuente)
-  const estado = calcularEstado({
+  // Los totales (indicadores, tabla) incluyen hoy: esa plata ya se gastó.
+  const totales = calcularTotales(campana, metricas, ventas)
+
+  // El semáforo NO: hoy está en curso. A media tarde hay gasto de hoy y las
+  // ventas todavía no llegaron; leerlo con las reglas daría falsas alarmas
+  // ("3 días sin ventas") o sacaría a una campaña sana de "sana".
+  const completos = <T extends { fecha: string }>(xs: T[]) => xs.filter(x => x.fecha < hoy)
+  const m = completos(metricas), v = completos(ventas)
+  const t = calcularTotales(campana, m, v)
+  let estado = calcularEstado({
     tipoConversion: campana.tipoConversion,
     precioVenta: campana.precioVenta,
     margenVenta: campana.margenVenta,
     roasObjetivoManual: campana.roasObjetivo,
-    metricas: construirFilas(campana, metricas, ventas, pagos, fuente),
-    conversionesConfirmadas: totales.conversiones,
-    ingresoTotal: totales.ingreso,
-    gastoTotal: totales.gasto,
+    metricas: construirFilas(campana, m, v),
+    conversionesConfirmadas: t.conversiones,
+    ingresoTotal: t.ingreso,
+    gastoTotal: t.gasto,
     ultimoCambioFecha: ultimoCambio ? diaBolivia(new Date(ultimoCambio)) : null,
     hoy,
   })
+
+  // Campaña que arrancó hoy: sí hay datos, solo que todavía no hay un día entero.
+  if (estado.accion === 'sin_datos' && metricas.some(x => x.fecha === hoy)) {
+    estado = { ...estado, mensaje: 'Solo hay datos de hoy, que todavía está en curso. El semáforo arranca con el primer día completo.' }
+  }
   return { campana, estado, totales }
 }
 
@@ -276,22 +249,20 @@ function agrupar<T>(filas: Row[], map: (r: Row) => T): Map<string, T[]> {
 /**
  * Todas las campañas del usuario con su estado calculado. RLS filtra por
  * usuario; el volumen es de decenas de campañas × días, así que se trae todo en
- * cinco consultas en paralelo y se cruza en memoria.
+ * cuatro consultas en paralelo y se cruza en memoria.
  */
 export async function cargarCampanas(supabase: SupabaseClient, hoy = hoyServidor()): Promise<CampanaConEstado[]> {
-  const [c, m, v, p, k] = await Promise.all([
+  const [c, m, v, k] = await Promise.all([
     supabase.from('ads_campaigns').select(CAMPANA_COLS).order('created_at', { ascending: true }),
     supabase.from('ads_metricas_diarias').select(METRICA_COLS),
     supabase.from('ads_ventas_manuales').select(VENTA_COLS),
-    supabase.from('ads_pagos_stripe').select(PAGO_COLS),
     supabase.from('ads_cambios_log').select('campaign_id, fecha').order('fecha', { ascending: false }),
   ])
-  const error = c.error ?? m.error ?? v.error ?? p.error ?? k.error
+  const error = c.error ?? m.error ?? v.error ?? k.error
   if (error) throw new Error(error.message)
 
   const metricas = agrupar(m.data ?? [], mapMetrica)
   const ventas = agrupar(v.data ?? [], mapVenta)
-  const pagos = agrupar(p.data ?? [], mapPago)
   const ultimoCambio = new Map<string, string>()
   for (const r of k.data ?? []) if (!ultimoCambio.has(r.campaign_id)) ultimoCambio.set(r.campaign_id, r.fecha)
 
@@ -301,7 +272,6 @@ export async function cargarCampanas(supabase: SupabaseClient, hoy = hoyServidor
       campana,
       metricas.get(campana.id) ?? [],
       ventas.get(campana.id) ?? [],
-      pagos.get(campana.id) ?? [],
       ultimoCambio.get(campana.id) ?? null,
       hoy,
     )
@@ -311,32 +281,29 @@ export async function cargarCampanas(supabase: SupabaseClient, hoy = hoyServidor
 export interface DetalleCampana extends CampanaConEstado {
   metricas: MetricaDiaria[]
   ventas: VentaManual[]
-  pagos: PagoStripeDia[]
   cambios: Cambio[]
   hoy: string
 }
 
 /** Una campaña con todo su historial, para el dashboard. `null` si no existe. */
 export async function cargarDetalle(supabase: SupabaseClient, id: string, hoy = hoyServidor()): Promise<DetalleCampana | null> {
-  const [c, m, v, p, k] = await Promise.all([
+  const [c, m, v, k] = await Promise.all([
     supabase.from('ads_campaigns').select(CAMPANA_COLS).eq('id', id).maybeSingle(),
     supabase.from('ads_metricas_diarias').select(METRICA_COLS).eq('campaign_id', id).order('fecha'),
     supabase.from('ads_ventas_manuales').select(VENTA_COLS).eq('campaign_id', id).order('fecha', { ascending: false }),
-    supabase.from('ads_pagos_stripe').select(PAGO_COLS).eq('campaign_id', id).order('fecha'),
     supabase.from('ads_cambios_log').select(CAMBIO_COLS).eq('campaign_id', id).order('fecha', { ascending: false }),
   ])
-  const error = c.error ?? m.error ?? v.error ?? p.error ?? k.error
+  const error = c.error ?? m.error ?? v.error ?? k.error
   if (error) throw new Error(error.message)
   if (!c.data) return null
 
   const campana = mapCampana(c.data)
   const metricas = (m.data ?? []).map(mapMetrica)
   const ventas = (v.data ?? []).map(mapVenta)
-  const pagos = (p.data ?? []).map(mapPago)
   const cambios = (k.data ?? []).map(mapCambio)
 
   return {
-    ...armarEstado(campana, metricas, ventas, pagos, cambios[0]?.fecha ?? null, hoy),
-    metricas, ventas, pagos, cambios, hoy,
+    ...armarEstado(campana, metricas, ventas, cambios[0]?.fecha ?? null, hoy),
+    metricas, ventas, cambios, hoy,
   }
 }

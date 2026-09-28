@@ -152,22 +152,19 @@ try {
   ok('RLS impide escribir con el user_id de otro', res.status >= 400, `status ${res.status}`)
 
   section('ESTADO CON DATOS · caso TOEFL (colchón bajo el objetivo)')
-  // 14 días: 6 compras/día a $18,80 cada una, 8 resultados de Meta por día.
-  const metricas = [], pagos = []
+  // 14 días: 8 compras/día según Meta a $18,80 cada una.
+  const metricas = []
   for (let i = 14; i >= 1; i--) {
-    metricas.push({ user_id: A.id, campaign_id: creada.id, fecha: hace(i), gasto: 112.8, resultados: 8, impresiones: 3000, clics_enlace: 90, landing_page_views: 60, pagos_iniciados: 15, frecuencia: 1.4 })
-    pagos.push({ user_id: A.id, campaign_id: creada.id, fecha: hace(i), compras_exitosas: 6, monto_total: 144, pagos_fallidos: 1, decline_reasons: { do_not_honor: 1 } })
+    metricas.push({ user_id: A.id, campaign_id: creada.id, fecha: hace(i), gasto: 150.4, resultados: 8, impresiones: 3000, clics_enlace: 90, landing_page_views: 60, pagos_iniciados: 15, frecuencia: 1.4 })
   }
   res = await rest(A, '/ads_metricas_diarias', { method: 'POST', body: JSON.stringify(metricas) })
   eq('A inserta sus métricas por RLS', res.status, 201)
-  res = await rest(A, '/ads_pagos_stripe', { method: 'POST', body: JSON.stringify(pagos) })
-  eq('A inserta sus pagos por RLS', res.status, 201)
 
   datos = await api(A, `/api/ads-analizador/campaigns/${creada.id}`).then(r => r.json())
   ok('ROAS ≈ 1.28', Math.abs(datos.estado.roasActual - 24 / 18.8) < 0.001, String(datos.estado.roasActual))
   eq('amarillo / escalar horizontal', [datos.estado.color, datos.estado.accion], ['amarillo', 'escalar_horizontal'])
   eq('trae los 14 días de métricas', datos.metricas.length, 14)
-  eq('84 compras', datos.totales.conversiones, 84)
+  eq('112 compras según Meta', datos.totales.conversiones, 112)
 
   section('EDITAR')
   res = await patch(A, `/api/ads-analizador/campaigns/${creada.id}`, { roasObjetivo: 1.2 })
@@ -192,8 +189,6 @@ try {
   eq('borra → 200', res.status, 200)
   const quedan = await admin(`/rest/v1/ads_metricas_diarias?campaign_id=eq.${creada.id}&select=id`).then(r => r.json())
   eq('se llevó las métricas', quedan.length, 0)
-  const pagosQuedan = await admin(`/rest/v1/ads_pagos_stripe?campaign_id=eq.${creada.id}&select=id`).then(r => r.json())
-  eq('se llevó los pagos', pagosQuedan.length, 0)
   res = await api(A, `/api/ads-analizador/campaigns/${creada.id}`, { method: 'DELETE' })
   eq('borrar dos veces → 404', res.status, 404)
   datos = await api(B, '/api/ads-analizador/campaigns').then(r => r.json())
@@ -226,18 +221,15 @@ try {
   res = await api(A, '/api/ads-analizador/meta/campaigns-disponibles?ad_account_id=act_123456')
   ok('cuenta inexistente o sin token → 502/503 con mensaje', [502, 503].includes(res.status) && !!(await res.json()).error, `status ${res.status}`)
 
-  section('SYNC · orquestación contra la base real (Meta/Stripe simulados)')
+  section('SYNC · orquestación contra la base real (Meta simulado)')
   {
     const { createClient } = await import('@supabase/supabase-js')
-    const { sincronizar } = await import('./.ads/sync.mjs')
-    const { StripeError } = await import('./.ads/stripe-api.mjs')
-    const { diasEntre } = await import('./.ads/sync.mjs')
+    const { sincronizar, diasEntre } = await import('./.ads/sync.mjs')
     const sbA = createClient(URL_, ANON, { global: { headers: { Authorization: `Bearer ${A.token}` } }, auth: { persistSession: false } })
     const HOY = hace(0)
 
     let gastoPorDia = 10
     const fallarMeta = new Set()
-    let stripeSinClave = false
     const deps = {
       traerInsights: async (metaId, desde, hasta) => {
         if (fallarMeta.has(metaId)) throw new Error('Meta no reconoce ese ID de campaña o de cuenta.')
@@ -247,27 +239,18 @@ try {
           landing_page_views: 8, pagos_iniciados: 3, raw_json: {},
         }))
       },
-      listarPaymentIntents: async (desde, hasta) => {
-        if (stripeSinClave) throw new StripeError('Falta configurar STRIPE_SECRET_KEY_ADS.')
-        return diasEntre(desde, hasta).map(f => ({
-          currency: 'usd', status: 'succeeded', amount: 2400, amount_received: 2400,
-          created: Math.floor(Date.parse(`${f}T12:00:00-04:00`) / 1000),
-        }))
-      },
     }
 
-    const s1 = (await post(A, '/api/ads-analizador/campaigns', { ...CAMPANA, metaCampaignId: '120211000000000011', nombre: 'Stripe 1' }).then(r => r.json())).campana
-    const cargarSync = async () => (await sbA.from('ads_campaigns').select('id, user_id, nombre, meta_campaign_id, tipo_conversion, moneda, activo').eq('activo', true)).data
+    const s1 = (await post(A, '/api/ads-analizador/campaigns', { ...CAMPANA, metaCampaignId: '120211000000000011', nombre: 'Compras 1' }).then(r => r.json())).campana
+    const cargarSync = async () => (await sbA.from('ads_campaigns').select('id, user_id, nombre, meta_campaign_id, tipo_conversion, activo').eq('activo', true)).data
     const filas = async (tabla, id) => (await admin(`/rest/v1/${tabla}?campaign_id=eq.${id}&select=*&order=fecha`).then(r => r.json()))
 
     let r = await sincronizar(sbA, await cargarSync(), HOY, deps)
     const rs1 = r.resultados.find(x => x.campaign_id === s1.id)
     eq('primer sync: 30 días', rs1?.dias_sincronizados, 30)
     eq('30 filas de métricas', (await filas('ads_metricas_diarias', s1.id)).length, 30)
-    const pagosS1 = await filas('ads_pagos_stripe', s1.id)
-    eq('30 filas de pagos', pagosS1.length, 30)
-    eq('1 compra de $24 por día', [pagosS1[0].compras_exitosas, Number(pagosS1[0].monto_total)], [1, 24])
-    eq('el último día es ayer, no hoy', (await filas('ads_metricas_diarias', s1.id)).at(-1).fecha, hace(1))
+    eq('llega hasta hoy (en curso)', (await filas('ads_metricas_diarias', s1.id)).at(-1).fecha, hace(0))
+    ok('no escribe nada en la tabla vieja de Stripe', (await filas('ads_pagos_stripe', s1.id)).length === 0)
     const conSync = (await sbA.from('ads_campaigns').select('ultima_sync').eq('id', s1.id).single()).data
     ok('marca ultima_sync', !!conSync.ultima_sync)
 
@@ -277,39 +260,27 @@ try {
     eq('re-sync no duplica filas', met.length, 30)
     eq('re-trae solo los últimos 3 días', met.map(m => Number(m.gasto)), [...Array(27).fill(10), 20, 20, 20])
 
-    section('SYNC · guard de un solo checkout de Stripe')
-    const s2 = (await post(A, '/api/ads-analizador/campaigns', { ...CAMPANA, metaCampaignId: '120211000000000012', nombre: 'Stripe 2' }).then(r => r.json())).campana
+    section('SYNC · varias campañas de compras a la vez')
+    const s2 = (await post(A, '/api/ads-analizador/campaigns', { ...CAMPANA, metaCampaignId: '120211000000000012', nombre: 'Compras 2' }).then(r => r.json())).campana
     r = await sincronizar(sbA, await cargarSync(), HOY, deps)
-    eq('omite Stripe y lo dice', r.omitidas[0]?.motivo, 'mas_de_una_campana_stripe_activa')
-    eq('no le reparte pagos a la segunda', (await filas('ads_pagos_stripe', s2.id)).length, 0)
-    eq('pero Meta sí se sincroniza para las dos', (await filas('ads_metricas_diarias', s2.id)).length, 30)
+    ok('ya no hay "un solo checkout": las dos se sincronizan', r.resultados.filter(x => [s1.id, s2.id].includes(x.campaign_id)).every(x => x.ok))
+    eq('la segunda tiene sus 30 días', (await filas('ads_metricas_diarias', s2.id)).length, 30)
 
     section('SYNC · una campaña que falla no frena a las demás')
-    fallarMeta.add(s2.meta_campaign_id ?? '120211000000000012')
+    fallarMeta.add('120211000000000012')
     r = await sincronizar(sbA, await cargarSync(), HOY, deps)
     eq('la que falla reporta el error', r.resultados.find(x => x.campaign_id === s2.id)?.ok, false)
     eq('la otra sigue ok', r.resultados.find(x => x.campaign_id === s1.id)?.ok, true)
 
-    section('SYNC · pausadas y sin clave de Stripe')
+    section('SYNC · pausadas')
     await patch(A, `/api/ads-analizador/campaigns/${s2.id}`, { activo: false })
     fallarMeta.clear()
-    stripeSinClave = true
     r = await sincronizar(sbA, await cargarSync(), HOY, deps)
     ok('la pausada no se procesa', !r.resultados.some(x => x.campaign_id === s2.id))
-    eq('sin clave de Stripe: se omite, no falla', r.omitidas.map(o => o.motivo), ['stripe_sin_credenciales'])
-    eq('Meta sigue ok', r.resultados.find(x => x.campaign_id === s1.id)?.ok, true)
-
-    section('SYNC · Stripe conectado tarde completa el historial')
-    // Stripe nunca sincronizó esta campaña, pero Meta ya tiene 30 días.
-    await admin(`/rest/v1/ads_pagos_stripe?campaign_id=eq.${s1.id}`, { method: 'DELETE' })
-    stripeSinClave = false
-    r = await sincronizar(sbA, await cargarSync(), HOY, deps)
-    eq('trae los 30 días de Stripe, no solo los últimos 3', (await filas('ads_pagos_stripe', s1.id)).length, 30)
-    r = await sincronizar(sbA, await cargarSync(), HOY, deps)
-    eq('después ya re-sincroniza normal sin duplicar', (await filas('ads_pagos_stripe', s1.id)).length, 30)
+    eq('la activa sigue ok', r.resultados.find(x => x.campaign_id === s1.id)?.ok, true)
 
     section('SYNC · RLS: A no puede sincronizar hacia campañas de B')
-    const trampa = [{ id: deB.id, user_id: A.id, nombre: 'ajena', meta_campaign_id: '1', tipo_conversion: 'venta_manual', moneda: 'USD', activo: true }]
+    const trampa = [{ id: deB.id, user_id: A.id, nombre: 'ajena', meta_campaign_id: '1', tipo_conversion: 'venta_manual', activo: true }]
     r = await sincronizar(sbA, trampa, HOY, deps)
     eq('falla la escritura sobre la campaña ajena', r.resultados[0].ok, false)
     eq('B no recibió filas', (await filas('ads_metricas_diarias', deB.id)).length, 0)
@@ -335,30 +306,30 @@ try {
   eq('cantidad con decimales → 400', res.status, 400)
   res = await post(A, V, { fecha: hace(0), cantidad: -1 })
   eq('cantidad negativa → 400', res.status, 400)
-  const stripe1 = (await api(A, '/api/ads-analizador/campaigns').then(r => r.json())).campaigns.find(x => x.campana.tipoConversion === 'compra_stripe')
-  // En compras, una venta cargada a mano es una corrección de ese día.
-  const S = `/api/ads-analizador/campaigns/${stripe1.campana.id}`
+  const compras1 = (await api(A, '/api/ads-analizador/campaigns').then(r => r.json())).campaigns.find(x => x.campana.tipoConversion === 'compra_stripe')
+  // En compras, una venta cargada a mano es una corrección de ese día sobre Meta.
+  const S = `/api/ads-analizador/campaigns/${compras1.campana.id}`
   const antes = await api(A, S).then(r => r.json())
-  const diaStripe = antes.pagos.at(-1).fecha
-  res = await post(A, `${S}/ventas`, { fecha: diaStripe, cantidad: 9 })
-  eq('corregir las compras de un día en Stripe', res.status, 200)
+  const diaCompras = antes.metricas.at(-2).fecha
+  res = await post(A, `${S}/ventas`, { fecha: diaCompras, cantidad: 9 })
+  eq('corregir las compras de un día', res.status, 200)
   let despues = await api(A, S).then(r => r.json())
-  eq('la corrección suma al total', despues.totales.conversiones - antes.totales.conversiones, 9 - antes.pagos.at(-1).comprasExitosas)
-  res = await api(A, `${S}/ventas?fecha=${diaStripe}`, { method: 'DELETE' })
+  eq('la corrección suma al total', despues.totales.conversiones - antes.totales.conversiones, 9 - antes.metricas.at(-2).resultados)
+  res = await api(A, `${S}/ventas?fecha=${diaCompras}`, { method: 'DELETE' })
   eq('volver al automático', res.status, 200)
   despues = await api(A, S).then(r => r.json())
-  eq('el total vuelve a ser el de Stripe', despues.totales.conversiones, antes.totales.conversiones)
+  eq('el total vuelve a ser el de Meta', despues.totales.conversiones, antes.totales.conversiones)
   // Neto real (después de comisiones) sin tocar las ventas automáticas.
-  res = await post(A, `${S}/ventas`, { fecha: diaStripe, neto: '20,50' })
+  res = await post(A, `${S}/ventas`, { fecha: diaCompras, neto: '20,50' })
   eq('cargar solo el neto de un día', res.status, 200)
   despues = await api(A, S).then(r => r.json())
-  eq('las compras siguen siendo las de Stripe', despues.totales.conversiones, antes.totales.conversiones)
+  eq('las compras siguen siendo las de Meta', despues.totales.conversiones, antes.totales.conversiones)
   eq('la facturación bruta no cambia', despues.totales.ingreso, antes.totales.ingreso)
   eq('cuenta 1 día con neto real', despues.totales.diasConNetoManual, 1)
   ok('el profit usa el neto real de ese día', despues.totales.profit !== antes.totales.profit, `${antes.totales.profit} → ${despues.totales.profit}`)
-  res = await post(A, `${S}/ventas`, { fecha: diaStripe })
+  res = await post(A, `${S}/ventas`, { fecha: diaCompras })
   eq('ni ventas ni neto → 400', res.status, 400)
-  await api(A, `${S}/ventas?fecha=${diaStripe}`, { method: 'DELETE' })
+  await api(A, `${S}/ventas?fecha=${diaCompras}`, { method: 'DELETE' })
   res = await api(A, `${S}/ventas?fecha=2099-01-01`, { method: 'DELETE' })
   eq('borrar con fecha futura → 400', res.status, 400)
   res = await post(B, V, { fecha: hace(0), cantidad: 99 })

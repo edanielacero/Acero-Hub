@@ -1,6 +1,6 @@
 'use client'
 
-import { IconBrandStripe, IconBrandWhatsapp, IconChevronRight } from '@tabler/icons-react'
+import { IconBrandWhatsapp, IconChevronRight, IconShoppingCart } from '@tabler/icons-react'
 import type { CampanaConEstado } from '@/lib/ads-analizador/types'
 import { fmtEntero, fmtMoneda } from '@/lib/ads-analizador/format'
 import { AdsLink } from '../router'
@@ -11,7 +11,7 @@ import { Chip, PillEstado, estiloEstado } from './ui'
 
 export function TipoChip({ tipo }: { tipo: 'compra_stripe' | 'venta_manual' }) {
   return tipo === 'compra_stripe'
-    ? <Chip icono={<IconBrandStripe size={13} />}>Stripe</Chip>
+    ? <Chip icono={<IconShoppingCart size={13} />}>Compras</Chip>
     : <Chip icono={<IconBrandWhatsapp size={13} />}>WhatsApp</Chip>
 }
 

@@ -83,14 +83,12 @@ alcanza para esto.
 La app usa la Graph API **v24.0** (`lib/ads-analizador/meta-api.ts`,
 `META_API_VERSION`). Si Meta la da de baja, es cambiar esa constante.
 
-## 2. Clave de Stripe — `STRIPE_SECRET_KEY_ADS`
+## 2. Stripe — no se usa
 
-Sin ella, el sync de las campañas `compra_stripe` sigue trayendo Meta y
-simplemente avisa *"Falta configurar la clave de Stripe"* — no falla.
-
-1. Stripe → Developers → API keys → **Create restricted key**.
-2. Permiso **Read** sobre **PaymentIntents** y **Charges**. Nada de escritura.
-3. Guardarla como `STRIPE_SECRET_KEY_ADS` en `.env.local` y en Vercel.
+Se sacó la integración con la API de Stripe (2026-09-28, decisión del usuario).
+Las campañas de compras toman las compras que reporta Meta, corregibles a mano
+día por día, y el neto después de comisiones se carga a mano. No hace falta
+`STRIPE_SECRET_KEY_ADS`.
 
 ## 3. Acceso a la mini-app ✅
 
@@ -125,7 +123,5 @@ la lista (`EVENTO_OPTIMIZADO` en `meta-api.ts`).
 
 | Qué | Por qué | Qué haría falta |
 |---|---|---|
-| Con **dos campañas `compra_stripe` activas** del mismo usuario, Stripe no se reparte a ninguna | Stripe no sabe qué campaña generó cada pago; adivinar duplicaría ventas | Pasar el id de campaña en `metadata` del Payment Intent (maestro, "Atribución Stripe → campaña") |
-| La clave de Stripe es **una sola cuenta** para toda la app | Es la del dueño del Hub; si otro usuario tuviera una campaña de Stripe, vería los pagos de esa cuenta | Clave de Stripe por usuario — no hace falta mientras seas el único que usa esta mini-app |
 | El embudo arranca en **impresiones**, no en alcance | El alcance diario no se puede sumar sin contar dos veces a la misma persona | Pedir a Meta el alcance del rango completo (otra consulta por campaña) |
 | El sync trae **hasta ayer** | El día en curso está incompleto; se completa en el sync de mañana | — |

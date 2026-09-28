@@ -69,7 +69,7 @@ export function mapearInsight(row: any, tipo: TipoConversion): FilaMeta {
   const gasto = Number(row.spend ?? 0)
   const resultados = primera(row.actions, EVENTO_OPTIMIZADO[tipo]) ?? 0
   const costoMeta = primera(row.cost_per_action_type, EVENTO_OPTIMIZADO[tipo])
-  const esStripe = tipo === 'compra_stripe'
+  const esCompra = tipo === 'compra_stripe'
 
   return {
     fecha: row.date_start,
@@ -83,8 +83,8 @@ export function mapearInsight(row: any, tipo: TipoConversion): FilaMeta {
     ctr_enlace: n(row.inline_link_click_ctr),
     resultados,
     costo_por_resultado: costoMeta ?? (resultados > 0 ? gasto / resultados : null),
-    landing_page_views: esStripe ? primera(row.actions, LANDING) ?? 0 : null,
-    pagos_iniciados: esStripe ? primera(row.actions, CHECKOUT) ?? 0 : null,
+    landing_page_views: esCompra ? primera(row.actions, LANDING) ?? 0 : null,
+    pagos_iniciados: esCompra ? primera(row.actions, CHECKOUT) ?? 0 : null,
     raw_json: row,
   }
 }

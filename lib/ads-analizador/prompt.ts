@@ -15,7 +15,7 @@ import {
   RESULTADOS_MINIMOS_APRENDIZAJE, sumarDias,
 } from './calc'
 import { netoDia, ventasPorDia } from './load'
-import type { Campana, CampanaConEstado, Cambio, EstadoCampana, MetricaDiaria, PagoStripeDia, Totales, VentaManual } from './types'
+import type { Campana, CampanaConEstado, Cambio, EstadoCampana, MetricaDiaria, Totales, VentaManual } from './types'
 
 /** Días de historial diario que viajan en el prompt de una campaña. */
 export const DIAS_EN_PROMPT = 30
@@ -37,15 +37,15 @@ function reglas(): string {
 
 const ENCABEZADO = `Eres un analista de Meta Ads con criterio de negocio. Responde en español, tuteando, directo y sin relleno.
 
-Te paso datos exportados de mi herramienta "Ads Analizador". Solo lee Meta y Stripe; yo hago los cambios a mano en Ads Manager.
+Te paso datos exportados de mi herramienta "Ads Analizador". Solo lee Meta; yo hago los cambios a mano en Ads Manager.
 
 ## Reglas con las que trabajo
 ${reglas()}
 
 ## Cómo leer los datos
-- "resultados_meta" es el evento que optimiza Meta (compra, o conversación iniciada en campañas de WhatsApp). "ventas_reales" es la venta confirmada (Stripe o cargada a mano). No son lo mismo: en WhatsApp puede haber muchas conversaciones y pocas ventas.
-- "fuente_ventas" dice de dónde salen las ventas: "stripe" (cobros reales), "manual" (cargadas a mano, ingreso = ventas × precio) o "meta" (campaña de Stripe todavía sin datos de Stripe: se usan las compras que atribuye Meta, provisorio y menos confiable).
-- "neto" es lo que queda después de comisiones: el que depositó Stripe si lo cargué a mano ("neto_cargado_a_mano"), o facturación × (margen / precio) estimado. "profit" = neto − gasto (productos digitales, sin otro costo por venta).
+- "resultados_meta" es el evento que optimiza Meta (compra, o conversación iniciada en campañas de WhatsApp). "ventas_reales" son las ventas del día: en WhatsApp, las que cargué a mano; en compras web, las compras de Meta (corregidas a mano si hizo falta). En WhatsApp no son lo mismo: puede haber muchas conversaciones y pocas ventas.
+- "fuente_ventas": "manual" (ventas de WhatsApp cargadas a mano) o "meta" (compras que atribuye Meta; los días marcados "ventas_corregidas_a_mano" los corregí yo). La facturación es ventas × precio.
+- "neto" es lo que queda después de comisiones: el que recibí si lo cargué a mano ("neto_cargado_a_mano"), o facturación × (margen / precio) estimado. "profit" = neto − gasto (productos digitales, sin otro costo por venta).
 - Los montos están en la moneda de cada campaña. No sumes USD con BOB.
 - El sync trae hasta ayer; el día de hoy puede faltar.
 - "estado_app" es el veredicto que calculó mi herramienta con las reglas de arriba.`
@@ -53,7 +53,7 @@ ${reglas()}
 function campanaJson(c: Campana, e: EstadoCampana) {
   return {
     nombre: c.nombre,
-    tipo: c.tipoConversion === 'venta_manual' ? 'venta por WhatsApp (carga manual)' : 'compra por Stripe',
+    tipo: c.tipoConversion === 'venta_manual' ? 'venta por WhatsApp (carga manual)' : 'compra en la web (checkout)',
     moneda: c.moneda,
     activa: c.activo,
     precio_venta: c.precioVenta,
@@ -105,7 +105,6 @@ export interface DatosCampanaPrompt {
   totales: Totales
   metricas: MetricaDiaria[]
   ventas: VentaManual[]
-  pagos: PagoStripeDia[]
   cambios: Cambio[]
   hoy: string
 }
@@ -115,9 +114,8 @@ export function promptCampana(d: DatosCampanaPrompt): string {
   const { campana: c } = d
   const desde = sumarDias(d.hoy, -DIAS_EN_PROMPT)
   const manual = c.tipoConversion === 'venta_manual'
-  const fuente = d.totales.fuenteVentas
   // Las mismas ventas por día que ve el dashboard, con las correcciones a mano.
-  const ventasDia = ventasPorDia(c, d.metricas, d.ventas, d.pagos, fuente)
+  const ventasDia = ventasPorDia(c, d.metricas, d.ventas)
 
   const diario = d.metricas
     .filter(m => m.fecha >= desde)
@@ -143,20 +141,6 @@ export function promptCampana(d: DatosCampanaPrompt): string {
       }
     })
 
-  const stripe = fuente !== 'stripe' ? undefined : (() => {
-    const enRango = d.pagos.filter(p => p.fecha >= desde)
-    const motivos: Record<string, number> = {}
-    for (const p of enRango) for (const [k, v] of Object.entries(p.declineReasons ?? {})) motivos[k] = (motivos[k] ?? 0) + v
-    const suma = (f: (p: PagoStripeDia) => number) => enRango.reduce((s, p) => s + f(p), 0)
-    return {
-      compras_exitosas: suma(p => p.comprasExitosas),
-      pagos_rechazados: suma(p => p.pagosFallidos),
-      pagos_abandonados: suma(p => p.pagosIncompletos),
-      tres_ds_pedidos: suma(p => p.tresDsSolicitados),
-      tres_ds_aprobados: suma(p => p.tresDsExitosos),
-      motivos_de_rechazo: motivos,
-    }
-  })()
 
   const datos = {
     fecha_de_hoy: d.hoy,
@@ -164,7 +148,6 @@ export function promptCampana(d: DatosCampanaPrompt): string {
     estado_app: estadoJson(d.estado),
     totales_historicos: totalesJson(d.totales),
     [`ultimos_${DIAS_EN_PROMPT}_dias`]: diario,
-    ...(stripe ? { [`stripe_ultimos_${DIAS_EN_PROMPT}_dias`]: stripe } : {}),
     cambios_registrados: d.cambios.map(k => ({ fecha: k.fecha, tipo: k.tipo, detalle: k.detalle })),
   }
 
@@ -173,7 +156,7 @@ export function promptCampana(d: DatosCampanaPrompt): string {
 ## Qué necesito
 Analiza la campaña "${c.nombre}":
 1. **Diagnóstico** en 2-3 frases: ¿cómo está de verdad? ¿Coincides con el veredicto de la app ("estado_app")? Si no, explica por qué.
-2. **Dónde se pierde la plata o la gente**: el paso del embudo o el patrón diario que más pesa${manual ? ' (ojo con la diferencia entre conversaciones y ventas)' : ' (incluye los rechazos de Stripe si son relevantes)'}.
+2. **Dónde se pierde la plata o la gente**: el paso del embudo o el patrón diario que más pesa${manual ? ' (ojo con la diferencia entre conversaciones y ventas)' : ' (landing → checkout → compra)'}.
 3. **Qué haría esta semana**: 1 a 3 acciones concretas en Ads Manager, respetando el cooldown y la muestra chica.
 4. **Qué NO haría** todavía, y por qué.
 5. **Qué dato me falta** para decidir mejor, si falta alguno.
