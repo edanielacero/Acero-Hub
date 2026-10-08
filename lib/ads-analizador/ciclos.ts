@@ -14,9 +14,9 @@ import {
   CONVERSIONES_MINIMAS_MUESTRA, DIAS_VENTANA_DECISION, FRECUENCIA_FATIGA, MARGEN_PARADA_VERTICAL,
   diasDeCorte, diferenciaDias, round2, sumarDias,
 } from './calc'
-import { armarCiclos, armarEstado, construirFilas, iniciosDeCiclos, profitDelTramo, type CicloResumen } from './load'
+import { armarCiclos, armarEstado, construirFilas, diaBolivia, iniciosDeCiclos, profitDelTramo, type CicloResumen } from './load'
 import type {
-  Cambio, Campana, CicloGuardado, Color, EstadoCampana, EstadoCicloGuardado, EtapaCiclo, LlamadaDia, MetricaDiaria, ModoPanel,
+  BaseDuracion, Cambio, Campana, CicloGuardado, Color, EstadoCampana, EstadoCicloGuardado, EtapaCiclo, LlamadaDia, MetricaDiaria, ModoPanel,
   SnapshotCiclo, Veredicto, VentaManual, VistaCiclo,
 } from './types'
 
@@ -111,6 +111,7 @@ export function vistaDeEstado(e: EstadoCampana, cierre: Exclude<EstadoCicloGuard
     paraHoy: cierre ? null : n.piso,
     ventasEsperadas: e.cpa.esperado > 0 ? round2(c.gasto / e.cpa.esperado) : 0,
     roas: e.roasActual == null ? null : round2(e.roasActual),
+    duracionEstimada: !cierre && !c.duracionFija,
   }
 }
 
@@ -158,6 +159,7 @@ export interface OpCiclo {
   inicio: string
   estado: EstadoCicloGuardado
   diasCiclo: number | null
+  duracionBase: BaseDuracion | null
   fin: string | null
   snapshot: SnapshotCiclo | null
   /** Marcar como revisado (un cambio posterior lo deja revisado solo). */
@@ -196,21 +198,42 @@ function mismoJson(a: unknown, b: unknown): boolean {
 
 const unidadDe = (c: Campana) => (c.tipoConversion === 'llamadas' ? 'llamadas' : c.tipoConversion === 'venta_manual' ? 'ventas' : 'compras')
 
+/** Sin presupuesto diario en Meta, la duración se fija al cerrar este día con el gasto real. */
+export const DIAS_PARA_FIJAR_DURACION = 3
+
 /**
- * Duración fija del ciclo: max(7, día de corte), con el costo esperado del
- * día 1 y el presupuesto del cambio (o, si no se cargó, el gasto del día 1).
- * Null hasta que termina el día 1.
+ * Duración fija del ciclo: max(7, día de corte), con k = presupuesto diario /
+ * costo esperado. Se calcula una vez y no se mueve.
+ *
+ * - Con presupuesto diario en Meta leído el día del inicio o después (si es
+ *   anterior, podría ser el de antes del cambio): ese presupuesto y el costo
+ *   esperado con los datos previos al ciclo. Se fija desde el día del inicio.
+ * - Sin él (presupuesto total, o todavía no se leyó): el gasto real promedio
+ *   de los días 1 a 3 (completos: hoy nunca entra), al cerrar el día 3.
+ *
+ * Null mientras no se puede fijar; el panel la muestra estimada.
  */
 export function duracionAlAbrir(d: DatosCiclos, inicio: string, cambio: Cambio | null): number | null {
-  if (d.hoy <= inicio) return null
-  const hasta = sumarDias(inicio, 1)
-  const e = armarEstado(
-    d.campana, d.metricas.filter(m => m.fecha < hasta), d.ventas.filter(v => v.fecha < hasta),
+  return duracionConBase(d, inicio, cambio)?.dias ?? null
+}
+
+export function duracionConBase(d: DatosCiclos, inicio: string, cambio: Cambio | null): { dias: number; base: BaseDuracion } | null {
+  const c = d.campana
+  const modo = c.tipoConversion === 'llamadas' ? 'estandar' : c.modoCorte
+  const estadoHasta = (hasta: string) => armarEstado(
+    c, d.metricas.filter(m => m.fecha < hasta), d.ventas.filter(v => v.fecha < hasta),
     d.llamadas.filter(l => l.fecha < hasta), cambio, hasta, d.cpaReferencia ?? null,
   ).estado
-  const gastoDia = cambio?.presupuesto ?? d.metricas.find(m => m.fecha === inicio)?.gasto ?? 0
-  const modo = d.campana.tipoConversion === 'llamadas' ? 'estandar' : d.campana.modoCorte
-  return Math.max(DIAS_VENTANA_DECISION, diasDeCorte(gastoDia, e.cpa.esperado, modo))
+
+  if (c.presupuestoMeta && c.presupuestoMetaEn && diaBolivia(new Date(c.presupuestoMetaEn)) >= inicio) {
+    return { dias: Math.max(DIAS_VENTANA_DECISION, diasDeCorte(c.presupuestoMeta, estadoHasta(inicio).cpa.esperado, modo)), base: 'presupuesto_meta' }
+  }
+
+  const hasta = sumarDias(inicio, DIAS_PARA_FIJAR_DURACION)
+  if (d.hoy < hasta) return null
+  const dias = d.metricas.filter(m => m.fecha >= inicio && m.fecha < hasta)
+  const gastoDia = dias.reduce((s, m) => s + m.gasto, 0) / DIAS_PARA_FIJAR_DURACION
+  return { dias: Math.max(DIAS_VENTANA_DECISION, diasDeCorte(gastoDia, estadoHasta(hasta).cpa.esperado, modo)), base: 'gasto_real' }
 }
 
 export function planificarCiclos(d: DatosCiclos): PlanCiclos {
@@ -245,7 +268,12 @@ export function planificarCiclos(d: DatosCiclos): PlanCiclos {
       return { ...base, fin: g.fin, estado: g.estado, diasCiclo: g.diasCiclo, snapshot: g.snapshot, cerradoEn: g.cerradoEn, revisadoEn: g.revisadoEn }
     }
 
-    const diasCiclo = g?.diasCiclo ?? duracionAlAbrir(d, ini.dia, ini.cambio)
+    // La duración guardada se respeta, salvo en un ciclo abierto que la fijó
+    // una regla anterior (sin base): ese se recalcula una vez con la vigente.
+    const guardada = g?.diasCiclo != null && (g.duracionBase != null || g.estado !== 'abierto')
+    const calculada = guardada ? null : duracionConBase(d, ini.dia, ini.cambio)
+    const diasCiclo = guardada ? g!.diasCiclo : calculada?.dias ?? null
+    const duracionBase = guardada ? g!.duracionBase : calculada?.base ?? null
     const finNatural = diasCiclo ? sumarDias(ini.dia, diasCiclo - 1) : null
     // Hasta dónde se puede mirar: hoy, el cambio siguiente o el día después del fin.
     const borde = [hoy, sig, finNatural ? sumarDias(finNatural, 1) : null].filter((x): x is string => !!x).sort()[0]
@@ -277,9 +305,9 @@ export function planificarCiclos(d: DatosCiclos): PlanCiclos {
     const revisar = !!sig && !g?.revisadoEn
 
     const cambiado = !g
-      || g.estado !== estado || g.fin !== fin || g.diasCiclo !== diasCiclo
+      || g.estado !== estado || g.fin !== fin || g.diasCiclo !== diasCiclo || g.duracionBase !== duracionBase
       || !mismoJson(g.snapshot, snapshot) || revisar
-    if (cambiado) escribir.push({ inicio: ini.dia, estado, diasCiclo, fin, snapshot, revisar })
+    if (cambiado) escribir.push({ inicio: ini.dia, estado, diasCiclo, duracionBase, fin, snapshot, revisar })
 
     return {
       ...base, fin, estado, diasCiclo, snapshot,

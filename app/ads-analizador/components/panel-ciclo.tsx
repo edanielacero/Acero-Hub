@@ -147,7 +147,7 @@ export function PanelCiclo({ c, v, titulo, derecha, pronto = false, presupuestoB
         })}
       </ol>
 
-      <Fila etiqueta="Días" fin={<Fin valor={String(total)} texto="días" />}>
+      <Fila etiqueta="Días" fin={<Fin valor={String(total)} texto={v.duracionEstimada ? 'días est.' : 'días'} />}>
         <div className="relative h-2.5 rounded-full bg-[var(--ads-surface-2)] ring-1 ring-inset ring-[var(--ads-hairline-2)]" aria-hidden>
           <div className="h-full rounded-full bg-[var(--ads-accent)]" style={{ width: posDia(v.diasTranscurridos) }} />
           {marcas.map(d => <Marca key={d} en={posDia(d)} />)}
@@ -203,7 +203,7 @@ export function PanelCicloVivo({ c, e }: { c: Campana; e: EstadoCampana }) {
         {e.roasActual != null && <> · ROAS <strong className="text-[var(--ads-ink)]">{e.roasActual.toFixed(2)}x</strong></>}
       </>}
       pronto={e.accion === 'muy_pronto' || e.accion === 'chequeo'}
-      presupuestoBajo={bajo ? { actual: e.riesgo.gastoDia, recomendado: e.cpa.esperado * PRESUPUESTO_MINIMO_RELATIVO } : null}
+      presupuestoBajo={bajo ? { actual: c.presupuestoMeta ?? e.riesgo.gastoDia, recomendado: e.cpa.esperado * PRESUPUESTO_MINIMO_RELATIVO } : null}
     />
   )
 }
@@ -283,6 +283,10 @@ export function PanelProbabilidades({ c, e, ventana = 'Ciclo actual' }: { c: Cam
       <dl className="mt-4 grid gap-x-6 gap-y-1 border-t border-[var(--ads-hairline)] pt-3 text-xs text-[var(--ads-ink-2)] sm:grid-cols-2">
         <div className="flex justify-between gap-3"><dt>Costo esperado por {unidad(c, false)}</dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(e.cpa.esperado)} <span className="font-normal text-[var(--ads-ink-3)]">({FUENTE_CPA[e.cpa.fuente]})</span></dd></div>
         <div className="flex justify-between gap-3"><dt>Máximo para el piso</dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(e.cpa.maxPiso)}</dd></div>
+        <div className="flex justify-between gap-3"><dt>Gasto real por día <span className="text-[var(--ads-ink-3)]">(sin hoy)</span></dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(r.gastoDia)}</dd></div>
+        {c.presupuestoMeta != null && (
+          <div className="flex justify-between gap-3"><dt>Presupuesto en Meta</dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(c.presupuestoMeta)}/día</dd></div>
+        )}
         <div className="flex justify-between gap-3"><dt>Reserva hasta el corte</dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(r.reservaCorte)}</dd></div>
         <div className="flex justify-between gap-3"><dt>Reserva hasta el día 7</dt><dd className="font-semibold text-[var(--ads-ink)]">{m$(r.reservaDecision)}</dd></div>
         {e.llamadas && (
@@ -326,7 +330,10 @@ export function TarjetaEscalado({ c, e }: { c: Campana; e: EstadoCampana }) {
       </div>
       {vertical ? (
         <ul className="flex flex-col gap-1.5 text-sm text-[var(--ads-ink-2)]">
-          <li>Sube de <strong className="text-[var(--ads-ink)]">{m$(s.presupuestoActual)}</strong> a <strong className="text-[var(--ads-ink)]">{m$(s.presupuestoSugerido)}</strong> por día (+{Math.round(s.pasoMin * 100)}–{Math.round(s.pasoMax * 100)} %).</li>
+          <li>
+            Sube de <strong className="text-[var(--ads-ink)]">{m$(s.presupuestoActual)}</strong> (gasto real por día) a <strong className="text-[var(--ads-ink)]">{m$(s.presupuestoSugerido)}</strong> por día (+{Math.round(s.pasoMin * 100)}–{Math.round(s.pasoMax * 100)} %).
+            {c.presupuestoMeta != null && <> Tu presupuesto en Meta hoy: {m$(c.presupuestoMeta)}.</>}
+          </li>
           {s.cpaMaxParaConvenir != null && (
             <li>Solo mejora tu ganancia diaria si el costo por {unidad(c, false)} queda bajo <strong className="text-[var(--ads-ink)]">{m$(s.cpaMaxParaConvenir)}</strong>.</li>
           )}

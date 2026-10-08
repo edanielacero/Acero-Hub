@@ -37,6 +37,10 @@ export interface Campana {
   closeEstimado: number | null
   /** WhatsApp: conversaciones por día que el usuario puede atender. */
   capacidadChatsDia: number | null
+  /** Presupuesto diario que tiene la campaña en Meta (solo referencia; los cálculos usan el gasto real). */
+  presupuestoMeta: number | null
+  /** Cuándo se leyó de Meta (es el presupuesto de ese momento, no un historial). */
+  presupuestoMetaEn: string | null
   activo: boolean
   ultimaSync: string | null
   createdAt: string
@@ -137,8 +141,10 @@ export interface EntradaCalculo {
    * vez de 20–30 % (§4.5: "< ~$25/día"). En la moneda de la campaña.
    */
   umbralPresupuestoChico?: number
-  /** Duración fija del ciclo (guardada al terminar su día 1). Sin ella, max(7, día de corte). */
+  /** Duración fija del ciclo (guardada al terminar su día 3). Sin ella, max(7, día de corte) estimado. */
   diasCiclo?: number | null
+  /** Presupuesto diario en Meta: solo de respaldo si todavía no hay ningún día con gasto. */
+  presupuestoMeta?: number | null
 }
 
 export type Bandera =
@@ -194,6 +200,8 @@ export interface EstadoCampana {
     diasDecision: number
     /** Ya se invirtió lo necesario para evaluar el corte (y van ≥ 3 días). */
     corteListo: boolean
+    /** La duración ya quedó fija (día 3 cumplido); si no, es un estimado. */
+    duracionFija: boolean
     /** Primer día completo del ciclo con alguna conversión: con ventas, el corte ya no aplica. */
     primeraConversion: string | null
   }
@@ -331,6 +339,8 @@ export interface VistaCiclo {
   /** Lo que predice el modelo: inversión / costo esperado. */
   ventasEsperadas: number
   roas: number | null
+  /** La duración todavía es un estimado (se fija al cerrar el día 3). */
+  duracionEstimada?: boolean
 }
 
 /** Foto de un ciclo al cerrarse: valores ya calculados, no se recalculan al mostrarlos. */
@@ -347,11 +357,15 @@ export interface SnapshotCiclo extends VistaCiclo {
   gastoCorte: number
 }
 
+/** Con qué se fijó la duración del ciclo. Null = una regla anterior. */
+export type BaseDuracion = 'presupuesto_meta' | 'gasto_real'
+
 export interface CicloGuardado {
   id: string
   inicio: string
   fin: string | null
   diasCiclo: number | null
+  duracionBase: BaseDuracion | null
   estado: EstadoCicloGuardado
   snapshot: SnapshotCiclo | null
   cerradoEn: string | null

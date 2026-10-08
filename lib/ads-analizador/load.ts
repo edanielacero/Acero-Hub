@@ -1,12 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { calcularEstado } from './calc'
+import { calcularEstado, sumarDias, ventasParaEmpate } from './calc'
 import type {
   Campana, CampanaConEstado, Cambio, CicloGuardado, Color, EstadoCampana, FilaDiaria, LlamadaDia, MetricaDiaria, ModoCorte, Moneda,
   EntradaCalculo, ModoPanel, TipoCambio, TipoConversion, Totales, VentaManual,
 } from './types'
 
 export const CAMPANA_COLS =
-  'id, meta_campaign_id, meta_ad_account_id, nombre, moneda, tipo_conversion, precio_venta, margen_venta, roas_objetivo, cpa_esperado, modo_corte, show_estimado, close_estimado, capacidad_chats_dia, activo, ultima_sync, created_at'
+  'id, meta_campaign_id, meta_ad_account_id, nombre, moneda, tipo_conversion, precio_venta, margen_venta, roas_objetivo, cpa_esperado, modo_corte, show_estimado, close_estimado, capacidad_chats_dia, presupuesto_meta, presupuesto_meta_en, activo, ultima_sync, created_at'
 export const METRICA_COLS =
   'campaign_id, fecha, gasto, alcance, impresiones, frecuencia, cpm, clics_enlace, cpc_enlace, ctr_enlace, resultados, costo_por_resultado, landing_page_views, pagos_iniciados'
 export const VENTA_COLS = 'campaign_id, fecha, cantidad, neto, nota'
@@ -34,6 +34,8 @@ export function mapCampana(r: Row): Campana {
     showEstimado: num(r.show_estimado),
     closeEstimado: num(r.close_estimado),
     capacidadChatsDia: num(r.capacidad_chats_dia),
+    presupuestoMeta: num(r.presupuesto_meta),
+    presupuestoMetaEn: r.presupuesto_meta_en ?? null,
     activo: r.activo,
     ultimaSync: r.ultima_sync ?? null,
     createdAt: r.created_at,
@@ -66,11 +68,12 @@ export function mapCambio(r: Row): Cambio {
   return { id: r.id, fecha: r.fecha, tipo: r.tipo as TipoCambio, detalle: r.detalle ?? null, presupuesto: num(r.presupuesto) }
 }
 
-export const CICLO_COLS = 'id, campaign_id, inicio, fin, dias_ciclo, estado, snapshot, cerrado_en, revisado_en'
+export const CICLO_COLS = 'id, campaign_id, inicio, fin, dias_ciclo, duracion_base, estado, snapshot, cerrado_en, revisado_en'
 
 export function mapCiclo(r: Row): CicloGuardado {
   return {
     id: r.id, inicio: r.inicio, fin: r.fin ?? null, diasCiclo: r.dias_ciclo == null ? null : Number(r.dias_ciclo),
+    duracionBase: r.duracion_base ?? null,
     estado: r.estado, snapshot: r.snapshot ?? null, cerradoEn: r.cerrado_en ?? null, revisadoEn: r.revisado_en ?? null,
   }
 }
@@ -304,6 +307,7 @@ export function armarEstado(
       : undefined,
     capacidadChatsDia: campana.capacidadChatsDia,
     umbralPresupuestoChico: PRESUPUESTO_CHICO[campana.moneda],
+    presupuestoMeta: campana.presupuestoMeta,
   }
   let estado = calcularEstado(entrada)
   const guardado = ciclosGuardados.find(k => k.inicio === estado.ciclo.inicio)
@@ -447,6 +451,56 @@ export function profitDelTramo(
   return p
 }
 
+/**
+ * El mismo estado con lo de hoy sumado a los números que se muestran: ventas,
+ * inversión, ROAS y las ventas para empate y piso. Las fases, fechas y
+ * veredictos siguen mirando solo días completos (un día a medias no dispara
+ * alarmas); esto es para que el panel diga lo mismo que la tabla y los KPIs.
+ */
+export function conHoy(
+  e: EstadoCampana, campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[], hoy: string,
+): EstadoCampana {
+  if (!e.ciclo.inicio || e.ciclo.inicio > hoy) return e
+  const fila = construirFilas(campana, metricas, ventas, llamadas).find(f => f.fecha === hoy)
+  if (!fila || (fila.gasto === 0 && fila.conversionesReales === 0)) return e
+  const G = e.ciclo.gasto + fila.gasto
+  const S = e.ciclo.conversiones + fila.conversionesReales
+  const mc = e.cpa.empate
+  const factorPiso = e.roasObjetivo / e.roasEquilibrio
+  const pc = mc * (campana.precioVenta / campana.margenVenta)
+  const roas = G > 0 ? (S * pc) / G : null
+  return {
+    ...e,
+    roasActual: roas,
+    colchon: roas == null ? null : roas / e.roasEquilibrio - 1,
+    ciclo: {
+      ...e.ciclo, gasto: G, conversiones: S,
+      primeraConversion: e.ciclo.primeraConversion ?? (fila.conversionesReales > 0 ? hoy : null),
+    },
+    necesarias: {
+      ...e.necesarias,
+      empate: mc > 0 ? ventasParaEmpate(G, mc) : 0,
+      piso: mc > 0 ? Math.ceil((factorPiso * G) / mc) : 0,
+    },
+  }
+}
+
+/** Un resumen de tramo abierto hasta hoy, con lo de hoy incluido (ver `conHoy`). */
+export function resumenConHoy(
+  r: CicloResumen, campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[], hoy: string,
+): CicloResumen {
+  const estado = conHoy(r.estado, campana, metricas, ventas, llamadas, hoy)
+  if (estado === r.estado || !estado.ciclo.inicio) return r
+  return {
+    ...r, estado,
+    gasto: estado.ciclo.gasto,
+    conversiones: estado.ciclo.conversiones,
+    roas: estado.roasActual,
+    color: colorPorResultado(estado),
+    profit: profitDelTramo(campana, metricas, ventas, llamadas, estado.ciclo.inicio, sumarDias(hoy, 1)),
+  }
+}
+
 function agrupar<T>(filas: Row[], map: (r: Row) => T): Map<string, T[]> {
   const out = new Map<string, T[]>()
   for (const r of filas) {
@@ -494,7 +548,7 @@ export async function cargarCampanas(supabase: SupabaseClient, hoy = hoyServidor
     const ref = cpaDeReferencia(x, borrador)
     return {
       ...armarEstado(x, ...datos(x), ultimoCambio.get(x.id) ?? null, hoy, ref, ciclos.get(x.id)),
-      estadoTotal: armarEstado(x, ...datos(x), null, hoy, ref).estado,
+      estadoTotal: conHoy(armarEstado(x, ...datos(x), null, hoy, ref).estado, x, ...datos(x), hoy),
     }
   })
 }

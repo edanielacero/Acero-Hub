@@ -31,10 +31,28 @@ interrumpido`, snapshot jsonb, cerrado_en, revisado_en), única por
 
 ## 3. Motor (`lib/ads-analizador/ciclos.ts`, puro)
 
-- **Duración fija**: `max(7, día de corte)`, calculada al terminar el día 1 con
-  el costo esperado de ese momento y el presupuesto del cambio (o, si no se
-  cargó, el gasto del día 1). No se estira nunca. `calcularEstado` acepta
-  `diasCiclo` y lo usa como día de decisión.
+- **Duración fija**: `max(7, día de corte)` con `k = presupuesto diario de
+  Meta / costo esperado` (costo esperado con los datos previos al ciclo). Se
+  fija el mismo día del inicio y no se mueve ni se estira. Solo se usa un
+  presupuesto leído de Meta el día del inicio o después (si es anterior podría
+  ser el de antes del cambio; se espera a la siguiente actualización). Sin
+  presupuesto diario en Meta (presupuesto total): gasto real promedio de los
+  días 1 a 3, al cerrar el día 3; mientras, «días est.». Historia: día 1 y
+  presupuesto del cambio → promedio real de 3 días → presupuesto de Meta
+  (2026-10-08, a pedido del usuario: fija la fecha desde el inicio).
+  Cada ciclo guarda con qué base se fijó (`duracion_base`: `presupuesto_meta`
+  o `gasto_real`; migración `20261010010000_…_duracion_base.sql`). Un ciclo
+  **abierto** sin base (fijado con una regla anterior) se recalcula una vez con
+  la regla vigente; con base, o ya cerrado, no se toca. Caso real: TOEFL MBA
+  tenía 15 días por el gasto del día 1 ($8,09, arranque a mitad de día); con el
+  presupuesto de Meta ($20 / $23,60 de costo esperado) queda en 7.
+- **Presupuesto de Meta** (migración `20261010000000_…_presupuesto_meta.sql`):
+  el sync guarda `presupuesto_meta` (CBO o suma de conjuntos activos; null con
+  presupuesto total). Es referencia: se muestra en Probabilidades y en el
+  escalado, y solo entra en los cálculos si todavía no hay ningún día con
+  gasto, en la duración del ciclo y en el aviso de presupuesto bajo. Reserva,
+  escalado y estimaciones usan el gasto real promedio de los últimos 3 días
+  completos.
 - **Cierre**: al pasar el último día → `cerrado`. Con 0 ventas al alcanzar la
   inversión de corte → `cortado` (se evalúa el día del corte: una venta
   posterior no lo deshace). Un cambio con el ciclo abierto → `interrumpido`, con
@@ -76,10 +94,10 @@ interrumpido`, snapshot jsonb, cerrado_en, revisado_en), única por
 
 ## 5. Pruebas
 
-- `unit`: 261 (33 nuevas: cierre, foto, veredictos, semáforo, interrumpido,
+- `unit`: 279 (51 nuevas, entre ellas: cierre, foto, veredictos, semáforo, interrumpido,
   cortado, legacy, foto congelada aunque cambie el margen, orden de claves de
   jsonb, cambio deshecho, duración fija, próxima revisión, alertas).
-- `api`: 154 (15 nuevas de la ruta de ciclos, con aislamiento entre usuarios).
+- `api`: 157 (ruta de ciclos con aislamiento entre usuarios, presupuesto de Meta en el sync).
 
 ## 6. Decisiones
 
@@ -99,3 +117,9 @@ interrumpido`, snapshot jsonb, cerrado_en, revisado_en), única por
   no muestran banderas ni el mensaje del semáforo: nombre, tipo, píldora del
   modo, medidor y gasto / ventas / costo por venta. El contador Sana / Revisar /
   Foco rojo usa ese mismo color total.
+- **Hoy en el panel** (2026-10-08): el panel del ciclo, «Toda la campaña», la
+  vista «Campaña en curso» y la tarjeta del inicio suman los datos de hoy
+  (`conHoy` / `resumenConHoy` en `load.ts`), igual que la tabla y los KPIs. Las
+  fases, fechas, cierres, veredictos y alertas siguen usando solo días
+  completos. La foto de un cierre sin revisar sigue congelada; lo nuevo se ve en
+  «Desde el cierre».

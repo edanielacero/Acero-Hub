@@ -272,6 +272,7 @@ export interface CicloUpsert {
   inicio: string
   fin: string | null
   dias_ciclo: number | null
+  duracion_base: 'presupuesto_meta' | 'gasto_real' | null
   estado: (typeof ESTADOS_CICLO)[number]
   snapshot: Record<string, unknown> | null
   revisar: boolean
@@ -303,7 +304,9 @@ export function validarCiclos(body: any, hoy: string): Ok<{ escribir: CicloUpser
       return { ok: false, error: 'Foto del ciclo inválida' }
     }
     if (o.estado !== 'abierto' && snap == null) return { ok: false, error: 'Un ciclo cerrado necesita su foto' }
-    escribir.push({ inicio, fin, dias_ciclo: dias, estado: o.estado, snapshot: snap, revisar: o?.revisar === true })
+    const base = o?.duracionBase ?? null
+    if (base != null && base !== 'presupuesto_meta' && base !== 'gasto_real') return { ok: false, error: 'Base de duración inválida' }
+    escribir.push({ inicio, fin, dias_ciclo: dias, duracion_base: base, estado: o.estado, snapshot: snap, revisar: o?.revisar === true })
   }
   const borrar: string[] = []
   for (const id of borrarRaw) {

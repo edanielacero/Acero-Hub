@@ -7,7 +7,7 @@ import {
 import { sumarDias } from '@/lib/ads-analizador/calc'
 import { fmtEntero, fmtMoneda } from '@/lib/ads-analizador/format'
 import { alertasEnVivo, planificarCiclos, ventana, type PlanCiclos } from '@/lib/ads-analizador/ciclos'
-import { armarEstado, calcularTotales, colorPorResultado, cpaDeReferencia, profitDelTramo, ventasPorDia, type DetalleCampana } from '@/lib/ads-analizador/load'
+import { armarEstado, calcularTotales, colorPorResultado, conHoy, cpaDeReferencia, profitDelTramo, resumenConHoy, ventasPorDia, type DetalleCampana } from '@/lib/ads-analizador/load'
 import { promptCampana } from '@/lib/ads-analizador/prompt'
 import { AnalizarConClaude } from '../components/analizar-con-claude'
 import type { Accion, EstadoCampana } from '@/lib/ads-analizador/types'
@@ -147,6 +147,9 @@ function Dashboard({ d, e, plan, refrescar, onConfirmar }: {
   // En «ciclo» y «cierre» el último ciclo es el de arriba; en «en curso» ya es un anterior más.
   const anteriores = plan.modo === 'en_curso' ? plan.ciclos : plan.ciclos.slice(0, -1)
   const alertas = useMemo(() => alertasEnVivo(d, e), [d, e])
+  // Lo que se muestra incluye hoy, como la tabla y los KPIs; las reglas no.
+  const eHoy = useMemo(() => conHoy(e, c, d.metricas, d.ventas, d.llamadas, d.hoy), [e, c, d])
+  const totalHoy = useMemo(() => resumenConHoy(plan.total, c, d.metricas, d.ventas, d.llamadas, d.hoy), [plan.total, c, d])
   // "Todo" por defecto. El filtro mueve los indicadores, la tabla y los
   // gráficos; el semáforo no: se mide por ciclo (desde el inicio o el último
   // cambio), con sus días 1, corte y 7 (reglas v2).
@@ -266,18 +269,18 @@ function Dashboard({ d, e, plan, refrescar, onConfirmar }: {
       {/* ── Semáforo: ciclo abierto, cierre congelado o campaña en curso ── */}
       {plan.modo === 'cierre' && actual?.snapshot && (
         <VistaCierre
-          c={c} k={actual} total={plan.total} anteriores={anteriores} alertas={alertas} hoy={d.hoy}
+          c={c} k={actual} total={totalHoy} anteriores={anteriores} alertas={alertas} hoy={d.hoy}
           desdeCierre={ventana(d, e, sumarDias(actual.snapshot.fin, 1), d.hoy)}
           onContinuar={onConfirmar}
         />
       )}
       {plan.modo === 'en_curso' && actual && (
         <VistaEnCurso
-          c={c} e={e} ultimo={actual} total={plan.total} alertas={alertas} anteriores={anteriores} hoy={d.hoy}
+          c={c} e={eHoy} ultimo={actual} total={totalHoy} alertas={alertas} anteriores={anteriores} hoy={d.hoy}
           ultimos7={ventana(d, e, sumarDias(d.hoy, -7), d.hoy)}
           desdeCambio={{
-            gasto: e.ciclo.gasto, conversiones: e.ciclo.conversiones, roas: e.roasActual, color: colorPorResultado(e),
-            profit: profitDelTramo(c, d.metricas, d.ventas, d.llamadas, actual.inicio, d.hoy),
+            gasto: eHoy.ciclo.gasto, conversiones: eHoy.ciclo.conversiones, roas: eHoy.roasActual, color: colorPorResultado(eHoy),
+            profit: profitDelTramo(c, d.metricas, d.ventas, d.llamadas, actual.inicio, sumarDias(d.hoy, 1)),
           }}
         />
       )}
@@ -295,9 +298,9 @@ function Dashboard({ d, e, plan, refrescar, onConfirmar }: {
           </div>
         </div>
         {e.ciclo.inicio && e.ciclo.fase !== 'sin_datos' && (
-          <div className="p-5"><PanelCicloVivo c={c} e={e} /></div>
+          <div className="p-5"><PanelCicloVivo c={c} e={eHoy} /></div>
         )}
-        <SemaforoCiclos c={c} total={plan.total} anteriores={anteriores} />
+        <SemaforoCiclos c={c} total={totalHoy} anteriores={anteriores} />
       </Tarjeta>}
 
       {plan.modo === 'en_curso' && <TarjetaEscalado c={c} e={e} />}

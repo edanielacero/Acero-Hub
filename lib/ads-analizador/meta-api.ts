@@ -160,6 +160,33 @@ export const CAMPOS_INSIGHTS = [
   'actions', 'cost_per_action_type',
 ].join(',')
 
+/**
+ * Presupuesto diario a partir de lo que devuelve Meta. Pura. Los montos llegan
+ * en la unidad mínima de la moneda (centavos para USD y BOB).
+ *
+ * - Presupuesto de campaña (CBO): el `daily_budget` de la campaña.
+ * - Si no: la suma de los `daily_budget` de los conjuntos activos.
+ * - Presupuesto total (lifetime) o nada: null.
+ */
+export function presupuestoDiarioDeMeta(campana: any, conjuntos: any[]): number | null {
+  const diario = Number(campana?.daily_budget)
+  if (Number.isFinite(diario) && diario > 0) return Math.round(diario) / 100
+  const suma = (conjuntos ?? [])
+    .filter(a => !a?.effective_status || a.effective_status === 'ACTIVE')
+    .reduce((s, a) => s + (Number(a?.daily_budget) > 0 ? Number(a.daily_budget) : 0), 0)
+  return suma > 0 ? Math.round(suma) / 100 : null
+}
+
+export async function traerPresupuestoDiario(campaignId: string, token = tokenMeta()): Promise<number | null> {
+  const id = encodeURIComponent(campaignId)
+  const campana = await pedirGraph(`${GRAPH}/${id}?${new URLSearchParams({ fields: 'daily_budget,lifetime_budget', access_token: token })}`)
+  if (Number(campana?.daily_budget) > 0) return presupuestoDiarioDeMeta(campana, [])
+  const conjuntos = await paginar(`${GRAPH}/${id}/adsets?${new URLSearchParams({
+    fields: 'daily_budget,effective_status', effective_status: JSON.stringify(['ACTIVE']), limit: '100', access_token: token,
+  })}`)
+  return presupuestoDiarioDeMeta(campana, conjuntos)
+}
+
 /** Insights día por día (time_increment=1) de una campaña, ambos extremos incluidos. */
 export async function traerInsights(
   campaignId: string, desde: string, hasta: string, tipo: TipoConversion, token = tokenMeta(),

@@ -35,7 +35,7 @@ export async function PUT(request: Request, { params }: Ctx) {
     if (g?.revisadoEn && (g.estado === 'cerrado' || g.estado === 'cortado')) return []
     const cerrado = o.estado !== 'abierto'
     return [{
-      user_id: userId, campaign_id: id, inicio: o.inicio, fin: o.fin, dias_ciclo: o.dias_ciclo, estado: o.estado,
+      user_id: userId, campaign_id: id, inicio: o.inicio, fin: o.fin, dias_ciclo: o.dias_ciclo, duracion_base: o.duracion_base, estado: o.estado,
       snapshot: o.snapshot,
       cerrado_en: cerrado ? (g?.cerradoEn ?? ahora) : null,
       revisado_en: g?.revisadoEn ?? (o.revisar ? ahora : null),

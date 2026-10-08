@@ -14,8 +14,6 @@ import type { Bandera, Color, EntradaCalculo, EstadoCampana, Fase, FilaDiaria, M
 /** ROAS piso = empate × 1,35 (colchón de 30–40 %). */
 export const MULTIPLICADOR_ROAS_OBJETIVO = 1.35
 export const CONVERSIONES_MINIMAS_MUESTRA = 10
-/** Paso vertical temprano: desde este día del ciclo, con ≥ 5 conversiones desde el cambio. */
-export const DIAS_PASO_TEMPRANO = 4
 export const DIAS_VENTANA_DECISION = 7
 export const DIAS_MINIMOS_CORTE = 3
 export const FRECUENCIA_FATIGA = 3.5
@@ -255,8 +253,10 @@ export function calcularEstado(e: EntradaCalculo): EstadoCampana {
   const G = filas.reduce((s, m) => s + m.gasto, 0)
   const S = filas.reduce((s, m) => s + m.conversionesReales, 0)
 
-  const gastoDia = gastoDiaReciente(filas) || gastoDiaReciente(completos)
-  const presupuestoActual = e.ultimoCambio?.presupuesto ?? gastoDia
+  // Gasto real promedio de los últimos días completos (nunca hoy). El
+  // presupuesto de Meta solo entra si todavía no hay ningún día con gasto.
+  const gastoDia = gastoDiaReciente(filas) || gastoDiaReciente(completos) || e.presupuestoMeta || 0
+  const presupuestoActual = gastoDia
   // High Ticket corta con 3× el costo por llamada (§6); Low Ticket, 5× o 3× según el modo.
   const factorCorte = llamadasTipo ? DIAS_MINIMOS_CORTE : e.modoCorte === 'conservador' ? 5 : 3
   const gastoCorte = factorCorte * cpa.valor
@@ -285,6 +285,7 @@ export function calcularEstado(e: EntradaCalculo): EstadoCampana {
 
   const ciclo = {
     inicio, dias, gasto: G, conversiones: S, fase, modo: e.modoCorte, diasCorte, gastoCorte, diasDecision, corteListo,
+    duracionFija: e.diasCiclo != null,
     // El inicio es el día 1: el día N es inicio + N − 1, y cuenta al terminar.
     fechaCorte: inicio ? sumarDias(inicio, diasCorte - 1) : null,
     fechaDecision: inicio ? sumarDias(inicio, diasDecision - 1) : null,
@@ -327,8 +328,10 @@ export function calcularEstado(e: EntradaCalculo): EstadoCampana {
   if (ritmo && ritmo.estado !== 'verde' && fase !== 'sin_datos') banderas.push({ tipo: 'ritmo', estado: ritmo.estado, pBaja: ritmo.pBaja })
   if (S < CONVERSIONES_MINIMAS_MUESTRA && dias >= DIAS_MINIMOS_CORTE && fase !== 'sin_datos' && fase !== 'recoleccion') banderas.push({ tipo: 'muestra_chica', conversiones: S })
   // Solo importa mientras se espera el corte: con la primera venta ya no hay corte.
-  if (S === 0 && gastoDia > 0 && cpa.valor > 0 && gastoDia / cpa.valor < PRESUPUESTO_MINIMO_RELATIVO && fase !== 'sin_datos') {
-    banderas.push({ tipo: 'presupuesto_bajo', relativo: gastoDia / cpa.valor, diasCorte })
+  // Presupuesto: el de Meta si se conoce (es el que fija la duración); si no, el gasto real.
+  const presupuestoDia = e.presupuestoMeta || gastoDia
+  if (S === 0 && presupuestoDia > 0 && cpa.valor > 0 && presupuestoDia / cpa.valor < PRESUPUESTO_MINIMO_RELATIVO && fase !== 'sin_datos') {
+    banderas.push({ tipo: 'presupuesto_bajo', relativo: presupuestoDia / cpa.valor, diasCorte })
   }
   const frecuencia = frecuenciaReciente(completos, e.hoy)
   if (frecuencia != null && frecuencia >= FRECUENCIA_FATIGA) banderas.push({ tipo: 'fatiga_audiencia', frecuencia })
@@ -428,15 +431,10 @@ export function calcularEstado(e: EntradaCalculo): EstadoCampana {
     }
   }
 
-  // Corte y decisión: ¿se puede escalar? Doble vía (§4.4–4.5): la decisión del
-  // día 7 con ≥ 10 conversiones del ciclo, o un paso vertical desde el día 4
-  // del ciclo si hubo ≥ 5 conversiones desde el cambio y la campaña ya probó
-  // tener muestra (≥ 10 en total).
+  // ¿Se puede escalar? Solo al cerrar el ciclo (fase de decisión) y con
+  // ≥ 10 conversiones: durante el ciclo no se cambia nada, aunque vaya bien.
   const sobrePiso = roas != null && roas >= piso
-  const puedeEscalar = sobrePiso && (
-    (fase === 'decision' && S >= CONVERSIONES_MINIMAS_MUESTRA)
-    || (dias >= DIAS_PASO_TEMPRANO && S >= 5 && convTotal >= CONVERSIONES_MINIMAS_MUESTRA)
-  )
+  const puedeEscalar = sobrePiso && fase === 'decision' && S >= CONVERSIONES_MINIMAS_MUESTRA
   if (puedeEscalar) {
     const vertical = roas! > piso * MARGEN_PARADA_VERTICAL
     const chico = presupuestoActual < (e.umbralPresupuestoChico ?? 25)
@@ -479,8 +477,8 @@ export function calcularEstado(e: EntradaCalculo): EstadoCampana {
     }
     if (S < necesarias.empate) {
       return {
-        ...base, color: 'amarillo', accion: 'decidir',
-        mensaje: `Por debajo del empate: ${S} de ${necesarias.empate} ${conv} necesarias. Sigue solo si aceptas llegar hasta ${dia7}; si no, pausa.${recordatorio}`,
+        ...base, color: 'amarillo', accion: 'esperar',
+        mensaje: `Por debajo del empate: ${S} de ${necesarias.empate} ${conv} necesarias. No cambies nada: se decide con ${dia7}.${recordatorio}`,
       }
     }
     if (S < necesarias.piso) {

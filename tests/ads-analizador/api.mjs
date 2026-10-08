@@ -270,6 +270,19 @@ try {
     eq('re-sync no duplica filas', met.length, 30)
     eq('re-trae solo los últimos 3 días', met.map(m => Number(m.gasto)), [...Array(27).fill(10), 20, 20, 20])
 
+    section('SYNC · presupuesto diario de Meta (referencia)')
+    let presupuesto = 45
+    const conPresupuesto = { ...deps, traerPresupuesto: async () => { if (presupuesto === 'error') throw new Error('Meta caída'); return presupuesto } }
+    r = await sincronizar(sbA, (await cargarSync()).filter(x => x.id === s1.id), HOY, conPresupuesto)
+    let camp = (await sbA.from('ads_campaigns').select('presupuesto_meta, presupuesto_meta_en').eq('id', s1.id).single()).data
+    eq('guarda el presupuesto diario de Meta', [Number(camp.presupuesto_meta), !!camp.presupuesto_meta_en], [45, true])
+    presupuesto = 'error'
+    r = await sincronizar(sbA, (await cargarSync()).filter(x => x.id === s1.id), HOY, conPresupuesto)
+    camp = (await sbA.from('ads_campaigns').select('presupuesto_meta').eq('id', s1.id).single()).data
+    eq('si Meta no lo da, el sync sigue y conserva el último', [r.resultados[0]?.ok, Number(camp.presupuesto_meta)], [true, 45])
+    datos = await api(A, `/api/ads-analizador/campaigns/${s1.id}`).then(r => r.json())
+    eq('la campaña lo trae', datos.campana.presupuestoMeta, 45)
+
     section('SYNC · varias campañas de compras a la vez')
     const s2 = (await post(A, '/api/ads-analizador/campaigns', { ...CAMPANA, metaCampaignId: '120211000000000012', nombre: 'Compras 2' }).then(r => r.json())).campana
     r = await sincronizar(sbA, await cargarSync(), HOY, deps)
@@ -421,7 +434,7 @@ try {
   const conMonto = (await res.json()).cambio
   eq('guarda el presupuesto nuevo con coma', [res.status, conMonto?.presupuesto], [201, 30.5])
   datos = await api(A, E).then(r => r.json())
-  eq('la reserva usa ese presupuesto', datos.estado.riesgo.reservaDecision, 7 * 30.5)
+  ok('la reserva usa el gasto real, no el presupuesto cargado', Math.abs(datos.estado.riesgo.reservaDecision - 7 * datos.estado.riesgo.gastoDia) < 0.01, JSON.stringify(datos.estado.riesgo))
   await api(A, `${K}?cambio=${conMonto.id}`, { method: 'DELETE' })
   res = await post(A, K, { tipo: 'presupuesto', presupuesto: '-3' })
   eq('presupuesto negativo → 400', res.status, 400)

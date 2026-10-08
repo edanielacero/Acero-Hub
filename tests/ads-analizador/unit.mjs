@@ -139,7 +139,8 @@ section('§4.3 · revisión de corte (día 5, presupuesto = margen)')
 {
   const corte = v => estado({ metricas: ciclo(5, 24, i => (i < v ? 1 : 0)) })
   eq('0 ventas → cortar', [corte(0).color, corte(0).accion], ['rojo', 'frenar'])
-  eq('3 ventas (< empate 5) → decidir', [corte(3).color, corte(3).accion], ['amarillo', 'decidir'])
+  eq('3 ventas (< empate 5) → amarillo, sin decidir nada durante el ciclo', [corte(3).color, corte(3).accion], ['amarillo', 'esperar'])
+  ok('el mensaje manda a esperar el cierre', /No cambies nada: se decide con el cierre del día 7/.test(corte(3).mensaje), corte(3).mensaje)
   eq('ventas necesarias: empate 5 · piso 7', [corte(3).necesarias.empate, corte(3).necesarias.piso], [5, 7])
   eq('meta del ciclo: el piso al cierre del día 7 (7 × 24 invertidos → 10)', [corte(3).necesarias.gastoAlCierre, corte(3).necesarias.pisoAlCierre], [168, 10])
   const e6 = estado({ metricas: ciclo(5, 24, i => (i < 5 ? 1 : 0)).map((d, i) => (i === 4 ? { ...d, conversionesReales: 2 } : d)) })
@@ -185,10 +186,10 @@ section('§4.5 · un cambio reinicia el ciclo')
   const e = estado({ metricas: historia, cambio: { fecha: sumarDias(HOY, -2), presupuesto: 30 } })
   eq('ciclo desde el cambio', [e.ciclo.inicio, e.ciclo.dias], [sumarDias(HOY, -2), 2])
   ok('sin bandera de reajuste: el ciclo ya lo cubre', !tipos(e).includes('reajuste_tecnico'))
-  eq('la reserva usa el presupuesto nuevo', e.riesgo.reservaDecision, 210)
+  eq('la reserva usa el gasto real promedio, no el presupuesto cargado', e.riesgo.reservaDecision, 7 * 24)
   // 4 días desde el cambio, ≥ 5 ventas desde el cambio, ≥ 10 en total, ROAS > piso × 1,1
   const e4 = estado({ metricas: historia, cambio: { fecha: sumarDias(HOY, -4), presupuesto: 24 } })
-  eq('paso vertical desde el día 4 si hay ≥ 5 ventas desde el cambio', e4.accion, 'escalar_vertical')
+  eq('sobre el piso el día 4: no escala durante el ciclo', [e4.accion, e4.escalado], ['esperar', null])
   ok('el costo esperado ya es el real (≥ 5 ventas)', e4.cpa.fuente === 'real' && cerca(e4.cpa.esperado, 12))
 }
 
@@ -558,7 +559,7 @@ section('CIERRE DE CICLO · planificarCiclos, veredicto y semáforo')
   const datos = extra => ({ campana: wa, metricas, ventas: dos, llamadas: [], cambios: [], guardados: [], hoy: HOY, ...extra })
   // Lo que quedaría guardado después de aplicar las escrituras del plan.
   const aplicar = (plan, revisado = false) => plan.escribir.map((o, i) => ({
-    id: `g${i}`, inicio: o.inicio, fin: o.fin, diasCiclo: o.diasCiclo, estado: o.estado, snapshot: o.snapshot,
+    id: `g${i}`, inicio: o.inicio, fin: o.fin, diasCiclo: o.diasCiclo, duracionBase: o.duracionBase, estado: o.estado, snapshot: o.snapshot,
     cerradoEn: o.estado === 'abierto' ? null : '2026-10-01T00:00:00Z', revisadoEn: revisado || o.revisar ? '2026-10-02T00:00:00Z' : null,
   }))
 
@@ -615,14 +616,25 @@ section('CIERRE DE CICLO · planificarCiclos, veredicto y semáforo')
   ok('su semáforo al vuelo sigue disponible', legacy.ciclos[0].resumen && 'color' in legacy.ciclos[0].resumen)
 
   // Cambio deshecho: su ciclo guardado se borra.
-  const fantasma = [{ id: 'x', inicio: sumarDias(INI, 8), fin: null, diasCiclo: 7, estado: 'abierto', snapshot: null, cerradoEn: null, revisadoEn: null }]
+  const fantasma = [{ id: 'x', inicio: sumarDias(INI, 8), fin: null, diasCiclo: 7, duracionBase: 'gasto_real', estado: 'abierto', snapshot: null, cerradoEn: null, revisadoEn: null }]
   eq('un ciclo guardado sin su cambio se borra', planificarCiclos(datos({ guardados: fantasma })).borrar, ['x'])
 
   // Duración fija con presupuesto bajo (k = 0,5) y con el presupuesto del cambio.
   const lento = { ...wa, cpaEsperado: 24 }
-  eq('presupuesto 12 con costo 24 → ciclo de 10 días', duracionAlAbrir({ ...datos(), campana: lento, metricas: metricas.map(m => ({ ...m, gasto: 12 })) }, INI, null), 10)
-  eq('usa el presupuesto del cambio si se cargó', duracionAlAbrir({ ...datos(), campana: lento }, INI, cambio(INI, { presupuesto: 18 })), 7)
-  eq('el día 1 sin terminar todavía no fija la duración', duracionAlAbrir({ ...datos(), hoy: INI }, INI, null), null)
+  const sinVentas = { ventas: [] }
+  eq('gasto real 12/día con costo 24 → ciclo de 10 días', duracionAlAbrir({ ...datos(sinVentas), campana: lento, metricas: metricas.map(m => ({ ...m, gasto: 12 })) }, INI, null), 10)
+  const disparejo = metricas.map((m, i) => ({ ...m, gasto: [6, 12, 18][i] ?? 99 }))
+  eq('promedio de los días 1 a 3 (6, 12, 18 → 12): 10 días; lo que viene después no cuenta', duracionAlAbrir({ ...datos(sinVentas), campana: lento, metricas: disparejo }, INI, null), 10)
+  eq('el presupuesto cargado en el cambio no cuenta: manda el gasto real', duracionAlAbrir({ ...datos(sinVentas), campana: lento }, INI, cambio(INI, { presupuesto: 12 })), 7)
+  // Con presupuesto diario de Meta leído desde el inicio: manda ese presupuesto, desde el primer día.
+  const conMeta = { ...lento, presupuestoMeta: 12, presupuestoMetaEn: `${INI}T15:00:00Z` }
+  eq('presupuesto de Meta 12 con costo 24 → 10 días, aunque el gasto real sea 50', duracionAlAbrir({ ...datos(sinVentas), campana: conMeta }, INI, null), 10)
+  eq('se fija desde el día del inicio, sin esperar al día 3', duracionAlAbrir({ ...datos(sinVentas), campana: conMeta, hoy: INI }, INI, null), 10)
+  eq('un presupuesto leído antes del inicio no se usa (podría ser el de antes del cambio)', duracionAlAbrir({ ...datos(sinVentas), campana: { ...conMeta, presupuestoMetaEn: `${sumarDias(INI, -1)}T15:00:00Z` } }, INI, null), 7)
+  eq('con presupuesto de Meta alto, 7 días', duracionAlAbrir({ ...datos(sinVentas), campana: { ...conMeta, presupuestoMeta: 60 } }, INI, null), 7)
+  eq('antes de cerrar el día 3, sin duración fija (se estima)', [duracionAlAbrir({ ...datos(), hoy: sumarDias(INI, 2) }, INI, null), duracionAlAbrir({ ...datos(), hoy: sumarDias(INI, 3) }, INI, null)], [null, 7])
+  const hoyGrande = metricas.map(m => (m.fecha === sumarDias(INI, 3) ? { ...m, gasto: 1000 } : { ...m, gasto: 12 }))
+  eq('el gasto de hoy no entra (hoy = día 4 con 1000 gastados)', duracionAlAbrir({ ...datos({ ventas: [], hoy: sumarDias(INI, 3) }), campana: lento, metricas: hoyGrande }, INI, null), 10)
 
   eq('próxima revisión: 7 días después del cierre', proximaRevision('2026-10-01', '2026-10-05'), '2026-10-08')
   eq('si hoy toca, es hoy', proximaRevision('2026-10-01', '2026-10-08'), '2026-10-08')
@@ -632,6 +644,70 @@ section('CIERRE DE CICLO · planificarCiclos, veredicto y semáforo')
   ok('alerta en vivo: stop-loss sin ventas', alertasEnVivo({ campana: wa, metricas, ventas: ventasDe(() => 0), llamadas: [], hoy: HOY }, e0).some(a => a.tipo === 'stop_loss'))
   const e2 = armarEstado(wa, metricas, dos, [], null, HOY).estado
   eq('sin riesgos, sin alertas', alertasEnVivo({ campana: wa, metricas, ventas: dos, llamadas: [], hoy: HOY }, e2).map(a => a.tipo), [])
+}
+
+section('HOY EN EL PANEL · lo que se muestra incluye hoy, las reglas no')
+{
+  const { armarEstado, conHoy, resumenConHoy, armarCiclos } = await import('./.ads/load.mjs')
+  const wa = {
+    id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Ebook', moneda: 'BOB', tipoConversion: 'venta_manual',
+    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+    cpaEsperado: 25, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
+  }
+  const met = (fecha, gasto) => ({ fecha, gasto, resultados: 10, alcance: null, impresiones: null, frecuencia: 2, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null })
+  const metricas = [...[4, 3, 2, 1].map(i => met(sumarDias(HOY, -i), 50)), met(HOY, 30)]
+  const ventas = [...[4, 3, 2, 1].map(i => ({ fecha: sumarDias(HOY, -i), cantidad: 2, neto: null, nota: null })), { fecha: HOY, cantidad: 3, neto: null, nota: null }]
+  const e = armarEstado(wa, metricas, ventas, [], null, HOY).estado
+  const h = conHoy(e, wa, metricas, ventas, [], HOY)
+  eq('las reglas siguen sin hoy', [e.ciclo.gasto, e.ciclo.conversiones, e.ciclo.dias], [200, 8, 4])
+  eq('lo que se muestra suma hoy', [h.ciclo.gasto, h.ciclo.conversiones, h.ciclo.dias, h.ciclo.fase], [230, 11, 4, e.ciclo.fase])
+  ok('ROAS con hoy = 11 × 25 / 230', cerca(h.roasActual, (11 * 25) / 230))
+  eq('empate y piso con la inversión de hoy', [h.necesarias.empate, h.necesarias.piso], [10, 13])
+  eq('el mensaje (veredicto) no cambia', h.mensaje, e.mensaje)
+  const sinVentas = ventas.map(v => (v.fecha === HOY ? v : { ...v, cantidad: 0 }))
+  const e0 = armarEstado(wa, metricas, sinVentas, [], null, HOY).estado
+  eq('la primera venta de hoy cuenta para "Primera venta"', conHoy(e0, wa, metricas, sinVentas, [], HOY).ciclo.primeraConversion, HOY)
+  eq('sin nada hoy, el mismo estado', conHoy(e, wa, metricas.slice(0, 4), ventas.slice(0, 4), [], HOY), e)
+  const { total } = armarCiclos(wa, metricas, ventas, [], [], HOY)
+  const t = resumenConHoy(total, wa, metricas, ventas, [], HOY)
+  eq('toda la campaña con hoy: inversión, ventas y profit', [t.gasto, t.conversiones, t.profit], [230, 11, 11 * 25 - 230])
+}
+
+section('PRESUPUESTO DE META · referencia y respaldo')
+{
+  const { presupuestoDiarioDeMeta } = await import('./.ads/meta-api.mjs')
+  eq('presupuesto de campaña (CBO), en centavos', presupuestoDiarioDeMeta({ daily_budget: '6000' }, []), 60)
+  eq('sin CBO: suma de conjuntos activos', presupuestoDiarioDeMeta({}, [{ daily_budget: '2500', effective_status: 'ACTIVE' }, { daily_budget: '1500', effective_status: 'ACTIVE' }, { daily_budget: '9900', effective_status: 'PAUSED' }]), 40)
+  eq('presupuesto total (lifetime) → null', presupuestoDiarioDeMeta({ lifetime_budget: '100000' }, [{ lifetime_budget: '5000' }]), null)
+  // Respaldo: sin ningún día con gasto, el gasto diario estimado es el presupuesto de Meta.
+  const solo = estado({ metricas: [], cpa: 24 })
+  const conMeta = calcularEstado({ ...entrada({ metricas: [], cpa: 24 }), presupuestoMeta: 60 })
+  eq('sin gasto todavía: usa el presupuesto de Meta como estimado', [solo.riesgo.gastoDia, conMeta.riesgo.gastoDia], [0, 60])
+  const real = calcularEstado({ ...entrada({ metricas: ciclo(4, 24), cpa: 24 }), presupuestoMeta: 60 })
+  eq('con gasto real, manda el gasto real', real.riesgo.gastoDia, 24)
+  eq('duración estimada hasta fijarla', [real.ciclo.duracionFija, calcularEstado({ ...entrada({ metricas: ciclo(4, 24) }), diasCiclo: 7 }).ciclo.duracionFija], [false, true])
+}
+
+section('DURACIÓN · ciclos abiertos con una regla anterior (caso TOEFL MBA)')
+{
+  const { planificarCiclos } = await import('./.ads/ciclos.mjs')
+  // Compras, margen 23,60, sin ventas ni costo cargado: el costo esperado es el margen.
+  const mba = {
+    id: 'm', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL MBA', moneda: 'USD', tipoConversion: 'compra_stripe',
+    precioVenta: 25, margenVenta: 23.6, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-10-06',
+    cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
+    presupuestoMeta: 20, presupuestoMetaEn: `${HOY}T15:14:00Z`,
+  }
+  const INI = sumarDias(HOY, -2)
+  const met = (fecha, gasto) => ({ fecha, gasto, resultados: 0, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: 5, pagosIniciados: 0 })
+  const metricas = [met(INI, 8.09), met(sumarDias(INI, 1), 19.17), met(HOY, 14.96)]
+  const fila = extra => ({ id: 'k', inicio: INI, fin: null, diasCiclo: 15, duracionBase: null, estado: 'abierto', snapshot: null, cerradoEn: null, revisadoEn: null, ...extra })
+  const plan = g => planificarCiclos({ campana: mba, metricas, ventas: [], llamadas: [], cambios: [], guardados: [g], hoy: HOY })
+
+  const p = plan(fila())
+  eq('15 días guardados con la regla vieja → se recalcula una vez: 7 días con el presupuesto de Meta', [p.actual.diasCiclo, p.escribir[0]?.diasCiclo, p.escribir[0]?.duracionBase], [7, 7, 'presupuesto_meta'])
+  eq('con base guardada, no se vuelve a tocar', plan(fila({ diasCiclo: 9, duracionBase: 'presupuesto_meta' })).actual.diasCiclo, 9)
+  eq('un ciclo ya cerrado conserva la suya', plan(fila({ estado: 'cerrado', fin: sumarDias(INI, 1), snapshot: { version: 1 } })).actual.diasCiclo, 15)
 }
 
 process.exit(summary() === 0 ? 0 : 1)

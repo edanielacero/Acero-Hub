@@ -95,9 +95,11 @@ día 7, y el % observado de días en cero.
 
 ### 2.4 Escalado (§4.4–§4.6)
 
-- Se puede escalar con ROAS ≥ piso y: fase decisión con ≥ 10 conversiones, **o**
-  ≥ 4 días de ciclo con ≥ 5 conversiones en el ciclo y ≥ 10 en total
-  (paso temprano, para no esperar 7 días con volumen alto).
+- Se puede escalar con ROAS ≥ piso, ≥ 10 conversiones y **solo al cerrar el
+  ciclo** (fase decisión). Durante el ciclo no se cambia nada, aunque vaya bien
+  (2026-10-08: se quitó el "paso temprano" del día 4). En el corte, con ventas
+  bajo el empate, la app ya no ofrece pausar: manda a esperar el cierre. La
+  única salida anticipada es el stop-loss (0 ventas), que cierra el ciclo.
 - **Vertical** si ROAS > piso × 1.1; si no, **horizontal** (conjuntos máximos
   = presupuesto / CPA esperado, 1–2 anuncios de prueba).
 - Paso: +20–30 %; +30–50 % si el presupuesto es chico (< USD 25 o < Bs 175).

@@ -9,7 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sumarDias } from './calc'
-import { traerInsights, type FilaMeta } from './meta-api'
+import { traerInsights, traerPresupuestoDiario, type FilaMeta } from './meta-api'
 import type { TipoConversion } from './types'
 
 /** Meta atribuye conversiones con hasta ~72 h de atraso: se re-traen los últimos 3 días. */
@@ -52,10 +52,13 @@ export interface CampanaSync {
 
 export interface Deps {
   traerInsights: (campaignId: string, desde: string, hasta: string, tipo: TipoConversion) => Promise<FilaMeta[]>
+  /** Opcional: si falla o no está, la sincronización sigue sin el presupuesto. */
+  traerPresupuesto?: (campaignId: string) => Promise<number | null>
 }
 
 export const DEPS_REALES: Deps = {
   traerInsights: (id, desde, hasta, tipo) => traerInsights(id, desde, hasta, tipo),
+  traerPresupuesto: id => traerPresupuestoDiario(id),
 }
 
 export interface ResultadoSync {
@@ -90,7 +93,15 @@ export async function sincronizar(
         if (error) throw new Error(error.message)
       }
 
-      await supabase.from('ads_campaigns').update({ ultima_sync: new Date().toISOString() }).eq('id', c.id)
+      // El presupuesto es solo referencia: si Meta no lo da, no frena el sync.
+      const cambiosCampana: Record<string, unknown> = { ultima_sync: new Date().toISOString() }
+      if (deps.traerPresupuesto) {
+        try {
+          cambiosCampana.presupuesto_meta = await deps.traerPresupuesto(c.meta_campaign_id)
+          cambiosCampana.presupuesto_meta_en = new Date().toISOString()
+        } catch { /* sin presupuesto esta vez */ }
+      }
+      await supabase.from('ads_campaigns').update(cambiosCampana).eq('id', c.id)
       out.procesadas++
       out.resultados.push({ campaign_id: c.id, nombre: c.nombre, ok: true, dias_sincronizados: filas.length })
     } catch (e) {
