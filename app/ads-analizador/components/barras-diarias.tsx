@@ -3,7 +3,25 @@
 import { useState } from 'react'
 import { fmtFecha } from '@/lib/ads-analizador/format'
 
-export interface Punto { fecha: string; valor: number }
+export interface Punto {
+  fecha: string
+  valor: number
+  /** Mínimo del día para recuperar la inversión (en la misma unidad que `valor`). */
+  minimo?: number
+  /** Hoy: el día no terminó, así que no se juzga. */
+  enCurso?: boolean
+}
+
+/** Rojo bajo el mínimo, amarillo entre el mínimo y el piso, verde desde el piso. */
+function colorDia(p: Punto, factorPiso: number): string {
+  if (p.minimo == null) return 'var(--ads-accent)'
+  if (p.enCurso) return 'var(--ads-hairline-2)'
+  if (p.valor < p.minimo) return 'var(--ads-rojo-dot)'
+  if (p.valor < p.minimo * factorPiso) return 'var(--ads-amarillo-dot)'
+  return 'var(--ads-verde-dot)'
+}
+
+const fmtMinimo = (n: number) => n.toLocaleString('es', { maximumFractionDigits: 1 })
 
 /**
  * Columnas diarias de una sola serie. Un gráfico por medida: gasto y ventas
@@ -11,14 +29,20 @@ export interface Punto { fecha: string; valor: number }
  *
  * Tooltip al pasar el cursor (o tocar) cada columna; el objetivo de toque es la
  * franja entera del día, no solo la columna.
+ *
+ * Con `minimo` en los puntos, cada día lleva un tramo de línea punteada a la
+ * altura de las ventas que hacían falta para recuperar lo invertido, y la
+ * columna se pinta según dónde quedó.
  */
-export function BarrasDiarias({ puntos, formato, titulo }: {
+export function BarrasDiarias({ puntos, formato, titulo, factorPiso = 1.35 }: {
   puntos: Punto[]
   formato: (n: number) => string
   titulo: string
+  factorPiso?: number
 }) {
   const [activo, setActivo] = useState<number | null>(null)
-  const max = Math.max(...puntos.map(p => p.valor), 0)
+  const conMinimo = puntos.some(p => p.minimo != null)
+  const max = Math.max(...puntos.map(p => Math.max(p.valor, p.minimo ?? 0)), 0)
 
   if (puntos.length === 0) {
     return <p className="py-10 text-center text-sm text-[var(--ads-ink-3)]">Sin datos en este rango.</p>
@@ -43,15 +67,23 @@ export function BarrasDiarias({ puntos, formato, titulo }: {
               onMouseEnter={() => setActivo(i)}
               onFocus={() => setActivo(i)}
               onClick={() => setActivo(i)}
-              className="flex h-full flex-1 items-end justify-center outline-none"
+              className="relative flex h-full flex-1 items-end justify-center outline-none"
             >
               <span
-                className="block w-full max-w-6 rounded-t-[4px] transition-colors"
+                className="block w-full max-w-6 rounded-t-[4px] transition-opacity"
                 style={{
                   height: pt.valor > 0 ? `${Math.max(2, (pt.valor / tope) * 100)}%` : '0%',
-                  backgroundColor: activo === null || activo === i ? 'var(--ads-accent)' : '#B7C6F7',
+                  backgroundColor: conMinimo ? colorDia(pt, factorPiso) : activo === null || activo === i ? 'var(--ads-accent)' : '#B7C6F7',
+                  opacity: conMinimo && activo !== null && activo !== i ? 0.45 : 1,
                 }}
               />
+              {pt.minimo != null && pt.minimo > 0 && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -inset-x-px border-t-2 border-dashed border-[var(--ads-ink)] opacity-60"
+                  style={{ bottom: `${(pt.minimo / tope) * 100}%` }}
+                />
+              )}
             </button>
           ))}
         </div>
@@ -62,6 +94,7 @@ export function BarrasDiarias({ puntos, formato, titulo }: {
             style={{ left: `clamp(3rem, ${((activo + 0.5) / puntos.length) * 100}%, calc(100% - 3rem))` }}
           >
             <span className="text-white/70">{fmtFecha(p.fecha)}</span> · <strong>{formato(p.valor)}</strong>
+            {p.minimo != null && <span className="text-white/70"> · mín. {fmtMinimo(p.minimo)}{p.enCurso ? ' · en curso' : ''}</span>}
           </div>
         )}
       </div>
@@ -69,6 +102,14 @@ export function BarrasDiarias({ puntos, formato, titulo }: {
         <span>{fmtFecha(puntos[0].fecha)}</span>
         <span>{fmtFecha(puntos[puntos.length - 1].fecha)}</span>
       </div>
+      {conMinimo && (
+        <figcaption className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-[var(--ads-ink-2)]">
+          <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[var(--ads-ink)] opacity-60" />Mínimo para recuperar la inversión</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--ads-rojo-dot)]" />Debajo</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--ads-amarillo-dot)]" />Justo (sin el colchón del piso)</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--ads-verde-dot)]" />Encima</span>
+        </figcaption>
+      )}
     </figure>
   )
 }

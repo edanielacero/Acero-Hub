@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArrowBackUp, IconCheck, IconFlag, IconPencil, IconX } from '@tabler/icons-react'
 import { fechaBolivia, fmtEntero, fmtFecha, fmtMoneda, numeroDeInput, paraInput, parseNumeroInput } from '@/lib/ads-analizador/format'
 import { netoDia, type VentaDia } from '@/lib/ads-analizador/load'
-import type { Cambio, Campana, MetricaDiaria, VentaManual } from '@/lib/ads-analizador/types'
+import type { Cambio, Campana, LlamadaDia, MetricaDiaria, VentaManual } from '@/lib/ads-analizador/types'
 import { ETIQUETA, ICONO, ListaCambios, RegistrarCambio } from './cambios'
 import { json, mutar } from './data'
 import { Boton, Hoja } from './ui'
@@ -18,6 +18,8 @@ const pct = (a: number, b: number) => (b > 0 ? `${((a / b) * 100).toFixed(1)}%` 
  *                   Conversaciones · Costo/conv. · % conversión · Acciones
  *   Compras:        Fecha · Inversión · Clics · Landing · Checkout · Ventas ·
  *                   Costo/resultado · Facturación · Neto · Profit · % conversión · Acciones
+ *   Llamadas:       Fecha · Inversión · Leads · Agendadas · Calificadas ·
+ *                   Asistidas · Cerradas · Costo/llamada · Facturación · Profit · Acciones
  *
  * Neto (solo compras): lo que se recibió después de comisiones, que
  * cambian según el país de la tarjeta. Se carga con el lápiz; mientras no se
@@ -27,7 +29,7 @@ const pct = (a: number, b: number) => (b > 0 ? `${((a / b) * 100).toFixed(1)}%` 
  * esa fecha. Fecha y Acciones quedan fijas a los costados al deslizar la tabla
  * en el celular: se ve de qué día es y se puede actuar sin ir hasta el final.
  */
-export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cambios, onGuardado }: {
+export function TablaDiaria({ campana, hoy, desde, metricas, ventas, llamadas = [], porDia, cambios, onGuardado }: {
   campana: Campana
   hoy: string
   desde: string
@@ -35,13 +37,17 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
   metricas: MetricaDiaria[]
   /** Todas las ventas cargadas o corregidas (para la nota). */
   ventas: VentaManual[]
+  /** Solo High Ticket: llamadas por día (todas). */
+  llamadas?: LlamadaDia[]
   /** Ventas por día ya resueltas (ver `ventasPorDia`). */
   porDia: Map<string, VentaDia>
   cambios: Cambio[]
   onGuardado: () => void
 }) {
   const manual = campana.tipoConversion === 'venta_manual'
+  const conLlamadas = campana.tipoConversion === 'llamadas'
   const porFecha = new Map(metricas.map(m => [m.fecha, m]))
+  const llamadasPorFecha = new Map(llamadas.map(l => [l.fecha, l]))
   const notas = new Map(ventas.map(v => [v.fecha, v.nota]))
   const cambiosPorDia = new Map<string, Cambio[]>()
   for (const c of cambios) {
@@ -53,13 +59,14 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
   // el que más se cambia algo), más los días con venta cargada o con un
   // cambio aunque Meta todavía no los haya traído.
   const fechas = new Set(metricas.map(m => m.fecha))
-  for (const f of [...porDia.keys(), ...cambiosPorDia.keys()]) if (f >= desde && f <= hoy) fechas.add(f)
+  for (const f of [...porDia.keys(), ...cambiosPorDia.keys(), ...llamadasPorFecha.keys()]) if (f >= desde && f <= hoy) fechas.add(f)
   fechas.add(hoy)
   const filas = [...fechas].sort((a, b) => b.localeCompare(a))
 
   const [editando, setEditando] = useState<string | null>(null)
   const [borrador, setBorrador] = useState('')
   const [borradorNeto, setBorradorNeto] = useState('')
+  const [borradorLl, setBorradorLl] = useState({ agendadas: '', calificadas: '', asistidas: '', cerradas: '' })
   const [guardando, setGuardando] = useState(false)
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
   const [registrandoEn, setRegistrandoEn] = useState<string | null>(null)
@@ -72,7 +79,28 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
     const v = porDia.get(fecha)
     setBorrador(String(v?.ventas ?? 0))
     setBorradorNeto(v?.neto != null ? paraInput(v.neto) : '')
+    const l = llamadasPorFecha.get(fecha)
+    setBorradorLl({
+      agendadas: String(l?.agendadas ?? 0), calificadas: l?.calificadas != null ? String(l.calificadas) : '',
+      asistidas: String(l?.asistidas ?? 0), cerradas: String(l?.cerradas ?? 0),
+    })
     setErrorEdicion(null)
+  }
+  async function guardarLlamadas() {
+    if (!editando) return
+    setGuardando(true)
+    const r = await mutar(`/api/ads-analizador/campaigns/${campana.id}/llamadas`, json('POST', {
+      fecha: editando,
+      agendadas: Number(borradorLl.agendadas || 0),
+      calificadas: borradorLl.calificadas === '' ? null : Number(borradorLl.calificadas),
+      asistidas: Number(borradorLl.asistidas || 0),
+      cerradas: Number(borradorLl.cerradas || 0),
+      nota: llamadasPorFecha.get(editando)?.nota ?? null,
+    }), () => null)
+    setGuardando(false)
+    if (!r.ok) return setErrorEdicion(r.error)
+    setEditando(null)
+    onGuardado()
   }
   function cancelar() {
     setEditando(null)
@@ -80,6 +108,7 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
   }
   async function guardar() {
     if (!editando) return
+    if (conLlamadas) return guardarLlamadas()
     const n = Number(borrador)
     if (borrador.trim() === '' || !Number.isInteger(n) || n < 0) return setErrorEdicion('Número entero, 0 o más')
     const v = porDia.get(editando)
@@ -112,7 +141,8 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
   async function volverAlAutomatico() {
     if (!editando) return
     setGuardando(true)
-    const r = await mutar(`${urlVentas}?fecha=${editando}`, { method: 'DELETE' }, () => null)
+    const url = conLlamadas ? `/api/ads-analizador/campaigns/${campana.id}/llamadas` : urlVentas
+    const r = await mutar(`${url}?fecha=${editando}`, { method: 'DELETE' }, () => null)
     setGuardando(false)
     if (!r.ok) return setErrorEdicion(r.error)
     setEditando(null)
@@ -135,7 +165,18 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
             <tr className="text-xs text-[var(--ads-ink-3)]">
               <th className={`${fijaIzq} whitespace-nowrap py-2 pl-5 pr-2 text-left font-medium`}>Fecha</th>
               <th className={th}>Inversión</th>
-              {manual ? (
+              {conLlamadas ? (
+                <>
+                  <th className={th} title="Leads o agendamientos según Meta">Leads</th>
+                  <th className={th}>Agendadas</th>
+                  <th className={th}>Calificadas</th>
+                  <th className={th}>Asistidas</th>
+                  <th className={th}>Cerradas</th>
+                  <th className={th}>Costo/llamada</th>
+                  <th className={th}>Facturación</th>
+                  <th className={th}>Profit</th>
+                </>
+              ) : manual ? (
                 <>
                   <th className={th}>Ventas</th>
                   <th className={th}>Facturación</th>
@@ -215,7 +256,31 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                     </span>
                   </td>
                   <td className={td}>{m ? m$(inversion) : <Vacio />}</td>
-                  {manual ? (
+                  {conLlamadas ? (() => {
+                    const l = llamadasPorFecha.get(fecha)
+                    const campo = (k: keyof typeof borradorLl, primero = false) => (
+                      <CampoEntero
+                        etiqueta={`${k} del ${fecha}`} valor={borradorLl[k]} deshabilitado={guardando} enfocar={primero}
+                        onChange={t => { setBorradorLl(b => ({ ...b, [k]: t })); setErrorEdicion(null) }}
+                        onEnter={() => void guardar()} onEscape={cancelar}
+                      />
+                    )
+                    return (
+                      <>
+                        <td className={td}>{m ? fmtEntero(m.resultados) : <Vacio />}</td>
+                        <td className={`${td} font-semibold`}>{enEdicion ? campo('agendadas', true) : fmtEntero(l?.agendadas ?? 0)}</td>
+                        <td className={td}>{enEdicion ? campo('calificadas') : l?.calificadas == null ? '—' : fmtEntero(l.calificadas)}</td>
+                        <td className={td}>{enEdicion ? campo('asistidas') : fmtEntero(l?.asistidas ?? 0)}</td>
+                        <td className={`${td} font-semibold`}>{enEdicion ? campo('cerradas') : fmtEntero(l?.cerradas ?? 0)}</td>
+                        <td className={`${td} text-[var(--ads-ink-2)]`}>{l && l.agendadas > 0 ? m$(inversion / l.agendadas) : '—'}</td>
+                        <td className={td}>{m$(ingreso)}</td>
+                        <td className={`${td} font-medium`} style={{ color: p >= 0 ? 'var(--ads-verde)' : 'var(--ads-rojo)' }}>
+                          {m$(p)}
+                          {enEdicion && errorEdicion && <span className="block whitespace-normal text-[11px] font-normal text-[var(--ads-rojo)]">{errorEdicion}</span>}
+                        </td>
+                      </>
+                    )
+                  })() : manual ? (
                     <>
                       {celdaVentas}
                       <td className={td}>{m$(ingreso)}</td>
@@ -258,15 +323,15 @@ export function TablaDiaria({ campana, hoy, desde, metricas, ventas, porDia, cam
                         <Accion etiqueta="Cancelar" onClick={cancelar} deshabilitado={guardando}>
                           <IconX size={16} />
                         </Accion>
-                        {!manual && (v?.origen === 'editada' || v?.neto != null) && (
-                          <Accion etiqueta="Volver al dato automático" onClick={() => void volverAlAutomatico()} deshabilitado={guardando}>
+                        {(conLlamadas ? llamadasPorFecha.has(fecha) : !manual && (v?.origen === 'editada' || v?.neto != null)) && (
+                          <Accion etiqueta={conLlamadas ? 'Borrar la carga de este día' : 'Volver al dato automático'} onClick={() => void volverAlAutomatico()} deshabilitado={guardando}>
                             <IconArrowBackUp size={16} />
                           </Accion>
                         )}
                       </div>
                     ) : (
                       <div className="flex items-center justify-center gap-0.5">
-                        <Accion etiqueta={`Editar ventas del ${nombreDia(fecha)}`} onClick={() => empezar(fecha)} deshabilitado={editando != null}>
+                        <Accion etiqueta={`Editar ${conLlamadas ? 'llamadas' : 'ventas'} del ${nombreDia(fecha)}`} onClick={() => empezar(fecha)} deshabilitado={editando != null}>
                           <IconPencil size={16} />
                         </Accion>
                         <Accion etiqueta={`Registrar un cambio el ${nombreDia(fecha)}`} onClick={() => setRegistrandoEn(fecha)}>
@@ -385,5 +450,29 @@ function CampoNeto({ fecha, valor, prefijo, placeholder, deshabilitado, onChange
         className="w-20 bg-transparent text-right text-base font-semibold outline-none placeholder:font-normal placeholder:text-[var(--ads-ink-3)] sm:text-sm"
       />
     </span>
+  )
+}
+
+/** Un conteo entero (llamadas). Enter guarda, Escape cancela. */
+function CampoEntero({ etiqueta, valor, deshabilitado, enfocar, onChange, onEnter, onEscape }: {
+  etiqueta: string; valor: string; deshabilitado: boolean; enfocar: boolean
+  onChange: (t: string) => void; onEnter: () => void; onEscape: () => void
+}) {
+  const campo = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (enfocar) campo.current?.select() }, [enfocar])
+  return (
+    <input
+      ref={campo}
+      aria-label={etiqueta}
+      inputMode="numeric"
+      value={valor}
+      disabled={deshabilitado}
+      onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 5))}
+      onKeyDown={e => {
+        if (e.key === 'Enter') onEnter()
+        if (e.key === 'Escape') onEscape()
+      }}
+      className="h-8 w-14 rounded-lg border border-[var(--ads-accent)] bg-white px-2 text-right text-base font-semibold outline-none ring-2 ring-[var(--ads-accent-tint)] sm:text-sm"
+    />
   )
 }

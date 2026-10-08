@@ -151,7 +151,7 @@ try {
   })
   ok('RLS impide escribir con el user_id de otro', res.status >= 400, `status ${res.status}`)
 
-  section('ESTADO CON DATOS · caso TOEFL (colchón bajo el objetivo)')
+  section('ESTADO CON DATOS · caso TOEFL (entre empate y piso)')
   // 14 días: 8 compras/día según Meta a $18,80 cada una.
   const metricas = []
   for (let i = 14; i >= 1; i--) {
@@ -162,7 +162,8 @@ try {
 
   datos = await api(A, `/api/ads-analizador/campaigns/${creada.id}`).then(r => r.json())
   ok('ROAS ≈ 1.28', Math.abs(datos.estado.roasActual - 24 / 18.8) < 0.001, String(datos.estado.roasActual))
-  eq('amarillo / escalar horizontal', [datos.estado.color, datos.estado.accion], ['amarillo', 'escalar_horizontal'])
+  eq('día 14 del ciclo: decisión', datos.estado.ciclo.fase, 'decision')
+  eq('ROAS entre empate y piso → mantener', [datos.estado.color, datos.estado.accion], ['amarillo', 'esperar'])
   eq('trae los 14 días de métricas', datos.metricas.length, 14)
   eq('112 compras según Meta', datos.totales.conversiones, 112)
 
@@ -212,6 +213,15 @@ try {
   const r0 = datos.resultados?.find(r => r.campaign_id === ebook.id)
   eq('la campaña reporta el error', r0?.ok, false)
   ok('explica el error', /META_ACCESS_TOKEN|no reconoce/.test(r0?.error ?? ''), r0?.error)
+
+  section('SYNC · una sola campaña (botón de la campaña)')
+  res = await post(A, '/api/ads-analizador/sync', { campaignId: ebook.id })
+  datos = await res.json()
+  eq('solo esa campaña', [res.status, datos.resultados?.map(r => r.campaign_id)], [200, [ebook.id]])
+  res = await post(A, '/api/ads-analizador/sync', { campaignId: 'hola' })
+  eq('id inválido → 400', res.status, 400)
+  res = await post(B, '/api/ads-analizador/sync', { campaignId: ebook.id })
+  eq('B no sincroniza la de A → 404', res.status, 404)
 
   section('PICKER DE META')
   res = await api(null, '/api/ads-analizador/meta/campaigns-disponibles?ad_account_id=act_123456')
@@ -358,7 +368,7 @@ try {
   })
   ok('reemplaza las métricas del sync simulado', res.status < 300, `status ${res.status}`)
   const ventasSanas = []
-  for (let i = 14; i >= 1; i--) ventasSanas.push({ fecha: hace(i), cantidad: 4 })
+  for (let i = 14; i >= 1; i--) ventasSanas.push({ fecha: hace(i), cantidad: 5 })
   for (const v of ventasSanas) await post(A, V, v)
   await post(A, V, { fecha: hace(0), cantidad: 0 })
   datos = await api(A, `/api/ads-analizador/campaigns/${ebook.id}`).then(r => r.json())
@@ -368,8 +378,9 @@ try {
   const cambio = (await res.json()).cambio
   eq('registra → 201', res.status, 201)
   datos = await api(A, `/api/ads-analizador/campaigns/${ebook.id}`).then(r => r.json())
-  eq('después: amarillo / esperar', [datos.estado.color, datos.estado.accion], ['amarillo', 'esperar'])
-  eq('bandera de reajuste técnico', datos.estado.banderas.map(b => b.tipo), ['reajuste_tecnico'])
+  eq('un cambio hoy arranca un ciclo nuevo', [datos.estado.accion, datos.estado.ciclo.inicio], ['sin_datos', hace(0)])
+  ok('y lo explica', /ciclo nuevo empieza hoy/.test(datos.estado.mensaje), datos.estado.mensaje)
+  eq('sin banderas (el ciclo nuevo ya lo explica)', datos.estado.banderas.map(b => b.tipo), [])
   eq('el cambio aparece en el historial', datos.cambios[0]?.detalle, 'Subí de 25 a 30 Bs/día')
 
   res = await api(B, `${K}?cambio=${cambio.id}`, { method: 'DELETE' })
@@ -388,11 +399,107 @@ try {
   eq('un cambio de hace 10 días ya no frena nada', datos.estado.color, 'verde')
   res = await post(A, K, { tipo: 'audiencia', fecha: hace(2) })
   datos = await api(A, `/api/ads-analizador/campaigns/${ebook.id}`).then(r => r.json())
-  eq('uno de hace 2 días sí pone reajuste técnico', datos.estado.banderas.map(b => b.tipo), ['reajuste_tecnico'])
+  eq('uno de hace 2 días arranca el ciclo ahí', datos.estado.ciclo.inicio, hace(2))
   eq('los cambios vienen ordenados del más reciente', datos.cambios.map(c => c.tipo), ['audiencia', 'creativo'])
   res = await post(A, K, { tipo: 'otro', fecha: '2099-01-01' })
   eq('fecha futura → 400', res.status, 400)
   for (const c of datos.cambios) await api(A, `${K}?cambio=${c.id}`, { method: 'DELETE' })
+
+  section('REGLAS V2 · ajustes de la campaña')
+  const E = `/api/ads-analizador/campaigns/${ebook.id}`
+  res = await patch(A, E, { cpaEsperado: '18,5', modoCorte: 'estandar', capacidadChatsDia: 30 })
+  let camp = (await res.json()).campana
+  eq('guarda costo esperado, modo y capacidad', [res.status, camp?.cpaEsperado, camp?.modoCorte, camp?.capacidadChatsDia], [200, 18.5, 'estandar', 30])
+  res = await patch(A, E, { modoCorte: 'agresivo' })
+  eq('modo inválido → 400', res.status, 400)
+  res = await patch(A, E, { cpaEsperado: null, modoCorte: 'conservador', capacidadChatsDia: null })
+  camp = (await res.json()).campana
+  eq('null vuelve a automático', [camp?.cpaEsperado, camp?.capacidadChatsDia], [null, null])
+
+  section('REGLAS V2 · cambio con presupuesto')
+  res = await post(A, K, { tipo: 'presupuesto', fecha: hace(3), presupuesto: '30,5' })
+  const conMonto = (await res.json()).cambio
+  eq('guarda el presupuesto nuevo con coma', [res.status, conMonto?.presupuesto], [201, 30.5])
+  datos = await api(A, E).then(r => r.json())
+  eq('la reserva usa ese presupuesto', datos.estado.riesgo.reservaDecision, 7 * 30.5)
+  await api(A, `${K}?cambio=${conMonto.id}`, { method: 'DELETE' })
+  res = await post(A, K, { tipo: 'presupuesto', presupuesto: '-3' })
+  eq('presupuesto negativo → 400', res.status, 400)
+
+  section('REGLAS V2 · High Ticket (llamadas)')
+  res = await post(A, '/api/ads-analizador/campaigns', {
+    ...CAMPANA, metaCampaignId: '120211000000000077', nombre: 'Consultoría', tipoConversion: 'llamadas', precioVenta: 1500, margenVenta: 1500,
+  })
+  const ht = (await res.json()).campana
+  eq('crea una campaña de llamadas', [res.status, ht?.tipoConversion, ht?.modoCorte], [201, 'llamadas', 'conservador'])
+  const LL = `/api/ads-analizador/campaigns/${ht.id}/llamadas`
+  res = await api(null, LL, { method: 'POST', body: '{}' })
+  eq('sin sesión → 401', res.status, 401)
+  res = await post(A, LL, { fecha: hace(1), agendadas: 3, calificadas: 2, asistidas: 2, cerradas: 1 })
+  eq('carga las llamadas de un día', [res.status, (await res.json()).llamada?.cerradas], [200, 1])
+  res = await post(A, LL, { fecha: hace(1), agendadas: 2, asistidas: 3, cerradas: 0 })
+  eq('más asistidas que agendadas → 400', res.status, 400)
+  res = await post(A, LL, { fecha: hace(1), agendadas: 2, asistidas: 1, cerradas: 2 })
+  eq('más cerradas que asistidas → 400', res.status, 400)
+  res = await post(A, `/api/ads-analizador/campaigns/${ebook.id}/llamadas`, { fecha: hace(1), agendadas: 1 })
+  eq('en una campaña que no es de llamadas → 404', res.status, 404)
+  res = await post(B, LL, { fecha: hace(1), agendadas: 1 })
+  eq('B no carga en la de A → 404', res.status, 404)
+  res = await patch(A, `/api/ads-analizador/campaigns/${ht.id}`, { showEstimado: '50', closeEstimado: '25%' })
+  camp = (await res.json()).campana
+  eq('tasas estimadas en % se guardan como fracción', [camp?.showEstimado, camp?.closeEstimado], [0.5, 0.25])
+  res = await patch(A, `/api/ads-analizador/campaigns/${ht.id}`, { showEstimado: '150' })
+  eq('tasa > 100 % → 400', res.status, 400)
+  datos = await api(A, `/api/ads-analizador/campaigns/${ht.id}`).then(r => r.json())
+  eq('totales de llamadas', datos.totales.llamadas, { agendadas: 3, calificadas: 2, asistidas: 2, cerradas: 1 })
+  eq('ventas = cerradas, facturación = cerradas × precio', [datos.totales.conversiones, datos.totales.ingreso], [1, 1500])
+  eq('valor por llamada con las tasas estimadas = 1500 × 0,5 × 0,25', datos.estado.llamadas.valorPorLlamada, 187.5)
+  res = await api(A, `${LL}?fecha=${hace(1)}`, { method: 'DELETE' })
+  eq('borra la carga del día', res.status, 200)
+  datos = await api(A, `/api/ads-analizador/campaigns/${ht.id}`).then(r => r.json())
+  eq('sin llamadas', datos.llamadas.length, 0)
+
+  section('CIERRE DE CICLO · ruta de ciclos')
+  const CI = `/api/ads-analizador/campaigns/${ebook.id}/ciclos`
+  const put = (u, body) => api(u, CI, { method: 'PUT', body: JSON.stringify(body) })
+  const fotoMin = { version: 1, ventas: 3, empate: 2, piso: 3, semaforo: 'verde', veredicto: 'mantener' }
+  res = await put(null, { escribir: [] })
+  eq('sin sesión → 401', res.status, 401)
+  res = await put(A, { escribir: [] })
+  eq('nada que guardar → 400', res.status, 400)
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'cerrado', fin: null, diasCiclo: 7, snapshot: fotoMin }] })
+  eq('cerrado sin fin → 400', res.status, 400)
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'cerrado', fin: hace(3), diasCiclo: 7, snapshot: null }] })
+  eq('cerrado sin foto → 400', res.status, 400)
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'otro', fin: null, diasCiclo: 7, snapshot: null }] })
+  eq('estado inválido → 400', res.status, 400)
+  res = await put(B, { escribir: [{ inicio: hace(9), estado: 'abierto', fin: null, diasCiclo: 7, snapshot: null }] })
+  eq('B no escribe ciclos en la campaña de A → 404', res.status, 404)
+
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'abierto', fin: null, diasCiclo: 7, snapshot: null }] })
+  let ciclosA = (await res.json()).ciclos
+  eq('abre un ciclo', [res.status, ciclosA?.length, ciclosA?.[0]?.estado, ciclosA?.[0]?.diasCiclo], [200, 1, 'abierto', 7])
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'cerrado', fin: hace(3), diasCiclo: 7, snapshot: fotoMin }] })
+  ciclosA = (await res.json()).ciclos
+  const cerrado = ciclosA[0]
+  eq('lo cierra: fin, foto y fecha de cierre del servidor', [cerrado.estado, cerrado.fin, cerrado.snapshot?.ventas, !!cerrado.cerradoEn, cerrado.revisadoEn], ['cerrado', hace(3), 3, true, null])
+  datos = await api(A, `/api/ads-analizador/campaigns/${ebook.id}`).then(r => r.json())
+  eq('el detalle trae los ciclos guardados', datos.ciclosGuardados?.map(k => k.estado), ['cerrado'])
+
+  res = await patch(B, CI, { id: cerrado.id })
+  eq('B no confirma el ciclo de A → 404', res.status, 404)
+  res = await patch(A, CI, { id: 'no-es-un-id' })
+  eq('id inválido → 404', res.status, 404)
+  res = await patch(A, CI, { id: cerrado.id })
+  const revisado = (await res.json()).ciclo
+  eq('confirma la revisión', [res.status, !!revisado?.revisadoEn], [200, true])
+  res = await patch(A, CI, { id: cerrado.id })
+  eq('confirmar dos veces → 404', res.status, 404)
+  res = await put(A, { escribir: [{ inicio: hace(9), estado: 'cerrado', fin: hace(3), diasCiclo: 7, snapshot: { ...fotoMin, ventas: 99 } }] })
+  ciclosA = (await res.json()).ciclos
+  eq('un ciclo revisado no se sobrescribe', ciclosA[0].snapshot.ventas, 3)
+  res = await put(A, { borrar: [cerrado.id] })
+  eq('borra un ciclo', [res.status, (await res.json()).ciclos.length], [200, 0])
 
   section('LA LISTA REFLEJA EL DETALLE')
   datos = await api(A, '/api/ads-analizador/campaigns').then(r => r.json())

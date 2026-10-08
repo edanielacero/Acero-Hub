@@ -3,7 +3,7 @@
 import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IconArrowLeft, IconLoader2, IconX } from '@tabler/icons-react'
-import type { Color } from '@/lib/ads-analizador/types'
+import type { Color, ModoPanel } from '@/lib/ads-analizador/types'
 import { AdsLink } from '../router'
 
 /** Contenedor de página: angosto en celular, hasta 1024px en escritorio. */
@@ -150,12 +150,38 @@ export const SEMAFORO: Record<Color, { etiqueta: string; texto: string; tinte: s
 /** Sin datos todavía no es "revisar": no hay nada que revisar. Va en gris. */
 export const SIN_DATOS = { etiqueta: 'Sin datos', texto: 'var(--ads-ink-2)', tinte: 'var(--ads-surface-2)', linea: 'var(--ads-hairline-2)', punto: 'var(--ads-ink-3)' }
 
-export function estiloEstado(estado: { color: Color; accion: string }) {
-  return estado.accion === 'sin_datos' ? SIN_DATOS : SEMAFORO[estado.color]
+/** Día 1 del ciclo: solo chequeo técnico, sin veredicto. Gris, salvo que el chequeo falle. */
+export const CHEQUEO = { ...SIN_DATOS, etiqueta: 'Día 1' }
+
+/** Ciclo abierto: todavía no hay veredicto, se está midiendo un cambio. */
+export const EN_CICLO = { etiqueta: 'En ciclo', texto: 'var(--ads-accent-press)', tinte: 'var(--ads-accent-tint)', linea: '#C7D4FB', punto: 'var(--ads-accent)' }
+/** Ciclo cerrado sin revisar. */
+export const CIERRE = { ...SEMAFORO.amarillo, etiqueta: 'Revisar cierre' }
+
+/**
+ * Estilo según el modo de la campaña. En ciclo no se muestra veredicto
+ * ("En ciclo"), salvo sin datos o un chequeo técnico que falla.
+ */
+export function estiloModo(modo: ModoPanel, estado: { color: Color; accion: string }) {
+  if (modo === 'cierre') return CIERRE
+  if (modo === 'ciclo') {
+    if (estado.accion === 'sin_datos') return SIN_DATOS
+    if (estado.accion === 'chequeo' && estado.color === 'rojo') return { ...SEMAFORO.rojo, etiqueta: 'Falla técnica' }
+    return EN_CICLO
+  }
+  return estiloEstado(estado)
 }
 
-export function PillEstado({ estado, etiqueta }: { estado: { color: Color; accion: string }; etiqueta?: string }) {
-  const s = estiloEstado(estado)
+export function estiloEstado(estado: { color: Color; accion: string }) {
+  if (estado.accion === 'sin_datos') return SIN_DATOS
+  if (estado.accion === 'chequeo' && estado.color !== 'rojo') return CHEQUEO
+  return SEMAFORO[estado.color]
+}
+
+export function PillEstado({ estado, etiqueta, modo }: { estado: { color: Color; accion: string }; etiqueta?: string; modo?: ModoPanel }) {
+  const s = modo ? estiloModo(modo, estado) : estiloEstado(estado)
+  // Muy pronto para evaluar: el color es solo el ritmo, no un veredicto.
+  if (!etiqueta && !modo && estado.accion === 'muy_pronto') etiqueta = estado.color === 'verde' ? 'En ritmo' : 'Bajo el ritmo'
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"

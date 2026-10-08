@@ -32,6 +32,14 @@ export const EVENTO_OPTIMIZADO: Record<TipoConversion, string[]> = {
     'onsite_conversion.total_messaging_connection',
     'onsite_conversion.messaging_first_reply',
   ],
+  // High Ticket: agendamiento (evento Schedule) o, si la campaña optimiza a
+  // leads, el lead. Sin una campaña real de llamadas todavía para confirmar los
+  // nombres exactos: revisar con el primer sync real. Las llamadas que mandan
+  // la decisión las carga el usuario; esto es solo el resultado de Meta.
+  llamadas: [
+    'schedule_total', 'schedule_website', 'offsite_conversion.fb_pixel_schedule',
+    'lead', 'onsite_conversion.lead_grouped', 'offsite_conversion.fb_pixel_lead',
+  ],
 }
 const LANDING = ['landing_page_view', 'omni_landing_page_view']
 const CHECKOUT = ['omni_initiated_checkout', 'initiate_checkout', 'offsite_conversion.fb_pixel_initiate_checkout']
@@ -70,6 +78,7 @@ export function mapearInsight(row: any, tipo: TipoConversion): FilaMeta {
   const resultados = primera(row.actions, EVENTO_OPTIMIZADO[tipo]) ?? 0
   const costoMeta = primera(row.cost_per_action_type, EVENTO_OPTIMIZADO[tipo])
   const esCompra = tipo === 'compra_stripe'
+  const conLanding = tipo !== 'venta_manual'
 
   return {
     fecha: row.date_start,
@@ -83,7 +92,7 @@ export function mapearInsight(row: any, tipo: TipoConversion): FilaMeta {
     ctr_enlace: n(row.inline_link_click_ctr),
     resultados,
     costo_por_resultado: costoMeta ?? (resultados > 0 ? gasto / resultados : null),
-    landing_page_views: esCompra ? primera(row.actions, LANDING) ?? 0 : null,
+    landing_page_views: conLanding ? primera(row.actions, LANDING) ?? 0 : null,
     pagos_iniciados: esCompra ? primera(row.actions, CHECKOUT) ?? 0 : null,
     raw_json: row,
   }

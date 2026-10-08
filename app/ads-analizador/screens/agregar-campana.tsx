@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { IconBrandWhatsapp, IconShoppingCart, IconListSearch, IconLoader2, IconPencil } from '@tabler/icons-react'
+import { IconBrandWhatsapp, IconShoppingCart, IconListSearch, IconLoader2, IconPencil, IconPhoneCall } from '@tabler/icons-react'
 import { MULTIPLICADOR_ROAS_OBJETIVO, roasEquilibrio } from '@/lib/ads-analizador/calc'
 import { fmtRoas, numeroDeInput, parseNumeroInput } from '@/lib/ads-analizador/format'
 import type { Moneda, TipoConversion } from '@/lib/ads-analizador/types'
@@ -143,9 +143,10 @@ export function AgregarCampanaScreen() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--ads-ink-3)]">La venta</h2>
 
             <Campo etiqueta="¿Dónde se cierra la venta?">
-              <Segmentado nombre="Tipo de conversión" valor={tipo} onChange={setTipo} opciones={[
+              <Segmentado nombre="Tipo de conversión" valor={tipo} onChange={setTipo} columnas={1} opciones={[
                 { valor: 'compra_stripe', etiqueta: <span className="inline-flex items-center gap-1.5"><IconShoppingCart size={16} />Compras web</span>, detalle: 'Las compras las trae Meta' },
                 { valor: 'venta_manual', etiqueta: <span className="inline-flex items-center gap-1.5"><IconBrandWhatsapp size={16} />WhatsApp</span>, detalle: 'Cargas las ventas a mano' },
+                { valor: 'llamadas', etiqueta: <span className="inline-flex items-center gap-1.5"><IconPhoneCall size={16} />Llamadas (High Ticket)</span>, detalle: 'Agendamiento: cargas agendadas, asistidas y cerradas' },
               ]} />
             </Campo>
 

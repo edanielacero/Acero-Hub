@@ -1,6 +1,7 @@
 import {
-  calcularEstado, calcularCooldown, detectarFocoRojo, diferenciaDias, puntoDebil, roasEquilibrio,
-  roasObjetivo, sumarDias, ultimosNDias,
+  calcularEstado, diasDeCorte, puedeEvaluarCorte, diferenciaDias, estadoPorRitmo, gastoDeCorte, poissonCdf, probAtLeast,
+  probZeroDia, probZeroRacha, puntoDebil, resolverCpaEsperado, roasEquilibrio, roasObjetivo, sumarDias,
+  tasasLlamadas, valorPorLlamada, ventasNuevasParaObjetivo, ventasParaEmpate, ventasParaPiso, alertaCalidadMensajes,
 } from './.ads/calc.mjs'
 import { fmtMoneda, fmtPct, fmtRoas, hoyBolivia, numeroDeInput, parseNumeroInput } from './.ads/format.mjs'
 // El harness es infraestructura de tests, no dominio de Finanzas: se reusa tal cual.
@@ -8,204 +9,236 @@ import { eq, ok, section, summary } from '../finanzas/harness.mjs'
 
 const HOY = '2026-09-28'
 const AYER = '2026-09-27'
+const cerca = (a, b, tol = 0.001) => Math.abs(a - b) <= tol
 
 /** `n` días consecutivos terminando en `hasta`, cada uno armado por `fila(i)`. */
 function dias(n, hasta, fila) {
   return Array.from({ length: n }, (_, i) => ({
     fecha: sumarDias(hasta, -(n - 1 - i)),
-    gasto: 0, resultadosMeta: 0, conversionesReales: 0, frecuencia: null,
+    gasto: 0, resultadosMeta: 0, conversionesReales: 0, frecuencia: null, landingPageViews: 10,
     ...fila(i),
   }))
 }
 
-/** Arma la entrada de calcularEstado sumando las filas, como lo hará load.ts. */
-function entrada({ precio, margen, metricas, tipo = 'compra_stripe', roasManual = null, cambio = null, ingreso }) {
-  const conversiones = metricas.reduce((s, m) => s + m.conversionesReales, 0)
+function entrada({ precio = 24, margen = 24, metricas, tipo = 'compra_stripe', roasManual = null, cambio = null, cpa = null, ref = null, modo = 'conservador', llamadas, capacidad = null }) {
   return {
-    tipoConversion: tipo,
-    precioVenta: precio,
-    margenVenta: margen,
-    roasObjetivoManual: roasManual,
-    metricas,
-    conversionesConfirmadas: conversiones,
-    ingresoTotal: ingreso ?? conversiones * precio,
-    gastoTotal: metricas.reduce((s, m) => s + m.gasto, 0),
-    ultimoCambioFecha: cambio,
-    hoy: HOY,
+    tipoConversion: tipo, precioVenta: precio, margenVenta: margen, roasObjetivoManual: roasManual,
+    cpaEsperadoManual: cpa, cpaReferencia: ref, modoCorte: modo, metricas, ultimoCambio: cambio, hoy: HOY,
+    llamadas, capacidadChatsDia: capacidad, umbralPresupuestoChico: 25,
   }
 }
+const estado = o => calcularEstado(entrada(o))
+const tipos = e => e.banderas.map(b => b.tipo)
+/** n días a `gasto` por día con `ventas(i)` conversiones. */
+const ciclo = (n, gasto, ventas = () => 0, extra = () => ({})) =>
+  dias(n, AYER, i => ({ gasto, conversionesReales: ventas(i), resultadosMeta: ventas(i), ...extra(i) }))
 
-const tipos = estado => estado.banderas.map(b => b.tipo)
+section('§9 · casos de prueba del documento')
+ok('probZeroDia(20, 15) = 0,264', cerca(probZeroDia(20, 15), 0.264))
+ok('probZeroDia(20, 20) = 0,368', cerca(probZeroDia(20, 20), 0.368))
+ok('probZeroRacha(15, 15, 3) = 0,050', cerca(probZeroRacha(15, 15, 3), 0.0498))
+eq('ventasNuevasParaObjetivo(13, 26, 2, 60) = 5', ventasNuevasParaObjetivo(13, 26, 2, 60), 5)
+eq('ventasParaEmpate(120, 24) = 5', ventasParaEmpate(120, 24), 5)
+eq('ventasParaPiso(120, 24) = 7', ventasParaPiso(120, 24), 7)
+ok('valorPorLlamada(1500, 0,6, 0,2) ≈ 180', cerca(valorPorLlamada(1500, 0.6, 0.2), 180))
 
-section('FÓRMULAS BASE')
-eq('equilibrio con margen 100% = 1.0', roasEquilibrio(24, 24), 1)
-eq('equilibrio con margen de la mitad = 2.0', roasEquilibrio(100, 50), 2)
-eq('objetivo automático = equilibrio × 1.35', roasObjetivo(24, 24, null), 1.35)
-eq('objetivo manual pisa al automático', roasObjetivo(24, 24, 1.6), 1.6)
+section('§3 · tablas de probabilidad')
+ok('λ = 1: 36,8 % · 13,5 % · 5,0 %', cerca(Math.exp(-1), 0.368) && cerca(Math.exp(-2), 0.135) && cerca(Math.exp(-3), 0.0498))
+ok('λ = 2: 13,5 % · 1,8 % · 0,25 %', cerca(Math.exp(-2), 0.135) && cerca(Math.exp(-4), 0.0183) && cerca(Math.exp(-6), 0.0025))
+ok('$45/día a $15: 5,0 %', cerca(probZeroDia(45, 15), 0.0498))
+ok('k = 1 en 5 días: 0,67 %', cerca(Math.exp(-5), 0.0067))
+ok('§3.6: P(≥ 5 en 3 días a $20, costo $15) = 37,1 %', cerca(probAtLeast(5, 60 / 15), 0.371))
+ok('§3.6: con costo $10 = 71,5 %', cerca(probAtLeast(5, 60 / 10), 0.715))
+ok('§3.6: P(≥ 2 mañana, costo $15) = 38,5 %', cerca(probAtLeast(2, 20 / 15), 0.385))
+ok('§11.2: ≥ 1 venta mañana con $20 a $15 ≈ 74 %', cerca(1 - probZeroDia(20, 15), 0.736))
+ok('cdf monótona y acotada', poissonCdf(0, 2) < poissonCdf(3, 2) && poissonCdf(50, 2) <= 1)
+eq('probAtLeast(0, λ) = 1', probAtLeast(0, 3), 1)
 
-section('FECHAS')
-eq('diferencia de días', diferenciaDias('2026-10-03', '2026-09-26'), 7)
-eq('cruza fin de mes', sumarDias('2026-09-29', 4), '2026-10-03')
+section('§2 y §4.2 · fórmulas, corte y CPA esperado')
+eq('empate = P / M', roasEquilibrio(24, 24), 1)
+ok('piso = empate × 1,35', cerca(roasObjetivo(24, 24, null), 1.35))
+eq('piso manual pisa al automático', roasObjetivo(24, 24, 1.6), 1.6)
+eq('gasto de corte conservador = 5 × CPA', gastoDeCorte(24, 'conservador'), 120)
+eq('gasto de corte estándar = 3 × CPA', gastoDeCorte(24, 'estandar'), 72)
+eq('corte a 5 días (conservador)', diasDeCorte(24, 24, 'conservador'), 5)
+eq('corte a 3 días (estándar)', diasDeCorte(24, 24, 'estandar'), 3)
+eq('presupuesto ≥ 2× CPA → corte a 3 días', diasDeCorte(48, 24, 'conservador'), 3)
+
+section('CORTE POR GASTO · presupuesto menor al costo por venta')
+// Tabla del documento: día de corte = max(3, ⌈factor / k⌉).
+eq('diasDeCorte(18, 24, conservador) = 7', diasDeCorte(18, 24, 'conservador'), 7)
+eq('diasDeCorte(12, 24, conservador) = 10', diasDeCorte(12, 24, 'conservador'), 10)
+eq('diasDeCorte(12, 24, estándar) = 6', diasDeCorte(12, 24, 'estandar'), 6)
+eq('k = 1,5 → conservador día 4, estándar día 3', [diasDeCorte(36, 24, 'conservador'), diasDeCorte(36, 24, 'estandar')], [4, 3])
+eq('k = 0,75 → estándar día 4', diasDeCorte(18, 24, 'estandar'), 4)
+ok('puedeEvaluarCorte pide la inversión y 3 días', puedeEvaluarCorte(120, 24, 'conservador', 10) && !puedeEvaluarCorte(108, 24, 'conservador', 9) && !puedeEvaluarCorte(200, 24, 'conservador', 2))
+{
+  // §6 del documento: costo esperado $24, $12/día, conservador → corte el día 10.
+  const lento = n => estado({ metricas: ciclo(n, 12), cpa: 24 })
+  const d5 = lento(5)
+  eq('día 5 sin ventas: muy pronto para evaluar, nunca rojo', [d5.ciclo.fase, d5.accion, d5.color === 'rojo'], ['recoleccion', 'muy_pronto', false])
+  eq('corte estimado al día 10 y la decisión también', [d5.ciclo.diasCorte, d5.ciclo.diasDecision, d5.ciclo.fechaCorte], [10, 10, sumarDias(AYER, 5)])
+  ok('el mensaje muestra la inversión que falta', /llevas 60 de 120 invertidos/.test(d5.mensaje), d5.mensaje)
+  eq('día 9 sin ventas: sigue muy pronto', lento(9).accion, 'muy_pronto')
+  const d10 = lento(10)
+  eq('día 10 sin ventas ($120 invertidos): stop-loss', [d10.ciclo.fase, d10.color, d10.accion], ['decision', 'rojo', 'frenar'])
+  ok('P(0 en los 10 días) = e^(−5) ≈ 0,7 %', cerca(d10.riesgo.pCeroVentana.d7 ** (10 / 7), Math.exp(-5)))
+  ok('bandera de presupuesto bajo (< 0,75 × costo esperado)', tipos(d5).includes('presupuesto_bajo'), JSON.stringify(d5.banderas))
+  ok('con presupuesto = costo esperado no hay bandera', !tipos(estado({ metricas: ciclo(5, 24), cpa: 24 })).includes('presupuesto_bajo'))
+  ok('con la primera venta ya no hay bandera (no hay corte que esperar)', !tipos(estado({ metricas: ciclo(5, 12, i => (i === 3 ? 1 : 0)), cpa: 24 })).includes('presupuesto_bajo'))
+  // Día 7 con ventas pero sin la inversión de corte: la decisión espera.
+  const d7 = estado({ metricas: ciclo(7, 12, i => (i === 2 ? 1 : 0)), cpa: 24 })
+  eq('día 7 con ventas y sin la inversión de corte: todavía muy pronto', [d7.ciclo.fase, d7.accion], ['recoleccion', 'muy_pronto'])
+  ok('con ventas no hay corte: apunta a la decisión del día 10', /no hay corte/.test(d7.mensaje) || /cierre del día 10/.test(d7.mensaje), d7.mensaje)
+  // Gasto disparejo: la estimación usa lo que falta al ritmo actual.
+  const disparejo = estado({ metricas: dias(4, AYER, i => ({ gasto: i < 2 ? 40 : 10, conversionesReales: 0, resultadosMeta: 0 })), cpa: 24 })
+  eq('estima el corte con lo que falta invertir ($20 a $20/día, promedio de 3 días → día 5)', disparejo.ciclo.diasCorte, 5)
+}
+const r0 = { cpaEsperadoManual: null, cpaReferencia: null, tipoConversion: 'compra_stripe' }
+eq('sin datos: CPA esperado = margen', resolverCpaEsperado(r0, 0, 0, 24), { valor: 24, fuente: 'margen' })
+eq('con referencia', resolverCpaEsperado({ ...r0, cpaReferencia: 15 }, 0, 0, 24), { valor: 15, fuente: 'referencia' })
+eq('el del usuario gana a la referencia', resolverCpaEsperado({ ...r0, cpaReferencia: 15, cpaEsperadoManual: 18 }, 0, 0, 24), { valor: 18, fuente: 'usuario' })
+eq('con ≥ 5 conversiones manda el real', resolverCpaEsperado({ ...r0, cpaEsperadoManual: 18 }, 100, 5, 24), { valor: 20, fuente: 'real' })
+eq('High Ticket sin datos: 45 % del valor', resolverCpaEsperado({ ...r0, tipoConversion: 'llamadas' }, 0, 0, 180).valor, 81)
+eq('fechas', [diferenciaDias('2026-10-03', '2026-09-26'), sumarDias('2026-09-29', 4)], [7, '2026-10-03'])
 eq('hoy en Bolivia no es el día UTC', hoyBolivia(new Date('2026-09-29T02:00:00Z')), '2026-09-28')
 
-section('CASO TOEFL · compra_stripe · colchón bajo el objetivo')
+section('§8.1 · estado por ritmo')
+eq('0 ventas con 5× el costo → rojo', estadoPorRitmo(0, 120, 24).estado, 'rojo')
+eq('0 ventas con ~2,9× el costo → amarillo (5,2 %)', estadoPorRitmo(0, 70, 24).estado, 'amarillo')
+eq('5 ventas con 5× el costo → verde', estadoPorRitmo(5, 120, 24).estado, 'verde')
+ok('p_baja con cero ventas = e^(−λ)', cerca(estadoPorRitmo(0, 48, 24).pBaja, Math.exp(-2)))
+
+section('CICLO · sin datos y día 1')
 {
-  // 6 compras por día a $18,80 cada una, 8 resultados de Meta por día.
-  const metricas = dias(14, AYER, () => ({ gasto: 18.8 * 6, resultadosMeta: 8, conversionesReales: 6 }))
-  const e = calcularEstado(entrada({ precio: 24, margen: 24, metricas }))
-  ok('ROAS ≈ 1.28', Math.abs(e.roasActual - 24 / 18.8) < 0.001, String(e.roasActual))
-  eq('equilibrio 1.0', e.roasEquilibrio, 1)
-  eq('objetivo 1.35', e.roasObjetivo, 1.35)
-  eq('amarillo', e.color, 'amarillo')
-  eq('sugiere escalar horizontal, no presupuesto', e.accion, 'escalar_horizontal')
-  eq('sin banderas de aprendizaje/muestra/cooldown', tipos(e), [])
-  ok('el mensaje dice que no suba presupuesto', /No subas presupuesto/.test(e.mensaje), e.mensaje)
+  const e = estado({ metricas: [] })
+  eq('sin métricas → sin_datos', [e.accion, e.ciclo.fase], ['sin_datos', 'sin_datos'])
+  const d1 = estado({ metricas: ciclo(1, 24) })
+  eq('día 1 → chequeo técnico', [d1.accion, d1.ciclo.fase], ['chequeo', 'chequeo'])
+  ok('día 1: lista de chequeo', d1.chequeo?.length >= 2 && d1.chequeo.every(c => c.ok), JSON.stringify(d1.chequeo))
+  const sinPixel = estado({ metricas: ciclo(1, 24, () => 0, () => ({ landingPageViews: 0 })) })
+  eq('día 1 sin visitas a la landing → falla el chequeo (rojo)', [sinPixel.color, sinPixel.accion], ['rojo', 'chequeo'])
+  eq('corte = día 5 del ciclo (conservador), día 7 = inicio + 6', [d1.ciclo.fechaCorte, d1.ciclo.fechaDecision], [sumarDias(AYER, 4), sumarDias(AYER, 6)])
+  ok('sin ventas: el mensaje apunta al corte', /hasta el corte, al cierre del día 5/.test(d1.mensaje), d1.mensaje)
+  const conVenta = estado({ metricas: ciclo(1, 24, () => 1) })
+  eq('con una venta: primera conversión y el corte ya no aplica', conVenta.ciclo.primeraConversion, AYER)
+  ok('el mensaje apunta al día 7', /hasta el cierre del día 7/.test(conVenta.mensaje), conVenta.mensaje)
 }
 
-section('CASO EBOOK TOEFL BOLIVIA · venta_manual · sano')
+section('§4.3 · un cero de 3 días NO activa el corte antes de tiempo')
 {
-  // 4 ventas por día a 13,59 Bs, 10 conversaciones iniciadas por día.
-  const metricas = dias(14, AYER, () => ({ gasto: 13.59 * 4, resultadosMeta: 10, conversionesReales: 4 }))
-  const e = calcularEstado(entrada({ precio: 25, margen: 25, metricas, tipo: 'venta_manual' }))
-  ok('ROAS ≈ 1.84', Math.abs(e.roasActual - 1.8396) < 0.001, String(e.roasActual))
-  ok('colchón ≈ 84%', Math.abs(e.colchon - 0.8396) < 0.001, String(e.colchon))
-  eq('verde', e.color, 'verde')
-  eq('puede escalar vertical', e.accion, 'escalar_vertical')
+  const e = estado({ metricas: ciclo(3, 24) })
+  eq('día 3 conservador: recolección', e.ciclo.fase, 'recoleccion')
+  eq('ritmo bajo (5 %), pero sin la inversión de corte: amarillo, muy pronto', [e.color, e.accion], ['amarillo', 'muy_pronto'])
+  ok('el mensaje dice que es normal', /es normal/.test(e.mensaje), e.mensaje)
+  eq('racha de 3 días en cero', e.riesgo.racha, 3)
+  ok('probabilidad de la racha = e^(−3)', cerca(e.riesgo.pRacha, Math.exp(-3)))
 }
 
-section('SIN DATOS')
+section('§4.3 · revisión de corte (día 5, presupuesto = margen)')
 {
-  const e = calcularEstado(entrada({ precio: 24, margen: 24, metricas: [] }))
-  eq('roasActual es null', e.roasActual, null)
-  eq('amarillo', e.color, 'amarillo')
-  eq('acción sin_datos', e.accion, 'sin_datos')
-  eq('ninguna bandera', e.banderas, [])
-
-  // Ventas cargadas antes del primer sync: sigue siendo "sin datos", no aprendizaje.
-  const soloVentas = [{ fecha: HOY, gasto: 0, resultadosMeta: 0, conversionesReales: 3, frecuencia: null, soloVenta: true }]
-  eq('solo ventas manuales, sin Meta → sin_datos', calcularEstado(entrada({ precio: 50, margen: 50, metricas: soloVentas, tipo: 'venta_manual' })).accion, 'sin_datos')
+  const corte = v => estado({ metricas: ciclo(5, 24, i => (i < v ? 1 : 0)) })
+  eq('0 ventas → cortar', [corte(0).color, corte(0).accion], ['rojo', 'frenar'])
+  eq('3 ventas (< empate 5) → decidir', [corte(3).color, corte(3).accion], ['amarillo', 'decidir'])
+  eq('ventas necesarias: empate 5 · piso 7', [corte(3).necesarias.empate, corte(3).necesarias.piso], [5, 7])
+  eq('meta del ciclo: el piso al cierre del día 7 (7 × 24 invertidos → 10)', [corte(3).necesarias.gastoAlCierre, corte(3).necesarias.pisoAlCierre], [168, 10])
+  const e6 = estado({ metricas: ciclo(5, 24, i => (i < 5 ? 1 : 0)).map((d, i) => (i === 4 ? { ...d, conversionesReales: 2 } : d)) })
+  eq('6 ventas (empate–piso) → seguir y vigilar', [e6.color, e6.accion], ['amarillo', 'esperar'])
+  const e7 = estado({ metricas: ciclo(5, 24, i => (i < 3 ? 1 : 2)) })
+  eq('7 ventas (≥ piso) → verde, sigue sin tocar', [e7.color, e7.accion], ['verde', 'esperar'])
+  eq('§11.3: reserva hasta el día 7 = 7 × 24', corte(0).riesgo.reservaDecision, 168)
 }
 
-section('REGLA 4a · gasto ≥ 2.5× margen sin ninguna venta')
+section('§4.2 · modo estándar y presupuesto alto cortan al día 3')
 {
-  // Dos días de vida, 70 de gasto sobre un margen de 24 (umbral 60).
-  const metricas = dias(2, AYER, () => ({ gasto: 35, resultadosMeta: 3 }))
-  const e = calcularEstado(entrada({ precio: 24, margen: 24, metricas }))
-  eq('rojo aunque tenga 2 días', e.color, 'rojo')
-  eq('motivo gasto_sin_resultados', e.banderas[0], { tipo: 'foco_rojo', motivo: 'gasto_sin_resultados' })
-  ok('también sigue en aprendizaje (la bandera queda, el color no)', tipos(e).includes('en_aprendizaje'))
-
-  const bajo = calcularEstado(entrada({ precio: 24, margen: 24, metricas: dias(2, AYER, () => ({ gasto: 29 })) }))
-  ok('58 de gasto no llega al umbral de 60', !tipos(bajo).includes('foco_rojo'))
+  eq('estándar: día 3 sin ventas → cortar', estado({ metricas: ciclo(3, 24), modo: 'estandar' }).accion, 'frenar')
+  const alto = estado({ metricas: ciclo(3, 48) })
+  eq('presupuesto 2× CPA: corte a los 3 días', [alto.ciclo.diasCorte, alto.accion], [3, 'frenar'])
 }
 
-section('REGLA 4b · días seguidos sin venta real (caso WhatsApp)')
+section('§4.4 · decisión del día 7')
 {
-  // 10 días buenos, después 3 días con muchas conversaciones y 0 ventas cargadas.
-  const metricas = [
-    ...dias(10, '2026-09-24', () => ({ gasto: 20, resultadosMeta: 10, conversionesReales: 2 })),
-    ...dias(3, AYER, () => ({ gasto: 20, resultadosMeta: 15, conversionesReales: 0 })),
-  ]
-  const e = calcularEstado(entrada({ precio: 25, margen: 25, metricas, tipo: 'venta_manual' }))
-  eq('rojo', e.color, 'rojo')
-  eq('motivo sin_ventas_dias', e.banderas[0], { tipo: 'foco_rojo', motivo: 'sin_ventas_dias' })
-  ok('usa "ventas cargadas" en el texto', /ventas cargadas/.test(e.mensaje), e.mensaje)
-
-  // Mismo patrón, pero los 3 días gastaron menos que un margen.
-  const poco = [
-    ...dias(10, '2026-09-24', () => ({ gasto: 20, resultadosMeta: 10, conversionesReales: 2 })),
-    ...dias(3, AYER, () => ({ gasto: 5, resultadosMeta: 15, conversionesReales: 0 })),
-  ]
-  ok('no dispara si el gasto de esos días < margen', !detectarFocoRojo(entrada({ precio: 25, margen: 25, metricas: poco })))
-
-  // Un hueco (día sin datos) rompe la racha.
-  const conHueco = metricas.filter(m => m.fecha !== '2026-09-26')
-  ok('un día faltante no cuenta como racha', detectarFocoRojo(entrada({ precio: 25, margen: 25, metricas: conHueco }))?.motivo !== 'sin_ventas_dias')
+  const dec = ventas => estado({ metricas: ciclo(8, 24, i => (i < ventas % 8 ? Math.ceil(ventas / 8) : Math.floor(ventas / 8))) })
+  const bajo = estado({ metricas: ciclo(8, 24, i => (i < 4 ? 1 : 0)) })
+  eq('ROAS bajo el empate → pausar', [bajo.ciclo.fase, bajo.color, bajo.accion], ['decision', 'rojo', 'frenar'])
+  const medio = estado({ metricas: ciclo(8, 24, i => (i < 1 ? 2 : 1)) })
+  eq('entre empate y piso → mantener', [medio.color, medio.accion], ['amarillo', 'esperar'])
+  const sano = estado({ metricas: ciclo(8, 24, i => (i < 6 ? 2 : 1)) })
+  eq('ROAS sobre el piso con 14 ventas → escalar vertical', [sano.color, sano.accion], ['verde', 'escalar_vertical'])
+  eq('presupuesto chico: paso 30–50 %', [sano.escalado.pasoMin, sano.escalado.pasoMax], [0.3, 0.5])
+  ok('presupuesto sugerido = 24 × 1,4', cerca(sano.escalado.presupuestoSugerido, 33.6))
+  // profit diario = (14 × 24 − 192) / 8 = 18; conviene si el costo queda bajo M × B / (B + 18)
+  ok('§4.5 beneficio real: costo máximo para que convenga', cerca(sano.escalado.cpaMaxParaConvenir, 24 * 33.6 / (33.6 + 18)))
+  eq('pérdida máxima si duplica = 7 × 2 × 24', sano.escalado.perdidaMaximaSiDuplica, 336)
+  const justo = estado({ metricas: ciclo(8, 24, i => (i < 3 ? 2 : 1)) })
+  eq('a menos de 10 % del piso → horizontal', [justo.color, justo.accion], ['verde', 'escalar_horizontal'])
+  ok('máximo de conjuntos = presupuesto / CPA', justo.escalado.maxConjuntos >= 1)
+  const chico = estado({ metricas: ciclo(8, 10, i => (i < 5 ? 1 : 0)) })
+  eq('sobre el piso con muestra chica → mantener otra semana', [chico.color, chico.accion], ['amarillo', 'esperar'])
+  ok('el mensaje lo dice', /muestra chica/.test(chico.mensaje), chico.mensaje)
+  void dec
 }
 
-section('REGLA 1 · aprendizaje tapa la lectura de ROAS')
+section('§4.5 · un cambio reinicia el ciclo')
 {
-  // ROAS 0.8 (bajo equilibrio) pero solo 21 resultados en 7 días.
-  const metricas = dias(10, AYER, () => ({ gasto: 30, resultadosMeta: 3, conversionesReales: 1 }))
-  const e = calcularEstado(entrada({ precio: 24, margen: 24, metricas }))
-  ok('ROAS está bajo el equilibrio', e.roasActual < 1, String(e.roasActual))
-  eq('pero se muestra amarillo, no rojo', e.color, 'amarillo')
-  eq('acción esperar', e.accion, 'esperar')
-  eq('bandera con 21 resultados', e.banderas.find(b => b.tipo === 'en_aprendizaje'), { tipo: 'en_aprendizaje', resultados7d: 21 })
+  const historia = ciclo(20, 24, () => 2)
+  const e = estado({ metricas: historia, cambio: { fecha: sumarDias(HOY, -2), presupuesto: 30 } })
+  eq('ciclo desde el cambio', [e.ciclo.inicio, e.ciclo.dias], [sumarDias(HOY, -2), 2])
+  ok('sin bandera de reajuste: el ciclo ya lo cubre', !tipos(e).includes('reajuste_tecnico'))
+  eq('la reserva usa el presupuesto nuevo', e.riesgo.reservaDecision, 210)
+  // 4 días desde el cambio, ≥ 5 ventas desde el cambio, ≥ 10 en total, ROAS > piso × 1,1
+  const e4 = estado({ metricas: historia, cambio: { fecha: sumarDias(HOY, -4), presupuesto: 24 } })
+  eq('paso vertical desde el día 4 si hay ≥ 5 ventas desde el cambio', e4.accion, 'escalar_vertical')
+  ok('el costo esperado ya es el real (≥ 5 ventas)', e4.cpa.fuente === 'real' && cerca(e4.cpa.esperado, 12))
 }
 
-section('REGLA 5 · muestra chica después del aprendizaje')
+section('§5 · mensajes (WhatsApp)')
 {
-  // 70 resultados de Meta en 7 días, pero solo 7 compras en total.
-  const metricas = dias(7, AYER, i => ({ gasto: 20, resultadosMeta: 10, conversionesReales: 1 }))
-  const e = calcularEstado(entrada({ precio: 100, margen: 100, metricas }))
-  ok('no está en aprendizaje', !tipos(e).includes('en_aprendizaje'))
-  ok('sí en muestra chica', tipos(e).includes('muestra_chica'))
-  eq('amarillo / esperar', [e.color, e.accion], ['amarillo', 'esperar'])
+  // 3 días buenos y 3 con chats más baratos y menos ventas.
+  const filas = ciclo(6, 30, i => (i < 3 ? 3 : 1), i => ({ resultadosMeta: i < 3 ? 10 : 15 }))
+  ok('alerta de calidad: costo baja y conversión cae', alertaCalidadMensajes(filas))
+  ok('sin alerta con conversión estable', !alertaCalidadMensajes(ciclo(6, 30, () => 3, () => ({ resultadosMeta: 10 }))))
+  const e = estado({ metricas: filas, tipo: 'venta_manual', precio: 25, margen: 25, capacidad: 5 })
+  ok('bandera de calidad', tipos(e).includes('calidad_mensajes'), JSON.stringify(tipos(e)))
+  ok('costo por conversación = 180 / 75', cerca(e.mensajes.costoConversacion, 2.4))
+  ok('% de conversión = 12 / 75', cerca(e.mensajes.conversion, 0.16))
+  ok('conversaciones esperadas por día = 30 / 2,4', cerca(e.mensajes.conversacionesEsperadasDia, 12.5))
+  ok('avisa capacidad superada (12,5 > 5)', tipos(e).includes('capacidad'))
+  const r = estado({ metricas: ciclo(3, 25), tipo: 'venta_manual', precio: 25, margen: 25 })
+  ok('WhatsApp en rojo recuerda cargar ventas', /cárgalo en la tabla/.test(r.mensaje), r.mensaje)
 }
 
-section('REGLA 6 · cooldown por cambio')
+section('§6 · High Ticket (llamadas)')
 {
-  const hace2 = calcularCooldown('2026-09-26', HOY)
-  eq('hace 2 días: reajuste y ventana', [hace2.reajusteTecnico, hace2.ventanaDecision], [true, true])
-  eq('reajuste hasta +4', hace2.reajusteHasta, '2026-09-30')
-  const hace5 = calcularCooldown('2026-09-23', HOY)
-  eq('hace 5 días: solo ventana', [hace5.reajusteTecnico, hace5.ventanaDecision], [false, true])
-  const hace7 = calcularCooldown('2026-09-21', HOY)
-  eq('hace 7 días: nada', [hace7.reajusteTecnico, hace7.ventanaDecision], [false, false])
-
-  // Campaña sana con un cambio hace 2 días → esperar, con la fecha en el texto.
-  const metricas = dias(14, AYER, () => ({ gasto: 13.59 * 4, resultadosMeta: 10, conversionesReales: 4 }))
-  const e = calcularEstado(entrada({ precio: 25, margen: 25, metricas, cambio: '2026-09-26' }))
-  eq('amarillo / esperar', [e.color, e.accion], ['amarillo', 'esperar'])
-  ok('dice hasta el 30 sep', /30 sep/.test(e.mensaje), e.mensaje)
-  eq('solo muestra la más restrictiva', tipos(e), ['reajuste_tecnico'])
-
-  // El foco rojo gana aunque haya un cambio reciente.
-  const quemando = dias(2, AYER, () => ({ gasto: 40 }))
-  const r = calcularEstado(entrada({ precio: 24, margen: 24, metricas: quemando, cambio: '2026-09-27' }))
-  eq('foco rojo le gana al cooldown', r.color, 'rojo')
+  const L = (agendadas = 0, asistidas = 0, cerradas = 0) => ({ agendadas, asistidas, cerradas, showEstimado: null, closeEstimado: null })
+  const base = { tipo: 'llamadas', precio: 1500, margen: 1500 }
+  const d1 = estado({ ...base, metricas: ciclo(1, 81), llamadas: L() })
+  ok('escenario medio: valor por llamada $180', cerca(d1.llamadas.valorPorLlamada, 180))
+  ok('CPA esperado = 45 % del valor = $81', cerca(d1.cpa.esperado, 81) && d1.cpa.fuente === 'llamada')
+  ok('presupuesto sugerido $72–90', cerca(d1.llamadas.presupuestoSugeridoMin, 72) && cerca(d1.llamadas.presupuestoSugeridoMax, 90))
+  const corte = estado({ ...base, metricas: ciclo(3, 81), llamadas: L() })
+  eq('3 días y 3× el CPA sin llamadas → cortar', [corte.ciclo.diasCorte, corte.accion], [3, 'frenar'])
+  ok('el mensaje habla de llamadas', /llamada agendada/.test(corte.mensaje), corte.mensaje)
+  eq('tasas: estimadas por defecto', tasasLlamadas(L()).fuente, 'estimadas')
+  const mix = tasasLlamadas(L(10, 5, 1))
+  eq('asistencia real con 10 agendadas, cierre estimado', [mix.show, mix.close, mix.fuente], [0.5, 0.2, 'mixtas'])
+  const cero = estado({ ...base, metricas: ciclo(8, 81, () => 2), llamadas: L(20, 10, 0) })
+  eq('0 cierres en 10 asistidas: ninguna llamada paga su costo', [cero.color, cero.accion], ['rojo', 'frenar'])
 }
 
-section('REGLA 2+3 · colchón')
+section('§3.5 y §3.6 · observado y bajar el costo')
 {
-  const conRoas = roas => dias(14, AYER, () => ({ gasto: 100, resultadosMeta: 10, conversionesReales: 2 }))
-    .map(m => m) // mismas filas; el ROAS lo define el ingreso
-  const metricas = conRoas()
-  const gasto = 1400, conv = 28
-  const con = ingreso => calcularEstado(entrada({ precio: 50, margen: 25, metricas, ingreso }))
-  // Equilibrio = 50/25 = 2.0; objetivo = 2.7.
-  eq('ROAS 1.9 → rojo (bajo equilibrio 2.0)', con(gasto * 1.9).color, 'rojo')
-  eq('ROAS 2.3 → amarillo horizontal', con(gasto * 2.3).accion, 'escalar_horizontal')
-  eq('ROAS 2.8 → verde', con(gasto * 2.8).color, 'verde')
-  eq('override de objetivo 3.0 baja el 2.8 a amarillo',
-    calcularEstado(entrada({ precio: 50, margen: 25, metricas, ingreso: gasto * 2.8, roasManual: 3 })).color, 'amarillo')
-  ok('usa las conversiones reales para la muestra', conv >= 10)
+  const e = estado({ metricas: ciclo(8, 24, i => (i % 2 === 0 ? 1 : 0)) })
+  ok('% de días en cero observado con ≥ 7 días', cerca(e.riesgo.pctDiasCeroObservado, 0.5))
+  const caro = estado({ metricas: ciclo(6, 24, () => 1) })
+  ok('costo real 24 > máximo para el piso 17,8 → calcula cuánto haría falta', caro.bajarCosto != null)
+  eq('ventas nuevas para llegar al piso en 3 días', caro.bajarCosto.nuevasNecesarias, ventasNuevasParaObjetivo(24 / 1.35, 144, 6, 72))
 }
 
-section('REGLA 7 · fatiga no cambia el color')
+section('§4.6 · fatiga')
 {
-  const metricas = dias(14, AYER, i => ({ gasto: 13.59 * 4, resultadosMeta: 10, conversionesReales: 4, frecuencia: i === 13 ? 3.8 : 2 }))
-  const e = calcularEstado(entrada({ precio: 25, margen: 25, metricas }))
-  eq('sigue verde', e.color, 'verde')
-  eq('bandera de fatiga con la frecuencia del último día', e.banderas, [{ tipo: 'fatiga_audiencia', frecuencia: 3.8 }])
-}
-
-section('VENTANAS')
-{
-  const metricas = dias(10, AYER, () => ({ gasto: 1 }))
-  const u = ultimosNDias(metricas, HOY, 3)
-  eq('los últimos 3 terminan en el último día con datos', u.map(m => m.fecha), ['2026-09-25', '2026-09-26', '2026-09-27'])
-  eq('ignora filas del futuro', ultimosNDias([{ ...metricas[0], fecha: '2026-10-05' }], HOY, 3), [])
-
-  // Bug encontrado en el Sprint 4: cargar la venta de hoy corría la ventana.
-  const conVentaHoy = [
-    ...dias(14, AYER, () => ({ gasto: 54.36, resultadosMeta: 10, conversionesReales: 4 })),
-    { fecha: HOY, gasto: 0, resultadosMeta: 0, conversionesReales: 2, frecuencia: null, soloVenta: true },
-  ]
-  eq('un día solo-venta no mueve el ancla', ultimosNDias(conVentaHoy, HOY, 7).at(-1).fecha, AYER)
-  const e = calcularEstado(entrada({ precio: 25, margen: 25, metricas: conVentaHoy, tipo: 'venta_manual' }))
-  eq('anotar la venta de hoy no manda a aprendizaje', e.color, 'verde')
+  const e = estado({ metricas: ciclo(8, 24, () => 2, i => ({ frecuencia: i === 7 ? 3.8 : 2 })) })
+  ok('bandera de fatiga con la frecuencia del último día', e.banderas.some(b => b.tipo === 'fatiga_audiencia' && b.frecuencia === 3.8))
 }
 
 section('FUNNEL · punto débil')
@@ -329,7 +362,7 @@ section('PROMPT · una campaña')
   const campana = {
     id: 'c1', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Curso TOEFL', moneda: 'USD',
     tipoConversion: 'compra_stripe', precioVenta: 24, margenVenta: 24, roasObjetivo: null, activo: true,
-    ultimaSync: null, createdAt: '2026-08-01',
+    ultimaSync: null, createdAt: '2026-08-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
   }
   // 8 compras por día según Meta a $18,80 cada una (56 en 7 días: fuera de aprendizaje).
   const metricas = []
@@ -338,18 +371,20 @@ section('PROMPT · una campaña')
     metricas.push({ fecha, gasto: 150.4, alcance: 2400, impresiones: 3100, frecuencia: 1.3, cpm: 36, clicsEnlace: 92, cpcEnlace: 1.2, ctrEnlace: 2.97, resultados: 8, costoPorResultado: 18.8, landingPageViews: 64, pagosIniciados: 18 })
   }
   const cambios = [{ id: 'k', fecha: '2026-09-18T12:00:00Z', tipo: 'presupuesto', detalle: 'Subí de 100 a 115' }]
-  const base = armarEstado(campana, metricas, [], cambios[0].fecha, HOY)
+  const base = armarEstado(campana, metricas, [], [], { fecha: cambios[0].fecha, presupuesto: null }, HOY)
   const p = promptCampana({ ...base, metricas, ventas: [], cambios, hoy: HOY })
 
   ok('pide respuesta en español', /Responde en español/.test(p))
-  ok('incluye las 7 reglas con los umbrales de calc.ts', /menos de 50 resultados/.test(p) && /≥ 3.5/.test(p) && /2.5× el margen/.test(p))
+  ok('incluye las reglas con los umbrales de calc.ts', /ROAS piso = empate × 1.35/.test(p) && /≥ 3.5/.test(p) && /Día 1: solo chequeo técnico/.test(p))
   ok('nombra la campaña en el pedido', /"Curso TOEFL"/.test(p))
   let d
   ok('el bloque JSON se parsea', (() => { try { d = jsonDe(p); return true } catch { return false } })())
   eq(`manda solo los últimos ${DIAS_EN_PROMPT} días`, d[`ultimos_${DIAS_EN_PROMPT}_dias`].length, DIAS_EN_PROMPT)
-  eq('el veredicto de la app viaja', d.estado_app.accion_sugerida, 'escalar_horizontal')
-  eq('ventas por día salen de Meta', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ventas_reales, 8)
-  eq('facturación por día = compras × precio', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].facturacion, 192)
+  eq('el análisis calculado viaja', d.analisis.accion_sugerida, base.estado.accion)
+  ok('viajan fase, ritmo y probabilidades ya calculados', d.analisis.ciclo.fase && 'riesgo' in d.analisis && 'conversiones_necesarias_con_la_inversion_actual' in d.analisis)
+  ok('le pide no recalcular', /No recalcules nada/.test(p))
+  eq('ventas por día salen de Meta', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ventas, 8)
+  eq('ganancia neta por día = compras × margen', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ganancia_neta, 192)
   eq('profit por día = neto estimado − gasto', d[`ultimos_${DIAS_EN_PROMPT}_dias`][0].profit, 41.6)
   ok('ya no manda nada de Stripe', !/stripe_ultimos|motivos_de_rechazo/.test(p))
   eq('los cambios viajan', d.cambios_registrados[0].detalle, 'Subí de 100 a 115')
@@ -359,25 +394,25 @@ section('PROMPT · una campaña')
 
   const wa = { ...campana, tipoConversion: 'venta_manual', moneda: 'BOB', precioVenta: 25, margenVenta: 25 }
   const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: 4, neto: null, nota: null }))
-  const bw = armarEstado(wa, metricas, ventas, null, HOY)
+  const bw = armarEstado(wa, metricas, ventas, [], null, HOY)
   const pw = promptCampana({ ...bw, metricas, ventas, cambios: [], hoy: HOY })
   const dw = jsonDe(pw)
-  eq('WhatsApp: facturación = ventas × precio', dw[`ultimos_${DIAS_EN_PROMPT}_dias`][0].facturacion, 100)
-  ok('WhatsApp: avisa conversaciones vs ventas', /conversaciones y pocas ventas/.test(pw))
+  eq('WhatsApp: ganancia neta = ventas × margen', dw[`ultimos_${DIAS_EN_PROMPT}_dias`][0].ganancia_neta, 100)
+  ok('WhatsApp: viaja el análisis de mensajes', dw.analisis.mensajes != null && 'costo_por_conversacion' in dw.analisis.mensajes)
 }
 
 section('PROMPT · todas las campañas')
 {
   const mk = (id, nombre, moneda) => armarEstado({
     id, metaCampaignId: id, metaAdAccountId: 'act_1', nombre, moneda, tipoConversion: 'venta_manual',
-    precioVenta: 25, margenVenta: 25, roasObjetivo: 1.5, activo: true, ultimaSync: null, createdAt: '2026-08-01',
-  }, [], [], null, HOY)
+    precioVenta: 25, margenVenta: 25, roasObjetivo: 1.5, activo: true, ultimaSync: null, createdAt: '2026-08-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
+  }, [], [], [], null, HOY)
   const p = promptPortafolio([mk('a', 'Ebook', 'BOB'), mk('b', 'Curso', 'USD')], HOY)
   const d = jsonDe(p)
   eq('trae las dos campañas', d.campanas.map(c => c.nombre), ['Ebook', 'Curso'])
-  eq('marca el objetivo manual', d.campanas[0].roas_objetivo_es_manual, true)
+  eq('viaja el piso manual', d.campanas[0].analisis.roas.piso, 1.5)
   ok('pide no mezclar monedas', /No compares montos entre monedas/.test(p))
-  eq('campaña sin datos: roas null, no NaN', d.campanas[0].estado_app.roas_actual, null)
+  eq('campaña sin datos: roas null, no NaN', d.campanas[0].analisis.roas.actual_del_ciclo, null)
 }
 
 section('FUENTE DE VENTAS · compras = Meta, WhatsApp = a mano')
@@ -385,19 +420,19 @@ section('FUENTE DE VENTAS · compras = Meta, WhatsApp = a mano')
   const { fuenteDeVentas } = await import('./.ads/load.mjs')
   const compras = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL', moneda: 'USD', tipoConversion: 'compra_stripe',
-    precioVenta: 24, margenVenta: 24, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+    precioVenta: 24, margenVenta: 24, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
   }
   // Caso real del 2026-09-28: 4 días, 2 compras según Meta.
   const met = [['2026-09-24', 8.25, 0], ['2026-09-25', 11.1, 2], ['2026-09-26', 9.57, 0], ['2026-09-27', 9.02, 0]]
     .map(([fecha, gasto, resultados]) => ({ fecha, gasto, resultados, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null }))
-  const r = armarEstado(compras, met, [], null, HOY)
+  const r = armarEstado(compras, met, [], [], null, HOY)
   eq('compras → fuente meta', r.totales.fuenteVentas, 'meta')
   eq('cuenta las 2 compras de Meta', r.totales.conversiones, 2)
   eq('facturación = compras × precio', r.totales.ingreso, 48)
   ok('sin foco rojo falso', !r.estado.banderas.some(b => b.tipo === 'foco_rojo'), JSON.stringify(r.estado.banderas))
   eq('WhatsApp siempre manual', fuenteDeVentas({ ...compras, tipoConversion: 'venta_manual' }), 'manual')
   const wa = calcularEstado(entrada({ precio: 25, margen: 25, tipo: 'venta_manual', metricas: dias(6, AYER, () => ({ gasto: 25, resultadosMeta: 12 })) }))
-  ok('foco rojo de WhatsApp recuerda cargar ventas', /carga las ventas/.test(wa.mensaje), wa.mensaje)
+  ok('WhatsApp en rojo recuerda cargar ventas', /cárgalo en la tabla/.test(wa.mensaje), wa.mensaje)
 }
 
 section('VENTAS POR DÍA · correcciones y profit')
@@ -405,7 +440,7 @@ section('VENTAS POR DÍA · correcciones y profit')
   const { ventasPorDia, calcularTotales, netoDia } = await import('./.ads/load.mjs')
   const compras = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'TOEFL', moneda: 'USD', tipoConversion: 'compra_stripe',
-    precioVenta: 24, margenVenta: 12, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+    precioVenta: 24, margenVenta: 12, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
   }
   const met = f => ({ fecha: f, gasto: 20, resultados: 2, alcance: null, impresiones: null, frecuencia: null, cpm: null, clicsEnlace: 50, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: 30, pagosIniciados: 5 })
   const metricas = [met('2026-09-26'), met('2026-09-27')]
@@ -449,21 +484,154 @@ section('HOY EN CURSO · cuenta en los totales, no en el semáforo')
   const { armarEstado } = await import('./.ads/load.mjs')
   const wa = {
     id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Ebook', moneda: 'BOB', tipoConversion: 'venta_manual',
-    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
   }
   const met = (fecha, gasto) => ({ fecha, gasto, resultados: 10, alcance: null, impresiones: null, frecuencia: 2, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null })
   const metricas = [...Array(14)].map((_, i) => met(sumarDias(AYER, -i), 54.36))
   const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: 4, neto: null, nota: null }))
   // Hoy a media tarde: mucho gasto y todavía ninguna venta cargada.
   const conHoy = [...metricas, met(HOY, 400)]
-  const r = armarEstado(wa, conHoy, ventas, null, HOY)
+  const r = armarEstado(wa, conHoy, ventas, [], null, HOY)
   eq('el semáforo sigue verde', r.estado.color, 'verde')
   ok('sin foco rojo por el día a medias', !r.estado.banderas.some(b => b.tipo === 'foco_rojo'))
   eq('los totales sí suman el gasto de hoy', Math.round(r.totales.gasto * 100) / 100, Math.round((14 * 54.36 + 400) * 100) / 100)
 
-  const soloHoy = armarEstado(wa, [met(HOY, 30)], [], null, HOY)
+  const soloHoy = armarEstado(wa, [met(HOY, 30)], [], [], null, HOY)
   eq('campaña que arrancó hoy: sin datos', soloHoy.estado.accion, 'sin_datos')
   ok('y lo explica', /todavía está en curso/.test(soloHoy.estado.mensaje), soloHoy.estado.mensaje)
+}
+
+section('CICLOS · semáforo por resultado, total y por ciclo')
+{
+  const { armarCiclos } = await import('./.ads/load.mjs')
+  const { promptCampana } = await import('./.ads/prompt.mjs')
+  const wa = {
+    id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Ebook', moneda: 'BOB', tipoConversion: 'venta_manual',
+    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01', cpaEsperado: null, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
+  }
+  const met = fecha => ({ fecha, gasto: 50, resultados: 10, alcance: null, impresiones: null, frecuencia: 2, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null })
+  const metricas = [...Array(20)].map((_, i) => met(sumarDias(HOY, -20 + i)))
+  const corte = sumarDias(HOY, -10)
+  // 10 días malos (1 venta/día, ROAS 0,5) y, desde el cambio, 10 buenos (3/día, ROAS 1,5).
+  const ventas = metricas.map(m => ({ fecha: m.fecha, cantidad: m.fecha < corte ? 1 : 3, neto: null, nota: null }))
+  const cambio = (fecha, extra = {}) => ({ id: fecha, fecha: `${fecha}T15:00:00Z`, tipo: 'presupuesto', detalle: null, presupuesto: 50, ...extra })
+
+  const { total, ciclos } = armarCiclos(wa, metricas, ventas, [], [cambio(corte)], HOY)
+  eq('dos ciclos', ciclos.length, 2)
+  eq('ciclo 1: del primer gasto al cambio', [ciclos[0].inicio, ciclos[0].fin, ciclos[0].dias], [sumarDias(HOY, -20), corte, 10])
+  eq('ciclo 1: rojo con su profit', [ciclos[0].conversiones, ciclos[0].color, ciclos[0].profit], [10, 'rojo', -250])
+  eq('ciclo 2: en curso, verde', [ciclos[1].inicio, ciclos[1].fin, ciclos[1].conversiones, ciclos[1].color, ciclos[1].profit], [corte, null, 30, 'verde', 250])
+  eq('el ciclo en curso es el semáforo de arriba', ciclos[1].estado.ciclo.inicio, corte)
+  eq('el ciclo cerrado se juzga al día del cambio', ciclos[0].estado.ciclo.dias, 10)
+  eq('total: toda la campaña en empate → amarillo', [total.gasto, total.conversiones, total.roas, total.color, total.profit], [1000, 40, 1, 'amarillo', 0])
+
+  const doble = armarCiclos(wa, metricas, ventas, [], [cambio(corte), cambio(corte, { id: 'b', fecha: `${corte}T20:00:00Z`, tipo: 'creativo', presupuesto: null })], HOY)
+  eq('dos cambios el mismo día abren un solo ciclo (vale el último)', [doble.ciclos.length, doble.ciclos[1].cambio?.tipo], [2, 'creativo'])
+  const previo = armarCiclos(wa, metricas, ventas, [], [cambio(sumarDias(HOY, -30))], HOY)
+  eq('un cambio antes del primer gasto no abre otro ciclo', previo.ciclos.length, 1)
+  const solo = armarCiclos(wa, metricas, ventas, [], [], HOY)
+  eq('sin cambios: un ciclo, igual al total', [solo.ciclos.length, solo.ciclos[0].roas, solo.ciclos[0].color], [1, total.roas, total.color])
+  const hoyCambio = armarCiclos(wa, metricas, ventas, [], [cambio(HOY)], HOY)
+  eq('un cambio hoy: el ciclo anterior cierra hoy y el nuevo arranca sin datos', [hoyCambio.ciclos.length, hoyCambio.ciclos[0].fin, hoyCambio.ciclos[1].color], [2, HOY, null])
+  const vacia = armarCiclos(wa, [], [], [], [cambio(HOY)], HOY)
+  eq('sin gasto: ningún ciclo', [vacia.ciclos.length, vacia.total.color], [0, null])
+
+  const p = promptCampana({ campana: wa, estado: ciclos[1].estado, totales: {}, metricas, ventas, cambios: [], hoy: HOY, ciclos })
+  ok('el prompt lleva el resultado por ciclo', /"resultado_por_ciclo"/.test(p) && /bajo el empate/.test(p) && /sobre el piso/.test(p))
+}
+
+section('CIERRE DE CICLO · planificarCiclos, veredicto y semáforo')
+{
+  const { planificarCiclos, semaforoCiclo, proximaRevision, duracionAlAbrir, alertasEnVivo } = await import('./.ads/ciclos.mjs')
+  const { armarEstado } = await import('./.ads/load.mjs')
+  const wa = {
+    id: 'c', metaCampaignId: '1', metaAdAccountId: 'act_1', nombre: 'Ebook', moneda: 'BOB', tipoConversion: 'venta_manual',
+    precioVenta: 25, margenVenta: 25, roasObjetivo: null, activo: true, ultimaSync: null, createdAt: '2026-09-01',
+    cpaEsperado: 25, modoCorte: 'conservador', showEstimado: null, closeEstimado: null, capacidadChatsDia: null,
+  }
+  const met = (fecha, gasto = 50) => ({ fecha, gasto, resultados: 10, alcance: null, impresiones: null, frecuencia: 2, cpm: null, clicsEnlace: null, cpcEnlace: null, ctrEnlace: null, costoPorResultado: null, landingPageViews: null, pagosIniciados: null })
+  const INI = sumarDias(HOY, -10)
+  const metricas = [...Array(10)].map((_, i) => met(sumarDias(INI, i)))
+  const ventasDe = (f, n) => metricas.map(m => ({ fecha: m.fecha, cantidad: f(m.fecha, n), neto: null, nota: null }))
+  const dos = ventasDe(() => 2)
+  const cambio = (fecha, extra = {}) => ({ id: `k-${fecha}`, fecha: `${fecha}T15:00:00Z`, tipo: 'presupuesto', detalle: null, presupuesto: null, ...extra })
+  const datos = extra => ({ campana: wa, metricas, ventas: dos, llamadas: [], cambios: [], guardados: [], hoy: HOY, ...extra })
+  // Lo que quedaría guardado después de aplicar las escrituras del plan.
+  const aplicar = (plan, revisado = false) => plan.escribir.map((o, i) => ({
+    id: `g${i}`, inicio: o.inicio, fin: o.fin, diasCiclo: o.diasCiclo, estado: o.estado, snapshot: o.snapshot,
+    cerradoEn: o.estado === 'abierto' ? null : '2026-10-01T00:00:00Z', revisadoEn: revisado || o.revisar ? '2026-10-02T00:00:00Z' : null,
+  }))
+
+  eq('semáforo del ciclo: piso → verde, empate → amarillo, menos → rojo', [semaforoCiclo(19, 14, 19), semaforoCiclo(14, 14, 19), semaforoCiclo(13, 14, 19)], ['verde', 'amarillo', 'rojo'])
+
+  // Presupuesto 50 con costo esperado 25 → corte al día 3, ciclo de 7 días fijo.
+  const p1 = planificarCiclos(datos())
+  eq('un ciclo, cerrado al día 7, en modo «cierre» (sin revisar)', [p1.ciclos.length, p1.actual.estado, p1.actual.fin, p1.actual.diasCiclo, p1.modo], [1, 'cerrado', sumarDias(INI, 6), 7, 'cierre'])
+  const s1 = p1.actual.snapshot
+  eq('foto: ventas, gasto, empate y piso del cierre', [s1.ventas, s1.gasto, s1.empate, s1.piso], [14, 350, 14, 19])
+  eq('foto: ROAS 1,00 → mantener, amarillo', [s1.roas, s1.veredicto, s1.semaforo], [1, 'mantener', 'amarillo'])
+  eq('foto: profit y costo por venta del ciclo', [s1.profit, s1.costoPorVenta], [0, 25])
+  ok('foto: todas las etapas hechas, sin marca de hoy', s1.etapas.every(k => k.estado === 'hecha' || k.estado === 'apagada') && s1.paraHoy === null, JSON.stringify(s1.etapas))
+  eq('foto: meta = piso del cierre', s1.meta, 19)
+  eq('escribe una sola fila', p1.escribir.length, 1)
+
+  const g1 = aplicar(p1)
+  const p1b = planificarCiclos(datos({ guardados: g1 }))
+  eq('ya guardado: no vuelve a escribir', p1b.escribir.length, 0)
+  const reordenado = g1.map(g => ({ ...g, snapshot: Object.fromEntries(Object.entries(g.snapshot).reverse()) }))
+  eq('el orden de las claves del JSON (jsonb) no provoca escrituras', planificarCiclos(datos({ guardados: reordenado })).escribir.length, 0)
+  const p1c = planificarCiclos(datos({ guardados: aplicar(p1, true) }))
+  eq('confirmado: modo «campaña en curso»', p1c.modo, 'en_curso')
+  const otroMargen = planificarCiclos(datos({ campana: { ...wa, margenVenta: 10 }, guardados: aplicar(p1, true) }))
+  eq('revisado: la foto no cambia aunque cambie el margen', [otroMargen.escribir.length, otroMargen.actual.snapshot.piso], [0, 19])
+  const sinRevisar = planificarCiclos(datos({ ventas: ventasDe(f => (f === INI ? 5 : 2)), guardados: g1 }))
+  eq('sin revisar: una venta cargada tarde dentro del ciclo actualiza la foto', [sinRevisar.escribir.length, sinRevisar.actual.snapshot.ventas], [1, 17])
+  const despues = planificarCiclos(datos({ ventas: ventasDe(f => (f >= sumarDias(INI, 7) ? 9 : 2)), guardados: g1 }))
+  eq('ventas después del cierre no tocan la foto', despues.escribir.length, 0)
+
+  // Un cambio con el ciclo abierto lo cierra como interrumpido.
+  const corto = { metricas: metricas.slice(0, 5), hoy: sumarDias(INI, 5), ventas: dos.slice(0, 5) }
+  const abierto = planificarCiclos(datos(corto))
+  eq('día 5: abierto, en modo «ciclo»', [abierto.actual.estado, abierto.modo, abierto.actual.diasCiclo], ['abierto', 'ciclo', 7])
+  const conCambio = planificarCiclos(datos({ ...corto, cambios: [cambio(sumarDias(INI, 3))], guardados: aplicar(abierto) }))
+  eq('cambio el día 4: el primero queda interrumpido hasta el día 3', [conCambio.ciclos[0].estado, conCambio.ciclos[0].fin, conCambio.ciclos[0].revisadoEn != null], ['interrumpido', sumarDias(INI, 2), true])
+  eq('…y el nuevo queda abierto', [conCambio.ciclos.length, conCambio.actual.estado, conCambio.modo], [2, 'abierto', 'ciclo'])
+  ok('la foto parcial del interrumpido tiene sus 3 días', conCambio.ciclos[0].snapshot?.diasTranscurridos === 3, JSON.stringify(conCambio.ciclos[0].snapshot))
+
+  // Un cambio estando en «cierre» lo deja revisado.
+  const enCierre = planificarCiclos(datos({ cambios: [cambio(sumarDias(INI, 9))], guardados: g1 }))
+  eq('cambio en «cierre»: el cerrado queda revisado y abre otro ciclo', [enCierre.ciclos[0].estado, enCierre.ciclos[0].revisadoEn != null, enCierre.modo], ['cerrado', true, 'ciclo'])
+
+  // Cortado: 0 ventas al alcanzar la inversión de corte.
+  const cortado = planificarCiclos(datos({ ventas: ventasDe(() => 0) }))
+  eq('0 ventas: se corta el día 3 (inversión 150 ≥ 5 × 25)', [cortado.actual.estado, cortado.actual.fin], ['cortado', sumarDias(INI, 2)])
+  eq('veredicto «cortado», rojo', [cortado.actual.snapshot.veredicto, cortado.actual.snapshot.semaforo], ['cortado', 'rojo'])
+  const tarde = planificarCiclos(datos({ ventas: ventasDe(f => (f === sumarDias(INI, 5) ? 3 : 0)) }))
+  eq('una venta posterior no deshace el corte', tarde.actual.estado, 'cortado')
+
+  // Ciclos anteriores sin fila: no se inventa su foto.
+  const legacy = planificarCiclos(datos({ cambios: [cambio(sumarDias(INI, 4))] }))
+  eq('el anterior sin fila queda «legacy» (solo semáforo)', [legacy.ciclos[0].estado, legacy.ciclos[0].snapshot, legacy.escribir.map(o => o.inicio)], ['legacy', null, [sumarDias(INI, 4)]])
+  ok('su semáforo al vuelo sigue disponible', legacy.ciclos[0].resumen && 'color' in legacy.ciclos[0].resumen)
+
+  // Cambio deshecho: su ciclo guardado se borra.
+  const fantasma = [{ id: 'x', inicio: sumarDias(INI, 8), fin: null, diasCiclo: 7, estado: 'abierto', snapshot: null, cerradoEn: null, revisadoEn: null }]
+  eq('un ciclo guardado sin su cambio se borra', planificarCiclos(datos({ guardados: fantasma })).borrar, ['x'])
+
+  // Duración fija con presupuesto bajo (k = 0,5) y con el presupuesto del cambio.
+  const lento = { ...wa, cpaEsperado: 24 }
+  eq('presupuesto 12 con costo 24 → ciclo de 10 días', duracionAlAbrir({ ...datos(), campana: lento, metricas: metricas.map(m => ({ ...m, gasto: 12 })) }, INI, null), 10)
+  eq('usa el presupuesto del cambio si se cargó', duracionAlAbrir({ ...datos(), campana: lento }, INI, cambio(INI, { presupuesto: 18 })), 7)
+  eq('el día 1 sin terminar todavía no fija la duración', duracionAlAbrir({ ...datos(), hoy: INI }, INI, null), null)
+
+  eq('próxima revisión: 7 días después del cierre', proximaRevision('2026-10-01', '2026-10-05'), '2026-10-08')
+  eq('si hoy toca, es hoy', proximaRevision('2026-10-01', '2026-10-08'), '2026-10-08')
+  eq('después, la siguiente semana', proximaRevision('2026-10-01', '2026-10-09'), '2026-10-15')
+
+  const e0 = armarEstado(wa, metricas, ventasDe(() => 0), [], null, HOY).estado
+  ok('alerta en vivo: stop-loss sin ventas', alertasEnVivo({ campana: wa, metricas, ventas: ventasDe(() => 0), llamadas: [], hoy: HOY }, e0).some(a => a.tipo === 'stop_loss'))
+  const e2 = armarEstado(wa, metricas, dos, [], null, HOY).estado
+  eq('sin riesgos, sin alertas', alertasEnVivo({ campana: wa, metricas, ventas: dos, llamadas: [], hoy: HOY }, e2).map(a => a.tipo), [])
 }
 
 process.exit(summary() === 0 ? 0 : 1)

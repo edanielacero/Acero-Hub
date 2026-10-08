@@ -4,7 +4,7 @@
  * Devuelve el objeto listo para la base (snake_case) o un mensaje de error en
  * español para mostrar tal cual.
  */
-import { MONEDAS, TIPOS_CAMBIO, TIPOS_CONVERSION } from './types'
+import { MODOS_CORTE, MONEDAS, TIPOS_CAMBIO, TIPOS_CONVERSION } from './types'
 
 type Ok<T> = { ok: true; valor: T }
 type Err = { ok: false; error: string }
@@ -51,7 +51,7 @@ export function validarAlta(body: any): Ok<CampanaInsert> | Err {
 
   if (!MONEDAS.includes(body?.moneda)) return { ok: false, error: 'La moneda tiene que ser USD o BOB.' }
   if (!TIPOS_CONVERSION.includes(body?.tipoConversion)) {
-    return { ok: false, error: 'Elige cómo se cierra la venta: compras web o WhatsApp.' }
+    return { ok: false, error: 'Elige cómo se cierra la venta: compras web, WhatsApp o llamadas.' }
   }
 
   const precio_venta = positivo(body?.precioVenta)
@@ -75,7 +75,22 @@ export interface CampanaUpdate {
   precio_venta?: number
   margen_venta?: number
   roas_objetivo?: number | null
+  cpa_esperado?: number | null
+  modo_corte?: string
+  show_estimado?: number | null
+  close_estimado?: number | null
+  capacidad_chats_dia?: number | null
   activo?: boolean
+}
+
+/** Una tasa (asistencia, cierre) como fracción 0–1. Acepta "60", "60%" o "0,6". */
+export function tasa(raw: unknown): number | null {
+  const s = String(raw ?? '').trim().replace('%', '').replace(',', '.')
+  if (s === '') return null
+  const n = Number(s)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const f = n > 1 ? n / 100 : n
+  return f > 0 && f <= 1 ? Math.round(f * 1000) / 1000 : null
 }
 
 /**
@@ -107,6 +122,33 @@ export function validarEdicion(body: any, actual: { precioVenta: number; margenV
       const v = positivo(body.roasObjetivo)
       if (v == null || v >= 1000) return { ok: false, error: 'El ROAS objetivo tiene que ser un número mayor a cero.' }
       cambios.roas_objetivo = v
+    }
+  }
+  if (body?.cpaEsperado !== undefined) {
+    if (body.cpaEsperado === null || body.cpaEsperado === '') cambios.cpa_esperado = null
+    else {
+      const v = positivo(body.cpaEsperado)
+      if (v == null) return { ok: false, error: 'El costo esperado por conversión tiene que ser mayor a cero.' }
+      cambios.cpa_esperado = v
+    }
+  }
+  if (body?.modoCorte !== undefined) {
+    if (!MODOS_CORTE.includes(body.modoCorte)) return { ok: false, error: 'El modo de corte es conservador o estándar.' }
+    cambios.modo_corte = body.modoCorte
+  }
+  for (const [campo, columna, nombre] of [['showEstimado', 'show_estimado', 'asistencia'], ['closeEstimado', 'close_estimado', 'cierre']] as const) {
+    if (body?.[campo] === undefined) continue
+    if (body[campo] === null || body[campo] === '') { cambios[columna] = null; continue }
+    const v = tasa(body[campo])
+    if (v == null) return { ok: false, error: `La tasa de ${nombre} tiene que ser un porcentaje entre 1 y 100.` }
+    cambios[columna] = v
+  }
+  if (body?.capacidadChatsDia !== undefined) {
+    if (body.capacidadChatsDia === null || body.capacidadChatsDia === '') cambios.capacidad_chats_dia = null
+    else {
+      const v = Number(body.capacidadChatsDia)
+      if (!Number.isInteger(v) || v <= 0 || v > 100000) return { ok: false, error: 'La capacidad tiene que ser un número entero de chats por día.' }
+      cambios.capacidad_chats_dia = v
     }
   }
   if (body?.activo !== undefined) {
@@ -172,7 +214,8 @@ export function validarVenta(body: any, hoy: string, requiereCantidad = true):
  * `fecha` opcional (YYYY-MM-DD, no futura): el cambio se registra desde la fila
  * de ese día en la tabla. Sin fecha, o con la de hoy, es "ahora".
  */
-export function validarCambio(body: any, hoy: string): Ok<{ tipo: string; detalle: string | null; fecha: string | null }> | Err {
+export function validarCambio(body: any, hoy: string):
+  Ok<{ tipo: string; detalle: string | null; fecha: string | null; presupuesto: number | null }> | Err {
   if (!TIPOS_CAMBIO.includes(body?.tipo)) return { ok: false, error: 'Elige qué tipo de cambio hiciste.' }
   const detalle = typeof body?.detalle === 'string' && body.detalle.trim() ? body.detalle.trim().slice(0, 500) : null
   let fecha: string | null = null
@@ -180,5 +223,93 @@ export function validarCambio(body: any, hoy: string): Ok<{ tipo: string; detall
     fecha = validarFecha(body.fecha, hoy)
     if (!fecha) return { ok: false, error: 'La fecha del cambio no es válida (no puede ser futura).' }
   }
-  return { ok: true, valor: { tipo: body.tipo, detalle, fecha } }
+  // El presupuesto diario después del cambio (opcional): para la reserva, la
+  // pérdida máxima y el paso de escalado (§4.5).
+  let presupuesto: number | null = null
+  if (body?.presupuesto != null && body.presupuesto !== '') {
+    presupuesto = positivo(body.presupuesto)
+    if (presupuesto == null) return { ok: false, error: 'El presupuesto tiene que ser un monto mayor a cero.' }
+  }
+  return { ok: true, valor: { tipo: body.tipo, detalle, fecha, presupuesto } }
 }
+
+/**
+ * Las llamadas de un día (High Ticket). Coherencia: no puede haber más
+ * asistidas que agendadas ni más cerradas que asistidas.
+ */
+export function validarLlamadas(body: any, hoy: string):
+  Ok<{ fecha: string; agendadas: number; calificadas: number | null; asistidas: number; cerradas: number; nota: string | null }> | Err {
+  const fecha = validarFecha(body?.fecha, hoy)
+  if (!fecha) return { ok: false, error: 'Fecha inválida (no puede ser futura).' }
+  const entero = (v: unknown) => {
+    const n = Number(v ?? 0)
+    return Number.isInteger(n) && n >= 0 && n <= 100000 ? n : null
+  }
+  const agendadas = entero(body?.agendadas)
+  const asistidas = entero(body?.asistidas)
+  const cerradas = entero(body?.cerradas)
+  if (agendadas == null || asistidas == null || cerradas == null) return { ok: false, error: 'Las llamadas tienen que ser números enteros, cero o más.' }
+  let calificadas: number | null = null
+  if (body?.calificadas != null && body.calificadas !== '') {
+    calificadas = entero(body.calificadas)
+    if (calificadas == null) return { ok: false, error: 'Las llamadas calificadas tienen que ser un número entero.' }
+    if (calificadas > agendadas) return { ok: false, error: 'No puede haber más calificadas que agendadas.' }
+  }
+  if (asistidas > agendadas) return { ok: false, error: 'No puede haber más asistidas que agendadas.' }
+  if (cerradas > asistidas) return { ok: false, error: 'No puede haber más cerradas que asistidas.' }
+  const nota = typeof body?.nota === 'string' && body.nota.trim() ? body.nota.trim().slice(0, 500) : null
+  return { ok: true, valor: { fecha, agendadas, calificadas, asistidas, cerradas, nota } }
+}
+
+// ── Ciclos guardados ────────────────────────────────────────────────────────
+
+const ESTADOS_CICLO = ['abierto', 'cerrado', 'cortado', 'interrumpido'] as const
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** Una foto de ciclo pesa ~1 KB; esto solo frena basura. */
+const MAX_SNAPSHOT = 20_000
+
+export interface CicloUpsert {
+  inicio: string
+  fin: string | null
+  dias_ciclo: number | null
+  estado: (typeof ESTADOS_CICLO)[number]
+  snapshot: Record<string, unknown> | null
+  revisar: boolean
+}
+
+/**
+ * Lo que el dashboard calculó con `planificarCiclos` y manda a guardar: ciclos
+ * a crear o actualizar (por inicio) y los que borrar (por id).
+ */
+export function validarCiclos(body: any, hoy: string): Ok<{ escribir: CicloUpsert[]; borrar: string[] }> | Err {
+  const escribirRaw = body?.escribir ?? []
+  const borrarRaw = body?.borrar ?? []
+  if (!Array.isArray(escribirRaw) || !Array.isArray(borrarRaw)) return { ok: false, error: 'Formato inválido' }
+  if (escribirRaw.length + borrarRaw.length === 0) return { ok: false, error: 'Nada que guardar' }
+  if (escribirRaw.length > 60 || borrarRaw.length > 60) return { ok: false, error: 'Demasiados ciclos' }
+
+  const escribir: CicloUpsert[] = []
+  for (const o of escribirRaw) {
+    const inicio = validarFecha(o?.inicio, hoy)
+    if (!inicio) return { ok: false, error: 'Fecha de inicio inválida' }
+    const fin = o?.fin == null ? null : validarFecha(o.fin, hoy)
+    if (o?.fin != null && (!fin || fin < inicio)) return { ok: false, error: 'Fecha de fin inválida' }
+    if (!ESTADOS_CICLO.includes(o?.estado)) return { ok: false, error: 'Estado de ciclo inválido' }
+    if ((o.estado === 'abierto') !== (fin == null)) return { ok: false, error: 'Un ciclo abierto no tiene fin y uno cerrado sí' }
+    const dias = o?.diasCiclo == null ? null : Number(o.diasCiclo)
+    if (dias != null && !(Number.isInteger(dias) && dias >= 1 && dias <= 365)) return { ok: false, error: 'Duración inválida' }
+    const snap = o?.snapshot ?? null
+    if (snap != null && (typeof snap !== 'object' || Array.isArray(snap) || JSON.stringify(snap).length > MAX_SNAPSHOT)) {
+      return { ok: false, error: 'Foto del ciclo inválida' }
+    }
+    if (o.estado !== 'abierto' && snap == null) return { ok: false, error: 'Un ciclo cerrado necesita su foto' }
+    escribir.push({ inicio, fin, dias_ciclo: dias, estado: o.estado, snapshot: snap, revisar: o?.revisar === true })
+  }
+  const borrar: string[] = []
+  for (const id of borrarRaw) {
+    if (typeof id !== 'string' || !UUID.test(id)) return { ok: false, error: 'Id de ciclo inválido' }
+    borrar.push(id)
+  }
+  return { ok: true, valor: { escribir, borrar } }
+}
+

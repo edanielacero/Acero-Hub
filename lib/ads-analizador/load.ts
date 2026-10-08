@@ -1,16 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { calcularEstado } from './calc'
 import type {
-  Campana, CampanaConEstado, Cambio, FilaDiaria, MetricaDiaria, Moneda,
-  TipoCambio, TipoConversion, Totales, VentaManual,
+  Campana, CampanaConEstado, Cambio, CicloGuardado, Color, EstadoCampana, FilaDiaria, LlamadaDia, MetricaDiaria, ModoCorte, Moneda,
+  EntradaCalculo, ModoPanel, TipoCambio, TipoConversion, Totales, VentaManual,
 } from './types'
 
 export const CAMPANA_COLS =
-  'id, meta_campaign_id, meta_ad_account_id, nombre, moneda, tipo_conversion, precio_venta, margen_venta, roas_objetivo, activo, ultima_sync, created_at'
+  'id, meta_campaign_id, meta_ad_account_id, nombre, moneda, tipo_conversion, precio_venta, margen_venta, roas_objetivo, cpa_esperado, modo_corte, show_estimado, close_estimado, capacidad_chats_dia, activo, ultima_sync, created_at'
 export const METRICA_COLS =
   'campaign_id, fecha, gasto, alcance, impresiones, frecuencia, cpm, clics_enlace, cpc_enlace, ctr_enlace, resultados, costo_por_resultado, landing_page_views, pagos_iniciados'
 export const VENTA_COLS = 'campaign_id, fecha, cantidad, neto, nota'
-export const CAMBIO_COLS = 'id, campaign_id, fecha, tipo, detalle'
+export const CAMBIO_COLS = 'id, campaign_id, fecha, tipo, detalle, presupuesto'
+export const LLAMADA_COLS = 'campaign_id, fecha, agendadas, calificadas, asistidas, cerradas, nota'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = any
@@ -28,6 +29,11 @@ export function mapCampana(r: Row): Campana {
     precioVenta: Number(r.precio_venta),
     margenVenta: Number(r.margen_venta),
     roasObjetivo: num(r.roas_objetivo),
+    cpaEsperado: num(r.cpa_esperado),
+    modoCorte: (r.modo_corte ?? 'conservador') as ModoCorte,
+    showEstimado: num(r.show_estimado),
+    closeEstimado: num(r.close_estimado),
+    capacidadChatsDia: num(r.capacidad_chats_dia),
     activo: r.activo,
     ultimaSync: r.ultima_sync ?? null,
     createdAt: r.created_at,
@@ -57,11 +63,31 @@ export function mapVenta(r: Row): VentaManual {
 }
 
 export function mapCambio(r: Row): Cambio {
-  return { id: r.id, fecha: r.fecha, tipo: r.tipo as TipoCambio, detalle: r.detalle ?? null }
+  return { id: r.id, fecha: r.fecha, tipo: r.tipo as TipoCambio, detalle: r.detalle ?? null, presupuesto: num(r.presupuesto) }
+}
+
+export const CICLO_COLS = 'id, campaign_id, inicio, fin, dias_ciclo, estado, snapshot, cerrado_en, revisado_en'
+
+export function mapCiclo(r: Row): CicloGuardado {
+  return {
+    id: r.id, inicio: r.inicio, fin: r.fin ?? null, diasCiclo: r.dias_ciclo == null ? null : Number(r.dias_ciclo),
+    estado: r.estado, snapshot: r.snapshot ?? null, cerradoEn: r.cerrado_en ?? null, revisadoEn: r.revisado_en ?? null,
+  }
+}
+
+export function mapLlamada(r: Row): LlamadaDia {
+  return {
+    fecha: r.fecha,
+    agendadas: Number(r.agendadas),
+    calificadas: num(r.calificadas),
+    asistidas: Number(r.asistidas),
+    cerradas: Number(r.cerradas),
+    nota: r.nota ?? null,
+  }
 }
 
 /** YYYY-MM-DD en Bolivia. Duplicado mínimo de format.ts para no importar Intl de UI acá. */
-function diaBolivia(d: Date): string {
+export function diaBolivia(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(d)
@@ -72,14 +98,14 @@ export function hoyServidor(): string {
 }
 
 /**
- * De dónde salen las ventas. WhatsApp: las carga el usuario. Compras: las que
- * reporta Meta (evento de compra), corregibles a mano día por día.
+ * De dónde salen las ventas. WhatsApp y llamadas: las carga el usuario.
+ * Compras: las que reporta Meta, corregibles a mano día por día.
  *
  * (Hubo una integración con la API de Stripe; se sacó el 2026-09-28 por
  * decisión del usuario. La tabla ads_pagos_stripe quedó en la base, sin uso.)
  */
 export function fuenteDeVentas(campana: Campana): Totales['fuenteVentas'] {
-  return campana.tipoConversion === 'venta_manual' ? 'manual' : 'meta'
+  return campana.tipoConversion === 'compra_stripe' ? 'meta' : 'manual'
 }
 
 export interface VentaDia {
@@ -87,29 +113,31 @@ export interface VentaDia {
   ventas: number
   /** Facturación del día: ventas × precio. */
   ingreso: number
-  /**
-   * `editada`: en una campaña de compras, el usuario corrigió a mano el número
-   * que reportó Meta. Pisa al automático solo ese día.
-   */
+  /** `editada`: en compras, el usuario corrigió el número que reportó Meta. */
   origen: 'manual' | 'meta' | 'editada'
   /** Neto cargado a mano (compras): lo recibido después de comisiones. */
   neto: number | null
 }
 
 /**
- * Las ventas de cada día y de dónde salen. Es la única fuente de verdad para
- * la tabla, los totales, el profit y el semáforo: si cada uno resolviera las
- * ventas por su cuenta, tarde o temprano dirían números distintos.
+ * Las ventas de cada día y de dónde salen. Única fuente de verdad para la
+ * tabla, los totales, el profit y el semáforo.
  *
- * En WhatsApp cada fila de ads_ventas_manuales ES la venta. En compras, una fila
- * ahí es una corrección de ese día: la cantidad pisa a Meta y el neto es lo
- * recibido después de comisiones; cada uno por separado.
+ * - WhatsApp: cada fila de ads_ventas_manuales ES la venta.
+ * - Compras: base Meta; una fila manual corrige la cantidad y/o carga el neto.
+ * - Llamadas: la venta es la llamada cerrada (ads_llamadas), por fecha de la llamada.
  */
-export function ventasPorDia(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): Map<string, VentaDia> {
+export function ventasPorDia(
+  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[] = [],
+): Map<string, VentaDia> {
   const out = new Map<string, VentaDia>()
   const precio = campana.precioVenta
 
-  if (fuenteDeVentas(campana) === 'manual') {
+  if (campana.tipoConversion === 'llamadas') {
+    for (const l of llamadas) out.set(l.fecha, { fecha: l.fecha, ventas: l.cerradas, ingreso: l.cerradas * precio, origen: 'manual', neto: null })
+    return out
+  }
+  if (campana.tipoConversion === 'venta_manual') {
     for (const v of ventas) {
       if (v.cantidad == null) continue
       out.set(v.fecha, { fecha: v.fecha, ventas: v.cantidad, ingreso: v.cantidad * precio, origen: 'manual', neto: null })
@@ -143,11 +171,18 @@ export function netoDia(campana: Campana, v: VentaDia | undefined): number {
 }
 
 /**
- * Las filas diarias que entiende calc.ts: métricas de Meta + la venta real del
- * día (Sprint 1 §4.1).
+ * Las filas diarias que entiende calc.ts. La conversión que se evalúa es la
+ * venta (Low Ticket) o la llamada agendada (High Ticket).
  */
-export function construirFilas(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): FilaDiaria[] {
-  const reales = ventasPorDia(campana, metricas, ventas)
+export function construirFilas(
+  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[] = [],
+): FilaDiaria[] {
+  const conv = new Map<string, number>()
+  if (campana.tipoConversion === 'llamadas') {
+    for (const l of llamadas) conv.set(l.fecha, l.agendadas)
+  } else {
+    for (const [f, v] of ventasPorDia(campana, metricas, ventas)) conv.set(f, v.ventas)
+  }
 
   const filas = new Map<string, FilaDiaria>()
   for (const m of metricas) {
@@ -155,24 +190,26 @@ export function construirFilas(campana: Campana, metricas: MetricaDiaria[], vent
       fecha: m.fecha,
       gasto: m.gasto,
       resultadosMeta: m.resultados,
-      conversionesReales: reales.get(m.fecha)?.ventas ?? 0,
+      conversionesReales: conv.get(m.fecha) ?? 0,
       frecuencia: m.frecuencia,
+      landingPageViews: m.landingPageViews,
     })
   }
-  // Un día con venta pero sin métricas de Meta (se cargó la venta de hoy y el
-  // sync todavía no trajo el día) igual cuenta como conversión.
-  for (const [fecha, v] of reales) {
+  // Un día con conversión cargada pero sin métricas de Meta igual cuenta.
+  for (const [fecha, n] of conv) {
     if (!filas.has(fecha)) {
-      filas.set(fecha, { fecha, gasto: 0, resultadosMeta: 0, conversionesReales: v.ventas, frecuencia: null, soloVenta: true })
+      filas.set(fecha, { fecha, gasto: 0, resultadosMeta: 0, conversionesReales: n, frecuencia: null, soloVenta: true })
     }
   }
   return [...filas.values()].sort((a, b) => a.fecha.localeCompare(b.fecha))
 }
 
-export function calcularTotales(campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[]): Totales {
+export function calcularTotales(
+  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[] = [],
+): Totales {
   const s = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0)
   const gasto = s(metricas.map(m => m.gasto))
-  const dias = [...ventasPorDia(campana, metricas, ventas).values()]
+  const dias = [...ventasPorDia(campana, metricas, ventas, llamadas).values()]
   const conversiones = s(dias.map(d => d.ventas))
   const ingreso = s(dias.map(d => d.ingreso))
   const neto = s(dias.map(d => netoDia(campana, d)))
@@ -186,8 +223,7 @@ export function calcularTotales(campana: Campana, metricas: MetricaDiaria[], ven
     conversiones,
     resultadosMeta: s(metricas.map(m => m.resultados)),
     // Suma de alcances diarios: cuenta dos veces a quien vio el anuncio dos días
-    // distintos. Por eso el funnel arranca en impresiones, que sí se suman, y
-    // esto queda solo como referencia.
+    // distintos. Por eso el funnel arranca en impresiones.
     alcance: s(metricas.map(m => m.alcance)),
     impresiones: s(metricas.map(m => m.impresiones)),
     clics: s(metricas.map(m => m.clicsEnlace)),
@@ -196,44 +232,219 @@ export function calcularTotales(campana: Campana, metricas: MetricaDiaria[], ven
     costoPorConversion: conversiones > 0 ? gasto / conversiones : null,
     dias: metricas.length,
     fuenteVentas: fuenteDeVentas(campana),
+    llamadas: campana.tipoConversion === 'llamadas'
+      ? {
+        agendadas: s(llamadas.map(l => l.agendadas)),
+        calificadas: s(llamadas.map(l => l.calificadas)),
+        asistidas: s(llamadas.map(l => l.asistidas)),
+        cerradas: s(llamadas.map(l => l.cerradas)),
+      }
+      : null,
   }
 }
 
-/** El semáforo de una campaña, más sus totales. */
+/** §4.5 "< ~$25/día", en la moneda de la campaña (≈ 7 Bs por dólar). */
+const PRESUPUESTO_CHICO: Record<Moneda, number> = { USD: 25, BOB: 175 }
+
+/**
+ * Costo por conversión de referencia (§1.3 paso 2): de otra campaña del mismo
+ * tipo y moneda con ≥ 5 conversiones; si hay varias, la de más conversiones.
+ */
+export function cpaDeReferencia(campana: Campana, otras: CampanaConEstado[]): number | null {
+  let mejor: { conv: number; cpa: number } | null = null
+  for (const o of otras) {
+    if (o.campana.id === campana.id) continue
+    if (o.campana.tipoConversion !== campana.tipoConversion || o.campana.moneda !== campana.moneda) continue
+    const conv = campana.tipoConversion === 'llamadas' ? o.totales.llamadas?.agendadas ?? 0 : o.totales.conversiones
+    if (conv < 5 || o.totales.gasto <= 0) continue
+    if (!mejor || conv > mejor.conv) mejor = { conv, cpa: o.totales.gasto / conv }
+  }
+  return mejor?.cpa ?? null
+}
+
+/**
+ * El semáforo de una campaña, más sus totales.
+ *
+ * Los totales incluyen hoy (esa plata ya se gastó). El semáforo no: calc.ts
+ * trabaja con días completos y por ciclo (desde el inicio o el último cambio).
+ */
 export function armarEstado(
   campana: Campana,
   metricas: MetricaDiaria[],
   ventas: VentaManual[],
-  ultimoCambio: string | null,
+  llamadas: LlamadaDia[],
+  ultimoCambio: Pick<Cambio, 'fecha' | 'presupuesto'> | null,
   hoy: string,
+  cpaReferencia: number | null = null,
+  /** Ciclos guardados: si el ciclo del estado tiene duración fija, se usa; su estado decide el modo. */
+  ciclosGuardados: (Pick<CicloGuardado, 'inicio' | 'diasCiclo'> & Partial<Pick<CicloGuardado, 'estado' | 'revisadoEn'>>)[] = [],
 ): CampanaConEstado {
-  // Los totales (indicadores, tabla) incluyen hoy: esa plata ya se gastó.
-  const totales = calcularTotales(campana, metricas, ventas)
+  const totales = calcularTotales(campana, metricas, ventas, llamadas)
+  const historicas = llamadas.filter(l => l.fecha < hoy)
 
-  // El semáforo NO: hoy está en curso. A media tarde hay gasto de hoy y las
-  // ventas todavía no llegaron; leerlo con las reglas daría falsas alarmas
-  // ("3 días sin ventas") o sacaría a una campaña sana de "sana".
-  const completos = <T extends { fecha: string }>(xs: T[]) => xs.filter(x => x.fecha < hoy)
-  const m = completos(metricas), v = completos(ventas)
-  const t = calcularTotales(campana, m, v)
-  let estado = calcularEstado({
+  const entrada: EntradaCalculo = {
     tipoConversion: campana.tipoConversion,
     precioVenta: campana.precioVenta,
     margenVenta: campana.margenVenta,
     roasObjetivoManual: campana.roasObjetivo,
-    metricas: construirFilas(campana, m, v),
-    conversionesConfirmadas: t.conversiones,
-    ingresoTotal: t.ingreso,
-    gastoTotal: t.gasto,
-    ultimoCambioFecha: ultimoCambio ? diaBolivia(new Date(ultimoCambio)) : null,
+    cpaEsperadoManual: campana.cpaEsperado,
+    cpaReferencia,
+    modoCorte: campana.modoCorte,
+    metricas: construirFilas(campana, metricas, ventas, llamadas),
+    ultimoCambio: ultimoCambio ? { fecha: diaBolivia(new Date(ultimoCambio.fecha)), presupuesto: ultimoCambio.presupuesto } : null,
     hoy,
+    llamadas: campana.tipoConversion === 'llamadas'
+      ? {
+        agendadas: historicas.reduce((a, l) => a + l.agendadas, 0),
+        asistidas: historicas.reduce((a, l) => a + l.asistidas, 0),
+        cerradas: historicas.reduce((a, l) => a + l.cerradas, 0),
+        showEstimado: campana.showEstimado,
+        closeEstimado: campana.closeEstimado,
+      }
+      : undefined,
+    capacidadChatsDia: campana.capacidadChatsDia,
+    umbralPresupuestoChico: PRESUPUESTO_CHICO[campana.moneda],
+  }
+  let estado = calcularEstado(entrada)
+  const guardado = ciclosGuardados.find(k => k.inicio === estado.ciclo.inicio)
+  if (guardado?.diasCiclo) estado = calcularEstado({ ...entrada, diasCiclo: guardado.diasCiclo })
+  return { campana, estado, totales, modo: modoDeCampana(estado, guardado) }
+}
+
+/**
+ * El modo del panel. Con el ciclo guardado, su estado manda; sin fila todavía
+ * (nadie abrió la campaña desde que cerró), lo que diría el motor: cerrado si
+ * llegó al día de decisión o se cortó sin ventas.
+ */
+export function modoDeCampana(e: EstadoCampana, guardado?: Partial<Pick<CicloGuardado, 'estado' | 'revisadoEn'>>): ModoPanel {
+  if (guardado?.estado === 'cerrado' || guardado?.estado === 'cortado') return guardado.revisadoEn ? 'en_curso' : 'cierre'
+  if (guardado?.estado === 'abierto') return 'ciclo'
+  const { fase, corteListo, conversiones } = e.ciclo
+  if (fase === 'decision' || (corteListo && conversiones === 0 && fase !== 'sin_datos')) return 'cierre'
+  return 'ciclo'
+}
+
+/** Cómo le fue a un tramo, solo por resultado: ROAS contra empate y piso. */
+export function colorPorResultado(e: Pick<EstadoCampana, 'roasActual' | 'roasEquilibrio' | 'roasObjetivo'>): Color | null {
+  if (e.roasActual == null) return null
+  return e.roasActual < e.roasEquilibrio ? 'rojo' : e.roasActual < e.roasObjetivo ? 'amarillo' : 'verde'
+}
+
+export interface CicloResumen {
+  /** 1 = el primero. El total de la campaña lleva 0. */
+  numero: number
+  inicio: string | null
+  /** Primer día que ya es del ciclo siguiente; null = ciclo en curso. */
+  fin: string | null
+  /** El cambio que abrió el ciclo (el primero arranca con el primer gasto). */
+  cambio: Pick<Cambio, 'tipo' | 'detalle' | 'presupuesto'> | null
+  dias: number
+  gasto: number
+  conversiones: number
+  roas: number | null
+  /** Ganancia neta − inversión de los días completos del tramo. */
+  profit: number
+  color: Color | null
+  /** El estado como lo veía la app al cerrar el ciclo (o hoy, si está en curso). */
+  estado: EstadoCampana
+}
+
+/**
+ * El semáforo por ciclo y el de toda la campaña. Cada ciclo va del primer
+ * gasto (o de un cambio registrado) al cambio siguiente; se evalúa con el
+ * mismo motor, como si "hoy" fuera el día en que cerró. Solo días completos.
+ */
+export function armarCiclos(
+  campana: Campana,
+  metricas: MetricaDiaria[],
+  ventas: VentaManual[],
+  llamadas: LlamadaDia[],
+  cambios: Pick<Cambio, 'fecha' | 'tipo' | 'detalle' | 'presupuesto'>[],
+  hoy: string,
+  cpaReferencia: number | null = null,
+): { total: CicloResumen; ciclos: CicloResumen[] } {
+  const porDia = ventasPorDia(campana, metricas, ventas, llamadas)
+  const gastoDe = new Map(metricas.map(m => [m.fecha, m.gasto]))
+  const conDia = cambios
+    .map(c => ({ ...c, dia: diaBolivia(new Date(c.fecha)) }))
+    .sort((a, b) => a.dia.localeCompare(b.dia) || a.fecha.localeCompare(b.fecha))
+
+  const profitEntre = (desde: string | null, hasta: string) => {
+    if (!desde) return 0
+    const dias = new Set([...gastoDe.keys(), ...porDia.keys()])
+    let p = 0
+    for (const d of dias) if (d >= desde && d < hasta) p += netoDia(campana, porDia.get(d)) - (gastoDe.get(d) ?? 0)
+    return p
+  }
+
+  const resumen = (numero: number, inicio: string | null, fin: string | null, cambio: CicloResumen['cambio'], estado: EstadoCampana): CicloResumen => ({
+    numero, inicio, fin, cambio,
+    dias: estado.ciclo.dias,
+    gasto: estado.ciclo.gasto,
+    conversiones: estado.ciclo.conversiones,
+    roas: estado.roasActual,
+    profit: profitEntre(estado.ciclo.inicio ?? inicio, fin ?? hoy),
+    color: colorPorResultado(estado),
+    estado,
   })
 
-  // Campaña que arrancó hoy: sí hay datos, solo que todavía no hay un día entero.
-  if (estado.accion === 'sin_datos' && metricas.some(x => x.fecha === hoy)) {
-    estado = { ...estado, mensaje: 'Solo hay datos de hoy, que todavía está en curso. El semáforo arranca con el primer día completo.' }
+  const ultimo = conDia.at(-1) ?? null
+  const total = resumen(0, null, null, null, armarEstado(campana, metricas, ventas, llamadas, null, hoy, cpaReferencia).estado)
+
+  const inicios = iniciosDeCiclos(metricas, cambios, hoy)
+
+  const ciclos = inicios.map((ini, i): CicloResumen => {
+    const fin = inicios[i + 1]?.dia ?? null
+    const cambio = ini.cambio && ini.cambio.dia === ini.dia ? { tipo: ini.cambio.tipo, detalle: ini.cambio.detalle, presupuesto: ini.cambio.presupuesto } : null
+    const estado = fin == null
+      ? armarEstado(campana, metricas, ventas, llamadas, ultimo, hoy, cpaReferencia).estado
+      : armarEstado(
+        campana,
+        metricas.filter(m => m.fecha < fin),
+        ventas.filter(v => v.fecha < fin),
+        llamadas.filter(l => l.fecha < fin),
+        ini.cambio, fin, cpaReferencia,
+      ).estado
+    return resumen(i + 1, ini.dia, fin, cambio, estado)
+  })
+
+  return { total, ciclos }
+}
+
+/**
+ * Dónde arranca cada ciclo: el primer día con gasto y cada día con un cambio
+ * registrado después. Dos cambios el mismo día abren un solo ciclo (vale el
+ * último); uno anterior al primer gasto no abre ninguno.
+ */
+export function iniciosDeCiclos<C extends Pick<Cambio, 'fecha'>>(
+  metricas: Pick<MetricaDiaria, 'fecha' | 'gasto'>[], cambios: C[], hoy: string,
+): { dia: string; cambio: (C & { dia: string }) | null }[] {
+  const conDia = cambios
+    .map(c => ({ ...c, dia: diaBolivia(new Date(c.fecha)) }))
+    .sort((a, b) => a.dia.localeCompare(b.dia) || a.fecha.localeCompare(b.fecha))
+  const primerGasto = metricas.filter(m => m.gasto > 0 && m.fecha < hoy).map(m => m.fecha).sort()[0] ?? null
+  const inicios: { dia: string; cambio: (C & { dia: string }) | null }[] = []
+  if (!primerGasto) return inicios
+  inicios.push({ dia: primerGasto, cambio: conDia.filter(c => c.dia <= primerGasto).at(-1) ?? null })
+  for (const c of conDia) {
+    if (c.dia <= primerGasto) continue
+    if (inicios.at(-1)?.dia === c.dia) inicios[inicios.length - 1] = { dia: c.dia, cambio: c }
+    else inicios.push({ dia: c.dia, cambio: c })
   }
-  return { campana, estado, totales }
+  return inicios
+}
+
+/** Ganancia neta − inversión de los días [desde, hasta). */
+export function profitDelTramo(
+  campana: Campana, metricas: MetricaDiaria[], ventas: VentaManual[], llamadas: LlamadaDia[], desde: string, hasta: string,
+): number {
+  const porDia = ventasPorDia(campana, metricas, ventas, llamadas)
+  const gastoDe = new Map(metricas.map(m => [m.fecha, m.gasto]))
+  let p = 0
+  for (const d of new Set([...gastoDe.keys(), ...porDia.keys()])) {
+    if (d >= desde && d < hasta) p += netoDia(campana, porDia.get(d)) - (gastoDe.get(d) ?? 0)
+  }
+  return p
 }
 
 function agrupar<T>(filas: Row[], map: (r: Row) => T): Map<string, T[]> {
@@ -248,52 +459,71 @@ function agrupar<T>(filas: Row[], map: (r: Row) => T): Map<string, T[]> {
 
 /**
  * Todas las campañas del usuario con su estado calculado. RLS filtra por
- * usuario; el volumen es de decenas de campañas × días, así que se trae todo en
- * cuatro consultas en paralelo y se cruza en memoria.
+ * usuario; se trae todo en paralelo y se cruza en memoria. Dos pasadas: la
+ * primera arma los totales (para el costo de referencia entre campañas), la
+ * segunda el semáforo.
  */
 export async function cargarCampanas(supabase: SupabaseClient, hoy = hoyServidor()): Promise<CampanaConEstado[]> {
-  const [c, m, v, k] = await Promise.all([
+  const [c, m, v, k, l, g] = await Promise.all([
     supabase.from('ads_campaigns').select(CAMPANA_COLS).order('created_at', { ascending: true }),
     supabase.from('ads_metricas_diarias').select(METRICA_COLS),
     supabase.from('ads_ventas_manuales').select(VENTA_COLS),
-    supabase.from('ads_cambios_log').select('campaign_id, fecha').order('fecha', { ascending: false }),
+    supabase.from('ads_cambios_log').select('campaign_id, fecha, presupuesto').order('fecha', { ascending: false }),
+    supabase.from('ads_llamadas').select(LLAMADA_COLS),
+    supabase.from('ads_ciclos').select('campaign_id, inicio, dias_ciclo, estado, revisado_en'),
   ])
-  const error = c.error ?? m.error ?? v.error ?? k.error
+  const error = c.error ?? m.error ?? v.error ?? k.error ?? l.error ?? g.error
   if (error) throw new Error(error.message)
 
   const metricas = agrupar(m.data ?? [], mapMetrica)
   const ventas = agrupar(v.data ?? [], mapVenta)
-  const ultimoCambio = new Map<string, string>()
-  for (const r of k.data ?? []) if (!ultimoCambio.has(r.campaign_id)) ultimoCambio.set(r.campaign_id, r.fecha)
+  const llamadas = agrupar(l.data ?? [], mapLlamada)
+  const ciclos = agrupar(g.data ?? [], r => ({
+    inicio: r.inicio as string, diasCiclo: r.dias_ciclo == null ? null : Number(r.dias_ciclo),
+    estado: r.estado as CicloGuardado['estado'], revisadoEn: (r.revisado_en as string | null) ?? null,
+  }))
+  const ultimoCambio = new Map<string, { fecha: string; presupuesto: number | null }>()
+  for (const r of k.data ?? []) {
+    if (!ultimoCambio.has(r.campaign_id)) ultimoCambio.set(r.campaign_id, { fecha: r.fecha, presupuesto: num(r.presupuesto) })
+  }
 
-  return (c.data ?? []).map(r => {
-    const campana = mapCampana(r)
-    return armarEstado(
-      campana,
-      metricas.get(campana.id) ?? [],
-      ventas.get(campana.id) ?? [],
-      ultimoCambio.get(campana.id) ?? null,
-      hoy,
-    )
+  const campanas = (c.data ?? []).map(mapCampana)
+  const datos = (x: Campana) => [metricas.get(x.id) ?? [], ventas.get(x.id) ?? [], llamadas.get(x.id) ?? []] as const
+  const borrador = campanas.map(x => armarEstado(x, ...datos(x), ultimoCambio.get(x.id) ?? null, hoy, null, ciclos.get(x.id)))
+  return campanas.map(x => {
+    const ref = cpaDeReferencia(x, borrador)
+    return {
+      ...armarEstado(x, ...datos(x), ultimoCambio.get(x.id) ?? null, hoy, ref, ciclos.get(x.id)),
+      estadoTotal: armarEstado(x, ...datos(x), null, hoy, ref).estado,
+    }
   })
 }
 
 export interface DetalleCampana extends CampanaConEstado {
   metricas: MetricaDiaria[]
   ventas: VentaManual[]
+  llamadas: LlamadaDia[]
   cambios: Cambio[]
+  /** Ciclos guardados (cierre de ciclo). El dashboard decide con ellos el modo del panel. */
+  ciclosGuardados: CicloGuardado[]
   hoy: string
 }
 
-/** Una campaña con todo su historial, para el dashboard. `null` si no existe. */
+/**
+ * Una campaña con todo su historial, para el dashboard. `null` si no existe.
+ * El estado de acá no conoce las otras campañas (sin costo de referencia); el
+ * dashboard lo recalcula en el cliente con la lista completa.
+ */
 export async function cargarDetalle(supabase: SupabaseClient, id: string, hoy = hoyServidor()): Promise<DetalleCampana | null> {
-  const [c, m, v, k] = await Promise.all([
+  const [c, m, v, k, l, g] = await Promise.all([
     supabase.from('ads_campaigns').select(CAMPANA_COLS).eq('id', id).maybeSingle(),
     supabase.from('ads_metricas_diarias').select(METRICA_COLS).eq('campaign_id', id).order('fecha'),
     supabase.from('ads_ventas_manuales').select(VENTA_COLS).eq('campaign_id', id).order('fecha', { ascending: false }),
     supabase.from('ads_cambios_log').select(CAMBIO_COLS).eq('campaign_id', id).order('fecha', { ascending: false }),
+    supabase.from('ads_llamadas').select(LLAMADA_COLS).eq('campaign_id', id).order('fecha', { ascending: false }),
+    supabase.from('ads_ciclos').select(CICLO_COLS).eq('campaign_id', id).order('inicio'),
   ])
-  const error = c.error ?? m.error ?? v.error ?? k.error
+  const error = c.error ?? m.error ?? v.error ?? k.error ?? l.error ?? g.error
   if (error) throw new Error(error.message)
   if (!c.data) return null
 
@@ -301,9 +531,11 @@ export async function cargarDetalle(supabase: SupabaseClient, id: string, hoy = 
   const metricas = (m.data ?? []).map(mapMetrica)
   const ventas = (v.data ?? []).map(mapVenta)
   const cambios = (k.data ?? []).map(mapCambio)
+  const llamadas = (l.data ?? []).map(mapLlamada)
+  const ciclosGuardados = (g.data ?? []).map(mapCiclo)
 
   return {
-    ...armarEstado(campana, metricas, ventas, cambios[0]?.fecha ?? null, hoy),
-    metricas, ventas, cambios, hoy,
+    ...armarEstado(campana, metricas, ventas, llamadas, cambios[0] ?? null, hoy, null, ciclosGuardados),
+    metricas, ventas, llamadas, cambios, ciclosGuardados, hoy,
   }
 }

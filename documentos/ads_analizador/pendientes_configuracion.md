@@ -9,7 +9,7 @@
 > 6 horas (`lib/ads-analizador/sync-al-abrir.ts`), y con el botón
 > **Actualizar**. Por eso no hace falta `ADS_CRON_SECRET` ni tocar `vercel.json`.
 >
-> Última actualización: 2026-09-28.
+> Última actualización: 2026-10-08.
 
 ---
 
@@ -117,6 +117,18 @@ el dashboard del ebook si "Conversaciones" coincide con lo que Ads Manager
 muestra como resultado. Si no, avísame qué evento usa la campaña y se agrega a
 la lista (`EVENTO_OPTIMIZADO` en `meta-api.ts`).
 
+## 6. Confirmar el evento de las campañas de llamadas (cuando tengas una)
+
+Para campañas `llamadas`, la app toma como "lead" la primera de estas acciones
+que encuentre: `schedule_total`, `schedule_website`,
+`offsite_conversion.fb_pixel_schedule`, `lead`, `onsite_conversion.lead_grouped`,
+`offsite_conversion.fb_pixel_lead`. Después del primer sync, compara la columna
+"Leads" con el resultado que muestra Ads Manager; si no coincide, avísame qué
+evento usa y se agrega a `EVENTO_OPTIMIZADO` en `meta-api.ts`.
+
+La migración `20261008000000_ads_analizador_reglas_v2.sql` ya está aplicada en
+Supabase; no hay que hacer nada más para el deploy.
+
 ---
 
 ## Limitaciones conocidas (decisiones, no bugs)
@@ -124,4 +136,4 @@ la lista (`EVENTO_OPTIMIZADO` en `meta-api.ts`).
 | Qué | Por qué | Qué haría falta |
 |---|---|---|
 | El embudo arranca en **impresiones**, no en alcance | El alcance diario no se puede sumar sin contar dos veces a la misma persona | Pedir a Meta el alcance del rango completo (otra consulta por campaña) |
-| El sync trae **hasta ayer** | El día en curso está incompleto; se completa en el sync de mañana | — |
+| El semáforo ignora **hoy** | El día en curso está incompleto; los totales y la tabla sí lo muestran | — |

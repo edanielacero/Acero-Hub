@@ -19,6 +19,10 @@ ventas manuales, historial de cambios).
 
 ## Contexto de negocio (las reglas que tiene que aplicar)
 
+> **2026-10-08:** las reglas 1, 3, 4 y 6 de esta lista quedaron reemplazadas
+> por las "Reglas v2 · Low Ticket y High Ticket" (ciclos, corte por ventana,
+> modelo de Poisson, llamadas). Ver `sprint_5_reglas_v2.md`.
+
 Esto no es una preferencia de diseño, es el motivo de ser de la app: sin
 estas reglas, es solo un espejo de Ads Manager. Vienen de un análisis real
 de dos campañas (una vendiendo por Stripe, otra por WhatsApp) y deben quedar
@@ -396,3 +400,20 @@ suscripción de Claude, sin API ni costo extra.
 - No viajan ids internos, ids de Meta ni credenciales.
 - Si más adelante se quiere que Claude consulte los datos solo (sin copiar y
   pegar), el paso siguiente es un conector MCP; el prompt de acá se reutiliza.
+
+### Agregado después: Reglas v2 · Low Ticket y High Ticket (2026-10-08)
+
+`sprint_5_reglas_v2.md` — el semáforo pasa a evaluarse por ciclos (día 1 →
+recolección → corte día 3/5 → decisión día 7), con el ritmo esperado por
+Poisson, escalado vertical/horizontal con cifras concretas, desglose por
+anuncio en vivo, alerta de calidad para WhatsApp y un tercer tipo de campaña,
+**Llamadas (High Ticket)**, con su propia carga diaria.
+
+### Agregado después: Cierre de ciclo y Campaña en curso (2026-10-08)
+
+`sprint_6_cierre_de_ciclo.md` — el ciclo tiene duración fija y se cierra solo
+al llegar a su último día (o cortado, o interrumpido por un cambio). Al cerrar
+guarda una foto en `ads_ciclos`; el panel queda congelado hasta que el usuario
+confirma y pasa a «Campaña en curso» (semáforo de la campaña, Total / Desde el
+cambio, próxima revisión cada 7 días, alertas en vivo). Cada ciclo cerrado se
+abre en «Ciclos anteriores» con sus barras.

@@ -5,10 +5,11 @@ import { IconChartBar, IconPlus, IconRefresh } from '@tabler/icons-react'
 import { haceCuanto, hoyBolivia } from '@/lib/ads-analizador/format'
 import { promptPortafolio } from '@/lib/ads-analizador/prompt'
 import { AnalizarConClaude } from '../components/analizar-con-claude'
-import type { Color } from '@/lib/ads-analizador/types'
+import { colorPorResultado } from '@/lib/ads-analizador/load'
+import type { CampanaConEstado, Color } from '@/lib/ads-analizador/types'
 import { useAds } from '../components/data'
 import { CampaignCard } from '../components/campaign-card'
-import { Aviso, Barra, Boton, Esqueleto, Hoja, Pagina, SEMAFORO } from '../components/ui'
+import { Aviso, Barra, Boton, EN_CICLO, Esqueleto, Hoja, Pagina, SEMAFORO } from '../components/ui'
 import { AdsLink, useAdsRouter } from '../router'
 import { rutas } from './paths'
 
@@ -31,7 +32,10 @@ export function HomeScreen() {
     .sort()
     .at(-1) ?? null
 
-  const conteo = (color: Color) => activas.filter(c => c.estado.color === color && c.estado.accion !== 'sin_datos').length
+  // Solo cuentan las que ya tienen veredicto: las que están en ciclo van aparte.
+  const conVeredicto = activas.filter(c => c.modo !== 'ciclo')
+  const conteo = (color: Color) => conVeredicto.filter(c => colorTotal(c) === color).length
+  const enCiclo = activas.filter(c => c.modo === 'ciclo' && c.estado.accion !== 'sin_datos').length
 
   async function actualizar() {
     setManual(true)
@@ -103,7 +107,14 @@ export function HomeScreen() {
 
         {estado === 'listo' && activas.length > 0 && (
           <>
-            <div className="mb-5 grid grid-cols-3 gap-3">
+            <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-2xl border border-[var(--ads-hairline)] bg-white px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: EN_CICLO.punto }} />
+                  <span className="text-xs font-medium text-[var(--ads-ink-2)]">{EN_CICLO.etiqueta}</span>
+                </div>
+                <p className="mt-1 text-2xl font-bold tracking-[-0.02em]">{enCiclo}</p>
+              </div>
               {(['verde', 'amarillo', 'rojo'] as const).map(color => (
                 <div key={color} className="rounded-2xl border border-[var(--ads-hairline)] bg-white px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -148,9 +159,19 @@ export function HomeScreen() {
 }
 
 /** Primero lo que pide atención: rojo, amarillo, verde. */
-function ordenar<T extends { estado: { color: Color } }>(xs: T[]): T[] {
-  const peso: Record<Color, number> = { rojo: 0, amarillo: 1, verde: 2 }
-  return [...xs].sort((a, b) => peso[a.estado.color] - peso[b.estado.color])
+/** Primero lo que pide atención: cierres por revisar, después por color, al final las que están en ciclo. */
+/** El color de toda la campaña (lo que muestra la tarjeta). */
+function colorTotal(x: Pick<CampanaConEstado, 'estado' | 'estadoTotal'>): Color | null {
+  return colorPorResultado(x.estadoTotal ?? x.estado)
+}
+
+function ordenar<T extends CampanaConEstado>(xs: T[]): T[] {
+  const peso: Record<Color, number> = { rojo: 1, amarillo: 2, verde: 3 }
+  const de = (x: T) => {
+    const k = colorTotal(x)
+    return x.modo === 'cierre' ? 0 : x.modo === 'ciclo' ? 4 : k ? peso[k] : 5
+  }
+  return [...xs].sort((a, b) => de(a) - de(b))
 }
 
 function Vacio() {

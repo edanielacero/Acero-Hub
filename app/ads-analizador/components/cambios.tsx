@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { IconAdjustments, IconPhoto, IconTrash, IconUsersGroup, IconWallet } from '@tabler/icons-react'
 import type { Cambio, TipoCambio } from '@/lib/ads-analizador/types'
+import { numeroDeInput, parseNumeroInput } from '@/lib/ads-analizador/format'
 import { json, mutar } from './data'
 import { Aviso, Boton, Campo, Entrada, Hoja, Segmentado } from './ui'
 
@@ -27,6 +28,7 @@ export function RegistrarCambio({ campanaId, fecha, etiquetaFecha, abierta, onCe
 }) {
   const [tipo, setTipo] = useState<TipoCambio | null>(null)
   const [detalle, setDetalle] = useState('')
+  const [presupuesto, setPresupuesto] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -35,11 +37,12 @@ export function RegistrarCambio({ campanaId, fecha, etiquetaFecha, abierta, onCe
     if (!tipo) return setError('Elige qué cambiaste.')
     setGuardando(true)
     setError(null)
-    const r = await mutar(`/api/ads-analizador/campaigns/${campanaId}/cambios`, json('POST', { tipo, detalle, fecha }), () => null)
+    const r = await mutar(`/api/ads-analizador/campaigns/${campanaId}/cambios`, json('POST', { tipo, detalle, fecha, presupuesto: presupuesto.trim() === '' ? null : numeroDeInput(presupuesto) }), () => null)
     setGuardando(false)
     if (!r.ok) return setError(r.error)
     setTipo(null)
     setDetalle('')
+    setPresupuesto('')
     onGuardado()
     onCerrar()
   }
@@ -48,8 +51,8 @@ export function RegistrarCambio({ campanaId, fecha, etiquetaFecha, abierta, onCe
     <Hoja abierta={abierta} onCerrar={onCerrar} titulo={`Registrar un cambio · ${etiquetaFecha}`}>
       <form onSubmit={guardar} className="flex flex-col gap-4">
         <p className="text-sm leading-relaxed text-[var(--ads-ink-2)]">
-          Anótalo cada vez que cambies algo en Ads Manager. La campaña entra 4 días en reajuste técnico
-          y la app no te sugiere otro cambio grande hasta que pasen 7.
+          Anótalo cada vez que cambies algo en Ads Manager. Arranca un ciclo nuevo: 4 días de reajuste técnico,
+          corte y decisión al día 7, sin otro cambio grande antes.
         </p>
         <Campo etiqueta="¿Qué cambiaste?">
           <Segmentado
@@ -59,6 +62,13 @@ export function RegistrarCambio({ campanaId, fecha, etiquetaFecha, abierta, onCe
               etiqueta: <span className="inline-flex items-center gap-1.5">{ICONO[t]}{ETIQUETA[t]}</span>,
             }))}
           />
+        </Campo>
+        <Campo
+          etiqueta="Presupuesto diario después del cambio (opcional)"
+          htmlFor="presupuesto-cambio"
+          ayuda="Con esto la app calcula la reserva, la pérdida máxima y el próximo paso de escalado."
+        >
+          <Entrada id="presupuesto-cambio" inputMode="decimal" value={presupuesto} onChange={e => setPresupuesto(parseNumeroInput(e.target.value))} placeholder="30,00" />
         </Campo>
         <Campo etiqueta="Detalle (opcional)" htmlFor="detalle-cambio">
           <Entrada id="detalle-cambio" value={detalle} onChange={e => setDetalle(e.target.value)} maxLength={500} placeholder="Subí de 25 a 30 Bs/día" />
@@ -102,6 +112,7 @@ export function ListaCambios({ campanaId, cambios, onBorrado }: { campanaId: str
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 text-sm font-semibold">{ICONO[c.tipo]}{ETIQUETA[c.tipo]}</p>
                 {c.detalle && <p className="text-sm text-[var(--ads-ink-2)]">{c.detalle}</p>}
+                {c.presupuesto != null && <p className="text-xs text-[var(--ads-ink-2)]">Presupuesto nuevo: {String(c.presupuesto).replace('.', ',')} por día</p>}
                 <p className="text-xs text-[var(--ads-ink-3)]">{fmtCuando(c.fecha)}</p>
               </div>
               {confirmar === c.id ? (

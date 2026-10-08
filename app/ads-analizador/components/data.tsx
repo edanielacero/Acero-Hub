@@ -65,6 +65,12 @@ export type EdicionCampana = Partial<{
   precioVenta: number
   margenVenta: number
   roasObjetivo: number | null
+  cpaEsperado: number | null
+  modoCorte: 'conservador' | 'estandar'
+  /** Porcentaje ("60") o fracción; la API normaliza. */
+  showEstimado: string | number | null
+  closeEstimado: string | number | null
+  capacidadChatsDia: number | null
   activo: boolean
 }>
 
@@ -81,7 +87,8 @@ interface Ads {
   crear: (datos: NuevaCampana) => Promise<Resultado<Campana>>
   editar: (id: string, cambios: EdicionCampana) => Promise<Resultado<Campana>>
   borrar: (id: string) => Promise<Resultado<null>>
-  sincronizar: () => Promise<Resultado<ResultadoSync>>
+  /** Sin id, todas las activas; con id, solo esa campaña. */
+  sincronizar: (campaignId?: string) => Promise<Resultado<ResultadoSync>>
   /** Hay un sync en curso, automático o del botón. */
   sincronizando: boolean
   /** Resultado del último sync (automático o manual), para el aviso del home. */
@@ -117,12 +124,12 @@ export function AdsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const sincronizar = useCallback(async (): Promise<Resultado<ResultadoSync>> => {
+  const sincronizar = useCallback(async (campaignId?: string): Promise<Resultado<ResultadoSync>> => {
     // Un solo sync a la vez: el automático y el botón no se pisan.
     if (enCurso.current) return { ok: false, error: 'Ya se está sincronizando.' }
     enCurso.current = true
     setSincronizando(true)
-    const r = await mutar('/api/ads-analizador/sync', json('POST'), j => j as unknown as ResultadoSync)
+    const r = await mutar('/api/ads-analizador/sync', json('POST', campaignId ? { campaignId } : undefined), j => j as unknown as ResultadoSync)
     await recargar()
     enCurso.current = false
     setSincronizando(false)
